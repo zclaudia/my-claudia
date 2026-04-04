@@ -14,6 +14,7 @@ import {
   EPHEMERAL_STREAM_TTL,
   CLOSED_TOMBSTONE_TTL,
   ERROR_TOMBSTONE_TTL,
+  OPENING_STREAM_TTL,
 } from './constants.js';
 import type {
   DesiredSessionStream,
@@ -39,7 +40,6 @@ function toSnapshot(runtime: SessionStreamRuntime): SessionStreamSnapshot {
     backendId: runtime.backendId,
     sessionId: runtime.sessionId,
     state: runtime.state,
-    channelId: runtime.channelId,
     lastError: runtime.lastError,
     latestOffset: runtime.latestOffset,
     updatedAt: runtime.updatedAt,
@@ -74,7 +74,7 @@ export class FacadeStreamManager {
   requestOpen(
     backendId: string,
     sessionId: string,
-    context: { backendReady: boolean; channelId: string | null; latestKnownOffset?: number },
+    context: { backendReady: boolean; latestKnownOffset?: number },
   ): StreamManagerResult {
     const key = streamKey(backendId, sessionId);
     const now = Date.now();
@@ -106,7 +106,6 @@ export class FacadeStreamManager {
         backendId,
         sessionId,
         state: 'closed',
-        channelId: null,
         source: 'desired',
         lastActivityAt: now,
         updatedAt: now,
@@ -124,16 +123,8 @@ export class FacadeStreamManager {
     runtime.updatedAt = now;
     runtime.source = 'desired';
 
-    // If backend ready, emit command
-    if (context.backendReady && context.channelId) {
-      runtime.channelId = context.channelId;
-      result.commands.push({
-        type: 'open_session_stream',
-        backendId,
-        channelId: context.channelId,
-        sessionId,
-      });
-    }
+    // If backend ready, stream is locally managed (no command needed)
+    // The gateway will deliver events based on subscription status
 
     result.events.push({
       type: 'session_stream_state_changed',
@@ -146,7 +137,6 @@ export class FacadeStreamManager {
   requestClose(
     backendId: string,
     sessionId: string,
-    context: { channelId: string | null },
   ): StreamManagerResult {
     const key = streamKey(backendId, sessionId);
     const now = Date.now();
@@ -165,25 +155,8 @@ export class FacadeStreamManager {
     // Already closed
     if (runtime.state === 'closed') return result;
 
-    const prevState = runtime.state;
-
-    // If open/opening with channel, send close command
-    if (
-      (prevState === 'open' || prevState === 'opening') &&
-      context.channelId &&
-      runtime.channelId === context.channelId
-    ) {
-      result.commands.push({
-        type: 'close_session_stream',
-        backendId,
-        channelId: context.channelId,
-        sessionId,
-      });
-    }
-
-    // Optimistic local close
+    // Optimistic local close (no command needed — stream lifecycle is local-only)
     runtime.state = 'closed';
-    runtime.channelId = null;
     runtime.closedAt = now;
     runtime.updatedAt = now;
 
@@ -201,7 +174,6 @@ export class FacadeStreamManager {
 
   handleBackendBecameReady(
     backendId: string,
-    channelId: string,
   ): StreamManagerResult {
     const now = Date.now();
     const result = emptyResult();
@@ -221,26 +193,20 @@ export class FacadeStreamManager {
         backendId: desired.backendId,
         sessionId: desired.sessionId,
         state: 'closed',
-        channelId: null,
         source: 'desired',
         lastActivityAt: now,
         updatedAt: now,
       };
 
       rt.state = 'opening';
-      rt.channelId = channelId;
       rt.lastError = undefined;
       rt.openedAt = now;
       rt.updatedAt = now;
 
       this.runtimeStreams.set(desired.streamKey, rt);
 
-      result.commands.push({
-        type: 'open_session_stream',
-        backendId,
-        channelId,
-        sessionId: desired.sessionId,
-      });
+      // Stream open is now local-only — no command needed
+      // The gateway delivers events based on subscription status
 
       result.events.push({
         type: 'session_stream_state_changed',
@@ -251,7 +217,7 @@ export class FacadeStreamManager {
     return result;
   }
 
-  handleBackendLostChannel(
+  handleBackendUnsubscribed(
     backendId: string,
     reason: string,
     context: { willAutoRecover: boolean },
@@ -270,17 +236,14 @@ export class FacadeStreamManager {
       if (!shouldBeOpen) {
         // No desire to keep open → close
         runtime.state = 'closed';
-        runtime.channelId = null;
         runtime.closedAt = now;
         runtime.lastCloseReason = reason;
       } else if (context.willAutoRecover) {
         // Will auto-recover → opening (waiting for backend to come back)
         runtime.state = 'opening';
-        runtime.channelId = null;
       } else {
         // Won't auto-recover → error
         runtime.state = 'error';
-        runtime.channelId = null;
         runtime.lastError = reason;
       }
 
@@ -301,7 +264,6 @@ export class FacadeStreamManager {
 
   handleSessionStreamClosed(
     backendId: string,
-    channelId: string,
     sessionId: string,
     reason: string,
   ): StreamManagerResult {
@@ -312,19 +274,14 @@ export class FacadeStreamManager {
     const runtime = this.runtimeStreams.get(key);
     if (!runtime) return result;
 
-    // Ignore if channel doesn't match
-    if (runtime.channelId !== channelId) return result;
-
     const desired = this.desiredStreams.get(key);
 
     if (desired?.shouldBeOpen) {
       // Desired open but stream was closed by gateway → error
       runtime.state = 'error';
-      runtime.channelId = null;
       runtime.lastError = reason;
     } else {
       runtime.state = 'closed';
-      runtime.channelId = null;
       runtime.closedAt = now;
       runtime.lastCloseReason = reason;
     }
@@ -340,7 +297,6 @@ export class FacadeStreamManager {
 
   handleContentPatch(
     backendId: string,
-    channelId: string,
     sessionId: string,
     messages: SessionMessage[],
     latestOffset: number,
@@ -358,7 +314,6 @@ export class FacadeStreamManager {
         backendId,
         sessionId,
         state: 'open',
-        channelId,
         source: 'ephemeral',
         lastActivityAt: now,
         latestOffset,
@@ -374,7 +329,6 @@ export class FacadeStreamManager {
       // Promote opening/error → open
       if (runtime.state === 'opening' || runtime.state === 'error') {
         runtime.state = 'open';
-        runtime.channelId = channelId;
         runtime.lastError = undefined;
         runtime.updatedAt = now;
 
@@ -405,7 +359,6 @@ export class FacadeStreamManager {
 
   handleRunEvent(
     backendId: string,
-    channelId: string,
     sessionId: string,
     event: ServerMessage,
   ): StreamManagerResult {
@@ -422,7 +375,6 @@ export class FacadeStreamManager {
         backendId,
         sessionId,
         state: 'open',
-        channelId,
         source: 'ephemeral',
         lastActivityAt: now,
         updatedAt: now,
@@ -437,7 +389,6 @@ export class FacadeStreamManager {
       // Promote opening/error → open
       if (runtime.state === 'opening' || runtime.state === 'error') {
         runtime.state = 'open';
-        runtime.channelId = channelId;
         runtime.lastError = undefined;
         runtime.updatedAt = now;
 
@@ -473,8 +424,27 @@ export class FacadeStreamManager {
 
       // Never GC if desired and should be open
       if (desired?.shouldBeOpen) continue;
-      // Never GC active streams
-      if (runtime.state === 'opening' || runtime.state === 'open') continue;
+      // Never GC open streams
+      if (runtime.state === 'open') continue;
+      // GC 'opening' streams that have been stuck without any activity
+      if (runtime.state === 'opening') {
+        const age = now - runtime.updatedAt;
+        if (!desired?.shouldBeOpen && age > OPENING_STREAM_TTL) {
+          // Transition to error rather than silently removing
+          const errorRuntime: SessionStreamRuntime = {
+            ...runtime,
+            state: 'error',
+            lastError: 'Stream open timed out',
+            updatedAt: now,
+          };
+          this.runtimeStreams.set(key, errorRuntime);
+          result.events.push({
+            type: 'session_stream_state_changed',
+            stream: toSnapshot(errorRuntime),
+          });
+        }
+        continue;
+      }
 
       const age = now - runtime.updatedAt;
 

@@ -35,6 +35,8 @@ interface ProjectState {
   // Actions — projects
   setProjects: (projects: Project[]) => void;
   replaceProjectsForBackend: (backendId: string, projects: Project[]) => void;
+  upsertProjectForBackend: (backendId: string, project: Project) => void;
+  removeProjectForBackend: (backendId: string, projectId: string) => void;
   addProject: (project: Project) => void;
   updateProject: (id: string, updates: Partial<Project>) => void;
   deleteProject: (id: string) => void;
@@ -88,14 +90,24 @@ export const useProjectStore = create<ProjectState>((set) => ({
   replaceProjectsForBackend: (backendId, projects) =>
     set((state) => {
       const ownership = useOwnershipStore.getState();
+      const acceptedProjects = projects.filter((project) => {
+        const ownerBackendId = ownership.getProjectBackendId(project.id);
+        if (ownerBackendId && ownerBackendId !== backendId) {
+          console.warn(
+            `[ProjectStore] Ignoring project snapshot collision for ${project.id}: owner=${ownerBackendId} incoming=${backendId}`
+          );
+          return false;
+        }
+        return true;
+      });
       const currentBackendProjects = state.projects.filter(
         (project) => ownership.getProjectBackendId(project.id) === backendId
       );
 
       // Shallow equality check: skip update if the project set is identical
       if (
-        currentBackendProjects.length === projects.length &&
-        currentBackendProjects.every((cur, i) => cur.id === projects[i].id && cur.updatedAt === projects[i].updatedAt)
+        currentBackendProjects.length === acceptedProjects.length &&
+        currentBackendProjects.every((cur, i) => cur.id === acceptedProjects[i].id && cur.updatedAt === acceptedProjects[i].updatedAt)
       ) {
         return state;
       }
@@ -104,8 +116,59 @@ export const useProjectStore = create<ProjectState>((set) => ({
         (project) => ownership.getProjectBackendId(project.id) !== backendId
       );
       ownership.removeProjectOwnersByBackend(backendId);
-      ownership.setProjectOwners(projects.map((project) => project.id), backendId);
-      return { projects: [...otherProjects, ...projects] };
+      ownership.setProjectOwners(acceptedProjects.map((project) => project.id), backendId);
+      return { projects: [...otherProjects, ...acceptedProjects] };
+    }),
+
+  upsertProjectForBackend: (backendId, project) =>
+    set((state) => {
+      const ownership = useOwnershipStore.getState();
+      const existingOwnerBackendId = ownership.getProjectBackendId(project.id);
+
+      if (existingOwnerBackendId && existingOwnerBackendId !== backendId) {
+        console.warn(
+          `[ProjectStore] Ignoring project event collision for ${project.id}: owner=${existingOwnerBackendId} incoming=${backendId}`
+        );
+        return state;
+      }
+
+      ownership.setProjectOwner(project.id, backendId);
+
+      if (existingOwnerBackendId === backendId) {
+        return {
+          projects: state.projects.map((existingProject) =>
+            existingProject.id === project.id ? { ...existingProject, ...project } : existingProject
+          ),
+        };
+      }
+
+      return {
+        projects: [
+          ...state.projects.filter((existingProject) => existingProject.id !== project.id),
+          project,
+        ],
+      };
+    }),
+
+  removeProjectForBackend: (backendId, projectId) =>
+    set((state) => {
+      const ownership = useOwnershipStore.getState();
+      if (ownership.getProjectBackendId(projectId) !== backendId) {
+        return state;
+      }
+
+      ownership.removeProjectOwner(projectId);
+      return {
+        projects: state.projects.filter((project) => project.id !== projectId),
+        sessions: state.sessions.filter((session) => session.projectId !== projectId),
+        selectedProjectId:
+          state.selectedProjectId === projectId ? null : state.selectedProjectId,
+        selectedSessionId:
+          state.sessions.find((session) => session.id === state.selectedSessionId)
+            ?.projectId === projectId
+            ? null
+            : state.selectedSessionId,
+      };
     }),
 
   addProject: (project) =>

@@ -3,14 +3,17 @@ import type { BackendSnapshot } from '@my-claudia/shared';
 import { useFacadeStore } from '../../stores/facadeStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useRecoveryStore, type BackendRecoveryViewState } from '../../stores/recoveryStore';
+import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import { isLocalBackendId } from '../../utils/controlPlane';
+import { getMobileBackendViewState, type MobileBackendViewState } from '../../services/mobileConnectionState';
+import { isAndroid } from '../../utils/platform';
 
 export interface AutomationBackendOption {
   backendId: string;
   name: string;
   isLocal: boolean;
   isReachable: boolean;
-  status: BackendRecoveryViewState;
+  status: BackendRecoveryViewState | MobileBackendViewState;
   latencyMs?: number | null;
   isThisInstance: boolean;
   backend: BackendSnapshot;
@@ -36,14 +39,26 @@ export function resolveInitialAutomationBackendId(params: {
 }
 
 export function useAutomationBackendOptions(): AutomationBackendOption[] {
+  const mobileRecoveryEnabled = isAndroid();
   const backends = useFacadeStore((state) => state.backends);
+  const facadeConnectionState = useFacadeStore((state) => state.connectionState);
   const connections = useServerStore((state) => state.connections);
-  const recoveryState = useRecoveryStore((s) => s);
+  const getRecoveryBackendViewState = useRecoveryStore((s) => (
+    mobileRecoveryEnabled ? null : s.getBackendViewState
+  ));
+  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
 
   return useMemo(
     () =>
       backends.map((backend) => {
-        const viewState = recoveryState.getBackendViewState(backend.backendId);
+        const viewState = mobileRecoveryEnabled
+          ? getMobileBackendViewState(
+            backend.backendId,
+            facadeConnectionState,
+            backends,
+            mobileRecoveryPhase,
+          )
+          : getRecoveryBackendViewState?.(backend.backendId) ?? 'offline';
         return {
           backendId: backend.backendId,
           name: backend.name,
@@ -55,6 +70,6 @@ export function useAutomationBackendOptions(): AutomationBackendOption[] {
           backend,
         };
       }),
-    [backends, connections, recoveryState],
+    [backends, connections, facadeConnectionState, getRecoveryBackendViewState, mobileRecoveryEnabled, mobileRecoveryPhase],
   );
 }

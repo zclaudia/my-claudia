@@ -17,7 +17,7 @@ function resetStore() {
     activeBackendId: null,
     selectedSessionId: null,
     backends: {},
-    catalogs: {},
+    dataSyncs: {},
     activeSession: {
       sessionId: null,
       status: 'idle',
@@ -37,22 +37,22 @@ function resetStore() {
 describe('recoveryStore', () => {
   beforeEach(resetStore);
 
-  it('maps degraded backends to backend_recovering', () => {
+  it('maps subscribing backends to backend_subscribing', () => {
     useRecoveryStore.setState({
       activeBackendId: 'b1',
       backends: {
         b1: {
           backendId: 'b1',
-          status: 'degraded',
-          desiredOpen: true,
+          status: 'subscribing',
+          subscribed: false,
           lastError: null,
-          lastCloseReason: 'transport_reconnecting',
+          lastCloseReason: null,
           statusEnteredAt: Date.now(),
         },
       },
     } as any);
 
-    expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('backend_recovering');
+    expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('backend_subscribing');
   });
 
   it('only returns verified backend for active session after owner verification', () => {
@@ -63,7 +63,7 @@ describe('recoveryStore', () => {
     expect(useRecoveryStore.getState().getVerifiedSessionBackendId('s1')).toBe('b1');
   });
 
-  it('completes recovery when transport, backend, catalog, and active session are ready', () => {
+  it('completes recovery when transport, backend, data sync, and active session are ready', () => {
     useRecoveryStore.setState({
       coordinator: 'recovering',
       transport: {
@@ -80,13 +80,13 @@ describe('recoveryStore', () => {
         b1: {
           backendId: 'b1',
           status: 'ready',
-          desiredOpen: true,
+          subscribed: true,
           lastError: null,
           lastCloseReason: null,
           statusEnteredAt: Date.now(),
         },
       },
-      catalogs: {
+      dataSyncs: {
         b1: {
           backendId: 'b1',
           status: 'ready',
@@ -128,16 +128,15 @@ describe('recoveryStore', () => {
         b1: {
           backendId: 'b1',
           status: 'ready',
-          desiredOpen: true,
-          channelReady: true,
-          catalogReady: true,
+          subscribed: true,
+                    dataReady: true,
           retryCount: 0,
           lastError: null,
           lastCloseReason: null,
           statusEnteredAt: Date.now(),
         },
       },
-      catalogs: {
+      dataSyncs: {
         b1: {
           backendId: 'b1',
           status: 'ready',
@@ -153,52 +152,52 @@ describe('recoveryStore', () => {
     expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('offline');
   });
 
-  describe('channelReady / catalogReady', () => {
-    it('backend stays in opening until both channel and catalog are ready', () => {
-      useRecoveryStore.getState().noteBackendDesiredOpen('b1');
+  describe('subscribed / dataReady', () => {
+    it('backend stays in subscribing until both subscribed and data are ready', () => {
+      useRecoveryStore.getState().noteBackendSubscribing('b1');
       const b1 = useRecoveryStore.getState().backends.b1;
-      expect(b1.status).toBe('opening');
-      expect(b1.channelReady).toBe(false);
-      expect(b1.catalogReady).toBe(false);
+      expect(b1.status).toBe('subscribing');
+      expect(b1.subscribed).toBe(false);
+      expect(b1.dataReady).toBe(false);
     });
 
-    it('noteCatalogSyncSucceeded sets catalogReady and transitions to ready when channelReady is true', () => {
+    it('noteDataSyncSucceeded sets dataReady and transitions to ready when subscribed is true', () => {
       useRecoveryStore.setState({
         backends: {
           b1: {
-            backendId: 'b1', status: 'opening', desiredOpen: true,
-            channelReady: true, catalogReady: false, retryCount: 0,
+            backendId: 'b1', status: 'subscribing', subscribed: true,
+            dataReady: false, retryCount: 0,
             lastError: null, lastCloseReason: null, statusEnteredAt: Date.now(),
           },
         },
       } as any);
 
-      useRecoveryStore.getState().noteCatalogSyncSucceeded('b1');
+      useRecoveryStore.getState().noteDataSyncSucceeded('b1');
 
       const b1 = useRecoveryStore.getState().backends.b1;
-      expect(b1.catalogReady).toBe(true);
+      expect(b1.dataReady).toBe(true);
       expect(b1.status).toBe('ready');
     });
 
-    it('noteCatalogSyncSucceeded does NOT mark backend ready when channelReady is false', () => {
+    it('noteDataSyncSucceeded does NOT mark backend ready when subscribed is false', () => {
       useRecoveryStore.setState({
         backends: {
           b1: {
-            backendId: 'b1', status: 'opening', desiredOpen: true,
-            channelReady: false, catalogReady: false, retryCount: 0,
+            backendId: 'b1', status: 'subscribing', subscribed: false,
+            dataReady: false, retryCount: 0,
             lastError: null, lastCloseReason: null, statusEnteredAt: Date.now(),
           },
         },
       } as any);
 
-      useRecoveryStore.getState().noteCatalogSyncSucceeded('b1');
+      useRecoveryStore.getState().noteDataSyncSucceeded('b1');
 
       const b1 = useRecoveryStore.getState().backends.b1;
-      expect(b1.catalogReady).toBe(true);
-      expect(b1.status).toBe('opening');
+      expect(b1.dataReady).toBe(true);
+      expect(b1.status).toBe('subscribing');
     });
 
-    it('applySnapshot sets channelReady when runtimeState is ready', () => {
+    it('applySnapshot sets subscribed when runtimeState is ready', () => {
       useRecoveryStore.getState().applySnapshot({
         snapshotVersion: 1, capturedAt: Date.now(), mode: 'direct',
         connectionState: 'connected', localBackendId: null,
@@ -208,13 +207,13 @@ describe('recoveryStore', () => {
       });
 
       const b1 = useRecoveryStore.getState().backends.b1;
-      expect(b1.channelReady).toBe(true);
+      expect(b1.subscribed).toBe(true);
     });
 
-    it('applySnapshot maps runtimeState ready to status ready regardless of catalogReady', () => {
+    it('applySnapshot maps runtimeState ready to status ready regardless of dataReady', () => {
       useRecoveryStore.setState({
         backends: {
-          b1: { backendId: 'b1', status: 'degraded', desiredOpen: true, channelReady: false, catalogReady: false, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+          b1: { backendId: 'b1', status: 'visible', subscribed: false, dataReady: false, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
         },
       } as any);
       useRecoveryStore.getState().applySnapshot({
@@ -226,20 +225,20 @@ describe('recoveryStore', () => {
       });
       const b1 = useRecoveryStore.getState().backends.b1;
       expect(b1.status).toBe('ready');
-      expect(b1.channelReady).toBe(true);
+      expect(b1.subscribed).toBe(true);
     });
   });
 
   describe('startBackendRecovery', () => {
-    it('enters recovering when previously-synced catalog regresses to stale', () => {
+    it('enters recovering when previously-synced data regresses to stale', () => {
       useRecoveryStore.setState({
         coordinator: 'ready',
         activeBackendId: 'b1',
         selectedSessionId: null,
         backends: {
-          b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+          b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
         },
-        catalogs: {
+        dataSyncs: {
           b1: { backendId: 'b1', status: 'stale', ownershipVersion: 1, retryCount: 0, lastError: null, lastSyncAt: Date.now() - 60000, statusEnteredAt: Date.now() },
         },
       } as any);
@@ -248,19 +247,19 @@ describe('recoveryStore', () => {
 
       const state = useRecoveryStore.getState();
       expect(state.coordinator).toBe('recovering');
-      expect(state.catalogs.b1.status).toBe('stale');
-      expect(state.catalogs.b1.retryCount).toBe(0);
+      expect(state.dataSyncs.b1.status).toBe('stale');
+      expect(state.dataSyncs.b1.retryCount).toBe(0);
     });
 
-    it('no-ops on first boot when catalog does not exist yet', () => {
+    it('no-ops on first boot when data sync does not exist yet', () => {
       useRecoveryStore.setState({
         coordinator: 'ready',
         activeBackendId: 'b1',
         selectedSessionId: null,
         backends: {
-          b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+          b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
         },
-        catalogs: {},
+        dataSyncs: {},
       } as any);
 
       useRecoveryStore.getState().startBackendRecovery('b1');
@@ -273,9 +272,9 @@ describe('recoveryStore', () => {
         activeBackendId: 'b1',
         selectedSessionId: 's1',
         backends: {
-          b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+          b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
         },
-        catalogs: {},
+        dataSyncs: {},
         activeSession: {
           sessionId: 's1', status: 'idle', backendId: null,
           ownershipVersion: null, retryCount: 0, lastError: null,
@@ -293,9 +292,9 @@ describe('recoveryStore', () => {
         activeBackendId: 'b1',
         selectedSessionId: 's1',
         backends: {
-          b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+          b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
         },
-        catalogs: {
+        dataSyncs: {
           b1: { backendId: 'b1', status: 'ready', ownershipVersion: 3, retryCount: 0, lastError: null, lastSyncAt: Date.now(), statusEnteredAt: Date.now() },
         },
         activeSession: {
@@ -310,7 +309,7 @@ describe('recoveryStore', () => {
       const state = useRecoveryStore.getState();
       expect(state.coordinator).toBe('recovering');
       expect(state.activeSession.status).toBe('stale');
-      expect(state.catalogs.b1.status).toBe('stale');
+      expect(state.dataSyncs.b1.status).toBe('stale');
     });
 
     it('no-ops when already recovering', () => {
@@ -335,7 +334,7 @@ describe('recoveryStore', () => {
         coordinator: 'ready',
         activeBackendId: 'b1',
         backends: {
-          b2: { backendId: 'b2', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+          b2: { backendId: 'b2', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
         },
       } as any);
 
@@ -343,15 +342,15 @@ describe('recoveryStore', () => {
       expect(useRecoveryStore.getState().coordinator).toBe('ready');
     });
 
-    it('no-ops when catalog and session are already healthy', () => {
+    it('no-ops when data sync and session are already healthy', () => {
       useRecoveryStore.setState({
         coordinator: 'ready',
         activeBackendId: 'b1',
         selectedSessionId: 's1',
         backends: {
-          b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+          b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
         },
-        catalogs: {
+        dataSyncs: {
           b1: { backendId: 'b1', status: 'ready', ownershipVersion: 3, retryCount: 0, lastError: null, lastSyncAt: Date.now(), statusEnteredAt: Date.now() },
         },
         activeSession: {
@@ -371,10 +370,10 @@ describe('recoveryStore', () => {
         activeBackendId: 'b1',
         selectedSessionId: 's1',
         backends: {
-          b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
-          b2: { backendId: 'b2', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+          b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+          b2: { backendId: 'b2', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
         },
-        catalogs: {
+        dataSyncs: {
           b1: { backendId: 'b1', status: 'stale', ownershipVersion: 1, retryCount: 0, lastError: null, lastSyncAt: null, statusEnteredAt: Date.now() },
           b2: { backendId: 'b2', status: 'ready', ownershipVersion: 2, retryCount: 0, lastError: null, lastSyncAt: Date.now(), statusEnteredAt: Date.now() },
         },
@@ -391,23 +390,23 @@ describe('recoveryStore', () => {
       const state = useRecoveryStore.getState();
       expect(state.transport).toBe(transportBefore);
       expect(state.backends.b2.status).toBe('ready');
-      expect(state.catalogs.b2.status).toBe('ready');
+      expect(state.dataSyncs.b2.status).toBe('ready');
       expect(state.coordinator).toBe('recovering');
     });
   });
 
   describe('startRecovery', () => {
-    it('resets retry counts, preserves channelReady, clears catalogReady', () => {
+    it('resets retry counts, preserves subscribed, clears dataReady', () => {
       useRecoveryStore.setState({
         coordinator: 'ready',
         backends: {
           b1: {
-            backendId: 'b1', status: 'ready', desiredOpen: true,
-            channelReady: true, catalogReady: true, retryCount: 2,
+            backendId: 'b1', status: 'ready', subscribed: true,
+            dataReady: true, retryCount: 2,
             lastError: null, lastCloseReason: null, statusEnteredAt: Date.now(),
           },
         },
-        catalogs: {
+        dataSyncs: {
           b1: {
             backendId: 'b1', status: 'ready', ownershipVersion: 3, retryCount: 1,
             lastError: null, lastSyncAt: Date.now(), statusEnteredAt: Date.now(),
@@ -422,11 +421,11 @@ describe('recoveryStore', () => {
       expect(state.coordinator).toBe('recovering');
       expect(state.transport.retryCount).toBe(0);
       expect(state.backends.b1.retryCount).toBe(0);
-      expect(state.backends.b1.channelReady).toBe(true);
-      expect(state.backends.b1.catalogReady).toBe(false);
-      expect(state.backends.b1.status).toBe('degraded');
-      expect(state.catalogs.b1.retryCount).toBe(0);
-      expect(state.catalogs.b1.status).toBe('stale');
+      expect(state.backends.b1.subscribed).toBe(true);
+      expect(state.backends.b1.dataReady).toBe(false);
+      expect(state.backends.b1.status).toBe('ready');
+      expect(state.dataSyncs.b1.retryCount).toBe(0);
+      expect(state.dataSyncs.b1.status).toBe('stale');
     });
 
     it('preserves transport.status — does not downgrade connected to reconnecting', () => {
@@ -434,7 +433,7 @@ describe('recoveryStore', () => {
         coordinator: 'ready',
         transport: { ...useRecoveryStore.getState().transport, status: 'connected', generation: 5 },
         backends: {},
-        catalogs: {},
+        dataSyncs: {},
         activeBackendId: null,
       } as any);
 
@@ -450,7 +449,7 @@ describe('recoveryStore', () => {
         coordinator: 'ready',
         transport: { ...useRecoveryStore.getState().transport, status: 'reconnecting', generation: 3 },
         backends: {},
-        catalogs: {},
+        dataSyncs: {},
         activeBackendId: null,
       } as any);
 
@@ -521,8 +520,8 @@ describe('recoveryStore', () => {
       useRecoveryStore.setState({
         backends: {
           b1: {
-            backendId: 'b1', status: 'opening', desiredOpen: true,
-            channelReady: false, catalogReady: false, retryCount: 0,
+            backendId: 'b1', status: 'subscribing', subscribed: false,
+            dataReady: false, retryCount: 0,
             lastError: null, lastCloseReason: null, statusEnteredAt: Date.now(),
           },
         },
@@ -536,9 +535,9 @@ describe('recoveryStore', () => {
       expect(b1.lastError).toContain('timeout');
     });
 
-    it('noteCatalogSyncTimeout transitions delta sync to stale', () => {
+    it('noteDataSyncTimeout transitions delta sync to stale', () => {
       useRecoveryStore.setState({
-        catalogs: {
+        dataSyncs: {
           b1: {
             backendId: 'b1', status: 'syncing_delta', ownershipVersion: 1,
             retryCount: 0, lastError: null, lastSyncAt: null, statusEnteredAt: Date.now(),
@@ -546,9 +545,9 @@ describe('recoveryStore', () => {
         },
       } as any);
 
-      useRecoveryStore.getState().noteCatalogSyncTimeout('b1');
+      useRecoveryStore.getState().noteDataSyncTimeout('b1');
 
-      expect(useRecoveryStore.getState().catalogs.b1.status).toBe('stale');
+      expect(useRecoveryStore.getState().dataSyncs.b1.status).toBe('stale');
     });
 
     it('noteActiveSessionTimeout gracefully degrades catch-up to live with gap marker', () => {
@@ -610,7 +609,7 @@ describe('recoveryStore', () => {
     it('returns offline when transport is idle', () => {
       useRecoveryStore.setState({
         transport: { ...useRecoveryStore.getState().transport, status: 'idle' },
-        backends: { b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
+        backends: { b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
       } as any);
       expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('offline');
     });
@@ -618,7 +617,7 @@ describe('recoveryStore', () => {
     it('returns transport_reconnecting when transport is connecting', () => {
       useRecoveryStore.setState({
         transport: { ...useRecoveryStore.getState().transport, status: 'connecting' },
-        backends: { b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
+        backends: { b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
       } as any);
       expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('transport_reconnecting');
     });
@@ -633,30 +632,30 @@ describe('recoveryStore', () => {
     it('returns error when transport has error', () => {
       useRecoveryStore.setState({
         transport: { ...useRecoveryStore.getState().transport, status: 'error' },
-        backends: { b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
+        backends: { b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
       } as any);
       expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('error');
     });
 
     it('returns error when backend has error', () => {
       useRecoveryStore.setState({
-        backends: { b1: { backendId: 'b1', status: 'error', desiredOpen: true, channelReady: false, catalogReady: false, retryCount: 3, lastError: 'timeout', lastCloseReason: null, statusEnteredAt: Date.now() } },
+        backends: { b1: { backendId: 'b1', status: 'error', subscribed: true,  dataReady: false, retryCount: 3, lastError: 'timeout', lastCloseReason: null, statusEnteredAt: Date.now() } },
       } as any);
       expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('error');
     });
 
-    it('returns error when catalog has error', () => {
+    it('returns error when data sync has error', () => {
       useRecoveryStore.setState({
         activeBackendId: 'b1',
-        backends: { b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
-        catalogs: { b1: { backendId: 'b1', status: 'error', ownershipVersion: 1, retryCount: 3, lastError: 'sync fail', lastSyncAt: null, statusEnteredAt: Date.now() } },
+        backends: { b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
+        dataSyncs: { b1: { backendId: 'b1', status: 'error', ownershipVersion: 1, retryCount: 3, lastError: 'sync fail', lastSyncAt: null, statusEnteredAt: Date.now() } },
       } as any);
       expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('error');
     });
 
     it('returns offline when backend is absent', () => {
       useRecoveryStore.setState({
-        backends: { b1: { backendId: 'b1', status: 'absent', desiredOpen: false, channelReady: false, catalogReady: false, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
+        backends: { b1: { backendId: 'b1', status: 'absent', subscribed: false,  dataReady: false, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
       } as any);
       expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('offline');
     });
@@ -667,48 +666,48 @@ describe('recoveryStore', () => {
 
     it('returns backend_visible for visible backend', () => {
       useRecoveryStore.setState({
-        backends: { b1: { backendId: 'b1', status: 'visible', desiredOpen: false, channelReady: false, catalogReady: false, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
+        backends: { b1: { backendId: 'b1', status: 'visible', subscribed: false,  dataReady: false, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
       } as any);
       expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('backend_visible');
     });
 
-    it('returns backend_opening for opening backend', () => {
+    it('returns backend_subscribing for subscribing backend', () => {
       useRecoveryStore.setState({
-        backends: { b1: { backendId: 'b1', status: 'opening', desiredOpen: true, channelReady: false, catalogReady: false, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
+        backends: { b1: { backendId: 'b1', status: 'subscribing', subscribed: false, dataReady: false, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
       } as any);
-      expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('backend_opening');
+      expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('backend_subscribing');
     });
 
-    it('returns catalog_syncing when backend is ready but catalog is stale', () => {
+    it('returns data_syncing when backend is ready but data sync is stale', () => {
       useRecoveryStore.setState({
-        backends: { b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
-        catalogs: { b1: { backendId: 'b1', status: 'stale', ownershipVersion: 1, retryCount: 0, lastError: null, lastSyncAt: null, statusEnteredAt: Date.now() } },
+        backends: { b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
+        dataSyncs: { b1: { backendId: 'b1', status: 'stale', ownershipVersion: 1, retryCount: 0, lastError: null, lastSyncAt: null, statusEnteredAt: Date.now() } },
       } as any);
-      expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('catalog_syncing');
+      expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('data_syncing');
     });
 
-    it('returns catalog_syncing when catalog is syncing_full', () => {
+    it('returns data_syncing when data sync is syncing_full', () => {
       useRecoveryStore.setState({
-        backends: { b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
-        catalogs: { b1: { backendId: 'b1', status: 'syncing_full', ownershipVersion: 1, retryCount: 0, lastError: null, lastSyncAt: null, statusEnteredAt: Date.now() } },
+        backends: { b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
+        dataSyncs: { b1: { backendId: 'b1', status: 'syncing_full', ownershipVersion: 1, retryCount: 0, lastError: null, lastSyncAt: null, statusEnteredAt: Date.now() } },
       } as any);
-      expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('catalog_syncing');
+      expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('data_syncing');
     });
 
-    it('returns catalog_syncing when no catalog exists for backend', () => {
+    it('returns data_syncing when no data sync exists for backend', () => {
       useRecoveryStore.setState({
-        backends: { b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
-        catalogs: {},
+        backends: { b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
+        dataSyncs: {},
       } as any);
-      expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('catalog_syncing');
+      expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('data_syncing');
     });
 
     it('returns session_syncing when active session is in recovery phase', () => {
       useRecoveryStore.setState({
         activeBackendId: 'b1',
         selectedSessionId: 's1',
-        backends: { b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
-        catalogs: { b1: { backendId: 'b1', status: 'ready', ownershipVersion: 1, retryCount: 0, lastError: null, lastSyncAt: Date.now(), statusEnteredAt: Date.now() } },
+        backends: { b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
+        dataSyncs: { b1: { backendId: 'b1', status: 'ready', ownershipVersion: 1, retryCount: 0, lastError: null, lastSyncAt: Date.now(), statusEnteredAt: Date.now() } },
         activeSession: { sessionId: 's1', status: 'catching_up', backendId: 'b1', ownershipVersion: 1, retryCount: 0, lastError: null, hasGapMarker: false, lastMessageAt: null, statusEnteredAt: Date.now() },
       } as any);
       expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('session_syncing');
@@ -718,8 +717,8 @@ describe('recoveryStore', () => {
       useRecoveryStore.setState({
         activeBackendId: 'b1',
         selectedSessionId: 's1',
-        backends: { b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
-        catalogs: { b1: { backendId: 'b1', status: 'ready', ownershipVersion: 1, retryCount: 0, lastError: null, lastSyncAt: Date.now(), statusEnteredAt: Date.now() } },
+        backends: { b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
+        dataSyncs: { b1: { backendId: 'b1', status: 'ready', ownershipVersion: 1, retryCount: 0, lastError: null, lastSyncAt: Date.now(), statusEnteredAt: Date.now() } },
         activeSession: { sessionId: 's1', status: 'live', backendId: 'b1', ownershipVersion: 1, retryCount: 0, lastError: null, hasGapMarker: false, lastMessageAt: Date.now(), statusEnteredAt: Date.now() },
       } as any);
       expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('ready');
@@ -729,8 +728,8 @@ describe('recoveryStore', () => {
       useRecoveryStore.setState({
         activeBackendId: 'b1',
         selectedSessionId: 's1',
-        backends: { b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
-        catalogs: { b1: { backendId: 'b1', status: 'ready', ownershipVersion: 1, retryCount: 0, lastError: null, lastSyncAt: Date.now(), statusEnteredAt: Date.now() } },
+        backends: { b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
+        dataSyncs: { b1: { backendId: 'b1', status: 'ready', ownershipVersion: 1, retryCount: 0, lastError: null, lastSyncAt: Date.now(), statusEnteredAt: Date.now() } },
         activeSession: { sessionId: 's1', status: 'error', backendId: 'b1', ownershipVersion: 1, retryCount: 3, lastError: 'stream failed', hasGapMarker: false, lastMessageAt: null, statusEnteredAt: Date.now() },
       } as any);
       expect(useRecoveryStore.getState().getBackendViewState('b1')).toBe('error');
@@ -775,12 +774,18 @@ describe('recoveryStore', () => {
   });
 
   describe('exported helpers', () => {
-    it('isBackendReady returns true for ready backend', async () => {
+    it('isBackendReady requires both transport and backend readiness', async () => {
       const { isBackendReady } = await import('../recoveryStore.ts');
       useRecoveryStore.setState({
-        backends: { b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
+        transport: { ...useRecoveryStore.getState().transport, status: 'connected' },
+        backends: { b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() } },
       } as any);
       expect(isBackendReady('b1')).toBe(true);
+
+      useRecoveryStore.setState({
+        transport: { ...useRecoveryStore.getState().transport, status: 'reconnecting' },
+      } as any);
+      expect(isBackendReady('b1')).toBe(false);
       expect(isBackendReady('unknown')).toBe(false);
       expect(isBackendReady(null)).toBe(false);
     });
@@ -797,9 +802,9 @@ describe('recoveryStore', () => {
   });
 
   describe('retry logic', () => {
-    it('noteCatalogSyncFailed increments retryCount and stays in syncing on first failure', () => {
+    it('noteDataSyncFailed increments retryCount and resets to stale on first failure', () => {
       useRecoveryStore.setState({
-        catalogs: {
+        dataSyncs: {
           b1: {
             backendId: 'b1', status: 'syncing_full', ownershipVersion: 1,
             retryCount: 0, lastError: null, lastSyncAt: null, statusEnteredAt: Date.now(),
@@ -807,29 +812,29 @@ describe('recoveryStore', () => {
         },
       } as any);
 
-      useRecoveryStore.getState().noteCatalogSyncFailed('b1', 'network error');
+      useRecoveryStore.getState().noteDataSyncFailed('b1', 'network error');
 
-      const catalog = useRecoveryStore.getState().catalogs.b1;
-      expect(catalog.retryCount).toBe(1);
-      expect(catalog.status).toBe('syncing_full');
-      expect(catalog.lastError).toBe('network error');
+      const dataSync = useRecoveryStore.getState().dataSyncs.b1;
+      expect(dataSync.retryCount).toBe(1);
+      expect(dataSync.status).toBe('stale');
+      expect(dataSync.lastError).toBe('network error');
     });
 
-    it('noteCatalogSyncFailed transitions to error when retries exhausted', () => {
+    it('noteDataSyncFailed transitions to error when retries exhausted', () => {
       useRecoveryStore.setState({
         coordinator: 'recovering',
-        catalogs: {
+        dataSyncs: {
           b1: {
             backendId: 'b1', status: 'syncing_full', ownershipVersion: 1,
-            retryCount: RECOVERY_MAX_RETRIES.CATALOG_FULL - 1,
+            retryCount: RECOVERY_MAX_RETRIES.DATA_SYNC_FULL - 1,
             lastError: null, lastSyncAt: null, statusEnteredAt: Date.now(),
           },
         },
       } as any);
 
-      useRecoveryStore.getState().noteCatalogSyncFailed('b1', 'final failure');
+      useRecoveryStore.getState().noteDataSyncFailed('b1', 'final failure');
 
-      expect(useRecoveryStore.getState().catalogs.b1.status).toBe('error');
+      expect(useRecoveryStore.getState().dataSyncs.b1.status).toBe('error');
       expect(useRecoveryStore.getState().coordinator).toBe('error');
     });
   });

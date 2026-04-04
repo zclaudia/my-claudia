@@ -11,7 +11,10 @@ import { useRecoveryStore } from '../stores/recoveryStore';
 import { useProjectStore } from '../stores/projectStore';
 import { parseBackendId, shouldShowNonCurrentInstanceBackend, useGatewayStore } from '../stores/gatewayStore';
 import { useFacadeStore } from '../stores/facadeStore';
+import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import { LEGACY_LOCAL_SERVER_ID } from '../utils/controlPlane';
+import { isMobileBackendUsable } from '../services/mobileConnectionState';
+import { isAndroid } from '../utils/platform';
 
 interface ActiveSessionsPanelProps {
   onSessionSelect?: (backendId: string, sessionId: string) => void;
@@ -27,6 +30,7 @@ function formatTimeAgo(ts: number): string {
 }
 
 export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProps) {
+  const mobileRecoveryEnabled = isAndroid();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [, forceUpdate] = useState(0);
   const { remoteSessions, activeSessionIdsByBackend, recentlyCompletedSessions, dismissRecentlyCompleted, clearAllRecentlyCompleted } = useSessionsStore();
@@ -35,10 +39,21 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
   const projects = useProjectStore((s) => s.projects);
   const showLocalBackend = useGatewayStore((s) => s.showLocalBackend);
   const facadeBackends = useFacadeStore((s) => s.backends);
+  const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const localBackendId = useFacadeStore((s) => s.localBackendId);
   const currentInstanceId = useFacadeStore((s) => s.currentInstanceId);
-  const localRecoveryStatus = useRecoveryStore((s) => s.backends['local']?.status);
-  const hasDirectLocalConnection = (localRecoveryStatus === 'ready' || localRecoveryStatus === 'opening');
+  const localRecoveryStatus = useRecoveryStore((s) => (
+    mobileRecoveryEnabled ? null : s.backends['local']?.status
+  ));
+  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
+  const hasDirectLocalConnection = mobileRecoveryEnabled
+    ? isMobileBackendUsable({
+      backendId: localBackendId ?? 'local',
+      connectionState: facadeConnectionState,
+      backends: facadeBackends,
+      recoveryPhase: mobileRecoveryPhase,
+    })
+    : (localRecoveryStatus === 'ready' || localRecoveryStatus === 'subscribing');
 
   // Refresh "X ago" timestamps every 30s
   useEffect(() => {

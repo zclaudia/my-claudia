@@ -33,6 +33,17 @@ vi.mock('../../utils/controlPlane', () => ({
 import { useServerStore } from '../../stores/serverStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
+import { useFacadeStore } from '../../stores/facadeStore';
+import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
+import { isAndroid } from '../../utils/platform';
+
+vi.mock('../../utils/platform', async (importOriginal) => {
+  const mod = await importOriginal<Record<string, any>>();
+  return {
+    ...mod,
+    isAndroid: vi.fn(() => false),
+  };
+});
 
 describe('useSelectionCoordinator', () => {
   beforeEach(() => {
@@ -53,9 +64,8 @@ describe('useSelectionCoordinator', () => {
         'backend-1': {
           backendId: 'backend-1',
           status: 'ready',
-          desiredOpen: true,
-          channelReady: true,
-          catalogReady: true,
+          subscribed: true,
+          dataReady: true,
           retryCount: 0,
           lastError: null,
           lastCloseReason: null,
@@ -63,6 +73,12 @@ describe('useSelectionCoordinator', () => {
         },
       },
     } as any);
+    useFacadeStore.setState({
+      connectionState: 'connected',
+      backends: [{ backendId: 'backend-1', runtimeState: 'ready', name: 'Backend 1' }],
+    } as any);
+    useMobileRecoveryStore.getState().reset();
+    vi.mocked(isAndroid).mockReturnValue(false);
     useProjectStore.setState({
       projects: [],
       sessions: [],
@@ -115,10 +131,9 @@ describe('useSelectionCoordinator', () => {
       backends: {
         'backend-1': {
           backendId: 'backend-1',
-          status: 'degraded',
-          desiredOpen: true,
-          channelReady: false,
-          catalogReady: false,
+          status: 'visible',
+          subscribed: false,
+          dataReady: false,
           retryCount: 0,
           lastError: null,
           lastCloseReason: null,
@@ -143,10 +158,9 @@ describe('useSelectionCoordinator', () => {
       backends: {
         'backend-1': {
           backendId: 'backend-1',
-          status: 'opening',
-          desiredOpen: true,
-          channelReady: false,
-          catalogReady: false,
+          status: 'subscribing',
+          subscribed: false,
+          dataReady: false,
           retryCount: 0,
           lastError: null,
           lastCloseReason: null,
@@ -171,8 +185,8 @@ describe('useSelectionCoordinator', () => {
     });
     useRecoveryStore.setState({
       backends: {
-        'backend-1': { backendId: 'backend-1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
-        'backend-2': { backendId: 'backend-2', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+        'backend-1': { backendId: 'backend-1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+        'backend-2': { backendId: 'backend-2', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
       },
     } as any);
 
@@ -204,10 +218,9 @@ describe('useSelectionCoordinator', () => {
       backends: {
         'local-backend-1': {
           backendId: 'local-backend-1',
-          status: 'degraded',
-          desiredOpen: true,
-          channelReady: false,
-          catalogReady: false,
+          status: 'visible',
+          subscribed: false,
+          dataReady: false,
           retryCount: 0,
           lastError: null,
           lastCloseReason: null,
@@ -223,5 +236,22 @@ describe('useSelectionCoordinator', () => {
     });
 
     expect(mockConnectServer).toHaveBeenCalledWith('local-backend-1');
+  });
+
+  it('reissues connect intent on Android while mobile recovery is still running', () => {
+    vi.mocked(isAndroid).mockReturnValue(true);
+    useFacadeStore.setState({
+      connectionState: 'connected',
+      backends: [{ backendId: 'backend-1', runtimeState: 'ready', name: 'Backend 1' }],
+    } as any);
+    useMobileRecoveryStore.setState({ phase: 'recovering' } as any);
+
+    const { result } = renderHook(() => useSelectionCoordinator());
+
+    act(() => {
+      result.current.selectProject('project-1');
+    });
+
+    expect(mockConnectServer).toHaveBeenCalledWith('backend-1');
   });
 });

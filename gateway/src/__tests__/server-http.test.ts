@@ -4,12 +4,25 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import WebSocket from 'ws';
 import type { Server } from 'http';
+import net from 'node:net';
 import { createGatewayServer } from '../server.js';
+import { closeTestServer, listenTestServer } from './test-server.js';
 
 const GATEWAY_SECRET = 'test-secret-http';
-const TEST_PORT = 9020;
-const WS_URL = `ws://localhost:${TEST_PORT}/ws`;
-const HTTP_URL = `http://localhost:${TEST_PORT}`;
+let WS_URL = '';
+let HTTP_URL = '';
+
+async function canBindLoopback(): Promise<boolean> {
+  return await new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once('error', () => resolve(false));
+    probe.listen(0, '127.0.0.1', () => {
+      probe.close(() => resolve(true));
+    });
+  });
+}
+
+const describeIfLoopback = (await canBindLoopback()) ? describe : describe.skip;
 
 // Helper: wait for WebSocket to open
 function waitForOpen(ws: WebSocket): Promise<void> {
@@ -62,16 +75,16 @@ async function registerBackend(ws: WebSocket, identity: { deviceId: string; inst
   return ready.backend.backendId;
 }
 
-describe('Gateway HTTP Endpoints', () => {
+describeIfLoopback('Gateway HTTP Endpoints', () => {
   let server: Server;
 
   beforeEach(async () => {
     server = createGatewayServer({ gatewaySecret: GATEWAY_SECRET });
-    await new Promise<void>((resolve) => server.listen(TEST_PORT, resolve));
+    ({ wsUrl: WS_URL, httpUrl: HTTP_URL } = await listenTestServer(server));
   });
 
   afterEach(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await closeTestServer(server);
   });
 
   describe('Health Check', () => {

@@ -50,7 +50,7 @@ export class SessionLifecycleService {
     this.pathExists = deps.pathExists ?? ((targetPath: string) => fs.existsSync(targetPath));
     this.broadcastSessionEvent = deps.broadcastSessionEvent ?? ((type, session) => {
       const gatewayClient = getGatewayClient();
-      gatewayClient?.commands.catalog.broadcastSessionEvent(type, session);
+      gatewayClient?.commands.backendData.broadcastSessionEvent(type, session);
     });
     this.emitPluginEvent = deps.emitPluginEvent ?? ((event, payload) => pluginEvents.emit(event, payload));
   }

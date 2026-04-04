@@ -4,24 +4,39 @@ import { useOwnershipStore } from '../stores/ownershipStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
 import { useRecoveryStore } from '../stores/recoveryStore';
+import { useFacadeStore } from '../stores/facadeStore';
+import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import { getControlPlaneMode, resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/controlPlane';
+import { isMobileBackendUsable } from '../services/mobileConnectionState';
+import { isAndroid } from '../utils/platform';
 
 interface SelectSessionOptions {
   backendId?: string | null;
 }
 
 export function useSelectionCoordinator() {
+  const mobileRecoveryEnabled = isAndroid();
   const { connectServer } = useConnection();
   const activeServerId = useServerStore((s) => s.activeServerId);
   const setActiveServer = useServerStore((s) => s.setActiveServer);
   const selectProjectInStore = useProjectStore((s) => s.selectProject);
   const selectSessionInStore = useProjectStore((s) => s.selectSession);
+  const facadeConnectionState = useFacadeStore((s) => s.connectionState);
+  const facadeBackends = useFacadeStore((s) => s.backends);
+  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
 
   const selectBackend = useCallback((backendId: string | null | undefined) => {
     const canonicalBackendId = resolveCanonicalBackendId(backendId, resolveLocalBackendId() ?? backendId ?? null);
     if (!canonicalBackendId) return;
     if (activeServerId === canonicalBackendId) {
-      const backendReady = useRecoveryStore.getState().backends[canonicalBackendId]?.status === 'ready';
+      const backendReady = mobileRecoveryEnabled
+        ? isMobileBackendUsable({
+          backendId: canonicalBackendId,
+          connectionState: facadeConnectionState,
+          backends: facadeBackends,
+          recoveryPhase: mobileRecoveryPhase,
+        })
+        : useRecoveryStore.getState().backends[canonicalBackendId]?.status === 'ready';
       if (backendReady) {
         return;
       }
@@ -32,7 +47,17 @@ export function useSelectionCoordinator() {
     selectProjectInStore(null);
     setActiveServer(canonicalBackendId);
     connectServer(canonicalBackendId);
-  }, [activeServerId, connectServer, setActiveServer, selectSessionInStore, selectProjectInStore]);
+  }, [
+    activeServerId,
+    connectServer,
+    facadeBackends,
+    facadeConnectionState,
+    mobileRecoveryEnabled,
+    mobileRecoveryPhase,
+    selectProjectInStore,
+    selectSessionInStore,
+    setActiveServer,
+  ]);
 
   const selectProject = useCallback((projectId: string | null) => {
     if (!projectId) {

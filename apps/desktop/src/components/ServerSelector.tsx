@@ -2,10 +2,17 @@ import { useState } from 'react';
 import { useServerStore } from '../stores/serverStore';
 import { useGatewayStore, shouldShowNonCurrentInstanceBackend } from '../stores/gatewayStore';
 import { useFacadeStore } from '../stores/facadeStore';
+import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import type { BackendSnapshot } from '@my-claudia/shared';
 import { useRecoveryStore, type BackendRecoveryViewState } from '../stores/recoveryStore';
+import {
+  getMobileBackendViewState,
+  isMobileGatewayConnected,
+  type MobileBackendViewState,
+} from '../services/mobileConnectionState';
+import { isAndroid } from '../utils/platform';
 
 function formatLatency(latencyMs?: number | null): string | null {
   if (latencyMs == null) return null;
@@ -13,31 +20,38 @@ function formatLatency(latencyMs?: number | null): string | null {
 }
 
 export function ServerSelector() {
-  const {
-    activeServerId,
-    connections,
-    setActiveServer
-  } = useServerStore();
+  const mobileRecoveryEnabled = isAndroid();
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const connections = useServerStore((s) => s.connections);
+  const setActiveServer = useServerStore((s) => s.setActiveServer);
 
-  const {
-    gatewayUrl,
-    gatewaySecret,
-    isConnected: isGatewayConnected,
-    setLastActiveBackend,
-    toggleBackendSubscription,
-    isBackendSubscribed,
-    showLocalBackend,
-  } = useGatewayStore();
+  const gatewayUrl = useGatewayStore((s) => s.gatewayUrl);
+  const gatewaySecret = useGatewayStore((s) => s.gatewaySecret);
+  const isGatewayConnected = useGatewayStore((s) => s.isConnected);
+  const setLastActiveBackend = useGatewayStore((s) => s.setLastActiveBackend);
+  const toggleBackendSubscription = useGatewayStore((s) => s.toggleBackendSubscription);
+  const isBackendSubscribed = useGatewayStore((s) => s.isBackendSubscribed);
+  const showLocalBackend = useGatewayStore((s) => s.showLocalBackend);
 
   const { connectServer } = useConnection();
   const isMobile = useIsMobile();
 
   const [isOpen, setIsOpen] = useState(false);
-  const recoveryState = useRecoveryStore((s) => s);
+  const getBackendViewState = useRecoveryStore((s) => (
+    mobileRecoveryEnabled ? null : s.getBackendViewState
+  ));
+  const recoveryTransportError = useRecoveryStore((s) => (
+    mobileRecoveryEnabled ? null : s.transport.error
+  ));
+  const recoveryBackendErrors = useRecoveryStore((s) => (
+    mobileRecoveryEnabled ? null : s.backends
+  ));
+  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
 
   const backends = useFacadeStore((s) => s.backends);
   const localBackendId = useFacadeStore((s) => s.localBackendId);
   const currentInstanceId = useFacadeStore((s) => s.currentInstanceId);
+  const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const activeBackend = backends.find(b => b.backendId === activeServerId);
   const fallbackBackend =
     activeBackend
@@ -46,10 +60,18 @@ export function ServerSelector() {
     || null;
   const displayedBackend = activeBackend || fallbackBackend;
   const displayedBackendId = displayedBackend?.backendId ?? activeServerId ?? null;
-  const activeRecoveryState = recoveryState.getBackendViewState(displayedBackendId);
+  const getViewState = (backendId: string | null | undefined): BackendRecoveryViewState | MobileBackendViewState => (
+    mobileRecoveryEnabled
+      ? getMobileBackendViewState(backendId, facadeConnectionState, backends, mobileRecoveryPhase)
+      : getBackendViewState?.(backendId) ?? 'offline'
+  );
+  const activeRecoveryState = getViewState(displayedBackendId);
   const activeRecoveryError = displayedBackendId
-    ? (recoveryState.backends[displayedBackendId]?.lastError ?? recoveryState.transport.error)
+    ? (recoveryBackendErrors?.[displayedBackendId]?.lastError ?? recoveryTransportError)
     : null;
+  const isGatewayReady = mobileRecoveryEnabled
+    ? isMobileGatewayConnected(facadeConnectionState, mobileRecoveryPhase)
+    : isGatewayConnected;
   const isGatewayConfigured = !!gatewayUrl && !!gatewaySecret;
   // Show all backends in the dropdown. When the active server is remote,
   // the local backend must be visible so the user can switch back.
@@ -58,7 +80,7 @@ export function ServerSelector() {
   const remoteBackends = backends.filter(b => shouldShowNonCurrentInstanceBackend(b, currentInstanceId, effectiveShowLocal));
 
   const handleBackendClick = (backend: BackendSnapshot) => {
-    if (recoveryState.getBackendViewState(backend.backendId) === 'offline') return;
+    if (getViewState(backend.backendId) === 'offline') return;
     const serverId = backend.backendId;
     setActiveServer(serverId);
     connectServer(serverId);
@@ -69,14 +91,13 @@ export function ServerSelector() {
     setIsOpen(false);
   };
 
-  const getStatusColor = (viewState: BackendRecoveryViewState) => {
+  const getStatusColor = (viewState: BackendRecoveryViewState | MobileBackendViewState) => {
     switch (viewState) {
       case 'ready':
         return 'bg-success';
       case 'transport_reconnecting':
-      case 'backend_opening':
-      case 'backend_recovering':
-      case 'catalog_syncing':
+      case 'backend_subscribing':
+      case 'data_syncing':
       case 'session_syncing':
         return 'bg-warning animate-pulse';
       case 'error':
@@ -89,17 +110,15 @@ export function ServerSelector() {
     }
   };
 
-  const getStatusText = (viewState: BackendRecoveryViewState) => {
+  const getStatusText = (viewState: BackendRecoveryViewState | MobileBackendViewState) => {
     switch (viewState) {
       case 'ready':
         return 'Connected';
       case 'transport_reconnecting':
         return 'Reconnecting...';
-      case 'backend_opening':
-        return 'Opening backend...';
-      case 'backend_recovering':
-        return 'Recovering backend...';
-      case 'catalog_syncing':
+      case 'backend_subscribing':
+        return 'Subscribing...';
+      case 'data_syncing':
         return 'Refreshing sessions...';
       case 'session_syncing':
         return 'Recovering session...';
@@ -152,9 +171,15 @@ export function ServerSelector() {
               <span>{isMobile ? 'Servers' : 'Gateway'}</span>
               {isGatewayConfigured && (
                 <div className="flex items-center gap-1">
-                  <span className={`w-1.5 h-1.5 rounded-full ${isGatewayConnected ? 'bg-success' : 'bg-destructive'}`} />
+                  <span className={`w-1.5 h-1.5 rounded-full ${
+                    isGatewayReady
+                      ? 'bg-success'
+                      : 'bg-destructive'
+                  }`} />
                   <span className="text-[10px] normal-case font-normal">
-                    {isGatewayConnected ? 'Connected' : 'Disconnected'}
+                    {isGatewayReady
+                      ? 'Connected'
+                      : 'Disconnected'}
                   </span>
                 </div>
               )}
@@ -164,7 +189,7 @@ export function ServerSelector() {
               <div className="px-3 py-2 text-xs text-muted-foreground text-center">
                 {isMobile ? 'Gateway not configured' : 'Configure in Settings > Gateway'}
               </div>
-            ) : isGatewayConnected && remoteBackends.length > 0 ? (
+            ) : isGatewayReady && remoteBackends.length > 0 ? (
               <div className="max-h-48 overflow-y-auto">
                 {(() => {
                   const sameDevice = remoteBackends.filter(b => b.isThisDevice);
@@ -176,7 +201,7 @@ export function ServerSelector() {
                       isActive={activeServerId === backend.backendId}
                       isSubscribed={isBackendSubscribed(backend.backendId)}
                       latencyMs={connections[backend.backendId]?.latencyMs}
-                      recoveryViewState={recoveryState.getBackendViewState(backend.backendId)}
+                      recoveryViewState={getViewState(backend.backendId)}
                       onClick={() => handleBackendClick(backend)}
                       onToggleSubscription={() => toggleBackendSubscription(backend.backendId)}
                     />
@@ -197,7 +222,7 @@ export function ServerSelector() {
                   );
                 })()}
               </div>
-            ) : isGatewayConnected ? (
+            ) : isGatewayReady ? (
               <div className="px-3 py-2 text-xs text-muted-foreground text-center">
                 No backends available
               </div>
@@ -234,14 +259,14 @@ function GatewayBackendItem({
   isActive: boolean;
   isSubscribed: boolean;
   latencyMs?: number | null;
-  recoveryViewState: BackendRecoveryViewState;
+  recoveryViewState: BackendRecoveryViewState | MobileBackendViewState;
   onClick: () => void;
   onToggleSubscription: () => void;
 }) {
   const isReachable = recoveryViewState !== 'offline';
   const statusColor = recoveryViewState === 'ready'
     ? 'bg-success'
-    : ['transport_reconnecting', 'backend_opening', 'backend_recovering', 'catalog_syncing', 'session_syncing'].includes(recoveryViewState)
+    : ['transport_reconnecting', 'backend_subscribing', 'data_syncing', 'session_syncing'].includes(recoveryViewState)
     ? 'bg-warning animate-pulse'
     : recoveryViewState === 'backend_visible'
     ? 'bg-warning'
@@ -252,9 +277,8 @@ function GatewayBackendItem({
 
   const offlineLabel = (() => {
     switch (recoveryViewState) {
-      case 'backend_recovering': return 'Recovering';
-      case 'catalog_syncing': return 'Syncing';
-      case 'backend_opening': return 'Connecting';
+      case 'backend_subscribing': return 'Subscribing';
+      case 'data_syncing': return 'Syncing';
       case 'backend_visible': return 'Idle';
       case 'error': return 'Error';
       default: return 'Offline';

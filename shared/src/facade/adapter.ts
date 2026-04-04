@@ -10,7 +10,9 @@
 
 import type {
   BackendPresence,
-  SessionCatalogItem,
+  SessionItem,
+  ProjectItem,
+  BackendDataEventMessage,
   SessionMessage,
 } from '../protocol/gateway.js';
 import type { ClientMessage, ServerMessage } from '../protocol/messages.js';
@@ -34,19 +36,16 @@ export type FacadeAdapterConnectionState =
 
 export type FacadeAdapterEvent =
   | { type: 'connection_state_changed'; state: FacadeAdapterConnectionState; error?: string }
-  | { type: 'registry_snapshot_received'; revision: number; items: BackendPresence[] }
-  | { type: 'registry_event_received'; revision: number; op: 'upsert' | 'remove'; item?: BackendPresence; backendId?: string }
-  | { type: 'backend_channel_opened'; backendId: string; channelId: string; epoch: number; capabilities: string[] }
-  | { type: 'backend_channel_closed'; backendId: string; channelId: string; reason: string }
-  | { type: 'backend_channel_rejected'; backendId: string; reason: string }
-  | { type: 'catalog_snapshot_received'; backendId: string; epoch: number; revision: number; items: SessionCatalogItem[] }
-  | { type: 'catalog_event_received'; backendId: string; epoch: number; revision: number; op: 'upsert' | 'remove'; item?: SessionCatalogItem; sessionId?: string }
-  | { type: 'catalog_reset_received'; backendId: string; epoch: number }
-  | { type: 'session_stream_closed'; backendId: string; channelId: string; sessionId: string; reason: string }
-  | { type: 'content_patch_received'; backendId: string; channelId: string; sessionId: string; messages: SessionMessage[]; latestOffset: number }
-  | { type: 'content_patch_failed'; backendId: string; channelId: string; sessionId: string; afterOffset: number; error: string }
-  | { type: 'run_event_received'; backendId: string; channelId: string; sessionId: string; event: ServerMessage }
-  | { type: 'backend_message_received'; backendId: string; channelId: string; message: ServerMessage };
+  | { type: 'registry_snapshot_received'; items: BackendPresence[] }
+  | { type: 'backend_subscribed'; backendId: string; epoch: number; capabilities: string[] }
+  | { type: 'backend_unsubscribed'; backendId: string; reason: string }
+  | { type: 'backend_data_snapshot_received'; backendId: string; sessions: SessionItem[]; projects: ProjectItem[] }
+  | { type: 'backend_data_event_received'; backendId: string; event: BackendDataEventMessage }
+  | { type: 'session_stream_closed'; backendId: string; sessionId: string; reason: string }
+  | { type: 'content_patch_received'; backendId: string; sessionId: string; messages: SessionMessage[]; latestOffset: number }
+  | { type: 'content_patch_failed'; backendId: string; sessionId: string; afterOffset: number; error: string }
+  | { type: 'run_event_received'; backendId: string; sessionId: string; event: ServerMessage }
+  | { type: 'backend_message_received'; backendId: string; message: ServerMessage };
 
 // ============================================================================
 // Adapter Bootstrap State
@@ -66,16 +65,11 @@ export interface FacadeAdapterBootstrapState {
   };
 
   registry: {
-    revision: number;
     items: BackendPresence[];
   };
 
-  channels: {
-    items: Array<{
-      backendId: string;
-      channelId: string;
-      epoch: number;
-    }>;
+  subscriptions: {
+    backendIds: string[];
   };
 }
 
@@ -89,21 +83,14 @@ export interface FacadeAdapterCommands {
     disconnect(): void;
   };
 
-  channel: {
-    openBackendChannel(backendId: string, epoch: number): void;
-    closeBackendChannel(channelId: string): void;
-    sendToBackend(channelId: string, message: ClientMessage): void;
-  };
-
-  catalog: {
-    subscribe(backendId: string, epoch: number, lastRevision?: number): void;
-    unsubscribe(backendId: string, epoch: number): void;
+  backend: {
+    subscribe(backendId: string): void;
+    unsubscribe(backendId: string): void;
+    sendToBackend(backendId: string, message: ClientMessage): void;
   };
 
   stream: {
-    open(channelId: string, sessionId: string): void;
-    close(channelId: string, sessionId: string): void;
-    catchUp(channelId: string, sessionId: string, afterOffset: number): void;
+    catchUp(backendId: string, sessionId: string, afterOffset: number): void;
   };
 }
 
@@ -122,13 +109,11 @@ export interface FacadeAdapterQueries {
   };
 
   registry: {
-    getRevision(): number;
     getSnapshot(): Map<string, BackendPresence>;
   };
 
-  channel: {
-    get(backendId: string): { backendId: string; channelId: string; epoch: number } | undefined;
-    getAll(): Map<string, { backendId: string; channelId: string; epoch: number }>;
+  backend: {
+    isSubscribed(backendId: string): boolean;
   };
 
   http: {

@@ -7,7 +7,9 @@
 
 import type {
   BackendPresence,
-  SessionCatalogItem,
+  SessionItem,
+  ProjectItem,
+  BackendDataEventMessage,
   SessionMessage,
 } from '../protocol/gateway.js';
 import type { ClientMessage, ServerMessage } from '../protocol/messages.js';
@@ -30,20 +32,20 @@ export type BackendConnectionState =
 /**
  * Backend runtime state as seen by the facade.
  *
- * Derived from registry presence + channel + catalog initialization + epoch alignment.
+ * Derived from registry presence + subscription + catalog initialization.
  */
 export type BackendRuntimeState =
   | 'offline'
   | 'visible'
-  | 'opening'
+  | 'subscribing'
   | 'ready'
   | 'error';
 
-/** Backend channel lifecycle state. */
+/** Backend subscription lifecycle state. */
 export type BackendOpenState =
-  | 'closed'
-  | 'opening'
-  | 'open'
+  | 'unsubscribed'
+  | 'subscribing'
+  | 'subscribed'
   | 'error';
 
 /** Session stream lifecycle state. */
@@ -68,7 +70,6 @@ export interface BackendSnapshot {
   online: boolean;
   runtimeState: BackendRuntimeState;
   openState: BackendOpenState;
-  channelId: string | null;
   instanceId: string;
   deviceId: string;
   channel: string;
@@ -83,7 +84,6 @@ export interface SessionStreamSnapshot {
   backendId: string;
   sessionId: string;
   state: SessionStreamState;
-  channelId: string | null;
   lastError?: string;
   latestOffset?: number;
   updatedAt: number;
@@ -99,7 +99,6 @@ export interface BackendFacadeSnapshot {
   currentDeviceId: string | null;
   backends: BackendSnapshot[];
   sessionStreams: Record<string, SessionStreamSnapshot>;
-  registryRevision?: number;
 }
 
 // ============================================================================
@@ -121,13 +120,11 @@ export interface BackendRuntimeRecord {
   presence: BackendPresence | null;
   currentEpoch: number | null;
 
-  /** Outgoing channel to this backend. */
-  channelId: string | null;
-  channelEpoch: number | null;
+  /** Whether this client is subscribed to this backend. */
+  subscribed: boolean;
 
-  /** Catalog initialization tracking. */
-  catalogInitialized: boolean;
-  catalogEpoch: number | null;
+  /** Backend data initialization tracking (sessions + projects). */
+  dataInitialized: boolean;
 
   lastError?: string;
   lastClosureReason?: string;
@@ -175,7 +172,6 @@ export interface SessionStreamRuntime {
   sessionId: string;
 
   state: SessionStreamState;
-  channelId: string | null;
 
   latestOffset?: number;
   lastError?: string;
@@ -195,9 +191,9 @@ export interface SessionStreamRuntime {
 
 /** Commands that StreamManager returns for runtime to execute via adapter. */
 export type StreamCommand =
-  | { type: 'open_session_stream'; backendId: string; channelId: string; sessionId: string }
-  | { type: 'close_session_stream'; backendId: string; channelId: string; sessionId: string }
-  | { type: 'catch_up_content'; backendId: string; channelId: string; sessionId: string; afterOffset: number };
+  | { type: 'open_session_stream'; backendId: string; sessionId: string }
+  | { type: 'close_session_stream'; backendId: string; sessionId: string }
+  | { type: 'catch_up_content'; backendId: string; sessionId: string; afterOffset: number };
 
 /** Events that StreamManager returns for runtime to broadcast. */
 export type StreamEvent =
@@ -220,8 +216,8 @@ export type BackendFacadeEvent =
   | { type: 'connection_state_changed'; state: BackendConnectionState; error?: string }
   | { type: 'snapshot_updated'; snapshot: BackendFacadeSnapshot }
   | { type: 'backend_state_changed'; backendId: string; state: BackendRuntimeState; error?: string }
-  | { type: 'catalog_snapshot'; backendId: string; items: SessionCatalogItem[] }
-  | { type: 'catalog_event'; backendId: string; op: 'upsert' | 'remove'; item?: SessionCatalogItem; sessionId?: string }
+  | { type: 'backend_data_snapshot'; backendId: string; sessions: SessionItem[]; projects: ProjectItem[] }
+  | { type: 'backend_data_event'; backendId: string; event: BackendDataEventMessage }
   | { type: 'session_stream_state_changed'; stream: SessionStreamSnapshot }
   | { type: 'run_event'; backendId: string; sessionId: string; event: ServerMessage }
   | { type: 'content_patch_failed'; backendId: string; sessionId: string; afterOffset: number; error: string }

@@ -11,10 +11,10 @@ vi.mock('../../services/appLifecycleManager', () => ({
   },
 }));
 
-const mockSyncBackendCatalog = vi.fn();
+const mockSyncBackendData = vi.fn();
 const mockRecoverCurrentSessionTail = vi.fn();
 vi.mock('../../services/sessionSync', () => ({
-  syncBackendCatalog: (...args: any[]) => mockSyncBackendCatalog(...args),
+  syncBackendData: (...args: any[]) => mockSyncBackendData(...args),
   recoverCurrentSessionTail: (...args: any[]) => mockRecoverCurrentSessionTail(...args),
 }));
 
@@ -24,6 +24,8 @@ import { useProjectStore } from '../../stores/projectStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
 import { useOwnershipStore } from '../../stores/ownershipStore';
+import { RecoveryController } from '../../services/recoveryStateMachine';
+import { RecoveryTimerManager } from '../../services/recoveryTimers';
 
 describe('useRecoveryCoordinator', () => {
   const facade = {
@@ -34,7 +36,7 @@ describe('useRecoveryCoordinator', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSyncBackendCatalog.mockResolvedValue({ completed: true, sessions: [] });
+    mockSyncBackendData.mockResolvedValue({ completed: true, sessions: [] });
     mockRecoverCurrentSessionTail.mockResolvedValue(undefined);
 
     useFacadeStore.setState({
@@ -47,7 +49,6 @@ describe('useRecoveryCoordinator', () => {
       localBackendId: null,
       currentInstanceId: null,
       currentDeviceId: null,
-      registryRevision: 1,
       snapshotVersion: 1,
     });
 
@@ -92,7 +93,7 @@ describe('useRecoveryCoordinator', () => {
       activeBackendId: null,
       selectedSessionId: null,
       backends: {},
-      catalogs: {},
+      dataSyncs: {},
       activeSession: {
         sessionId: null,
         status: 'idle',
@@ -109,8 +110,38 @@ describe('useRecoveryCoordinator', () => {
     } as any);
   });
 
-  it('does not mark catalog ready when sync is skipped or incomplete', async () => {
-    mockSyncBackendCatalog.mockResolvedValue({ completed: false, sessions: [] });
+  /** Helper: render the hook. */
+  function setupCoordinator() {
+    return renderHook(() => useRecoveryCoordinator());
+  }
+
+  async function flushRecovery(
+    dispatch: ReturnType<typeof useRecoveryCoordinator>,
+  ): Promise<void> {
+    await act(async () => {
+      dispatch({ type: 'reconcile' });
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+    });
+  }
+
+  it('registers the recovery event dispatcher on mount', async () => {
+    const { result } = setupCoordinator();
+
+    await act(async () => {
+      result.current({
+        type: 'selection_changed',
+        activeBackendId: 'b1',
+        selectedSessionId: 's1',
+      });
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+    });
+
+    expect(useRecoveryStore.getState().activeBackendId).toBe('b1');
+    expect(useRecoveryStore.getState().selectedSessionId).toBe('s1');
+  });
+
+  it('marks data sync as failed when sync returns completed:false', async () => {
+    mockSyncBackendData.mockResolvedValue({ completed: false, sessions: [] });
 
     useFacadeStore.setState({
       ...useFacadeStore.getState(),
@@ -123,18 +154,24 @@ describe('useRecoveryCoordinator', () => {
       ...useRecoveryStore.getState(),
       activeBackendId: 'b1',
       backends: {
-        b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+        b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
       },
     } as any);
 
-    renderHook(() => useRecoveryCoordinator());
+    const { result } = setupCoordinator();
+    await flushRecovery(result.current);
 
     await waitFor(() => {
-      expect(mockSyncBackendCatalog).toHaveBeenCalledWith('b1', 'full');
+      expect(mockSyncBackendData).toHaveBeenCalledWith('b1', 'full');
     });
 
-    expect(useRecoveryStore.getState().catalogs.b1?.status).toBe('syncing_full');
-    expect(useRecoveryStore.getState().coordinator).toBe('recovering');
+    // Should have called noteDataSyncFailed (not stuck silently).
+    // First failure keeps syncing_full (retry budget not exhausted) but clears
+    // the dedup key so the next tick will retry.
+    await waitFor(() => {
+      const dataSync = useRecoveryStore.getState().dataSyncs.b1;
+      expect(dataSync?.lastError).toBe('Data sync incomplete');
+    });
   });
 
   it('opens the verified owner backend when active session owner is on another backend', async () => {
@@ -154,45 +191,92 @@ describe('useRecoveryCoordinator', () => {
     useRecoveryStore.setState({
       coordinator: 'recovering',
       transport: {
-        status: 'connected',
-        mode: 'direct',
-        generation: 1,
-        error: null,
-        peerSessionId: null,
-        retryCount: 0,
-        lastMessageAt: null,
-        statusEnteredAt: Date.now(),
+        status: 'connected', mode: 'direct', generation: 1,
+        error: null, peerSessionId: null, retryCount: 0, lastMessageAt: null, statusEnteredAt: Date.now(),
       },
       activeBackendId: 'b1',
       selectedSessionId: 's1',
       backends: {
-        b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
-        b2: { backendId: 'b2', status: 'visible', desiredOpen: false, channelReady: false, catalogReady: false, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+        b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+        b2: { backendId: 'b2', status: 'visible', subscribed: false, dataReady: false, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
       },
-      catalogs: {
+      dataSyncs: {
         b1: { backendId: 'b1', status: 'ready', ownershipVersion: 3, retryCount: 0, lastError: null, lastSyncAt: Date.now(), statusEnteredAt: Date.now() },
       },
       activeSession: {
-        sessionId: 's1',
-        status: 'stale',
-        backendId: null,
-        ownershipVersion: null,
-        retryCount: 0,
-        lastError: null,
-        hasGapMarker: false,
-        lastMessageAt: null,
-        statusEnteredAt: Date.now(),
+        sessionId: 's1', status: 'stale', backendId: null,
+        ownershipVersion: null, retryCount: 0, lastError: null,
+        hasGapMarker: false, lastMessageAt: null, statusEnteredAt: Date.now(),
       },
       nextOwnershipVersion: 1,
       backgroundAt: null,
     } as any);
 
-    renderHook(() => useRecoveryCoordinator());
+    const { result } = setupCoordinator();
+    await flushRecovery(result.current);
+
+    expect(facade.openBackend).toHaveBeenCalledWith('b2');
+    expect(useRecoveryStore.getState().activeSession.status).toBe('waiting_backend_ready');
+  });
+
+  it('continues recovery when owner backend data sync becomes ready after waiting', async () => {
+    useFacadeStore.setState({
+      ...useFacadeStore.getState(),
+      backends: [
+        { backendId: 'b1', online: true, runtimeState: 'ready', openState: 'open', name: 'B1' } as any,
+        { backendId: 'b2', online: true, runtimeState: 'ready', openState: 'open', name: 'B2' } as any,
+      ],
+      sessionStreams: {
+        'b2:s1': { streamKey: 'b2:s1', state: 'open', backendId: 'b2', sessionId: 's1', updatedAt: Date.now() } as any,
+      },
+    });
+    useServerStore.setState({ ...useServerStore.getState(), activeServerId: 'b1' });
+    useProjectStore.setState({ ...useProjectStore.getState(), selectedSessionId: 's1' } as any);
+    useOwnershipStore.setState({
+      ...useOwnershipStore.getState(),
+      sessionBackendIds: { s1: 'b2' },
+      sessionOwnershipVersions: { s1: 7 },
+    } as any);
+    useRecoveryStore.setState({
+      coordinator: 'recovering',
+      transport: {
+        status: 'connected', mode: 'direct', generation: 1,
+        error: null, peerSessionId: null, retryCount: 0, lastMessageAt: null, statusEnteredAt: Date.now(),
+      },
+      activeBackendId: 'b1',
+      selectedSessionId: 's1',
+      backends: {
+        b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+        b2: { backendId: 'b2', status: 'ready', subscribed: true, dataReady: false, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+      },
+      dataSyncs: {
+        b1: { backendId: 'b1', status: 'ready', ownershipVersion: 3, retryCount: 0, lastError: null, lastSyncAt: Date.now(), statusEnteredAt: Date.now() },
+        b2: { backendId: 'b2', status: 'syncing_full', ownershipVersion: 0, retryCount: 0, lastError: null, lastSyncAt: null, statusEnteredAt: Date.now() },
+      },
+      activeSession: {
+        sessionId: 's1', status: 'waiting_backend_ready', backendId: 'b2',
+        ownershipVersion: null, retryCount: 0, lastError: null, hasGapMarker: false, lastMessageAt: null, statusEnteredAt: Date.now(),
+      },
+      nextOwnershipVersion: 8,
+      backgroundAt: null,
+    } as any);
+
+    const { result } = setupCoordinator();
+
+    // Simulate data sync becoming ready
+    useRecoveryStore.setState((state) => ({
+      ...state,
+      dataSyncs: {
+        ...state.dataSyncs,
+        b2: { ...state.dataSyncs.b2, status: 'ready', ownershipVersion: 7 },
+      },
+    }));
+    await flushRecovery(result.current);
 
     await waitFor(() => {
-      expect(facade.openBackend).toHaveBeenCalledWith('b2');
+      expect(mockRecoverCurrentSessionTail).toHaveBeenCalledWith('b2', 's1');
     });
-    expect(useRecoveryStore.getState().activeSession.status).toBe('waiting_backend_ready');
+    expect(useRecoveryStore.getState().activeSession.status).toBe('live');
   });
 
   it('runs full Phase 3: session stream open → catch-up → hydrate → live', async () => {
@@ -222,9 +306,9 @@ describe('useRecoveryCoordinator', () => {
       activeBackendId: 'b1',
       selectedSessionId: 's1',
       backends: {
-        b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+        b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
       },
-      catalogs: {
+      dataSyncs: {
         b1: { backendId: 'b1', status: 'ready', ownershipVersion: 5, retryCount: 0, lastError: null, lastSyncAt: Date.now(), statusEnteredAt: Date.now() },
       },
       activeSession: {
@@ -236,7 +320,8 @@ describe('useRecoveryCoordinator', () => {
       backgroundAt: null,
     } as any);
 
-    renderHook(() => useRecoveryCoordinator());
+    const { result } = setupCoordinator();
+    await flushRecovery(result.current);
 
     await waitFor(() => {
       expect(mockRecoverCurrentSessionTail).toHaveBeenCalledWith('b1', 's1');
@@ -276,9 +361,9 @@ describe('useRecoveryCoordinator', () => {
       activeBackendId: 'b1',
       selectedSessionId: 's1',
       backends: {
-        b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+        b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
       },
-      catalogs: {
+      dataSyncs: {
         b1: { backendId: 'b1', status: 'ready', ownershipVersion: 5, retryCount: 0, lastError: null, lastSyncAt: Date.now(), statusEnteredAt: Date.now() },
       },
       activeSession: {
@@ -290,7 +375,8 @@ describe('useRecoveryCoordinator', () => {
       backgroundAt: null,
     } as any);
 
-    renderHook(() => useRecoveryCoordinator());
+    const { result } = setupCoordinator();
+    await flushRecovery(result.current);
 
     await waitFor(() => {
       const state = useRecoveryStore.getState();
@@ -322,10 +408,10 @@ describe('useRecoveryCoordinator', () => {
       activeBackendId: 'b1',
       selectedSessionId: 's1',
       backends: {
-        b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
-        b_gone: { backendId: 'b_gone', status: 'absent', desiredOpen: false, channelReady: false, catalogReady: false, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+        b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+        b_gone: { backendId: 'b_gone', status: 'absent', subscribed: false, dataReady: false, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
       },
-      catalogs: {
+      dataSyncs: {
         b1: { backendId: 'b1', status: 'ready', ownershipVersion: 3, retryCount: 0, lastError: null, lastSyncAt: Date.now(), statusEnteredAt: Date.now() },
       },
       activeSession: {
@@ -337,17 +423,16 @@ describe('useRecoveryCoordinator', () => {
       backgroundAt: null,
     } as any);
 
-    renderHook(() => useRecoveryCoordinator());
+    const { result } = setupCoordinator();
+    await flushRecovery(result.current);
 
-    await waitFor(() => {
-      const state = useRecoveryStore.getState();
-      expect(state.activeSession.status).toBe('error');
-      expect(state.activeSession.lastError).toContain('unavailable');
-    });
+    const state = useRecoveryStore.getState();
+    expect(state.activeSession.status).toBe('error');
+    expect(state.activeSession.lastError).toContain('unavailable');
   });
 
   it('completes recovery without session when no session is selected', async () => {
-    mockSyncBackendCatalog.mockResolvedValue({ completed: true, sessions: [{ id: 'x' }] });
+    mockSyncBackendData.mockResolvedValue({ completed: true, sessions: [{ id: 'x' }] });
 
     useFacadeStore.setState({
       ...useFacadeStore.getState(),
@@ -367,9 +452,9 @@ describe('useRecoveryCoordinator', () => {
       activeBackendId: 'b1',
       selectedSessionId: null,
       backends: {
-        b1: { backendId: 'b1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+        b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
       },
-      catalogs: {},
+      dataSyncs: {},
       activeSession: {
         sessionId: null, status: 'idle', backendId: null,
         ownershipVersion: null, retryCount: 0, lastError: null,
@@ -379,15 +464,15 @@ describe('useRecoveryCoordinator', () => {
       backgroundAt: null,
     } as any);
 
-    renderHook(() => useRecoveryCoordinator());
+    const { result } = setupCoordinator();
+    await flushRecovery(result.current);
 
     await waitFor(() => {
-      expect(mockSyncBackendCatalog).toHaveBeenCalledWith('b1', 'full');
+      expect(mockSyncBackendData).toHaveBeenCalledWith('b1', 'full');
     });
 
     await waitFor(() => {
       const state = useRecoveryStore.getState();
-      expect(state.catalogs.b1?.status).toBe('ready');
       expect(state.coordinator).toBe('ready');
     });
   });
@@ -401,27 +486,96 @@ describe('useRecoveryCoordinator', () => {
       },
     } as any);
 
-    renderHook(() => useRecoveryCoordinator());
+    const { result } = setupCoordinator();
+    await flushRecovery(result.current);
 
-    // Should NOT call openBackend or syncBackendCatalog
     expect(facade.openBackend).not.toHaveBeenCalled();
-    expect(mockSyncBackendCatalog).not.toHaveBeenCalled();
+    expect(mockSyncBackendData).not.toHaveBeenCalled();
   });
 
-  it('settles recovery when the active backend disappears after reconnect', async () => {
-    useServerStore.setState({ ...useServerStore.getState(), activeServerId: 'gone' });
+  it('clears dedup keys after recovery completes so next cycle is not short-circuited', async () => {
+    mockSyncBackendData.mockResolvedValue({ completed: true, sessions: [{ id: 'x' }] });
+    mockRecoverCurrentSessionTail.mockResolvedValue(undefined);
+
+    useFacadeStore.setState({
+      ...useFacadeStore.getState(),
+      backends: [
+        { backendId: 'b1', online: true, runtimeState: 'ready', openState: 'open', name: 'B1' } as any,
+      ],
+      sessionStreams: { 'b1:s1': { state: 'open', backendId: 'b1', sessionId: 's1' } },
+    });
+    useServerStore.setState({ ...useServerStore.getState(), activeServerId: 'b1' });
+    useProjectStore.setState({ ...useProjectStore.getState(), selectedSessionId: 's1' } as any);
+    useOwnershipStore.setState({
+      ...useOwnershipStore.getState(),
+      sessionBackendIds: { s1: 'b1' },
+      sessionOwnershipVersions: { s1: 5 },
+    } as any);
     useRecoveryStore.setState({
-      ...useRecoveryStore.getState(),
-      activeBackendId: 'gone',
-      backends: {
-        gone: { backendId: 'gone', status: 'absent', desiredOpen: true, channelReady: false, catalogReady: false, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+      coordinator: 'recovering',
+      transport: {
+        status: 'connected', mode: 'direct', generation: 1,
+        error: null, peerSessionId: null, retryCount: 0,
+        lastMessageAt: null, statusEnteredAt: Date.now(),
       },
+      activeBackendId: 'b1',
+      selectedSessionId: 's1',
+      backends: {
+        b1: { backendId: 'b1', status: 'ready', subscribed: true, dataReady: true, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+      },
+      dataSyncs: {},
+      activeSession: {
+        sessionId: 's1', status: 'stale', backendId: null,
+        ownershipVersion: null, retryCount: 0, lastError: null,
+        hasGapMarker: false, lastMessageAt: null, statusEnteredAt: Date.now(),
+      },
+      nextOwnershipVersion: 6,
+      backgroundAt: null,
     } as any);
 
-    renderHook(() => useRecoveryCoordinator());
+    const { result } = setupCoordinator();
+    await flushRecovery(result.current);
 
+    // Wait for first recovery to complete
     await waitFor(() => {
       expect(useRecoveryStore.getState().coordinator).toBe('ready');
     });
+    expect(mockSyncBackendData).toHaveBeenCalledTimes(1);
+
+    // Simulate a second recovery cycle (same generation, as startBackendRecovery doesn't increment)
+    mockSyncBackendData.mockClear();
+    mockSyncBackendData.mockResolvedValue({ completed: true, sessions: [] });
+    act(() => {
+      useRecoveryStore.setState({
+        ...useRecoveryStore.getState(),
+        coordinator: 'recovering',
+        dataSyncs: {},
+      } as any);
+    });
+
+    await flushRecovery(result.current);
+
+    // Should NOT be short-circuited by stale key — data sync must run again
+    await waitFor(() => {
+      expect(mockSyncBackendData).toHaveBeenCalledWith('b1', 'full');
+    });
+  });
+
+  it('scheduleTick coalesces multiple calls', async () => {
+    const timerManager = new RecoveryTimerManager();
+    const machine = new RecoveryController(timerManager);
+    const tickSpy = vi.spyOn(machine, 'tick');
+
+    machine.scheduleTick();
+    machine.scheduleTick();
+    machine.scheduleTick();
+
+    // Wait for microtask to execute
+    await new Promise(resolve => queueMicrotask(resolve));
+
+    expect(tickSpy.mock.calls.length).toBe(1);
+
+    machine.dispose();
+    timerManager.dispose();
   });
 });

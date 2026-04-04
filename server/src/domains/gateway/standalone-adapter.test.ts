@@ -16,7 +16,8 @@ function createLocalHandler(): TestLocalHandler {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    getCatalogItems: vi.fn(() => []),
+    getSessionItems: vi.fn(() => []),
+    getProjectItems: vi.fn(() => []),
     getCapabilities: vi.fn(() => []),
     emit(message: ServerMessage) {
       for (const listener of listeners) listener(message);
@@ -36,7 +37,7 @@ describe('StandaloneFacadeAdapter', () => {
     const events: any[] = [];
     adapter.events.subscribe((event) => events.push(event));
 
-    adapter.commands.channel.openBackendChannel('local-standalone', 1);
+    adapter.commands.backend.subscribe('local-standalone');
     localHandler.emit({
       type: 'run_started',
       runId: 'run-1',
@@ -54,14 +55,12 @@ describe('StandaloneFacadeAdapter', () => {
         expect.objectContaining({
           type: 'run_event_received',
           backendId: 'local-standalone',
-          channelId: 'local:local-standalone:1',
           sessionId: 'session-1',
           event: expect.objectContaining({ type: 'run_started', runId: 'run-1' }),
         }),
         expect.objectContaining({
           type: 'run_event_received',
           backendId: 'local-standalone',
-          channelId: 'local:local-standalone:1',
           sessionId: 'session-1',
           event: expect.objectContaining({ type: 'run_completed', runId: 'run-1' }),
         }),

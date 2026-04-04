@@ -1,11 +1,23 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import type { Server } from 'http';
+import net from 'node:net';
 import WebSocket from 'ws';
 import { createGatewayServer } from '../server.js';
+import { closeTestServer, listenTestServer } from './test-server.js';
 
 const GATEWAY_SECRET = 'test-secret-handshake-v2';
-const TEST_PORT = 9061;
-const WS_URL = `ws://127.0.0.1:${TEST_PORT}/ws`;
+
+async function canBindLoopback(): Promise<boolean> {
+  return await new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once('error', () => resolve(false));
+    probe.listen(0, '127.0.0.1', () => {
+      probe.close(() => resolve(true));
+    });
+  });
+}
+
+const testIfLoopback = (await canBindLoopback()) ? test : test.skip;
 
 function waitForOpen(ws: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -46,18 +58,27 @@ function waitForClose(ws: WebSocket, timeoutMs = 1000): Promise<{ code: number; 
 
 describe('Gateway handshake v2', () => {
   let server: Server;
+  let wsUrl: string;
+  const sockets = new Set<WebSocket>();
 
   beforeEach(async () => {
     server = createGatewayServer({ gatewaySecret: GATEWAY_SECRET, authTimeoutMs: 500 });
-    await new Promise<void>((resolve) => server.listen(TEST_PORT, '127.0.0.1', resolve));
+    ({ wsUrl } = await listenTestServer(server));
   });
 
   afterEach(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    for (const socket of sockets) {
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        socket.terminate();
+      }
+    }
+    sockets.clear();
+    await closeTestServer(server);
   });
 
-  test('closes malformed peer_hello instead of leaving the socket unauthenticated', async () => {
-    const ws = new WebSocket(WS_URL);
+  testIfLoopback('closes malformed peer_hello instead of leaving the socket unauthenticated', async () => {
+    const ws = new WebSocket(wsUrl);
+    sockets.add(ws);
     await waitForOpen(ws);
 
     ws.send(JSON.stringify({
@@ -76,8 +97,9 @@ describe('Gateway handshake v2', () => {
     expect(close.code).toBe(1008);
   });
 
-  test('accepts valid peer_hello and replies with peer_ready', async () => {
-    const ws = new WebSocket(WS_URL);
+  testIfLoopback('accepts valid peer_hello and replies with peer_ready', async () => {
+    const ws = new WebSocket(wsUrl);
+    sockets.add(ws);
     await waitForOpen(ws);
 
     ws.send(JSON.stringify({

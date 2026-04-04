@@ -21,6 +21,7 @@ import type {
 import { ALL_SERVER_FEATURES } from '@my-claudia/shared';
 import type { initDatabase } from './storage/db.js';
 import { createProjectRoutes } from './routes/projects.js';
+import type { ProjectChangeEvent } from './routes/projects.js';
 import { createSessionRoutes } from './routes/sessions.js';
 import { createSessionDraftRoutes } from './routes/sessionDrafts.js';
 import { createProviderRoutes } from './routes/providers.js';
@@ -212,9 +213,19 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     return !!row?.client_id;
   });
 
-  const handleProjectChanged = () => {
+  const handleProjectChanged = (event?: ProjectChangeEvent) => {
     bumpProjectsVersion();
     broadcastHeartbeat();
+
+    if (!event) return;
+    const gatewayClient = getGatewayClient();
+    if (!gatewayClient) return;
+
+    if (event.type === 'project_upsert') {
+      gatewayClient.commands.backendData.broadcastProjectEvent('updated', event.project);
+    } else {
+      gatewayClient.commands.backendData.broadcastProjectEvent('deleted', { id: event.projectId });
+    }
   };
 
   // HTTP API surface (protected by auth middleware).

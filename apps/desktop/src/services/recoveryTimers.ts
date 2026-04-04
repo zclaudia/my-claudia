@@ -10,13 +10,23 @@
 
 import { useRecoveryStore, RECOVERY_TIMEOUTS } from '../stores/recoveryStore';
 import type { BackendFacadeSnapshot } from '@my-claudia/shared';
+import {
+  noteBackendOpenRequested,
+  noteBackendOpenTimeout,
+  noteDataSyncTimeout,
+  noteSessionMarkedStale,
+  noteSessionRecoveryTimeout,
+  noteSessionResolvingOwner,
+  noteTransportRecoveryTimeout,
+  noteTransportStaleConnection,
+} from './recoveryTransitions';
 
 type TimerHandle = ReturnType<typeof setTimeout>;
 
 export type ReconciliationContext = {
   getFacadeSnapshot: () => BackendFacadeSnapshot | null;
   openBackend: (backendId: string) => void;
-  syncCatalog: (backendId: string, mode: 'full' | 'delta') => void;
+  syncData: (backendId: string, mode: 'full' | 'delta') => void;
 };
 
 export class RecoveryTimerManager {
@@ -24,9 +34,14 @@ export class RecoveryTimerManager {
   private reconcileTimer: TimerHandle | null = null;
   private reconcileCtx: ReconciliationContext | null = null;
   private disposed = false;
+  private reconcileListener: (() => void) | null = null;
 
   setReconciliationContext(ctx: ReconciliationContext): void {
     this.reconcileCtx = ctx;
+  }
+
+  setReconcileListener(listener: (() => void) | null): void {
+    this.reconcileListener = listener;
   }
 
   startTimeout(key: string, durationMs: number, onTimeout: () => void): void {
@@ -86,8 +101,11 @@ export class RecoveryTimerManager {
 
     this.reconcileTransport(store, snapshot);
     this.reconcileBackends(store, snapshot);
-    this.reconcileCatalogs(store);
+    this.reconcileDataSyncs(store);
     this.reconcileActiveSession(store, snapshot);
+    // After reconciliation corrections, trigger the recovery state machine
+    // to re-evaluate in case any state was corrected.
+    this.reconcileListener?.();
   }
 
   dispose(): void {
@@ -98,12 +116,13 @@ export class RecoveryTimerManager {
     }
     this.timers.clear();
     this.reconcileCtx = null;
+    this.reconcileListener = null;
   }
 
   /**
    * Transport reconciliation:
-   * - connected but no messages for 2× health probe interval → reconnecting
-   * - connecting/reconnecting stuck past timeout → error
+   * - connected but no messages for 2x health probe interval -> reconnecting
+   * - connecting/reconnecting stuck past timeout -> error
    */
   private reconcileTransport(
     store: ReturnType<typeof useRecoveryStore.getState>,
@@ -117,11 +136,11 @@ export class RecoveryTimerManager {
       // If the server dies, ws.onclose handles it. No stale-message heuristic needed.
       if (transport.mode === 'embedded') return;
 
-      const STALE_THRESHOLD = 2 * 25_000; // 2× health probe interval
+      const STALE_THRESHOLD = 2 * 25_000; // 2x health probe interval
       if (transport.lastMessageAt && (t - transport.lastMessageAt) > STALE_THRESHOLD) {
         console.warn('[RecoveryReconcile] Transport connected but no messages for',
           Math.round((t - transport.lastMessageAt) / 1000), 's — treating as stale');
-        store.setTransportState('reconnecting', 'reconciliation: stale connection');
+        noteTransportStaleConnection();
       }
       return;
     }
@@ -131,17 +150,17 @@ export class RecoveryTimerManager {
       if (elapsed > RECOVERY_TIMEOUTS.TRANSPORT_CONNECT) {
         console.warn('[RecoveryReconcile] Transport stuck in', transport.status, 'for',
           Math.round(elapsed / 1000), 's — marking as error');
-        store.noteTransportTimeout();
+        noteTransportRecoveryTimeout();
       }
     }
   }
 
   /**
    * Backend reconciliation:
-   * - opening: check facade snapshot for channel already open → synthesize ready
-   * - opening: check timeout → emit backend timeout
-   * - ready: check facade snapshot shows channel closed → degrade
-   * - degraded: transport connected + desired → re-trigger open
+   * - subscribing: check facade snapshot for subscription already ready -> synthesize ready
+   * - subscribing: check timeout -> emit backend timeout
+   * - ready: check facade snapshot shows subscription lost -> correct
+   * - visible: transport connected -> re-trigger open
    */
   private reconcileBackends(
     store: ReturnType<typeof useRecoveryStore.getState>,
@@ -151,17 +170,17 @@ export class RecoveryTimerManager {
     for (const [backendId, backend] of Object.entries(store.backends)) {
       const snapshotBackend = snapshot.backends.find(b => b.backendId === backendId);
 
-      if (backend.status === 'opening') {
-        if (snapshotBackend?.runtimeState === 'ready' && !backend.channelReady) {
+      if (backend.status === 'subscribing') {
+        if (snapshotBackend?.runtimeState === 'ready' && !backend.subscribed) {
           console.log('[RecoveryReconcile] Backend', backendId,
-            'channel open in snapshot but channelReady=false — correcting');
+            'subscribed in snapshot but subscribed=false — correcting');
           store.applySnapshot(snapshot);
         }
         const elapsed = t - backend.statusEnteredAt;
-        if (elapsed > RECOVERY_TIMEOUTS.BACKEND_OPEN) {
-          console.warn('[RecoveryReconcile] Backend', backendId, 'stuck in opening for',
+        if (elapsed > RECOVERY_TIMEOUTS.BACKEND_SUBSCRIBE) {
+          console.warn('[RecoveryReconcile] Backend', backendId, 'stuck in subscribing for',
             Math.round(elapsed / 1000), 's');
-          store.noteBackendTimeout(backendId);
+          noteBackendOpenTimeout(backendId);
         }
       }
 
@@ -173,12 +192,12 @@ export class RecoveryTimerManager {
         }
       }
 
-      if (backend.status === 'degraded' && backend.desiredOpen && store.transport.status === 'connected') {
+      if (backend.status === 'visible' && store.transport.status === 'connected') {
         const elapsed = t - backend.statusEnteredAt;
-        if (elapsed > RECOVERY_TIMEOUTS.BACKEND_OPEN) {
+        if (elapsed > RECOVERY_TIMEOUTS.BACKEND_SUBSCRIBE) {
           console.warn('[RecoveryReconcile] Backend', backendId,
-            'stuck in degraded with desiredOpen=true — re-triggering open');
-          store.noteBackendDesiredOpen(backendId);
+            'stuck in visible — re-triggering open');
+          noteBackendOpenRequested(backendId);
           this.reconcileCtx?.openBackend(backendId);
         }
       }
@@ -186,42 +205,42 @@ export class RecoveryTimerManager {
   }
 
   /**
-   * Catalog reconciliation:
-   * - syncing_full/syncing_delta: check timeout → emit catalog timeout
-   * - ready: check staleness → request delta sync
-   * - stale: backend channel open but not syncing → request full sync
+   * Data sync reconciliation:
+   * - syncing_full/syncing_delta: check timeout -> emit data sync timeout
+   * - ready: check staleness -> request delta sync
+   * - stale: backend subscribed but not syncing -> request full sync
    */
-  private reconcileCatalogs(
+  private reconcileDataSyncs(
     store: ReturnType<typeof useRecoveryStore.getState>,
   ): void {
     const t = Date.now();
-    for (const [backendId, catalog] of Object.entries(store.catalogs)) {
-      if (catalog.status === 'syncing_full' || catalog.status === 'syncing_delta') {
-        const elapsed = t - catalog.statusEnteredAt;
-        if (elapsed > RECOVERY_TIMEOUTS.CATALOG_SYNC) {
-          console.warn('[RecoveryReconcile] Catalog', backendId, 'stuck in',
-            catalog.status, 'for', Math.round(elapsed / 1000), 's');
-          store.noteCatalogSyncTimeout(backendId);
+    for (const [backendId, dataSync] of Object.entries(store.dataSyncs)) {
+      if (dataSync.status === 'syncing_full' || dataSync.status === 'syncing_delta') {
+        const elapsed = t - dataSync.statusEnteredAt;
+        if (elapsed > RECOVERY_TIMEOUTS.DATA_SYNC) {
+          console.warn('[RecoveryReconcile] Data sync', backendId, 'stuck in',
+            dataSync.status, 'for', Math.round(elapsed / 1000), 's');
+          noteDataSyncTimeout(backendId);
         }
       }
 
-      if (catalog.status === 'ready' && catalog.lastSyncAt) {
+      if (dataSync.status === 'ready' && dataSync.lastSyncAt) {
         const isActive = backendId === store.activeBackendId;
         const staleness = isActive
-          ? RECOVERY_TIMEOUTS.CATALOG_STALENESS_ACTIVE
-          : RECOVERY_TIMEOUTS.CATALOG_STALENESS_INACTIVE;
-        if ((t - catalog.lastSyncAt) > staleness) {
-          console.log('[RecoveryReconcile] Catalog', backendId, 'stale — requesting delta sync');
-          this.reconcileCtx?.syncCatalog(backendId, 'delta');
+          ? RECOVERY_TIMEOUTS.DATA_STALENESS_ACTIVE
+          : RECOVERY_TIMEOUTS.DATA_STALENESS_INACTIVE;
+        if ((t - dataSync.lastSyncAt) > staleness) {
+          console.log('[RecoveryReconcile] Data sync', backendId, 'stale — requesting delta sync');
+          this.reconcileCtx?.syncData(backendId, 'delta');
         }
       }
 
-      if (catalog.status === 'stale') {
+      if (dataSync.status === 'stale') {
         const backend = store.backends[backendId];
-        if (backend?.channelReady) {
-          console.log('[RecoveryReconcile] Catalog', backendId,
-            'stale with channel open — requesting full sync');
-          this.reconcileCtx?.syncCatalog(backendId, 'full');
+        if (backend?.subscribed) {
+          console.log('[RecoveryReconcile] Data sync', backendId,
+            'stale with backend subscribed — requesting full sync');
+          this.reconcileCtx?.syncData(backendId, 'full');
         }
       }
     }
@@ -231,7 +250,7 @@ export class RecoveryTimerManager {
    * Active session reconciliation:
    * - live: check facade session stream still open
    * - opening_stream/catching_up/hydrating_tail: check timeout
-   * - stale: owner backend ready + catalog ready but not recovering → kick
+   * - stale: owner backend ready + data ready but not recovering -> kick
    */
   private reconcileActiveSession(
     store: ReturnType<typeof useRecoveryStore.getState>,
@@ -246,7 +265,7 @@ export class RecoveryTimerManager {
       const stream = snapshot.sessionStreams?.[streamKey];
       if (stream && stream.state !== 'open') {
         console.warn('[RecoveryReconcile] Active session stream closed in snapshot — marking stale');
-        store.noteActiveSessionStale();
+        noteSessionMarkedStale();
       }
     }
 
@@ -259,18 +278,18 @@ export class RecoveryTimerManager {
       if (elapsed > timeout) {
         console.warn('[RecoveryReconcile] Active session stuck in', activeSession.status,
           'for', Math.round(elapsed / 1000), 's');
-        store.noteActiveSessionTimeout();
+        noteSessionRecoveryTimeout();
       }
     }
 
     if (activeSession.status === 'stale' && activeSession.backendId) {
       const ownerBackend = store.backends[activeSession.backendId];
-      const ownerCatalog = store.catalogs[activeSession.backendId];
-      if (ownerBackend?.status === 'ready' && ownerCatalog?.status === 'ready') {
+      const ownerDataSync = store.dataSyncs[activeSession.backendId];
+      if (ownerBackend?.status === 'ready' && ownerDataSync?.status === 'ready') {
         const elapsed = t - activeSession.statusEnteredAt;
         if (elapsed > RECOVERY_TIMEOUTS.SESSION_STREAM_OPEN) {
           console.warn('[RecoveryReconcile] Active session stale but owner ready — re-triggering recovery');
-          store.noteActiveSessionResolving(activeSession.sessionId, activeSession.backendId);
+          noteSessionResolvingOwner(activeSession.sessionId, activeSession.backendId);
         }
       }
     }

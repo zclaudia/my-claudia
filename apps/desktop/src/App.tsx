@@ -48,8 +48,8 @@ import { initBuiltinPanels } from './plugins/builtinPanels';
 import { useAutoUpdate } from './hooks/useAutoUpdate';
 import { useServerLatencyMonitor } from './hooks/useServerLatencyMonitor';
 import { useActiveSessionStream } from './hooks/useActiveSessionStream';
-import { useRecoveryCoordinator } from './hooks/useRecoveryCoordinator';
 import { useRecoveryStore } from './stores/recoveryStore';
+import { useMobileRecoveryStore } from './stores/mobileRecoveryStore';
 import { UpdateBanner } from './components/UpdateBanner';
 import { BrandMark } from './components/BrandMark';
 import { useShortcutStore } from './stores/shortcutStore';
@@ -57,6 +57,11 @@ import { useAgentConfigStore } from './stores/agentConfigStore';
 import { isDesktopTauri } from './utils/platform';
 import { isLocalBackendId, resolveLocalBackendId } from './utils/controlPlane';
 import { shouldShowDirectGatewaySetup } from './utils/directGatewaySetup';
+import {
+  getMobileBackendViewState,
+  getMobileControlPlaneState,
+  isMobileGatewayConnected,
+} from './services/mobileConnectionState';
 
 // ── Plugin Dock ─────────────────────────────────────────────────
 // Icon name → Lucide component mapping for plugin-declared icons.
@@ -144,9 +149,14 @@ function PluginWindowButtons() {
 
 function AppContent() {
   const { connectServer, embeddedServerStatus, embeddedServerError } = useConnection();
+  const isMobile = useIsMobile();
   const activeServerId = useServerStore((s) => s.activeServerId);
   const transportStatus = useRecoveryStore((s) => s.transport.status);
-  const controlPlaneState = transportStatus === 'connected' ? 'ready' : transportStatus === 'error' ? 'error' : 'connecting';
+  const facadeConnectionState = useFacadeStore((s) => s.connectionState);
+  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
+  const controlPlaneState = isMobile
+    ? getMobileControlPlaneState(facadeConnectionState, mobileRecoveryPhase)
+    : (transportStatus === 'connected' ? 'ready' : transportStatus === 'error' ? 'error' : 'connecting');
   const selectedSessionId = useProjectStore((s) => s.selectedSessionId);
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
   const sessions = useProjectStore((s) => s.sessions);
@@ -186,7 +196,6 @@ function AppContent() {
     }
     prevSessionRef.current = selectedSessionId;
   }, [selectedSessionId]);
-  const isMobile = useIsMobile();
   const selectedSession = selectedSessionId ? sessions.find((session) => session.id === selectedSessionId) ?? null : null;
   const [claudiaProjectId, setClaudiaProjectId] = useState<string | null>(null);
   const claudiaContextProjectId = (selectedSession?.projectId || dashboardProjectId || selectedProjectId || null) === claudiaProjectId
@@ -226,7 +235,6 @@ function AppContent() {
     : null;
 
   useActiveSessionStream();
-  useRecoveryCoordinator();
 
   const mobileInitDone = useRef(false);
   const hasConnected = useRef(false);
@@ -461,24 +469,34 @@ function AppContent() {
   useEffect(() => {
     if (!isMobile || mobileAutoConnectDone.current) return;
     if (!lastActiveBackendId) return;
-    if (transportStatus !== 'connected') return;
+    if (!isMobileGatewayConnected(facadeConnectionState, mobileRecoveryPhase)) return;
 
     const backendId = lastActiveBackendId;
-    const recoveryBackend = useRecoveryStore.getState().backends[backendId];
-    const activeBackendReady = recoveryBackend?.status === 'ready' || recoveryBackend?.status === 'opening';
+    const activeBackendViewState = getMobileBackendViewState(
+      backendId,
+      facadeConnectionState,
+      facadeBackends,
+      mobileRecoveryPhase,
+    );
+    const activeBackendReady = activeBackendViewState === 'ready' || activeBackendViewState === 'backend_subscribing';
     if (activeServerId === backendId && activeBackendReady) {
       mobileAutoConnectDone.current = true;
       return;
     }
 
-    const backendViewState = useRecoveryStore.getState().getBackendViewState(backendId);
+    const backendViewState = getMobileBackendViewState(
+      backendId,
+      facadeConnectionState,
+      facadeBackends,
+      mobileRecoveryPhase,
+    );
     if (backendViewState === 'offline') return;
 
     mobileAutoConnectDone.current = true;
     console.log('[App] Auto-reconnecting to last used backend:', lastActiveBackendId);
     useServerStore.getState().setActiveServer(lastActiveBackendId);
     connectServer(lastActiveBackendId);
-  }, [isMobile, lastActiveBackendId, transportStatus, activeServerId, connectServer]);
+  }, [isMobile, lastActiveBackendId, facadeConnectionState, mobileRecoveryPhase, facadeBackends, activeServerId, connectServer]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || new URLSearchParams(window.location.search).has('sessionWindow')) {

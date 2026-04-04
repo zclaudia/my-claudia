@@ -133,7 +133,7 @@ describe('GatewayClient', () => {
       expect(client.commands).toBeDefined();
       expect(client.commands.connection).toBeDefined();
       expect(client.commands.channel).toBeDefined();
-      expect(client.commands.catalog).toBeDefined();
+      expect(client.commands.backendData).toBeDefined();
       expect(client.commands.stream).toBeDefined();
       expect(client.queries).toBeDefined();
       expect(client.queries.identity).toBeDefined();
@@ -426,37 +426,7 @@ describe('GatewayClient', () => {
       })));
 
       expect((client as any).registryItems.size).toBe(2);
-      expect((client as any).registryRevision).toBe(2);
       expect(client.getDiscoveredBackends()).toHaveLength(2);
-    });
-
-    it('handles registry_event upsert message', () => {
-      const mockWs = (client as any).ws;
-      (client as any).backendId = 'backend-1';
-      (client as any).registryRevision = 1;
-
-      const messageHandler = mockWs.on.mock.calls.find(
-        (call: any[]) => call[0] === 'message'
-      )?.[1];
-
-      messageHandler?.(Buffer.from(JSON.stringify({
-        type: 'registry_event',
-        event: {
-          revision: 2,
-          op: 'upsert',
-          item: {
-            backendId: 'backend-new',
-            instanceId: 'instance-new',
-            deviceId: 'device-new',
-            channel: 'prod',
-            name: 'New Backend',
-            visible: true,
-          },
-        },
-      })));
-
-      expect((client as any).registryItems.has('backend-new')).toBe(true);
-      expect((client as any).registryRevision).toBe(2);
     });
 
     it('clears connection state when websocket closes', () => {
@@ -500,132 +470,65 @@ describe('GatewayClient', () => {
 
       await (client as any).handleCatchUpRequest({
         type: 'catch_up_session_content',
-        channelId: 'channel-1',
+        backendId: 'backend-1',
         sessionId: 'session-1',
         afterOffset: 7,
       });
 
       expect(sendWsSpy).toHaveBeenCalledWith(expect.objectContaining({
         type: 'session_content_patch_error',
-        channelId: 'channel-1',
+        backendId: 'backend-1',
         sessionId: 'session-1',
         afterOffset: 7,
         message: 'catch-up query failed',
       }));
     });
 
-    it('does not delete a newer outgoing channel when stale close ack arrives', () => {
-      const onOutgoingChannelClosed = vi.fn();
-      client.events.setOutgoingEvents({ onOutgoingChannelClosed });
+    it('removes backend from subscribedBackends on unsubscribed event', () => {
+      const onOutgoingBackendUnsubscribed = vi.fn();
+      client.events.setOutgoingEvents({ onOutgoingBackendUnsubscribed });
       (client as any).backendId = 'local-backend';
 
-      (client as any).outgoingChannels.set('remote-backend', {
-        backendId: 'remote-backend',
-        channelId: 'channel-new',
-        epoch: 2,
-        capabilities: [],
-      });
+      // Simulate a subscribed backend
+      (client as any).subscribedBackends.add('remote-backend');
 
-      (client as any).handleBackendChannelClosedMsg({
-        type: 'backend_channel_closed',
+      (client as any).handleBackendUnsubscribed({
+        type: 'backend_unsubscribed',
         backendId: 'remote-backend',
-        channelId: 'channel-old',
         reason: 'peer_closed',
       });
 
-      expect((client as any).outgoingChannels.get('remote-backend')).toEqual({
-        backendId: 'remote-backend',
-        channelId: 'channel-new',
-        epoch: 2,
-        capabilities: [],
-      });
-      expect(onOutgoingChannelClosed).toHaveBeenCalledWith('remote-backend', 'channel-old', 'peer_closed');
+      expect((client as any).subscribedBackends.has('remote-backend')).toBe(false);
+      expect(onOutgoingBackendUnsubscribed).toHaveBeenCalledWith('remote-backend', 'peer_closed');
     });
 
-    it('ignores stale outgoing catalog messages with mismatched epoch', () => {
-      const onOutgoingCatalogSnapshot = vi.fn();
-      const onOutgoingCatalogEvent = vi.fn();
-      const onOutgoingCatalogReset = vi.fn();
+    it('forwards all outgoing backend data messages to event handlers', () => {
+      const onOutgoingBackendDataSnapshot = vi.fn();
+      const onOutgoingBackendDataEvent = vi.fn();
       client.events.setOutgoingEvents({
-        onOutgoingCatalogSnapshot,
-        onOutgoingCatalogEvent,
-        onOutgoingCatalogReset,
+        onOutgoingBackendDataSnapshot,
+        onOutgoingBackendDataEvent,
       });
 
-      (client as any).outgoingChannels.set('remote-backend', {
+      (client as any).handleOutgoingBackendDataSnapshot({
+        type: 'backend_data_snapshot',
         backendId: 'remote-backend',
-        channelId: 'channel-current',
-        epoch: 3,
-        capabilities: [],
+        sessions: [],
+        projects: [],
       });
-
-      (client as any).handleOutgoingCatalogSnapshot({
-        type: 'backend_catalog_snapshot',
+      (client as any).handleOutgoingBackendDataEvent({
+        type: 'backend_data_event',
         backendId: 'remote-backend',
-        epoch: 2,
-        revision: 10,
-        items: [],
-      });
-      (client as any).handleOutgoingCatalogEvent({
-        type: 'backend_catalog_event',
-        backendId: 'remote-backend',
-        epoch: 2,
-        revision: 11,
-        op: 'remove',
+        op: 'session_remove',
         sessionId: 'session-1',
       });
-      (client as any).handleOutgoingCatalogReset({
-        type: 'backend_catalog_reset',
-        backendId: 'remote-backend',
-        epoch: 2,
-      });
 
-      expect(onOutgoingCatalogSnapshot).not.toHaveBeenCalled();
-      expect(onOutgoingCatalogEvent).not.toHaveBeenCalled();
-      expect(onOutgoingCatalogReset).not.toHaveBeenCalled();
-    });
-
-    it('forwards outgoing catalog messages for current epoch', () => {
-      const onOutgoingCatalogSnapshot = vi.fn();
-      const onOutgoingCatalogEvent = vi.fn();
-      const onOutgoingCatalogReset = vi.fn();
-      client.events.setOutgoingEvents({
-        onOutgoingCatalogSnapshot,
-        onOutgoingCatalogEvent,
-        onOutgoingCatalogReset,
-      });
-
-      (client as any).outgoingChannels.set('remote-backend', {
-        backendId: 'remote-backend',
-        channelId: 'channel-current',
-        epoch: 3,
-        capabilities: [],
-      });
-
-      (client as any).handleOutgoingCatalogSnapshot({
-        type: 'backend_catalog_snapshot',
-        backendId: 'remote-backend',
-        epoch: 3,
-        revision: 10,
-        items: [],
-      });
-      (client as any).handleOutgoingCatalogEvent({
-        type: 'backend_catalog_event',
-        backendId: 'remote-backend',
-        epoch: 3,
-        revision: 11,
-        op: 'remove',
+      expect(onOutgoingBackendDataSnapshot).toHaveBeenCalledWith('remote-backend', [], []);
+      expect(onOutgoingBackendDataEvent).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'backend_data_event',
+        op: 'session_remove',
         sessionId: 'session-1',
-      });
-      (client as any).handleOutgoingCatalogReset({
-        type: 'backend_catalog_reset',
-        backendId: 'remote-backend',
-        epoch: 3,
-      });
-
-      expect(onOutgoingCatalogSnapshot).toHaveBeenCalledWith('remote-backend', 3, 10, []);
-      expect(onOutgoingCatalogEvent).toHaveBeenCalledWith('remote-backend', 3, 11, 'remove', undefined, 'session-1');
-      expect(onOutgoingCatalogReset).toHaveBeenCalledWith('remote-backend', 3);
+      }));
     });
   });
 
@@ -714,14 +617,14 @@ describe('GatewayClient', () => {
       (client as any).epoch = 1;
       (client as any).isConnected = true;
 
-      client.commands.catalog.publishSnapshot();
+      client.commands.backendData.publishSnapshot();
 
       expect(mockWs.send).toHaveBeenCalledWith(
-        expect.stringContaining('catalog_snapshot')
+        expect.stringContaining('backend_data_snapshot')
       );
     });
 
-    it('broadcastSessionEvent publishes catalog event', () => {
+    it('broadcastSessionEvent publishes backend data event', () => {
       client = new GatewayClient(mockConfig);
       client.connect();
       const mockWs = (client as any).ws;
@@ -730,14 +633,14 @@ describe('GatewayClient', () => {
       (client as any).epoch = 1;
       (client as any).isConnected = true;
 
-      client.commands.catalog.broadcastSessionEvent('created', { id: 'session-1', name: 'Test' });
+      client.commands.backendData.broadcastSessionEvent('created', { id: 'session-1', name: 'Test' });
 
       expect(mockWs.send).toHaveBeenCalledWith(
-        expect.stringContaining('catalog_event')
+        expect.stringContaining('backend_data_event')
       );
     });
 
-    it('broadcastSessionEvent removes archived sessions from the catalog', () => {
+    it('broadcastSessionEvent removes archived sessions', () => {
       client = new GatewayClient(mockConfig);
       client.connect();
       const mockWs = (client as any).ws;
@@ -746,7 +649,7 @@ describe('GatewayClient', () => {
       (client as any).epoch = 1;
       (client as any).isConnected = true;
 
-      client.commands.catalog.broadcastSessionEvent('updated', {
+      client.commands.backendData.broadcastSessionEvent('updated', {
         id: 'session-1',
         name: 'Archived Session',
         archivedAt: Date.now(),
@@ -754,9 +657,57 @@ describe('GatewayClient', () => {
 
       const sent = JSON.parse(mockWs.send.mock.calls[0][0]);
       expect(sent).toMatchObject({
-        type: 'catalog_event',
-        op: 'remove',
+        type: 'backend_data_event',
+        op: 'session_remove',
         sessionId: 'session-1',
+      });
+    });
+
+    it('broadcastProjectEvent publishes project upsert events', () => {
+      client = new GatewayClient(mockConfig);
+      client.connect();
+      const mockWs = (client as any).ws;
+      mockWs.readyState = WebSocket.OPEN;
+      (client as any).backendId = 'backend-123';
+      (client as any).epoch = 1;
+      (client as any).isConnected = true;
+
+      client.commands.backendData.broadcastProjectEvent('updated', {
+        id: 'project-1',
+        name: 'Project One',
+        createdAt: 1,
+        updatedAt: 2,
+      });
+
+      const sent = JSON.parse(mockWs.send.mock.calls[0][0]);
+      expect(sent).toMatchObject({
+        type: 'backend_data_event',
+        op: 'project_upsert',
+        item: {
+          projectId: 'project-1',
+          name: 'Project One',
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      });
+    });
+
+    it('broadcastProjectEvent publishes project remove events', () => {
+      client = new GatewayClient(mockConfig);
+      client.connect();
+      const mockWs = (client as any).ws;
+      mockWs.readyState = WebSocket.OPEN;
+      (client as any).backendId = 'backend-123';
+      (client as any).epoch = 1;
+      (client as any).isConnected = true;
+
+      client.commands.backendData.broadcastProjectEvent('deleted', { id: 'project-1' });
+
+      const sent = JSON.parse(mockWs.send.mock.calls[0][0]);
+      expect(sent).toMatchObject({
+        type: 'backend_data_event',
+        op: 'project_remove',
+        projectId: 'project-1',
       });
     });
 

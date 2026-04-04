@@ -11,6 +11,7 @@ import { MobileSetup } from '../MobileSetup';
 import { useGatewayStore } from '../../stores/gatewayStore';
 import { useFacadeStore } from '../../stores/facadeStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
+import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import { useServerStore } from '../../stores/serverStore';
 
 describe('MobileSetup', () => {
@@ -39,7 +40,6 @@ describe('MobileSetup', () => {
       localBackendId: null,
       currentInstanceId: null,
       currentDeviceId: null,
-      registryRevision: 0,
       snapshotVersion: 0,
     });
 
@@ -56,8 +56,9 @@ describe('MobileSetup', () => {
         error: null,
       },
       backends: {},
-      catalogs: {},
+      dataSyncs: {},
     }));
+    useMobileRecoveryStore.getState().reset();
   });
 
   it('shows the real facade connection error instead of waiting for timeout', async () => {
@@ -166,5 +167,34 @@ describe('MobileSetup', () => {
     }
 
     expect(screen.getByTestId('mobile-debug-panel')).toBeInTheDocument();
+  });
+
+  it('keeps setup form visible while mobile recovery is running', () => {
+    useFacadeStore.setState({
+      connectionState: 'connected',
+      connectionError: null,
+      backends: [
+        {
+          backendId: 'backend-1',
+          name: 'Backend 1',
+          online: true,
+          runtimeState: 'ready',
+          openState: 'open',
+          channelId: 'ch-1',
+          instanceId: 'inst-remote',
+          deviceId: 'dev-remote',
+          channel: 'prod',
+          isThisInstance: false,
+          isThisDevice: false,
+          capabilities: [],
+        },
+      ],
+    } as any);
+    useMobileRecoveryStore.setState({ phase: 'recovering' } as any);
+
+    render(<MobileSetup />);
+
+    expect(screen.getByText('MyClaudia')).toBeInTheDocument();
+    expect(screen.queryByText('Select a Server')).not.toBeInTheDocument();
   });
 });

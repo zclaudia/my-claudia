@@ -18,7 +18,7 @@ describe('RecoveryTimerManager', () => {
       activeBackendId: 'b1',
       selectedSessionId: null,
       backends: {},
-      catalogs: {},
+      dataSyncs: {},
       activeSession: {
         sessionId: null, status: 'idle', backendId: null,
         ownershipVersion: null, retryCount: 0, lastError: null,
@@ -108,7 +108,7 @@ describe('RecoveryTimerManager', () => {
   describe('reconciliation', () => {
     it('runs reconciliation tick at 30s intervals', () => {
       const openBackend = vi.fn();
-      const syncCatalog = vi.fn();
+      const syncData = vi.fn();
       mgr.setReconciliationContext({
         getFacadeSnapshot: () => ({
           snapshotVersion: 1, capturedAt: Date.now(), mode: 'direct' as const,
@@ -117,7 +117,7 @@ describe('RecoveryTimerManager', () => {
           backends: [], sessionStreams: {},
         }),
         openBackend,
-        syncCatalog,
+        syncData,
       });
 
       mgr.startReconciliation();
@@ -157,7 +157,7 @@ describe('RecoveryTimerManager', () => {
           backends: [], sessionStreams: {},
         }),
         openBackend: vi.fn(),
-        syncCatalog: vi.fn(),
+        syncData: vi.fn(),
       });
 
       mgr.runReconciliationTick();
@@ -184,7 +184,7 @@ describe('RecoveryTimerManager', () => {
           backends: [], sessionStreams: {},
         }),
         openBackend: vi.fn(),
-        syncCatalog: vi.fn(),
+        syncData: vi.fn(),
       });
 
       mgr.runReconciliationTick();
@@ -209,7 +209,7 @@ describe('RecoveryTimerManager', () => {
           backends: [], sessionStreams: {},
         }),
         openBackend: vi.fn(),
-        syncCatalog: vi.fn(),
+        syncData: vi.fn(),
       });
 
       mgr.runReconciliationTick();
@@ -235,7 +235,7 @@ describe('RecoveryTimerManager', () => {
           backends: [], sessionStreams: {},
         }),
         openBackend: vi.fn(),
-        syncCatalog: vi.fn(),
+        syncData: vi.fn(),
       });
 
       mgr.runReconciliationTick();
@@ -243,13 +243,13 @@ describe('RecoveryTimerManager', () => {
       expect(useRecoveryStore.getState().transport.status).toBe('error');
     });
 
-    it('reconciles backend stuck in opening by triggering timeout', () => {
+    it('reconciles backend stuck in subscribing by triggering timeout', () => {
       const stuckTime = Date.now() - 25_000; // 25s ago
       useRecoveryStore.setState({
         backends: {
           b1: {
-            backendId: 'b1', status: 'opening', desiredOpen: true,
-            channelReady: false, catalogReady: false, retryCount: 0,
+            backendId: 'b1', status: 'subscribing', subscribed: false,
+            dataReady: false, retryCount: 0,
             lastError: null, lastCloseReason: null, statusEnteredAt: stuckTime,
           },
         },
@@ -260,11 +260,11 @@ describe('RecoveryTimerManager', () => {
           snapshotVersion: 1, capturedAt: Date.now(), mode: 'direct' as const,
           connectionState: 'connected' as const, localBackendId: null,
           currentInstanceId: null, currentDeviceId: null,
-          backends: [{ backendId: 'b1', runtimeState: 'opening', online: true } as any],
+          backends: [{ backendId: 'b1', runtimeState: 'subscribing', online: true } as any],
           sessionStreams: {},
         }),
         openBackend: vi.fn(),
-        syncCatalog: vi.fn(),
+        syncData: vi.fn(),
       });
 
       mgr.runReconciliationTick();
@@ -276,8 +276,8 @@ describe('RecoveryTimerManager', () => {
       useRecoveryStore.setState({
         backends: {
           b1: {
-            backendId: 'b1', status: 'ready', desiredOpen: true,
-            channelReady: true, catalogReady: true, retryCount: 0,
+            backendId: 'b1', status: 'ready', subscribed: true,
+            dataReady: true, retryCount: 0,
             lastError: null, lastCloseReason: null, statusEnteredAt: Date.now(),
           },
         },
@@ -292,7 +292,7 @@ describe('RecoveryTimerManager', () => {
           sessionStreams: {},
         }),
         openBackend: vi.fn(),
-        syncCatalog: vi.fn(),
+        syncData: vi.fn(),
       });
 
       mgr.runReconciliationTick();
@@ -302,14 +302,14 @@ describe('RecoveryTimerManager', () => {
       expect(b1.status).not.toBe('ready');
     });
 
-    it('reconciles degraded backend by re-triggering open', () => {
+    it('reconciles visible backend by re-triggering open', () => {
       const stuckTime = Date.now() - 25_000;
       const openBackend = vi.fn();
       useRecoveryStore.setState({
         backends: {
           b1: {
-            backendId: 'b1', status: 'degraded', desiredOpen: true,
-            channelReady: false, catalogReady: false, retryCount: 0,
+            backendId: 'b1', status: 'visible', subscribed: false,
+            dataReady: false, retryCount: 0,
             lastError: null, lastCloseReason: 'transport_reconnecting',
             statusEnteredAt: stuckTime,
           },
@@ -325,7 +325,7 @@ describe('RecoveryTimerManager', () => {
           sessionStreams: {},
         }),
         openBackend,
-        syncCatalog: vi.fn(),
+        syncData: vi.fn(),
       });
 
       mgr.runReconciliationTick();
@@ -333,10 +333,10 @@ describe('RecoveryTimerManager', () => {
       expect(openBackend).toHaveBeenCalledWith('b1');
     });
 
-    it('reconciles stuck delta catalog sync by falling back to stale', () => {
+    it('reconciles stuck delta data sync by falling back to stale', () => {
       const stuckTime = Date.now() - 15_000;
       useRecoveryStore.setState({
-        catalogs: {
+        dataSyncs: {
           b1: {
             backendId: 'b1', status: 'syncing_delta', ownershipVersion: 1,
             retryCount: 0, lastError: null, lastSyncAt: null,
@@ -353,18 +353,18 @@ describe('RecoveryTimerManager', () => {
           backends: [], sessionStreams: {},
         }),
         openBackend: vi.fn(),
-        syncCatalog: vi.fn(),
+        syncData: vi.fn(),
       });
 
       mgr.runReconciliationTick();
 
-      expect(useRecoveryStore.getState().catalogs.b1.status).toBe('stale');
+      expect(useRecoveryStore.getState().dataSyncs.b1.status).toBe('stale');
     });
 
-    it('reconciles stuck full catalog sync by incrementing retryCount', () => {
+    it('reconciles stuck full data sync by incrementing retryCount', () => {
       const stuckTime = Date.now() - 15_000;
       useRecoveryStore.setState({
-        catalogs: {
+        dataSyncs: {
           b1: {
             backendId: 'b1', status: 'syncing_full', ownershipVersion: 1,
             retryCount: 0, lastError: null, lastSyncAt: null,
@@ -381,27 +381,27 @@ describe('RecoveryTimerManager', () => {
           backends: [], sessionStreams: {},
         }),
         openBackend: vi.fn(),
-        syncCatalog: vi.fn(),
+        syncData: vi.fn(),
       });
 
       mgr.runReconciliationTick();
 
-      const catalog = useRecoveryStore.getState().catalogs.b1;
-      expect(catalog.retryCount).toBe(1);
-      expect(catalog.lastError).toContain('timeout');
+      const dataSync = useRecoveryStore.getState().dataSyncs.b1;
+      expect(dataSync.retryCount).toBe(1);
+      expect(dataSync.lastError).toContain('timeout');
     });
 
-    it('reconciles stale catalog with channel ready by requesting full sync', () => {
-      const syncCatalog = vi.fn();
+    it('reconciles stale data sync with backend subscribed by requesting full sync', () => {
+      const syncData = vi.fn();
       useRecoveryStore.setState({
         backends: {
           b1: {
-            backendId: 'b1', status: 'ready', desiredOpen: true,
-            channelReady: true, catalogReady: true, retryCount: 0,
+            backendId: 'b1', status: 'ready', subscribed: true,
+            dataReady: true, retryCount: 0,
             lastError: null, lastCloseReason: null, statusEnteredAt: Date.now(),
           },
         },
-        catalogs: {
+        dataSyncs: {
           b1: {
             backendId: 'b1', status: 'stale', ownershipVersion: 1,
             retryCount: 0, lastError: null, lastSyncAt: null,
@@ -419,12 +419,12 @@ describe('RecoveryTimerManager', () => {
           sessionStreams: {},
         }),
         openBackend: vi.fn(),
-        syncCatalog,
+        syncData,
       });
 
       mgr.runReconciliationTick();
 
-      expect(syncCatalog).toHaveBeenCalledWith('b1', 'full');
+      expect(syncData).toHaveBeenCalledWith('b1', 'full');
     });
 
     it('reconciles live session when stream is closed in snapshot', () => {
@@ -448,7 +448,7 @@ describe('RecoveryTimerManager', () => {
           sessionStreams: { 'b1:s1': { state: 'closed' } },
         }),
         openBackend: vi.fn(),
-        syncCatalog: vi.fn(),
+        syncData: vi.fn(),
       });
 
       mgr.runReconciliationTick();
@@ -477,7 +477,7 @@ describe('RecoveryTimerManager', () => {
           backends: [], sessionStreams: {},
         }),
         openBackend: vi.fn(),
-        syncCatalog: vi.fn(),
+        syncData: vi.fn(),
       });
 
       mgr.runReconciliationTick();
@@ -487,19 +487,19 @@ describe('RecoveryTimerManager', () => {
       expect(session.status).toBe('error');
     });
 
-    it('reconciles stale session when owner backend and catalog are ready', () => {
+    it('reconciles stale session when owner backend and data sync are ready', () => {
       const stuckTime = Date.now() - 25_000;
       useRecoveryStore.setState({
         activeBackendId: 'b1',
         selectedSessionId: 's1',
         backends: {
           b1: {
-            backendId: 'b1', status: 'ready', desiredOpen: true,
-            channelReady: true, catalogReady: true, retryCount: 0,
+            backendId: 'b1', status: 'ready', subscribed: true,
+            dataReady: true, retryCount: 0,
             lastError: null, lastCloseReason: null, statusEnteredAt: Date.now(),
           },
         },
-        catalogs: {
+        dataSyncs: {
           b1: {
             backendId: 'b1', status: 'ready', ownershipVersion: 1,
             retryCount: 0, lastError: null, lastSyncAt: Date.now(),
@@ -522,7 +522,7 @@ describe('RecoveryTimerManager', () => {
           backends: [], sessionStreams: {},
         }),
         openBackend: vi.fn(),
-        syncCatalog: vi.fn(),
+        syncData: vi.fn(),
       });
 
       mgr.runReconciliationTick();
@@ -533,7 +533,7 @@ describe('RecoveryTimerManager', () => {
     it('skips reconciliation when coordinator is background', () => {
       useRecoveryStore.setState({ coordinator: 'background' } as any);
 
-      const syncCatalog = vi.fn();
+      const syncData = vi.fn();
       mgr.setReconciliationContext({
         getFacadeSnapshot: () => ({
           snapshotVersion: 1, capturedAt: Date.now(), mode: 'direct' as const,
@@ -542,18 +542,18 @@ describe('RecoveryTimerManager', () => {
           backends: [], sessionStreams: {},
         }),
         openBackend: vi.fn(),
-        syncCatalog,
+        syncData,
       });
 
       mgr.runReconciliationTick();
 
-      expect(syncCatalog).not.toHaveBeenCalled();
+      expect(syncData).not.toHaveBeenCalled();
     });
 
     it('skips reconciliation when coordinator is error', () => {
       useRecoveryStore.setState({ coordinator: 'error' } as any);
 
-      const syncCatalog = vi.fn();
+      const syncData = vi.fn();
       mgr.setReconciliationContext({
         getFacadeSnapshot: () => ({
           snapshotVersion: 1, capturedAt: Date.now(), mode: 'direct' as const,
@@ -562,16 +562,16 @@ describe('RecoveryTimerManager', () => {
           backends: [], sessionStreams: {},
         }),
         openBackend: vi.fn(),
-        syncCatalog,
+        syncData,
       });
 
       mgr.runReconciliationTick();
 
-      expect(syncCatalog).not.toHaveBeenCalled();
+      expect(syncData).not.toHaveBeenCalled();
     });
 
-    it('reconciles stale catalog by requesting delta sync', () => {
-      const syncCatalog = vi.fn();
+    it('reconciles stale data sync by requesting delta sync', () => {
+      const syncData = vi.fn();
       mgr.setReconciliationContext({
         getFacadeSnapshot: () => ({
           snapshotVersion: 1, capturedAt: Date.now(), mode: 'direct' as const,
@@ -581,12 +581,12 @@ describe('RecoveryTimerManager', () => {
           sessionStreams: {},
         }),
         openBackend: vi.fn(),
-        syncCatalog,
+        syncData,
       });
 
       const staleTime = Date.now() - 6 * 60_000; // 6 minutes ago
       useRecoveryStore.setState({
-        catalogs: {
+        dataSyncs: {
           b1: {
             backendId: 'b1', status: 'ready', ownershipVersion: 1,
             retryCount: 0, lastError: null,
@@ -597,7 +597,7 @@ describe('RecoveryTimerManager', () => {
 
       mgr.runReconciliationTick();
 
-      expect(syncCatalog).toHaveBeenCalledWith('b1', 'delta');
+      expect(syncData).toHaveBeenCalledWith('b1', 'delta');
     });
   });
 });

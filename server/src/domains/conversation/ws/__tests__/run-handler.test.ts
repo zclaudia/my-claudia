@@ -348,7 +348,7 @@ describe('ws/run-handler', () => {
     const broadcastSessionEvent = vi.fn();
     getGatewayClientMock.mockReturnValue({
       commands: {
-        catalog: {
+        backendData: {
           broadcastSessionEvent,
         },
       },

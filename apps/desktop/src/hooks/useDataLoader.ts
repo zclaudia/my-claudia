@@ -2,14 +2,30 @@ import { useEffect, useCallback } from 'react';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useRecoveryStore } from '../stores/recoveryStore';
+import { useFacadeStore } from '../stores/facadeStore';
+import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import * as api from '../services/api';
+import { isMobileBackendUsable } from '../services/mobileConnectionState';
+import { isAndroid } from '../utils/platform';
 
 export function useDataLoader() {
+  const mobileRecoveryEnabled = isAndroid();
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const isActiveConnected = useRecoveryStore((s) => {
-    if (!activeServerId) return false;
+  const recoveryIsActiveConnected = useRecoveryStore((s) => {
+    if (mobileRecoveryEnabled || !activeServerId) return false;
     return s.backends[activeServerId]?.status === 'ready';
   });
+  const facadeConnectionState = useFacadeStore((s) => s.connectionState);
+  const facadeBackends = useFacadeStore((s) => s.backends);
+  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
+  const isActiveConnected = mobileRecoveryEnabled
+    ? isMobileBackendUsable({
+      backendId: activeServerId,
+      connectionState: facadeConnectionState,
+      backends: facadeBackends,
+      recoveryPhase: mobileRecoveryPhase,
+    })
+    : recoveryIsActiveConnected;
   const setDataServerId = useProjectStore((s) => s.setDataServerId);
 
   const loadData = useCallback(async (signal?: AbortSignal) => {

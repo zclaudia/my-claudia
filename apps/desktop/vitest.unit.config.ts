@@ -26,6 +26,7 @@ export default defineConfig({
       'src/utils/**/*.test.ts',
       'src/config/**/*.test.ts',
       'src/components/**/*.test.ts',
+      'src/facade/**/*.test.ts',
       'src/hooks/transport/**/*.test.ts',
       'src/services/__tests__/api.test.ts',
       'src/services/__tests__/fileDownload.test.ts',

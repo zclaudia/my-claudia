@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, waitFor } from '@testing-library/react';
 import { WorkflowEditorWindow } from '../WorkflowEditorWindow';
+import { useServerStore } from '../../../../stores/serverStore';
+import { useRecoveryStore } from '../../../../stores/recoveryStore';
+import { useFacadeStore } from '../../../../stores/facadeStore';
+import { useMobileRecoveryStore } from '../../../../stores/mobileRecoveryStore';
+import { useProjectStore } from '../../../../stores/projectStore';
+import * as api from '../../../../services/api';
+import { isAndroid } from '../../../../utils/platform';
 
 vi.mock('../WorkflowEditor', () => ({
   WorkflowEditor: (props: any) => (
@@ -13,9 +20,45 @@ vi.mock('../WorkflowEditor', () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
+vi.mock('../../../../services/api', () => ({
+  getProjects: vi.fn().mockResolvedValue([]),
+  getProviders: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock('../../../../utils/platform', async (importOriginal) => {
+  const mod = await importOriginal<Record<string, any>>();
+  return {
+    ...mod,
+    isAndroid: vi.fn(() => false),
+  };
+});
+
 describe('WorkflowEditorWindow', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     mockFetch.mockReset();
+    useServerStore.setState({
+      activeServerId: 'backend-1',
+      connections: {
+        'backend-1': { status: 'connected', error: null, isLocalConnection: false, features: [] },
+      },
+    } as any);
+    useRecoveryStore.setState({
+      backends: {
+        'backend-1': { status: 'ready' },
+      },
+    } as any);
+    useFacadeStore.setState({
+      connectionState: 'connected',
+      backends: [{ backendId: 'backend-1', runtimeState: 'ready', name: 'Backend 1' }],
+    } as any);
+    useMobileRecoveryStore.getState().reset();
+    useProjectStore.setState({
+      setProjects: vi.fn(),
+      setProviders: vi.fn(),
+      selectProject: vi.fn(),
+    } as any);
+    vi.mocked(isAndroid).mockReturnValue(false);
   });
 
   it('renders WorkflowEditor when no workflowId (new workflow)', () => {
@@ -136,5 +179,23 @@ describe('WorkflowEditorWindow', () => {
         }),
       );
     });
+  });
+
+  it('does not load workflow editor context on Android while mobile recovery is running', async () => {
+    vi.mocked(isAndroid).mockReturnValue(true);
+    useMobileRecoveryStore.setState({ phase: 'recovering' } as any);
+
+    render(
+      <WorkflowEditorWindow
+        projectId="p1"
+        serverUrl="http://localhost:3100"
+        authToken="tok"
+      />,
+    );
+
+    await Promise.resolve();
+
+    expect(api.getProjects).not.toHaveBeenCalled();
+    expect(api.getProviders).not.toHaveBeenCalled();
   });
 });

@@ -58,7 +58,6 @@ describe('EmbeddedFacadeClient', () => {
             },
           ],
           sessionStreams: {},
-          registryRevision: 1,
         },
       }),
     });
@@ -84,7 +83,6 @@ describe('EmbeddedFacadeClient', () => {
             },
           ],
           sessionStreams: {},
-          registryRevision: 1,
         },
       }),
     });

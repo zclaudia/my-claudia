@@ -253,16 +253,10 @@ describe('handleServerMessage', () => {
       expect(mockProjectStore.setSessionActive).not.toHaveBeenCalled();
     });
 
-    it('uses currentSessionId when no sessionId provided', () => {
-      handleServerMessage({ type: 'run_started', runId: 'r1' }, makeCtx());
-      expect(mockChatStore.startRun).toHaveBeenCalledWith('r1', 'current-session', false);
-    });
-
-    it('warns when no sessionId at all', () => {
-      mockProjectStore.selectedSessionId = null as any;
+    it('ignores run_started when no sessionId provided', () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       handleServerMessage({ type: 'run_started', runId: 'r1' }, makeCtx());
-      expect(warn).toHaveBeenCalled();
+      expect(mockChatStore.startRun).not.toHaveBeenCalled();
       warn.mockRestore();
     });
 

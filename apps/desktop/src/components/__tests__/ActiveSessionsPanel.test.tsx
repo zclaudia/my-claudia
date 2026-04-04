@@ -31,7 +31,6 @@ describe('ActiveSessionsPanel', () => {
       connectionState: 'idle',
       mode: null,
       snapshotVersion: 0,
-      registryRevision: 0,
       sessionStreams: {},
     });
   });

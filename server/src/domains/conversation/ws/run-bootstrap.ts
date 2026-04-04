@@ -261,7 +261,7 @@ export function initializeRunBootstrap(input: InitializeRunBootstrapInput): RunB
     `).get(message.sessionId) as { id: string; name?: string; createdAt?: number; updatedAt?: number } | undefined;
 
     if (updatedSession) {
-      gatewayClient.commands.catalog.broadcastSessionEvent('updated', updatedSession);
+      gatewayClient.commands.backendData.broadcastSessionEvent('updated', updatedSession);
     }
   };
 
@@ -281,7 +281,7 @@ export function initializeRunBootstrap(input: InitializeRunBootstrapInput): RunB
     } | undefined;
 
     if (updatedSession) {
-      gatewayClient.commands.catalog.broadcastSessionEvent('updated', updatedSession);
+      gatewayClient.commands.backendData.broadcastSessionEvent('updated', updatedSession);
     }
   };
 

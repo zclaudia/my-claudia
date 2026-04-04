@@ -118,3 +118,5 @@ gateway/.deploy-version*
 !.github/workflows/
 
 .cursor/
+
+.version

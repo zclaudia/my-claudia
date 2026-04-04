@@ -26,7 +26,6 @@ describe('gatewayStore', () => {
       localBackendId: null,
       currentInstanceId: null,
       currentDeviceId: null,
-      registryRevision: 0,
       snapshotVersion: 0,
     });
   });

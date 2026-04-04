@@ -17,7 +17,7 @@
     "test:unit": "vitest run --config=vitest.unit.config.ts",
     "test:hooks": "vitest run --config=vitest.hooks.config.ts",
     "test:ui": "vitest run --config=vitest.ui.config.ts",
-    "test:all": "pnpm test:unit && pnpm test:ui",
+    "test:all": "pnpm test:unit && pnpm test:hooks && pnpm test:ui",
     "test:parallel": "node scripts/test-parallel.mjs",
     "test:parallel:coverage": "node scripts/test-parallel.mjs --coverage",
     "test:parallel:fast": "node scripts/test-parallel-fast.mjs",

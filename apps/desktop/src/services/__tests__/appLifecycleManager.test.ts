@@ -134,6 +134,20 @@ describe('AppLifecycleManager', () => {
     expect(onResume).toHaveBeenCalledOnce();
   });
 
+  it('deduplicates resume callbacks fired by foreground and online in the same second', () => {
+    const onResume = vi.fn();
+    appLifecycleManager.start(facade as any, { onResume });
+
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('online'));
+
+    expect(onResume).toHaveBeenCalledOnce();
+  });
+
   it('does not trigger reconnect on network online when hidden', () => {
     const onResume = vi.fn();
     appLifecycleManager.start(facade as any, { onResume });

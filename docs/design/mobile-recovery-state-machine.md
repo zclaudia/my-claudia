@@ -1,5 +1,202 @@
 # Mobile Recovery State Machine
 
+## Migration Plan: Serial Recovery Job
+
+The current fine-grained state-machine implementation is too eager for mobile foreground/background recovery. Even after multiple correctness fixes, recovery is still driven on the UI thread by a combination of:
+
+- lifecycle events
+- facade events
+- reconciliation timers
+- synchronous Zustand writes
+- microtask-based controller rescheduling
+
+On mobile this creates an event storm during foreground resume and can freeze the UI. To address that, mobile recovery will migrate to a serial recovery job model.
+
+### Migration goals
+
+1. Only one recovery job may run at a time.
+2. Recovery is driven by an explicit async task, not by repeated tick/reconcile loops.
+3. Recovery writes coarse-grained UI state only at phase boundaries.
+4. Existing desktop recovery logic may remain temporarily while mobile switches first.
+
+### New model
+
+The new mobile recovery path is:
+
+```text
+resume/background/network event
+  -> RecoveryJobManager.start(reason)
+  -> one serial async recovery job
+     -> ensure transport
+     -> ensure active backend
+     -> ensure active session
+  -> coarse recovery state update
+```
+
+The UI should eventually subscribe only to:
+
+- `phase`: `idle | recovering | ready | error`
+- `step`: `transport | backend | session | null`
+- `lastError`
+
+### Implementation stages
+
+#### Stage 1. Define the new runtime
+
+Implement:
+
+- `mobileRecoveryStore`
+- `RecoveryJobManager`
+- serial job lifecycle: `idle | running | succeeded | failed | cancelled`
+- coarse recovery UI state: `idle | recovering | ready | error`
+
+Tests:
+
+- `start()` creates a new job
+- a second `start()` cancels/supersedes the prior job
+- `cancel()` stops the active job
+- step progression is serial: transport -> backend -> session
+
+Acceptance:
+
+- the new runtime works in isolation with no dependency on the legacy tick controller
+
+#### Stage 2. Provider-local wiring
+
+Implement:
+
+- construct one `RecoveryJobManager` per `ConnectionProvider`
+- sync active backend/session selection into the new runtime
+- expose `startRecovery`, `retryRecovery`, `cancelRecovery`
+
+Tests:
+
+- provider creates a single manager instance
+- selection changes update the recovery job context
+- repeated resume events do not create concurrent jobs
+
+Acceptance:
+
+- mobile recovery has a provider-local runtime boundary
+
+#### Stage 3. Serial recovery main path
+
+Implement:
+
+- `ensureTransportConnected()`
+- `ensureActiveBackendReady()`
+- `ensureActiveSessionReady()`
+- timeout + cancellation handling per step
+
+Tests:
+
+- transport reconnect path
+- backend reopen path
+- session recovery path
+- failure and cancellation paths
+
+Acceptance:
+
+- one recovery job can restore active backend + active session without relying on reconcile ticks
+
+#### Stage 4. Mobile cutover
+
+Implement:
+
+- mobile lifecycle events trigger only the new recovery job
+- disable legacy controller-driven recovery on Android
+- reconciliation timers become watchdog-only or are disabled on mobile
+
+Tests:
+
+- mobile resume triggers at most one recovery job
+- no concurrent legacy `tick()` loop participates in mobile recovery
+
+Acceptance:
+
+- Android foreground resume no longer freezes the UI due to controller/timer/tick storms
+
+#### Stage 5. Regression coverage and diagnostics
+
+Implement:
+
+- focused mobile recovery regression tests
+- structured job logs:
+  - `job_started`
+  - `step_started`
+  - `step_succeeded`
+  - `step_failed`
+  - `job_cancelled`
+  - `job_completed`
+
+Tests:
+
+- background -> foreground
+- attachment picker return to app
+- reconnect while active session is open
+
+Acceptance:
+
+- mobile recovery regressions are reproducible and observable without reintroducing high-frequency store tracing
+
+## Current Cutover Inventory
+
+As of the current migration state, Android/mobile recovery is already routed through the serial `RecoveryJobManager`, but some legacy recovery pieces remain in the codebase for desktop or bridge purposes.
+
+### Android paths already cut over
+
+These paths now derive readiness from `facadeStore + mobileRecoveryStore` instead of the legacy fine-grained recovery machine:
+
+- `ConnectionProvider` lifecycle wiring
+- `useSessionRoute`
+- `useActiveSessionStream` gating
+- `useMultiServerSocket`
+- `useGatewayConnection`
+- `useDataLoader`
+- `ServerSelector`
+- `MobileSetup`
+- `MobileGatewayConfig`
+- `ProviderManager`
+- `Sidebar`
+- `SettingsPanel`
+- `ProjectSettings`
+- `SessionChatWindow`
+- `WorkflowEditorWindow`
+- `XTerminal`
+- `ActiveSessionsPanel`
+- `useAutomationBackendOptions`
+- `useServerLatencyMonitor`
+- `useSelectionCoordinator`
+- `App.tsx` mobile auto-reconnect to the last active backend
+
+### Legacy recovery kept for desktop or bridge-only use
+
+These modules still use `recoveryStore` or the legacy controller intentionally, but they are no longer the source of truth for Android foreground recovery:
+
+- `useRecoveryCoordinator`
+- `recoveryStateMachine`
+- `recoveryPlanner`
+- `recoveryEffects`
+- `recoveryTimers`
+- `recoveryTransitions`
+- `useBackendFacade`
+- `WindowsSetup`
+- Desktop branches inside shared hooks/components that still fall back to `recoveryStore`
+
+### Remaining Android-adjacent legacy coupling
+
+These areas still read legacy recovery data, but only as a compatibility fallback or metadata source rather than as the mobile recovery driver:
+
+- `App.tsx` still uses legacy transport status for desktop control-plane readiness
+
+These are lower priority than the original UI-freeze issue, but they are the next candidates if the migration continues.
+
+### Next cleanup targets
+
+If the migration continues, the next highest-value cleanup steps are:
+
+1. Introduce a mobile-specific top-level control-plane selector so `App.tsx` no longer needs any legacy transport subscription on Android.
+
 ## Background
 
 The current mobile foreground/background recovery path mixes several different concerns into loosely coupled effects:

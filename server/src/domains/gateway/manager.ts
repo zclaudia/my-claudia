@@ -1,7 +1,7 @@
 import * as os from 'os';
 import { ALL_SERVER_FEATURES } from '@my-claudia/shared';
 import type { ServerMessage } from '@my-claudia/shared';
-import type { SessionCatalogItem } from '@my-claudia/shared';
+import type { SessionItem, ProjectItem } from '@my-claudia/shared';
 import { GatewayClient, type GatewayClientConfig } from './gateway-client.js';
 import { setGatewayClient } from './gateway-instance.js';
 import { handleChannelClosed } from './gateway-channel-cleanup.js';
@@ -382,21 +382,41 @@ export class GatewayManager {
           serverEventListeners.delete(listener);
         };
       },
-      getCatalogItems: () => {
+      getSessionItems: () => {
         try {
           const sessions = serverContext.db.prepare(`
-            SELECT s.id, s.name, s.created_at as createdAt, s.updated_at as updatedAt, s.archived_at as archivedAt
+            SELECT s.id, s.name, s.project_id as projectId,
+                   s.created_at as createdAt, s.updated_at as updatedAt,
+                   s.archived_at as archivedAt
             FROM sessions s
             WHERE s.archived_at IS NULL
             ORDER BY s.updated_at DESC
-          `).all() as SessionCatalogRow[];
-          return sessions.map((s): SessionCatalogItem => ({
-            sessionId: s.id,
-            title: s.name || undefined,
-            createdAt: s.createdAt,
-            updatedAt: s.updatedAt,
-            lastMessageAt: s.updatedAt,
-            activeRunStatus: hasForegroundActiveRunForSession(activeRuns, s.id) ? 'running' : 'idle',
+          `).all() as Array<Record<string, unknown>>;
+          return sessions.map((s): SessionItem => ({
+            sessionId: s.id as string,
+            projectId: (s.projectId as string) || undefined,
+            title: (s.name as string) || undefined,
+            createdAt: s.createdAt as number,
+            updatedAt: s.updatedAt as number,
+            lastMessageAt: s.updatedAt as number,
+            runStatus: hasForegroundActiveRunForSession(activeRuns, s.id as string) ? 'running' : 'idle',
+          }));
+        } catch {
+          return [];
+        }
+      },
+      getProjectItems: () => {
+        try {
+          const projects = serverContext.db.prepare(`
+            SELECT id, name, created_at as createdAt, updated_at as updatedAt
+            FROM projects
+            ORDER BY updated_at DESC
+          `).all() as Array<Record<string, unknown>>;
+          return projects.map((p): ProjectItem => ({
+            projectId: p.id as string,
+            name: (p.name as string) || '',
+            createdAt: p.createdAt as number,
+            updatedAt: p.updatedAt as number,
           }));
         } catch {
           return [];

@@ -23,8 +23,8 @@ vi.mock('../direct-adapter', () => ({
           capturedAt: Date.now(),
           connection: { state: 'idle' },
           identity: { instanceId: 'instance-1', deviceId: 'device-1' },
-          registry: { revision: 0, items: [] },
-          channels: { items: [] },
+          registry: { items: [] },
+          subscriptions: { backendIds: [] },
         })),
       },
       http: {
@@ -54,7 +54,6 @@ vi.mock('@my-claudia/shared', async () => {
         currentDeviceId: null,
         backends: [],
         sessionStreams: {},
-        registryRevision: 0,
       }));
       subscribe = vi.fn(() => () => {});
       onEvent = vi.fn(() => () => {});

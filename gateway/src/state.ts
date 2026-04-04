@@ -2,20 +2,14 @@
  * Gateway Internal State Management
  *
  * Implements §16 (Gateway State Responsibilities) of the Gateway Sync Protocol.
- * All in-memory state for peer sessions, registry, catalog, channels, and stream demand.
+ * All in-memory state for peer sessions, registry, subscriptions, and stream demand.
  */
 
 import type {
   BackendPresence,
-  RegistryEvent,
-  RegistryRevision,
   BackendId,
   Epoch,
   PeerSessionId,
-  ChannelId,
-  CatalogRevision,
-  SessionCatalogItem,
-  CatalogDeltaEvent,
 } from '@my-claudia/shared';
 import type { WebSocket } from 'ws';
 
@@ -38,11 +32,8 @@ export interface PeerSession {
   backendId?: BackendId;
   epoch?: Epoch;
 
-  /** Catalog subscriptions this peer holds (as client). backendId set. */
-  catalogSubscriptions: Set<BackendId>;
-
-  /** Channel IDs this peer holds (as client). */
-  channels: Set<ChannelId>;
+  /** Backend IDs this peer is subscribed to (as client). */
+  subscribedBackends: Set<BackendId>;
 }
 
 // ============================================================================
@@ -50,17 +41,8 @@ export interface PeerSession {
 // ============================================================================
 
 export interface RegistryState {
-  /** Current revision (monotonically increasing). */
-  revision: RegistryRevision;
-
   /** Online backends. */
   items: Map<BackendId, BackendPresence>;
-
-  /** Event log window for incremental recovery. */
-  eventLog: RegistryEvent[];
-
-  /** Max events to keep in the log window. */
-  eventLogMaxSize: number;
 }
 
 // ============================================================================
@@ -77,43 +59,12 @@ export interface BackendLease {
 }
 
 // ============================================================================
-// Catalog State (per-backend)
-// ============================================================================
-
-export interface BackendCatalogState {
-  backendId: BackendId;
-  epoch: Epoch;
-  revision: CatalogRevision;
-  items: Map<string, SessionCatalogItem>;
-
-  /** Event log window for incremental recovery. */
-  eventLog: CatalogDeltaEvent[];
-
-  /** Peer session IDs subscribed to this catalog. */
-  subscribers: Set<PeerSessionId>;
-}
-
-// ============================================================================
-// Channel State
-// ============================================================================
-
-export interface ChannelState {
-  channelId: ChannelId;
-  backendId: BackendId;
-  epoch: Epoch;
-  peerSessionId: PeerSessionId;
-
-  /** Session IDs with open streams on this channel. */
-  openStreams: Set<string>;
-}
-
-// ============================================================================
 // Stream Demand State (per-backend)
 // ============================================================================
 
 export interface StreamDemandState {
-  /** Number of open channels to this backend. */
-  channelCount: number;
+  /** Number of subscribers to this backend. */
+  subscriberCount: number;
 
   /** Current demand state sent to backend. */
   active: boolean;
@@ -124,10 +75,6 @@ export interface StreamDemandState {
 // ============================================================================
 
 export interface GatewayStateConfig {
-  /** Max events in registry event log window. Default: 1000. */
-  registryEventLogMaxSize?: number;
-  /** Max events in per-backend catalog event log window. Default: 1000. */
-  catalogEventLogMaxSize?: number;
   /** Default lease TTL in ms. Default: 30000. */
   defaultLeaseTtlMs?: number;
 }
@@ -143,11 +90,8 @@ export class GatewayState {
   // --- Backend leases ---
   readonly leases = new Map<BackendId, BackendLease>();
 
-  // --- Catalog (per-backend) ---
-  readonly catalogs = new Map<BackendId, BackendCatalogState>();
-
-  // --- Channels ---
-  readonly channels = new Map<ChannelId, ChannelState>();
+  // --- Subscriptions (backendId → set of subscribing peerSessionIds) ---
+  readonly subscriptions = new Map<BackendId, Set<PeerSessionId>>();
 
   // --- Stream demand (per-backend) ---
   readonly streamDemand = new Map<BackendId, StreamDemandState>();
@@ -157,16 +101,11 @@ export class GatewayState {
 
   constructor(config: GatewayStateConfig = {}) {
     this.config = {
-      registryEventLogMaxSize: config.registryEventLogMaxSize ?? 1000,
-      catalogEventLogMaxSize: config.catalogEventLogMaxSize ?? 1000,
       defaultLeaseTtlMs: config.defaultLeaseTtlMs ?? 30_000,
     };
 
     this.registry = {
-      revision: 0,
       items: new Map(),
-      eventLog: [],
-      eventLogMaxSize: this.config.registryEventLogMaxSize,
     };
   }
 
@@ -183,18 +122,8 @@ export class GatewayState {
     const peer = this.peers.get(peerSessionId);
     if (!peer) return undefined;
 
-    // Clean up catalog subscriptions
-    for (const backendId of peer.catalogSubscriptions) {
-      const catalog = this.catalogs.get(backendId);
-      if (catalog) {
-        catalog.subscribers.delete(peerSessionId);
-      }
-    }
-
-    // Clean up channels
-    for (const channelId of peer.channels) {
-      this.removeChannel(channelId);
-    }
+    // Clean up subscriptions
+    this.removeAllSubscriptions(peerSessionId);
 
     this.wsToPeer.delete(peer.ws);
     this.peers.delete(peerSessionId);
@@ -209,43 +138,19 @@ export class GatewayState {
   // Registry Management
   // ==========================================================================
 
-  /** Register or update a backend in the registry. Returns the new revision. */
-  registryUpsert(item: BackendPresence): RegistryRevision {
+  /** Register or update a backend in the registry. */
+  registryUpsert(item: BackendPresence): void {
     this.registry.items.set(item.backendId, item);
-    const revision = ++this.registry.revision;
-
-    const event: RegistryEvent = { revision, op: 'upsert', item };
-    this.appendRegistryEvent(event);
-
-    return revision;
   }
 
-  /** Remove a backend from the registry. Returns the new revision. */
-  registryRemove(backendId: BackendId): RegistryRevision {
+  /** Remove a backend from the registry. */
+  registryRemove(backendId: BackendId): void {
     this.registry.items.delete(backendId);
-    const revision = ++this.registry.revision;
-
-    const event: RegistryEvent = { revision, op: 'remove', backendId };
-    this.appendRegistryEvent(event);
-
-    return revision;
   }
 
-  /** Get registry events after a given revision, or null if not available. */
-  getRegistryDelta(sinceRevision: RegistryRevision): RegistryEvent[] | null {
-    if (this.registry.eventLog.length === 0) return null;
-
-    const oldestInLog = this.registry.eventLog[0].revision;
-    if (sinceRevision < oldestInLog) return null; // Gap too large, need snapshot
-
-    return this.registry.eventLog.filter(e => e.revision > sinceRevision);
-  }
-
-  private appendRegistryEvent(event: RegistryEvent): void {
-    this.registry.eventLog.push(event);
-    while (this.registry.eventLog.length > this.registry.eventLogMaxSize) {
-      this.registry.eventLog.shift();
-    }
+  /** Get the current registry snapshot as an array. */
+  getRegistrySnapshot(): BackendPresence[] {
+    return Array.from(this.registry.items.values());
   }
 
   // ==========================================================================
@@ -264,156 +169,78 @@ export class GatewayState {
     this.leases.delete(backendId);
   }
 
-  /** Remove a backend completely: lease, catalog, stream demand, registry. */
+  /** Remove a backend completely: lease, stream demand, registry. */
   removeBackend(backendId: BackendId): void {
     this.removeLease(backendId);
-    this.catalogs.delete(backendId);
     this.streamDemand.delete(backendId);
     // Registry removal is done separately (caller decides when to broadcast)
   }
 
   // ==========================================================================
-  // Catalog Management
+  // Subscription Management
   // ==========================================================================
 
-  /** Initialize or replace catalog state for a backend. */
-  setCatalogSnapshot(backendId: BackendId, epoch: Epoch, revision: CatalogRevision, items: SessionCatalogItem[]): void {
-    const existing = this.catalogs.get(backendId);
-    const subscribers = existing?.subscribers ?? new Set<PeerSessionId>();
-
-    const itemMap = new Map<string, SessionCatalogItem>();
-    for (const item of items) {
-      itemMap.set(item.sessionId, item);
+  /** Add a subscription: peer subscribes to a backend. Returns true if stream demand transitioned 0→1. */
+  addSubscription(backendId: BackendId, peerSessionId: PeerSessionId): boolean {
+    // Track in subscriptions map
+    let subs = this.subscriptions.get(backendId);
+    if (!subs) {
+      subs = new Set();
+      this.subscriptions.set(backendId, subs);
     }
-
-    this.catalogs.set(backendId, {
-      backendId,
-      epoch,
-      revision,
-      items: itemMap,
-      eventLog: [],
-      subscribers,
-    });
-  }
-
-  /** Reset catalog contents while preserving subscribers across epoch changes. */
-  resetCatalog(backendId: BackendId, epoch: Epoch): BackendCatalogState | null {
-    const existing = this.catalogs.get(backendId);
-    if (!existing) return null;
-
-    existing.epoch = epoch;
-    existing.revision = 0;
-    existing.items.clear();
-    existing.eventLog.length = 0;
-    return existing;
-  }
-
-  /** Apply a catalog upsert event. Returns the catalog state or null if backend not found. */
-  catalogUpsert(backendId: BackendId, epoch: Epoch, revision: CatalogRevision, item: SessionCatalogItem): BackendCatalogState | null {
-    const catalog = this.catalogs.get(backendId);
-    if (!catalog || catalog.epoch !== epoch) return null;
-
-    catalog.revision = revision;
-    catalog.items.set(item.sessionId, item);
-
-    const event: CatalogDeltaEvent = { revision, op: 'upsert', item };
-    this.appendCatalogEvent(catalog, event);
-
-    return catalog;
-  }
-
-  /** Apply a catalog remove event. Returns the catalog state or null if backend not found. */
-  catalogRemove(backendId: BackendId, epoch: Epoch, revision: CatalogRevision, sessionId: string): BackendCatalogState | null {
-    const catalog = this.catalogs.get(backendId);
-    if (!catalog || catalog.epoch !== epoch) return null;
-
-    catalog.revision = revision;
-    catalog.items.delete(sessionId);
-
-    const event: CatalogDeltaEvent = { revision, op: 'remove', sessionId };
-    this.appendCatalogEvent(catalog, event);
-
-    return catalog;
-  }
-
-  /** Get catalog events after a given revision, or null if not available. */
-  getCatalogDelta(backendId: BackendId, sinceRevision: CatalogRevision): CatalogDeltaEvent[] | null {
-    const catalog = this.catalogs.get(backendId);
-    if (!catalog) return null;
-    if (catalog.eventLog.length === 0) return null;
-
-    const oldestInLog = catalog.eventLog[0].revision;
-    if (sinceRevision < oldestInLog) return null;
-
-    return catalog.eventLog.filter(e => e.revision > sinceRevision);
-  }
-
-  /** Add a subscriber to a backend's catalog. */
-  addCatalogSubscriber(backendId: BackendId, peerSessionId: PeerSessionId): void {
-    const catalog = this.catalogs.get(backendId);
-    if (catalog) {
-      catalog.subscribers.add(peerSessionId);
-    }
-  }
-
-  /** Remove a subscriber from a backend's catalog. */
-  removeCatalogSubscriber(backendId: BackendId, peerSessionId: PeerSessionId): void {
-    const catalog = this.catalogs.get(backendId);
-    if (catalog) {
-      catalog.subscribers.delete(peerSessionId);
-    }
-  }
-
-  private appendCatalogEvent(catalog: BackendCatalogState, event: CatalogDeltaEvent): void {
-    catalog.eventLog.push(event);
-    while (catalog.eventLog.length > this.config.catalogEventLogMaxSize) {
-      catalog.eventLog.shift();
-    }
-  }
-
-  // ==========================================================================
-  // Channel Management
-  // ==========================================================================
-
-  addChannel(channel: ChannelState): void {
-    this.channels.set(channel.channelId, channel);
+    if (subs.has(peerSessionId)) return false; // already subscribed
+    subs.add(peerSessionId);
 
     // Track on peer
-    const peer = this.peers.get(channel.peerSessionId);
+    const peer = this.peers.get(peerSessionId);
     if (peer) {
-      peer.channels.add(channel.channelId);
+      peer.subscribedBackends.add(backendId);
     }
 
     // Update stream demand
-    this.incrementChannelCount(channel.backendId);
+    return this.incrementSubscriberCount(backendId);
   }
 
-  removeChannel(channelId: ChannelId): ChannelState | undefined {
-    const channel = this.channels.get(channelId);
-    if (!channel) return undefined;
+  /** Remove a subscription. Returns true if stream demand transitioned 1→0. */
+  removeSubscription(backendId: BackendId, peerSessionId: PeerSessionId): boolean {
+    const subs = this.subscriptions.get(backendId);
+    if (!subs || !subs.has(peerSessionId)) return false;
+    subs.delete(peerSessionId);
+    if (subs.size === 0) this.subscriptions.delete(backendId);
 
     // Remove from peer
-    const peer = this.peers.get(channel.peerSessionId);
+    const peer = this.peers.get(peerSessionId);
     if (peer) {
-      peer.channels.delete(channelId);
+      peer.subscribedBackends.delete(backendId);
     }
-
-    this.channels.delete(channelId);
 
     // Update stream demand
-    this.decrementChannelCount(channel.backendId);
-
-    return channel;
+    return this.decrementSubscriberCount(backendId);
   }
 
-  /** Find existing channel for a peer+backend pair. */
-  findChannel(peerSessionId: PeerSessionId, backendId: BackendId): ChannelState | undefined {
-    for (const channel of this.channels.values()) {
-      if (channel.peerSessionId === peerSessionId && channel.backendId === backendId) {
-        return channel;
+  /** Get all peer session IDs subscribed to a backend (returns a snapshot copy). */
+  getSubscribers(backendId: BackendId): Set<PeerSessionId> {
+    const subs = this.subscriptions.get(backendId);
+    return subs ? new Set(subs) : new Set();
+  }
+
+  /** Remove all subscriptions for a peer (used on disconnect). */
+  removeAllSubscriptions(peerSessionId: PeerSessionId): BackendId[] {
+    const peer = this.peers.get(peerSessionId);
+    const affectedBackends: BackendId[] = [];
+    if (peer) {
+      for (const backendId of peer.subscribedBackends) {
+        const subs = this.subscriptions.get(backendId);
+        if (subs) {
+          subs.delete(peerSessionId);
+          if (subs.size === 0) this.subscriptions.delete(backendId);
+        }
+        this.decrementSubscriberCount(backendId);
+        affectedBackends.push(backendId);
       }
+      peer.subscribedBackends.clear();
     }
-    return undefined;
+    return affectedBackends;
   }
 
   // ==========================================================================
@@ -425,31 +252,31 @@ export class GatewayState {
     return this.streamDemand.get(backendId)?.active ?? false;
   }
 
-  private incrementChannelCount(backendId: BackendId): boolean {
+  private incrementSubscriberCount(backendId: BackendId): boolean {
     let demand = this.streamDemand.get(backendId);
     if (!demand) {
-      demand = { channelCount: 0, active: false };
+      demand = { subscriberCount: 0, active: false };
       this.streamDemand.set(backendId, demand);
     }
 
-    demand.channelCount++;
+    demand.subscriberCount++;
 
     // 0→1 transition: activate
-    if (demand.channelCount === 1 && !demand.active) {
+    if (demand.subscriberCount === 1 && !demand.active) {
       demand.active = true;
       return true; // Caller should send stream_demand { active: true }
     }
     return false;
   }
 
-  private decrementChannelCount(backendId: BackendId): boolean {
+  private decrementSubscriberCount(backendId: BackendId): boolean {
     const demand = this.streamDemand.get(backendId);
     if (!demand) return false;
 
-    demand.channelCount = Math.max(0, demand.channelCount - 1);
+    demand.subscriberCount = Math.max(0, demand.subscriberCount - 1);
 
     // 1→0 transition: deactivate
-    if (demand.channelCount === 0 && demand.active) {
+    if (demand.subscriberCount === 0 && demand.active) {
       demand.active = false;
       return true; // Caller should send stream_demand { active: false }
     }
@@ -471,9 +298,7 @@ export class GatewayState {
     this.peers.clear();
     this.wsToPeer.clear();
     this.registry.items.clear();
-    this.registry.eventLog.length = 0;
-    this.catalogs.clear();
-    this.channels.clear();
+    this.subscriptions.clear();
     this.streamDemand.clear();
   }
 }

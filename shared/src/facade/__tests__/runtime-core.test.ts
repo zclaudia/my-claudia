@@ -80,7 +80,6 @@ describe('BackendFacadeRuntimeCore', () => {
       // After start, emit a registry event
       emit({
         type: 'registry_snapshot_received',
-        revision: 2,
         items: [makePresence({ backendId: 'b-new' })],
       });
 
@@ -99,7 +98,6 @@ describe('BackendFacadeRuntimeCore', () => {
     it('handles registry_snapshot_received', () => {
       emit({
         type: 'registry_snapshot_received',
-        revision: 2,
         items: [
           makePresence({ backendId: 'b1' }),
           makePresence({ backendId: 'b2' }),
@@ -113,7 +111,6 @@ describe('BackendFacadeRuntimeCore', () => {
     it('emits snapshot_updated with the full registry snapshot after registry changes', () => {
       emit({
         type: 'registry_snapshot_received',
-        revision: 2,
         items: [
           makePresence({ backendId: 'b1' }),
           makePresence({ backendId: 'b2' }),
@@ -130,24 +127,23 @@ describe('BackendFacadeRuntimeCore', () => {
         ]));
     });
 
-    it('handles registry_event_received upsert', () => {
+    it('handles upsert via registry_snapshot_received', () => {
       emit({
-        type: 'registry_event_received',
-        revision: 2,
-        op: 'upsert',
-        item: makePresence({ backendId: 'b2' }),
+        type: 'registry_snapshot_received',
+        items: [
+          makePresence({ backendId: 'b1' }),
+          makePresence({ backendId: 'b2' }),
+        ],
       });
 
       const snapshot = core.getSnapshot();
       expect(snapshot.backends.some(b => b.backendId === 'b2')).toBe(true);
     });
 
-    it('handles registry_event_received remove', () => {
+    it('handles remove via registry_snapshot_received', () => {
       emit({
-        type: 'registry_event_received',
-        revision: 2,
-        op: 'remove',
-        backendId: 'b1',
+        type: 'registry_snapshot_received',
+        items: [],
       });
 
       const snapshot = core.getSnapshot();
@@ -164,54 +160,47 @@ describe('BackendFacadeRuntimeCore', () => {
       events = [];
     });
 
-    it('openBackend sends channel open command', () => {
+    it('openBackend sends subscribe command', () => {
       core.openBackend('b1');
 
       expect(commandLog).toHaveLength(1);
-      expect(commandLog[0].method).toBe('channel.openBackendChannel');
-      expect(commandLog[0].args).toEqual(['b1', 1]);
+      expect(commandLog[0].method).toBe('backend.subscribe');
+      expect(commandLog[0].args).toEqual(['b1']);
     });
 
-    it('full channel lifecycle: open → catalog → ready', () => {
+    it('full subscription lifecycle: subscribe → catalog → ready', () => {
       core.openBackend('b1');
 
-      // Gateway responds with channel opened
+      // Gateway responds with backend subscribed
       emit({
-        type: 'backend_channel_opened',
+        type: 'backend_subscribed',
         backendId: 'b1',
-        channelId: 'ch-1',
         epoch: 1,
         capabilities: ['run'],
       });
 
-      // Should auto-subscribe to catalog
-      const catalogSub = commandLog.find(c => c.method === 'catalog.subscribe');
-      expect(catalogSub).toBeDefined();
-
-      // Gateway sends catalog snapshot
+      // Gateway sends backend data snapshot
       emit({
-        type: 'catalog_snapshot_received',
+        type: 'backend_data_snapshot_received',
         backendId: 'b1',
-        epoch: 1,
-        revision: 1,
-        items: [{ sessionId: 's1', createdAt: Date.now(), updatedAt: Date.now() }],
+        sessions: [{ sessionId: 's1', createdAt: Date.now(), updatedAt: Date.now(), runStatus: 'idle' }],
+        projects: [],
       });
 
       const snapshot = core.getSnapshot();
       const b1 = snapshot.backends.find(b => b.backendId === 'b1')!;
       expect(b1.runtimeState).toBe('ready');
-      expect(b1.openState).toBe('open');
+      expect(b1.openState).toBe('subscribed');
 
-      // Catalog snapshot event should have been emitted
-      expect(events.some(e => e.type === 'catalog_snapshot')).toBe(true);
+      // Backend data snapshot event should have been emitted
+      expect(events.some(e => e.type === 'backend_data_snapshot')).toBe(true);
     });
 
-    it('closeBackend sends close command and resets state', () => {
+    it('closeBackend sends unsubscribe command and resets state', () => {
       core.openBackend('b1');
       emit({
-        type: 'backend_channel_opened',
+        type: 'backend_subscribed',
         backendId: 'b1',
-        channelId: 'ch-1',
         epoch: 1,
         capabilities: [],
       });
@@ -219,9 +208,9 @@ describe('BackendFacadeRuntimeCore', () => {
       commandLog.length = 0;
       core.closeBackend('b1');
 
-      expect(commandLog.some(c => c.method === 'channel.closeBackendChannel')).toBe(true);
+      expect(commandLog.some(c => c.method === 'backend.unsubscribe')).toBe(true);
       const b1 = core.getSnapshot().backends.find(b => b.backendId === 'b1')!;
-      expect(b1.openState).toBe('closed');
+      expect(b1.openState).toBe('unsubscribed');
     });
   });
 
@@ -233,28 +222,30 @@ describe('BackendFacadeRuntimeCore', () => {
       // Open backend to ready state
       core.openBackend('b1');
       emit({
-        type: 'backend_channel_opened',
+        type: 'backend_subscribed',
         backendId: 'b1',
-        channelId: 'ch-1',
         epoch: 1,
         capabilities: [],
       });
       emit({
-        type: 'catalog_snapshot_received',
+        type: 'backend_data_snapshot_received',
         backendId: 'b1',
-        epoch: 1,
-        revision: 1,
-        items: [],
+        sessions: [],
+        projects: [],
       });
 
       commandLog.length = 0;
       events = [];
     });
 
-    it('openSessionStream sends stream open command', () => {
+    it('openSessionStream creates local stream state', () => {
       core.openSessionStream('b1', 's1');
 
-      expect(commandLog.some(c => c.method === 'stream.open')).toBe(true);
+      // Stream open is now local-only, no command sent
+      const snapshot = core.getSnapshot();
+      const stream = Object.values(snapshot.sessionStreams).find(s => s.sessionId === 's1');
+      expect(stream).toBeDefined();
+      expect(stream!.state).toBe('opening');
     });
 
     it('content_patch promotes stream and emits event', () => {
@@ -263,7 +254,6 @@ describe('BackendFacadeRuntimeCore', () => {
       emit({
         type: 'content_patch_received',
         backendId: 'b1',
-        channelId: 'ch-1',
         sessionId: 's1',
         messages: [],
         latestOffset: 5,
@@ -282,7 +272,6 @@ describe('BackendFacadeRuntimeCore', () => {
       emit({
         type: 'run_event_received',
         backendId: 'b1',
-        channelId: 'ch-1',
         sessionId: 's1',
         event: { type: 'run_started' } as any,
       });
@@ -296,7 +285,6 @@ describe('BackendFacadeRuntimeCore', () => {
       emit({
         type: 'content_patch_failed',
         backendId: 'b1',
-        channelId: 'ch-1',
         sessionId: 's1',
         afterOffset: 12,
         error: 'Catch-up failed',
@@ -316,34 +304,34 @@ describe('BackendFacadeRuntimeCore', () => {
     it('auto-resumes streams when backend becomes ready again', () => {
       core.openSessionStream('b1', 's1');
 
-      // Backend loses channel
+      // Backend loses subscription
       emit({
-        type: 'backend_channel_closed',
+        type: 'backend_unsubscribed',
         backendId: 'b1',
-        channelId: 'ch-1',
-        reason: 'disconnected',
+        reason: 'backend_offline',
       });
 
       commandLog.length = 0;
 
       // Backend comes back
       emit({
-        type: 'backend_channel_opened',
+        type: 'backend_subscribed',
         backendId: 'b1',
-        channelId: 'ch-2',
         epoch: 1,
         capabilities: [],
       });
       emit({
-        type: 'catalog_snapshot_received',
+        type: 'backend_data_snapshot_received',
         backendId: 'b1',
-        epoch: 1,
-        revision: 2,
-        items: [],
+        sessions: [],
+        projects: [],
       });
 
-      // Stream should auto-resume
-      expect(commandLog.some(c => c.method === 'stream.open')).toBe(true);
+      // Stream should auto-resume (state transitions handled locally)
+      const snapshot = core.getSnapshot();
+      const stream = Object.values(snapshot.sessionStreams).find(s => s.sessionId === 's1');
+      expect(stream).toBeDefined();
+      expect(stream!.state).toBe('opening');
     });
   });
 
@@ -353,9 +341,8 @@ describe('BackendFacadeRuntimeCore', () => {
       core.start();
       core.openBackend('b1');
       emit({
-        type: 'backend_channel_opened',
+        type: 'backend_subscribed',
         backendId: 'b1',
-        channelId: 'ch-1',
         epoch: 1,
         capabilities: [],
       });
@@ -364,8 +351,8 @@ describe('BackendFacadeRuntimeCore', () => {
       core.sendToBackend('b1', { type: 'test' } as any);
 
       expect(commandLog).toHaveLength(1);
-      expect(commandLog[0].method).toBe('channel.sendToBackend');
-      expect(commandLog[0].args[0]).toBe('ch-1');
+      expect(commandLog[0].method).toBe('backend.sendToBackend');
+      expect(commandLog[0].args[0]).toBe('b1');
     });
   });
 
@@ -388,7 +375,6 @@ describe('BackendFacadeRuntimeCore', () => {
       // Emitting events after stop should not cause errors
       emit({
         type: 'registry_snapshot_received',
-        revision: 99,
         items: [],
       });
 

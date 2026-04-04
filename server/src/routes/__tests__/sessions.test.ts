@@ -7,7 +7,7 @@ import { createSessionRoutes } from '../sessions.js';
 vi.mock('../../domains/gateway/gateway-instance.js', () => ({
   getGatewayClient: vi.fn(() => ({
     commands: {
-      catalog: {
+      backendData: {
         broadcastSessionEvent: vi.fn(),
       },
     },
@@ -1445,11 +1445,11 @@ internal reasoning cursor plan
 
   describe('gateway broadcast paths', () => {
     let mockBroadcastSessionEvent: ReturnType<typeof vi.fn>;
-    let mockGatewayClient: { commands: { catalog: { broadcastSessionEvent: ReturnType<typeof vi.fn> } } };
+    let mockGatewayClient: { commands: { backendData: { broadcastSessionEvent: ReturnType<typeof vi.fn> } } };
 
     beforeEach(async () => {
       mockBroadcastSessionEvent = vi.fn();
-      mockGatewayClient = { commands: { catalog: { broadcastSessionEvent: mockBroadcastSessionEvent } } };
+      mockGatewayClient = { commands: { backendData: { broadcastSessionEvent: mockBroadcastSessionEvent } } };
       const { getGatewayClient } = await import('../../domains/gateway/gateway-instance.js');
       (getGatewayClient as ReturnType<typeof vi.fn>).mockReturnValue(mockGatewayClient);
     });

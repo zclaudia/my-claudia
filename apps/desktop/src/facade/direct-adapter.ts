@@ -27,8 +27,7 @@ import type { GatewayTransportConfig } from '../hooks/transport/GatewayTransport
 export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
   private listeners: Array<(event: FacadeAdapterEvent) => void> = [];
   private transport: GatewayTransport | null = null;
-  private knownChannels = new Map<string, { backendId: string; epoch: number }>();
-  private transportConfig: Omit<GatewayTransportConfig, 'onConnected' | 'onDisconnected' | 'onError' | 'onRegistryChanged' | 'onCatalogSnapshot' | 'onCatalogEvent' | 'onCatalogReset' | 'onChannelOpened' | 'onChannelRejected' | 'onChannelClosed' | 'onChannelMessage' | 'onRunStreamEvent' | 'onSessionStreamClosed' | 'onContentPatch' | 'onContentPatchError'>;
+  private transportConfig: Omit<GatewayTransportConfig, 'onConnected' | 'onDisconnected' | 'onError' | 'onRegistryChanged' | 'onBackendDataSnapshot' | 'onBackendDataEvent' | 'onBackendSubscribed' | 'onBackendUnsubscribed' | 'onBackendServerMessage' | 'onRunStreamEvent' | 'onContentPatch' | 'onContentPatchError'>;
   private gatewayHttpUrl: string;
   private gatewaySecret: string;
 
@@ -57,15 +56,16 @@ export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
             this.emit({ type: 'connection_state_changed', state: 'connected' });
           },
           onDisconnected: () => {
-            for (const [channelId, info] of this.knownChannels) {
-              this.emit({
-                type: 'backend_channel_closed',
-                backendId: info.backendId,
-                channelId,
-                reason: 'transport_disconnected',
-              });
+            // Emit unsubscribed for all subscribed backends
+            if (this.transport) {
+              for (const backendId of this.transport.subscribedBackends) {
+                this.emit({
+                  type: 'backend_unsubscribed',
+                  backendId,
+                  reason: 'transport_disconnected',
+                });
+              }
             }
-            this.knownChannels.clear();
             this.emit({ type: 'connection_state_changed', state: 'reconnecting' });
           },
           onError: (error) => {
@@ -80,61 +80,43 @@ export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
           onRegistryChanged: (items) => {
             this.emit({
               type: 'registry_snapshot_received',
-              revision: this.transport?.getRegistryRevision() ?? 0,
               items,
             });
           },
-          onCatalogSnapshot: (backendId, epoch, items) => {
-            this.emit({ type: 'catalog_snapshot_received', backendId, epoch, revision: 0, items });
+          onBackendDataSnapshot: (backendId, sessions, projects) => {
+            this.emit({ type: 'backend_data_snapshot_received', backendId, sessions, projects });
           },
-          onCatalogEvent: (backendId, epoch, op, item, sessionId) => {
-            this.emit({ type: 'catalog_event_received', backendId, epoch, revision: 0, op, item, sessionId });
+          onBackendDataEvent: (backendId, event) => {
+            this.emit({ type: 'backend_data_event_received', backendId, event });
           },
-          onCatalogReset: (backendId, epoch) => {
-            this.emit({ type: 'catalog_reset_received', backendId, epoch });
+          onBackendSubscribed: (backendId, epoch, capabilities) => {
+            this.emit({ type: 'backend_subscribed', backendId, epoch, capabilities });
           },
-          onChannelOpened: (backendId, channelId, epoch, capabilities) => {
-            this.knownChannels.set(channelId, { backendId, epoch });
-            this.emit({ type: 'backend_channel_opened', backendId, channelId, epoch, capabilities });
+          onBackendUnsubscribed: (backendId, reason) => {
+            this.emit({ type: 'backend_unsubscribed', backendId, reason });
           },
-          onChannelRejected: (backendId, reason) => {
-            this.emit({ type: 'backend_channel_rejected', backendId, reason });
-          },
-          onChannelClosed: (channelId, backendId, reason) => {
-            this.knownChannels.delete(channelId);
-            this.emit({ type: 'backend_channel_closed', backendId, channelId, reason });
-          },
-          onChannelMessage: (backendId, message) => {
-            // Fix #4: channels map is keyed by channelId, find by backendId value
-            let channelId = '';
-            if (this.transport) {
-              for (const [cid, info] of this.transport.channels) {
-                if (info.backendId === backendId) { channelId = cid; break; }
-              }
+          onBackendServerMessage: (backendId, message) => {
+            const payload = message as unknown as Record<string, unknown>;
+            const sessionId = (payload?.sessionId as string) ?? '';
+            if (sessionId) {
+              this.emit({ type: 'run_event_received', backendId, sessionId, event: message });
+            } else {
+              this.emit({ type: 'backend_message_received', backendId, message });
             }
-            this.emit({ type: 'backend_message_received', backendId, channelId, message });
           },
-          onRunStreamEvent: (channelId, sessionId, event) => {
-            const backendId = this.findBackendByChannel(channelId);
+          onRunStreamEvent: (backendId, sessionId, event) => {
             this.emit({
               type: 'run_event_received',
               backendId,
-              channelId,
               sessionId,
               event: event as unknown as ServerMessage,
             });
           },
-          onSessionStreamClosed: (channelId, sessionId, reason) => {
-            const backendId = this.findBackendByChannel(channelId);
-            this.emit({ type: 'session_stream_closed', backendId, channelId, sessionId, reason });
+          onContentPatch: (backendId, sessionId, messages, latestOffset) => {
+            this.emit({ type: 'content_patch_received', backendId, sessionId, messages, latestOffset });
           },
-          onContentPatch: (channelId, sessionId, messages, latestOffset) => {
-            const backendId = this.findBackendByChannel(channelId);
-            this.emit({ type: 'content_patch_received', backendId, channelId, sessionId, messages, latestOffset });
-          },
-          onContentPatchError: (channelId, sessionId, afterOffset, error) => {
-            const backendId = this.findBackendByChannel(channelId);
-            this.emit({ type: 'content_patch_failed', backendId, channelId, sessionId, afterOffset, error });
+          onContentPatchError: (backendId, sessionId, afterOffset, error) => {
+            this.emit({ type: 'content_patch_failed', backendId, sessionId, afterOffset, error });
           },
         });
         this.transport.connect();
@@ -143,45 +125,26 @@ export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
         if (this.transport) {
           this.transport.disconnect();
           this.transport = null;
-          this.knownChannels.clear();
           this.emit({ type: 'connection_state_changed', state: 'disconnected' });
           // Fix #13: clear listeners to prevent stale callbacks on reuse
           this.listeners = [];
         }
       },
     },
-    channel: {
-      openBackendChannel: (backendId, epoch) => {
-        this.transport?.openChannel(backendId, epoch);
+    backend: {
+      subscribe: (backendId) => {
+        this.transport?.subscribe(backendId);
       },
-      closeBackendChannel: (channelId) => {
-        this.transport?.closeChannel(channelId);
+      unsubscribe: (backendId) => {
+        this.transport?.unsubscribe(backendId);
       },
-      sendToBackend: (channelId, message) => {
-        // GatewayTransport.sendToBackend expects backendId, find it
-        const entry = this.transport?.channels.get(channelId);
-        if (entry) {
-          this.transport?.sendToBackend(entry.backendId, message);
-        }
-      },
-    },
-    catalog: {
-      subscribe: (backendId, epoch, lastRevision?) => {
-        this.transport?.subscribeCatalog(backendId, epoch, lastRevision);
-      },
-      unsubscribe: (backendId, epoch) => {
-        this.transport?.unsubscribeCatalog(backendId, epoch);
+      sendToBackend: (backendId, message) => {
+        this.transport?.sendToBackend(backendId, message);
       },
     },
     stream: {
-      open: (channelId, sessionId) => {
-        this.transport?.openSessionStream(channelId, sessionId);
-      },
-      close: (channelId, sessionId) => {
-        this.transport?.closeSessionStream(channelId, sessionId);
-      },
-      catchUp: (channelId, sessionId, afterOffset) => {
-        this.transport?.catchUpContent(channelId, sessionId, afterOffset);
+      catchUp: (backendId, sessionId, afterOffset) => {
+        this.transport?.catchUpContent(backendId, sessionId, afterOffset);
       },
     },
   };
@@ -192,12 +155,9 @@ export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
         const items = this.transport
           ? Array.from(this.transport.getRegistryItems().values())
           : [];
-        const channels: Array<{ backendId: string; channelId: string; epoch: number }> = [];
-        if (this.transport) {
-          for (const [channelId, info] of this.transport.channels) {
-            channels.push({ backendId: info.backendId, channelId, epoch: info.epoch });
-          }
-        }
+        const backendIds = this.transport
+          ? Array.from(this.transport.subscribedBackends)
+          : [];
         return {
           capturedAt: Date.now(),
           connection: {
@@ -208,10 +168,9 @@ export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
             deviceId: this.transportConfig.deviceId,
           },
           registry: {
-            revision: this.transport?.getRegistryRevision() ?? 0,
             items,
           },
-          channels: { items: channels },
+          subscriptions: { backendIds },
         };
       },
     },
@@ -223,28 +182,10 @@ export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
       getDeviceId: () => this.transportConfig.deviceId,
     },
     registry: {
-      getRevision: () => this.transport?.getRegistryRevision() ?? 0,
       getSnapshot: () => this.transport?.getRegistryItems() ?? new Map(),
     },
-    channel: {
-      get: (backendId) => {
-        if (!this.transport) return undefined;
-        for (const [channelId, info] of this.transport.channels) {
-          if (info.backendId === backendId) {
-            return { backendId, channelId, epoch: info.epoch };
-          }
-        }
-        return undefined;
-      },
-      getAll: () => {
-        const result = new Map<string, { backendId: string; channelId: string; epoch: number }>();
-        if (this.transport) {
-          for (const [channelId, info] of this.transport.channels) {
-            result.set(info.backendId, { backendId: info.backendId, channelId, epoch: info.epoch });
-          }
-        }
-        return result;
-      },
+    backend: {
+      isSubscribed: (backendId) => this.transport?.isBackendSubscribed(backendId) ?? false,
     },
     http: {
       getBaseUrl: (backendId) => {
@@ -273,17 +214,17 @@ export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
 
   forceReconnect(): void {
     // transport.connect() marks the old WS as expectedClose, so onDisconnected
-    // never fires. Emit channel closures + reconnecting state explicitly to keep
+    // never fires. Emit unsubscribed events + reconnecting state explicitly to keep
     // RuntimeCore and UI in sync.
-    for (const [channelId, info] of this.knownChannels) {
-      this.emit({
-        type: 'backend_channel_closed',
-        backendId: info.backendId,
-        channelId,
-        reason: 'transport_disconnected',
-      });
+    if (this.transport) {
+      for (const backendId of this.transport.subscribedBackends) {
+        this.emit({
+          type: 'backend_unsubscribed',
+          backendId,
+          reason: 'transport_disconnected',
+        });
+      }
     }
-    this.knownChannels.clear();
     this.emit({ type: 'connection_state_changed', state: 'reconnecting' });
     this.transport?.forceReconnect();
   }
@@ -295,14 +236,6 @@ export class DirectGatewayAdapter implements FacadeRuntimeGatewayAdapter {
   // --------------------------------------------------------------------------
   // Helpers
   // --------------------------------------------------------------------------
-
-  private findBackendByChannel(channelId: string): string {
-    const cached = this.knownChannels.get(channelId);
-    if (cached) return cached.backendId;
-    if (!this.transport) return '';
-    const entry = this.transport.channels.get(channelId);
-    return entry?.backendId ?? '';
-  }
 
   private emit(event: FacadeAdapterEvent): void {
     for (const listener of this.listeners) {

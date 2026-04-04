@@ -4,6 +4,8 @@ import { renderHook, act } from '@testing-library/react';
 import { useServerStore } from '../../stores/serverStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
+import { useFacadeStore } from '../../stores/facadeStore';
+import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 
 vi.mock('../../services/api', () => ({
   getServers: vi.fn().mockResolvedValue([]),
@@ -16,8 +18,13 @@ vi.mock('../../stores/gatewayStore', () => ({
   isGatewayTarget: vi.fn().mockReturnValue(false),
 }));
 
+vi.mock('../../utils/platform', () => ({
+  isAndroid: vi.fn(() => false),
+}));
+
 import { useDataLoader } from '../useDataLoader';
 import * as api from '../../services/api';
+import { isAndroid } from '../../utils/platform';
 
 describe('useDataLoader', () => {
   beforeEach(() => {
@@ -48,6 +55,12 @@ describe('useDataLoader', () => {
         },
       },
     } as any);
+    useFacadeStore.setState({
+      connectionState: 'idle',
+      backends: [],
+    } as any);
+    useMobileRecoveryStore.getState().reset();
+    vi.mocked(isAndroid).mockReturnValue(false);
   });
 
   it('returns loadData function', () => {
@@ -79,5 +92,45 @@ describe('useDataLoader', () => {
     expect(api.getProjects).toHaveBeenCalled();
     expect(api.getSessions).toHaveBeenCalled();
     expect(api.getProviders).toHaveBeenCalled();
+  });
+
+  it('uses mobile recovery readiness on Android', async () => {
+    vi.mocked(isAndroid).mockReturnValue(true);
+    useFacadeStore.setState({
+      connectionState: 'connected',
+      backends: [
+        { backendId: 'local-standalone', runtimeState: 'ready' },
+      ],
+    } as any);
+    useMobileRecoveryStore.setState({
+      phase: 'ready',
+    } as any);
+
+    const { result } = renderHook(() => useDataLoader());
+    await act(async () => {
+      await result.current.loadData();
+    });
+
+    expect(api.getProjects).toHaveBeenCalled();
+  });
+
+  it('does not load data on Android while recovery job is running', async () => {
+    vi.mocked(isAndroid).mockReturnValue(true);
+    useFacadeStore.setState({
+      connectionState: 'connected',
+      backends: [
+        { backendId: 'local-standalone', runtimeState: 'ready' },
+      ],
+    } as any);
+    useMobileRecoveryStore.setState({
+      phase: 'recovering',
+    } as any);
+
+    const { result } = renderHook(() => useDataLoader());
+    await act(async () => {
+      await result.current.loadData();
+    });
+
+    expect(api.getProjects).not.toHaveBeenCalled();
   });
 });

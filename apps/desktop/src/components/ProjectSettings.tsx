@@ -2,11 +2,15 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Project, ProviderConfig, AgentPermissionPolicy } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
 import { useRecoveryStore } from '../stores/recoveryStore';
+import { useFacadeStore } from '../stores/facadeStore';
+import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useProviderMetaStore } from '../stores/providerMetaStore';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import * as api from '../services/api';
 import { useAndroidBack } from '../hooks/useAndroidBack';
+import { isMobileBackendUsable } from '../services/mobileConnectionState';
+import { isAndroid } from '../utils/platform';
 
 const TRUST_LEVELS: Array<{ id: AgentPermissionPolicy['trustLevel']; label: string; description: string }> = [
   { id: 'conservative', label: 'Conservative', description: 'Only auto-approve read-only tools' },
@@ -22,11 +26,23 @@ interface ProjectSettingsProps {
 }
 
 export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsProps) {
+  const mobileRecoveryEnabled = isAndroid();
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const isConnected = useRecoveryStore((s) => {
-    if (!activeServerId) return false;
+  const recoveryIsConnected = useRecoveryStore((s) => {
+    if (mobileRecoveryEnabled || !activeServerId) return false;
     return s.backends[activeServerId]?.status === 'ready';
   });
+  const facadeConnectionState = useFacadeStore((s) => s.connectionState);
+  const facadeBackends = useFacadeStore((s) => s.backends);
+  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
+  const isConnected = mobileRecoveryEnabled
+    ? isMobileBackendUsable({
+      backendId: activeServerId,
+      connectionState: facadeConnectionState,
+      backends: facadeBackends,
+      recoveryPhase: mobileRecoveryPhase,
+    })
+    : recoveryIsConnected;
   const legacyProviders = useProjectStore((s) => s.providers);
   const { updateProject } = useProjectStore();
 

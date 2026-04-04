@@ -26,6 +26,7 @@ class AppLifecycleManager {
   private backgroundSince: number | null = null;
   private healthProbeTimer: ReturnType<typeof setInterval> | null = null;
   private started = false;
+  private lastResumeAt = 0;
 
   // Bound handlers for cleanup
   private handleVisibilityChange = (): void => {
@@ -40,7 +41,7 @@ class AppLifecycleManager {
     if (document.visibilityState !== 'visible') return;
     console.log('[AppLifecycleManager] Network online — triggering reconnect');
     this.facade?.forceReconnect?.();
-    this.options.onResume?.();
+    this.emitResume();
   };
 
   private handleOffline = (): void => {
@@ -71,6 +72,16 @@ class AppLifecycleManager {
     this.facade = null;
     this.options = {};
     this.backgroundSince = null;
+    this.lastResumeAt = 0;
+  }
+
+  private emitResume(): void {
+    const nowTs = Date.now();
+    if (nowTs - this.lastResumeAt < 1_000) {
+      return;
+    }
+    this.lastResumeAt = nowTs;
+    this.options.onResume?.();
   }
 
   private onBackground(): void {
@@ -93,7 +104,7 @@ class AppLifecycleManager {
     }
 
     // Always sync on foreground return
-    this.options.onResume?.();
+    this.emitResume();
 
     // Restart health probe and run one immediately
     this.startHealthProbe();

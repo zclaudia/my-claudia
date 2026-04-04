@@ -5,7 +5,18 @@ import { useServerStore } from '../../stores/serverStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useProviderMetaStore } from '../../stores/providerMetaStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
+import { useFacadeStore } from '../../stores/facadeStore';
+import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
+import { isAndroid } from '../../utils/platform';
+
+vi.mock('../../utils/platform', async (importOriginal) => {
+  const mod = await importOriginal<Record<string, any>>();
+  return {
+    ...mod,
+    isAndroid: vi.fn(() => false),
+  };
+});
 
 vi.mock('../../services/api', () => ({
   getProviders: vi.fn(() => new Promise(() => {})),
@@ -74,6 +85,12 @@ describe('ProjectSettings', () => {
         local: { status: 'ready' },
       },
     } as any);
+    useFacadeStore.setState({
+      connectionState: 'connected',
+      backends: [{ backendId: 'local', runtimeState: 'ready', name: 'Local' }],
+    } as any);
+    useMobileRecoveryStore.getState().reset();
+    vi.mocked(isAndroid).mockReturnValue(false);
 
     useProviderMetaStore.setState({
       providersByBackend: {},
@@ -199,6 +216,16 @@ describe('ProjectSettings', () => {
     const textarea = screen.getByDisplayValue('Be helpful') as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: 'New prompt' } });
     expect(textarea.value).toBe('New prompt');
+  });
+
+  it('does not load providers on Android while mobile recovery is running', async () => {
+    vi.mocked(isAndroid).mockReturnValue(true);
+    useMobileRecoveryStore.setState({ phase: 'recovering' } as any);
+    const api = await import('../../services/api');
+
+    await renderProjectSettings();
+
+    expect(api.getProviders).not.toHaveBeenCalled();
   });
 
   it('calls api.updateProject and onClose when Save is clicked', async () => {

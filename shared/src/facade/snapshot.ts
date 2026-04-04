@@ -27,7 +27,6 @@ export function assembleSnapshot(params: {
   currentDeviceId: string | null;
   backends: BackendRuntimeRecord[];
   streams: SessionStreamSnapshot[];
-  registryRevision: number;
 }): BackendFacadeSnapshot {
   const backendSnapshots: BackendSnapshot[] = params.backends
     .filter(r => r.presence !== null)
@@ -48,7 +47,6 @@ export function assembleSnapshot(params: {
     currentDeviceId: params.currentDeviceId,
     backends: backendSnapshots,
     sessionStreams,
-    registryRevision: params.registryRevision,
   };
 }
 
@@ -64,7 +62,6 @@ function recordToBackendSnapshot(
     online: presence.visible,
     runtimeState: record.runtimeState,
     openState: record.openState,
-    channelId: record.channelId,
     instanceId: presence.instanceId,
     deviceId: presence.deviceId,
     channel: presence.channel,

@@ -5,11 +5,43 @@ import type { ReactNode } from 'react';
 // Undo the global mock from setup.ts so we test the real implementation
 vi.unmock('@/contexts/ConnectionContext');
 
+const {
+  mockUseRecoveryCoordinator,
+  mockUseMobileRecoveryJobManager,
+  mockUseMobileRecoveryLifecycle,
+  mockIsAndroid,
+  mockMobileRecoveryManager,
+} = vi.hoisted(() => ({
+  mockUseRecoveryCoordinator: vi.fn(() => vi.fn()),
+  mockUseMobileRecoveryJobManager: vi.fn(),
+  mockUseMobileRecoveryLifecycle: vi.fn(),
+  mockIsAndroid: vi.fn(() => false),
+  mockMobileRecoveryManager: {
+    start: vi.fn(),
+    retry: vi.fn(),
+    cancel: vi.fn(),
+    updateSelection: vi.fn(),
+    setDependencies: vi.fn(),
+  },
+}));
+
 import { ConnectionProvider, useConnection, ConnectionContext } from '../ConnectionContext';
 
 // Mock useBackendFacade — no-op in ConnectionContext tests
 vi.mock('../../hooks/useBackendFacade', () => ({
   useBackendFacade: vi.fn(),
+}));
+
+vi.mock('../../hooks/useRecoveryCoordinator', () => ({
+  useRecoveryCoordinator: mockUseRecoveryCoordinator,
+}));
+
+vi.mock('../../hooks/useMobileRecoveryJob', () => ({
+  useMobileRecoveryJobManager: mockUseMobileRecoveryJobManager,
+}));
+
+vi.mock('../../hooks/useMobileRecoveryLifecycle', () => ({
+  useMobileRecoveryLifecycle: mockUseMobileRecoveryLifecycle,
 }));
 
 // Mock useWslServer
@@ -121,6 +153,28 @@ vi.mock('../../utils/crypto', () => ({
   isEncryptionAvailable: vi.fn(() => false),
 }));
 
+vi.mock('../../utils/platform', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../utils/platform')>();
+  return {
+    ...actual,
+    isAndroid: mockIsAndroid,
+  };
+});
+
+const mockFacadeStore = {
+  facade: null as any,
+};
+
+vi.mock('../../stores/facadeStore', () => ({
+  useFacadeStore: Object.assign(
+    (selector?: (s: typeof mockFacadeStore) => unknown) => selector ? selector(mockFacadeStore) : mockFacadeStore,
+    {
+      getState: () => mockFacadeStore,
+      setState: vi.fn((partial: any) => Object.assign(mockFacadeStore, partial)),
+    },
+  ),
+}));
+
 // Access the mocked gateway store internals for test assertions/resets
 import { useGatewayStore } from '../../stores/gatewayStore';
 const mockGatewayStore = (useGatewayStore as any)._store as Record<string, any>;
@@ -128,6 +182,9 @@ const mockGatewayStore = (useGatewayStore as any)._store as Record<string, any>;
 describe('ConnectionContext', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseMobileRecoveryJobManager.mockReturnValue(mockMobileRecoveryManager);
+    mockIsAndroid.mockReturnValue(false);
+    mockFacadeStore.facade = null;
     mockPermissionStore.pendingRequests = [];
     mockAskUserStore.pendingRequests = [];
     mockServerStore.activeServerId = null;
@@ -469,5 +526,25 @@ describe('ConnectionContext', () => {
     expect(result.current.sendToServer).toBeDefined();
     expect(result.current.isServerConnected).toBeDefined();
     expect(result.current.getConnectedServers).toBeDefined();
+  });
+
+  it('uses the mobile recovery runtime on Android and disables the legacy coordinator', () => {
+    const facade = { forceReconnect: vi.fn(), probeHealth: vi.fn() } as any;
+    mockIsAndroid.mockReturnValue(true);
+    mockFacadeStore.facade = facade;
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ConnectionProvider>{children}</ConnectionProvider>
+    );
+
+    renderHook(() => useConnection(), { wrapper });
+
+    expect(mockUseRecoveryCoordinator).toHaveBeenCalledWith({
+      disableController: true,
+      disableLifecycle: true,
+      disableReconciliation: true,
+    });
+    expect(mockUseMobileRecoveryJobManager).toHaveBeenCalledOnce();
+    expect(mockUseMobileRecoveryLifecycle).toHaveBeenCalledWith(true, facade, mockMobileRecoveryManager);
   });
 });

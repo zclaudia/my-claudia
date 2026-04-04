@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { useActiveSessionStream } from '../useActiveSessionStream';
 import { useFacadeStore } from '../../stores/facadeStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useOwnershipStore } from '../../stores/ownershipStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
+import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 
 describe('useActiveSessionStream recovery gating', () => {
   const facade = {
@@ -36,7 +37,6 @@ describe('useActiveSessionStream recovery gating', () => {
       localBackendId: null,
       currentInstanceId: null,
       currentDeviceId: null,
-      registryRevision: 1,
       snapshotVersion: 1,
     });
     useProjectStore.setState({
@@ -75,7 +75,7 @@ describe('useActiveSessionStream recovery gating', () => {
       activeBackendId: 'backend-1',
       selectedSessionId: 'session-1',
       backends: {},
-      catalogs: {},
+      dataSyncs: {},
       activeSession: {
         sessionId: 'session-1',
         status: 'waiting_backend_ready',
@@ -88,12 +88,77 @@ describe('useActiveSessionStream recovery gating', () => {
       nextOwnershipVersion: 2,
       backgroundAt: null,
     } as any);
+    useMobileRecoveryStore.setState({
+      phase: 'idle',
+      step: null,
+      activeBackendId: 'backend-1',
+      selectedSessionId: 'session-1',
+      currentJob: {
+        jobId: null,
+        status: 'idle',
+        reason: null,
+        startedAt: null,
+        finishedAt: null,
+      },
+      lastError: null,
+    });
   });
 
-  it('does not open the session stream before recovery owner/backend verification completes', () => {
+  it('defers backend and stream maintenance while the recovery coordinator owns the selected session', () => {
     renderHook(() => useActiveSessionStream());
 
-    expect(facade.openBackend).toHaveBeenCalledWith('backend-1');
+    expect(facade.openBackend).not.toHaveBeenCalled();
     expect(facade.openSessionStream).not.toHaveBeenCalled();
+    expect(facade.catchUpContent).not.toHaveBeenCalled();
+  });
+
+  it('resumes stream maintenance after recovery completes', () => {
+    const { rerender } = renderHook(() => useActiveSessionStream());
+
+    act(() => {
+      useRecoveryStore.setState((state) => ({
+        ...state,
+        coordinator: 'ready',
+        activeSession: {
+          ...state.activeSession,
+          status: 'live',
+        },
+      }));
+    });
+
+    rerender();
+
+    expect(facade.openSessionStream).toHaveBeenCalledWith('backend-1', 'session-1');
+  });
+
+  it('defers backend and stream maintenance while the mobile recovery job owns the selected session', () => {
+    useRecoveryStore.setState((state) => ({
+      ...state,
+      coordinator: 'ready',
+      activeSession: {
+        ...state.activeSession,
+        status: 'live',
+      },
+    }));
+    useMobileRecoveryStore.setState({
+      phase: 'recovering',
+      step: 'session',
+      activeBackendId: 'backend-1',
+      selectedSessionId: 'session-1',
+      currentJob: {
+        jobId: 1,
+        status: 'running',
+        reason: 'resume',
+        startedAt: Date.now(),
+        finishedAt: null,
+      },
+      lastError: null,
+    });
+
+    renderHook(() => useActiveSessionStream());
+
+    expect(facade.openBackend).not.toHaveBeenCalled();
+    expect(facade.openSessionStream).not.toHaveBeenCalled();
+    expect(facade.catchUpContent).not.toHaveBeenCalled();
   });
 });

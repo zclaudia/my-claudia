@@ -24,7 +24,7 @@ export function createMockAdapter(options?: {
   deviceId?: string;
   initialState?: FacadeAdapterConnectionState;
   registryItems?: BackendPresence[];
-  channels?: Array<{ backendId: string; channelId: string; epoch: number }>;
+  subscribedBackendIds?: string[];
 }): {
   adapter: FacadeRuntimeGatewayAdapter;
   emit: (event: FacadeAdapterEvent) => void;
@@ -35,15 +35,14 @@ export function createMockAdapter(options?: {
   const deviceId = options?.deviceId ?? 'dev-1';
   const initialState = options?.initialState ?? 'connected';
   const registryItems = options?.registryItems ?? [];
-  const channelItems = options?.channels ?? [];
+  const subscribedBackendIds = options?.subscribedBackendIds ?? [];
 
   const commandLog: CommandLog[] = [];
   const listeners: Array<(event: FacadeAdapterEvent) => void> = [];
   const registry = new Map<string, BackendPresence>();
-  const channels = new Map<string, { backendId: string; channelId: string; epoch: number }>();
+  const subscribedSet = new Set<string>(subscribedBackendIds);
 
   for (const item of registryItems) registry.set(item.backendId, item);
-  for (const ch of channelItems) channels.set(ch.backendId, ch);
 
   function log(method: string, ...args: unknown[]) {
     commandLog.push({ method, args });
@@ -54,19 +53,13 @@ export function createMockAdapter(options?: {
       connect: () => log('connection.connect'),
       disconnect: () => log('connection.disconnect'),
     },
-    channel: {
-      openBackendChannel: (backendId, epoch) => log('channel.openBackendChannel', backendId, epoch),
-      closeBackendChannel: (channelId) => log('channel.closeBackendChannel', channelId),
-      sendToBackend: (channelId, message) => log('channel.sendToBackend', channelId, message),
-    },
-    catalog: {
-      subscribe: (backendId, epoch, lastRevision?) => log('catalog.subscribe', backendId, epoch, lastRevision),
-      unsubscribe: (backendId, epoch) => log('catalog.unsubscribe', backendId, epoch),
+    backend: {
+      subscribe: (backendId) => log('backend.subscribe', backendId),
+      unsubscribe: (backendId) => log('backend.unsubscribe', backendId),
+      sendToBackend: (backendId, message) => log('backend.sendToBackend', backendId, message),
     },
     stream: {
-      open: (channelId, sessionId) => log('stream.open', channelId, sessionId),
-      close: (channelId, sessionId) => log('stream.close', channelId, sessionId),
-      catchUp: (channelId, sessionId, afterOffset) => log('stream.catchUp', channelId, sessionId, afterOffset),
+      catchUp: (backendId, sessionId, afterOffset) => log('stream.catchUp', backendId, sessionId, afterOffset),
     },
   };
 
@@ -76,8 +69,8 @@ export function createMockAdapter(options?: {
         capturedAt: Date.now(),
         connection: { state: initialState },
         identity: { instanceId, deviceId },
-        registry: { revision: 1, items: registryItems },
-        channels: { items: channelItems },
+        registry: { items: registryItems },
+        subscriptions: { backendIds: subscribedBackendIds },
       }),
     },
     connection: {
@@ -88,12 +81,10 @@ export function createMockAdapter(options?: {
       getDeviceId: () => deviceId,
     },
     registry: {
-      getRevision: () => 1,
       getSnapshot: () => registry,
     },
-    channel: {
-      get: (backendId) => channels.get(backendId),
-      getAll: () => channels,
+    backend: {
+      isSubscribed: (backendId) => subscribedSet.has(backendId),
     },
     http: {
       getBaseUrl: (backendId) => `http://mock/${backendId}`,

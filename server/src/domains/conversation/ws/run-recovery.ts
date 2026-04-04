@@ -187,7 +187,7 @@ export function finalizeRun(input: FinalizeRunInput): void {
     } | undefined;
 
     if (updatedSession) {
-      gatewayClient.commands.catalog.broadcastSessionEvent('updated', updatedSession);
+      gatewayClient.commands.backendData.broadcastSessionEvent('updated', updatedSession);
     }
   }
 

@@ -35,6 +35,7 @@ export default defineConfig({
       'src/hooks/__tests__/useDataLoader.test.ts',
       'src/hooks/__tests__/useAndroidBack.test.ts',
       'src/hooks/__tests__/useGatewayConnection.features.test.ts',
+      'src/hooks/__tests__/useBackendFacade.test.ts',
       'src/hooks/__tests__/useMessagePagination.test.ts',
       'src/hooks/__tests__/useMediaQuery.test.ts',
       'src/hooks/__tests__/useMultiServerSocket.test.ts',

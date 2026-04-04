@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bot, Monitor, ChevronRight } from 'lucide-react';
-import { useGatewayStore, shouldShowNonCurrentInstanceBackend } from '../stores/gatewayStore';
+import { useGatewayStore } from '../stores/gatewayStore';
 import { useServerStore } from '../stores/serverStore';
 import { useFacadeStore } from '../stores/facadeStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import type { BackendSnapshot } from '@my-claudia/shared';
-import { useRecoveryStore } from '../stores/recoveryStore';
+import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
+import { getVisibleMobileBackends, isMobileGatewayConnected } from '../services/mobileConnectionState';
 
 function shouldShowMobileDebug(): boolean {
   if (typeof window === 'undefined') return false;
@@ -56,25 +57,25 @@ export function MobileSetup() {
     setGatewaySecret(directGatewaySecret || '');
   }, [directGatewaySecret]);
 
-  const transportStatus = useRecoveryStore((s) => s.transport.status);
-  const transportError = useRecoveryStore((s) => s.transport.error);
+  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
+  const mobileRecoveryError = useMobileRecoveryStore((s) => s.lastError);
 
   useEffect(() => {
     if (!connecting) return;
 
-    if (transportStatus === 'connected') {
+    if (facadeConnectionState === 'connected' && mobileRecoveryPhase !== 'recovering') {
       clearConnectTimers();
       setConnecting(false);
       setError(null);
       return;
     }
 
-    if (transportStatus === 'error') {
+    if (facadeConnectionState === 'error' || mobileRecoveryPhase === 'error') {
       clearConnectTimers();
       setConnecting(false);
-      setError(transportError || facadeConnectionError || 'Connection failed.');
+      setError(mobileRecoveryError || facadeConnectionError || 'Connection failed.');
     }
-  }, [connecting, transportStatus, transportError, facadeConnectionError]);
+  }, [connecting, facadeConnectionState, mobileRecoveryError, mobileRecoveryPhase, facadeConnectionError]);
 
   useEffect(() => clearConnectTimers, []);
 
@@ -95,14 +96,20 @@ export function MobileSetup() {
     clearConnectTimers();
 
     connectIntervalRef.current = window.setInterval(() => {
-      if (useRecoveryStore.getState().transport.status === 'connected') {
+      if (isMobileGatewayConnected(
+        useFacadeStore.getState().connectionState,
+        useMobileRecoveryStore.getState().phase,
+      )) {
         setConnecting(false);
         clearConnectTimers();
       }
     }, 500);
 
     connectTimeoutRef.current = window.setTimeout(() => {
-      if (useRecoveryStore.getState().transport.status !== 'connected') {
+      if (!isMobileGatewayConnected(
+        useFacadeStore.getState().connectionState,
+        useMobileRecoveryStore.getState().phase,
+      )) {
         setConnecting(false);
         setError('Connection timed out. Please check the URL and secret.');
       }
@@ -111,7 +118,7 @@ export function MobileSetup() {
   };
 
   const handleBackendSelect = (backend: BackendSnapshot) => {
-    if (useRecoveryStore.getState().getBackendViewState(backend.backendId) === 'offline') return;
+    if (backend.runtimeState === 'offline') return;
     const serverId = backend.backendId;
     setActiveServer(serverId);
     setLastActiveBackend(serverId);
@@ -119,10 +126,12 @@ export function MobileSetup() {
   };
 
   const { showLocalBackend } = useGatewayStore();
-  const isGatewayConnected = useRecoveryStore((s) => s.transport.status) === 'connected';
-  const onlineBackends = backends.filter(
-    b => useRecoveryStore.getState().getBackendViewState(b.backendId) !== 'offline'
-      && shouldShowNonCurrentInstanceBackend(b, currentInstanceId, showLocalBackend)
+  const isGatewayConnected = isMobileGatewayConnected(facadeConnectionState, mobileRecoveryPhase);
+  const onlineBackends = getVisibleMobileBackends(
+    backends,
+    mobileRecoveryPhase,
+    currentInstanceId,
+    showLocalBackend,
   );
   const showDebug = debugVisible;
 

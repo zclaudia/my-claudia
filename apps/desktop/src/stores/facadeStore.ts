@@ -30,7 +30,6 @@ interface FacadeState {
   localBackendId: string | null;
   currentInstanceId: string | null;
   currentDeviceId: string | null;
-  registryRevision: number;
   snapshotVersion: number;
 
   // Actions
@@ -50,7 +49,6 @@ const initialState = {
   localBackendId: null,
   currentInstanceId: null,
   currentDeviceId: null,
-  registryRevision: 0,
   snapshotVersion: 0,
 };
 
@@ -71,7 +69,6 @@ export const useFacadeStore = create<FacadeState>((set, get) => ({
       localBackendId: snapshot.localBackendId,
       currentInstanceId: snapshot.currentInstanceId,
       currentDeviceId: snapshot.currentDeviceId,
-      registryRevision: snapshot.registryRevision ?? 0,
       snapshotVersion: snapshot.snapshotVersion,
     })),
 
@@ -105,7 +102,7 @@ export const useFacadeStore = create<FacadeState>((set, get) => ({
         break;
       }
 
-      // catalog_snapshot, catalog_event, run_event, content_patch
+      // backend_data_snapshot, backend_data_event, run_event, content_patch
       // are consumed by sessionsStore / chatStore, not by facadeStore.
       // They pass through the event listeners but don't update facade state.
       default:

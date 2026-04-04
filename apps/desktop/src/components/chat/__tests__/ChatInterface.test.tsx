@@ -380,9 +380,8 @@ function setDefaultStores(overrides?: {
       local: {
         backendId: 'local',
         status: 'ready',
-        desiredOpen: true,
-        channelReady: true,
-        catalogReady: true,
+        subscribed: true,
+        dataReady: true,
         retryCount: 0,
         lastError: null,
         lastCloseReason: null,

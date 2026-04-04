@@ -24,31 +24,20 @@ function deriveRuntimeState(record: BackendRuntimeRecord): BackendRuntimeState {
   // 1. No presence → offline
   if (!record.presence) return 'offline';
 
-  // 2. Has presence but no channel → visible
-  if (record.channelId === null) {
-    // Check if we're in an opening attempt
-    if (record.openState === 'opening') return 'opening';
+  // 2. Has presence but not subscribed → visible
+  if (!record.subscribed) {
+    // Check if we're in a subscribing attempt
+    if (record.openState === 'subscribing') return 'subscribing';
     // Check for error
     if (record.openState === 'error') return 'error';
     return 'visible';
   }
 
-  // 3. Channel exists but catalog not initialized → opening
-  if (!record.catalogInitialized) return 'opening';
+  // 3. Subscribed but backend data not initialized → subscribing
+  if (!record.dataInitialized) return 'subscribing';
 
-  // 4. Epoch alignment check
-  const epochAligned =
-    record.presence.epoch === record.channelEpoch &&
-    record.presence.epoch === record.catalogEpoch;
-
-  if (!epochAligned) return 'opening';
-
-  // 5. All aligned → ready
+  // 4. Subscribed + backend data initialized → ready
   return 'ready';
-}
-
-function deriveOpenState(record: BackendRuntimeRecord): BackendOpenState {
-  return record.openState;
 }
 
 function createDefaultRecord(backendId: string, presence: BackendPresence | null): BackendRuntimeRecord {
@@ -56,12 +45,10 @@ function createDefaultRecord(backendId: string, presence: BackendPresence | null
     backendId,
     presence,
     currentEpoch: presence?.epoch ?? null,
-    channelId: null,
-    channelEpoch: null,
-    catalogInitialized: false,
-    catalogEpoch: null,
+    subscribed: false,
+    dataInitialized: false,
     runtimeState: presence ? 'visible' : 'offline',
-    openState: 'closed',
+    openState: 'unsubscribed',
     capabilities: [],
   };
 }
@@ -98,7 +85,6 @@ function updateDerived(record: BackendRuntimeRecord): void {
 
 export class FacadeRegistryStore {
   private records = new Map<string, BackendRuntimeRecord>();
-  private registryRevision = 0;
 
   // --------------------------------------------------------------------------
   // Bootstrap
@@ -108,19 +94,17 @@ export class FacadeRegistryStore {
     this.records.clear();
 
     // Apply registry items
-    this.registryRevision = state.registry.revision;
     for (const item of state.registry.items) {
       const record = createDefaultRecord(item.backendId, item);
       this.records.set(item.backendId, record);
     }
 
-    // Apply existing channels
-    for (const ch of state.channels.items) {
-      const record = this.records.get(ch.backendId);
+    // Apply existing subscriptions
+    for (const backendId of state.subscriptions.backendIds) {
+      const record = this.records.get(backendId);
       if (record) {
-        record.channelId = ch.channelId;
-        record.channelEpoch = ch.epoch;
-        record.openState = 'open';
+        record.subscribed = true;
+        record.openState = 'subscribed';
         updateDerived(record);
       }
     }
@@ -130,7 +114,7 @@ export class FacadeRegistryStore {
   // Registry Operations
   // --------------------------------------------------------------------------
 
-  applyRegistrySnapshot(revision: number, items: BackendPresence[]): BackendStateDiff[] {
+  applyRegistrySnapshot(items: BackendPresence[]): BackendStateDiff[] {
     const diffs: BackendStateDiff[] = [];
     const newIds = new Set(items.map(i => i.backendId));
 
@@ -141,7 +125,10 @@ export class FacadeRegistryStore {
           ...prev,
           presence: null,
           currentEpoch: null,
-          openState: prev.openState === 'open' || prev.openState === 'opening' ? 'error' : prev.openState,
+          subscribed: false,
+          dataInitialized: false,
+          openState: prev.openState === 'subscribed' || prev.openState === 'subscribing' ? 'error' : prev.openState,
+          capabilities: [],
         };
         updateDerived(next);
         const diff = makeDiff(id, prev, next, 'registry_removed');
@@ -158,13 +145,11 @@ export class FacadeRegistryStore {
         ? { ...prev, presence: item, currentEpoch: item.epoch }
         : createDefaultRecord(item.backendId, item);
 
-      // Epoch change invalidates channel and catalog
+      // Epoch change invalidates subscription and backend data
       if (prev && prev.currentEpoch !== null && prev.currentEpoch !== item.epoch) {
-        next.channelId = null;
-        next.channelEpoch = null;
-        next.catalogInitialized = false;
-        next.catalogEpoch = null;
-        next.openState = prev.openState === 'open' ? 'error' : 'closed';
+        next.subscribed = false;
+        next.dataInitialized = false;
+        next.openState = prev.openState === 'subscribed' ? 'error' : 'unsubscribed';
         next.capabilities = [];
       }
 
@@ -174,80 +159,29 @@ export class FacadeRegistryStore {
       this.records.set(item.backendId, next);
     }
 
-    this.registryRevision = revision;
     return diffs;
   }
 
-  applyRegistryEvent(
-    revision: number,
-    op: 'upsert' | 'remove',
-    item?: BackendPresence,
-    backendId?: string,
-  ): BackendStateDiff[] {
-    this.registryRevision = revision;
-
-    if (op === 'remove' && backendId) {
-      const prev = this.records.get(backendId);
-      if (!prev) return [];
-
-      const next: BackendRuntimeRecord = {
-        ...prev,
-        presence: null,
-        currentEpoch: null,
-        openState: prev.openState === 'open' || prev.openState === 'opening' ? 'error' : prev.openState,
-      };
-      updateDerived(next);
-      this.records.set(backendId, next);
-      const diff = makeDiff(backendId, prev, next, 'registry_removed');
-      return diff ? [diff] : [];
-    }
-
-    if (op === 'upsert' && item) {
-      const prev = this.records.get(item.backendId);
-      const next = prev
-        ? { ...prev, presence: item, currentEpoch: item.epoch }
-        : createDefaultRecord(item.backendId, item);
-
-      // Epoch change
-      if (prev && prev.currentEpoch !== null && prev.currentEpoch !== item.epoch) {
-        next.channelId = null;
-        next.channelEpoch = null;
-        next.catalogInitialized = false;
-        next.catalogEpoch = null;
-        next.openState = prev.openState === 'open' ? 'error' : 'closed';
-        next.capabilities = [];
-      }
-
-      updateDerived(next);
-      this.records.set(item.backendId, next);
-      const diff = makeDiff(item.backendId, prev, next, 'registry_upsert');
-      return diff ? [diff] : [];
-    }
-
-    return [];
-  }
-
   // --------------------------------------------------------------------------
-  // Channel Operations
+  // Subscription Operations
   // --------------------------------------------------------------------------
 
-  markChannelOpening(backendId: string, epoch: number): BackendStateDiff[] {
+  markSubscribing(backendId: string): BackendStateDiff[] {
     const prev = this.records.get(backendId);
     if (!prev) return [];
 
     const next: BackendRuntimeRecord = {
       ...prev,
-      openState: 'opening' as BackendOpenState,
+      openState: 'subscribing' as BackendOpenState,
     };
     updateDerived(next);
     this.records.set(backendId, next);
-    const diff = makeDiff(backendId, prev, next, 'channel_opening');
+    const diff = makeDiff(backendId, prev, next, 'subscribing');
     return diff ? [diff] : [];
   }
 
-  markChannelOpened(
+  markSubscribed(
     backendId: string,
-    channelId: string,
     epoch: number,
     capabilities: string[],
   ): BackendStateDiff[] {
@@ -256,36 +190,31 @@ export class FacadeRegistryStore {
 
     const next: BackendRuntimeRecord = {
       ...prev,
-      channelId,
-      channelEpoch: epoch,
-      openState: 'open' as BackendOpenState,
+      subscribed: true,
+      currentEpoch: epoch,
+      openState: 'subscribed' as BackendOpenState,
       capabilities,
       lastError: undefined,
       lastClosureReason: undefined,
     };
     updateDerived(next);
     this.records.set(backendId, next);
-    const diff = makeDiff(backendId, prev, next, 'channel_opened');
+    const diff = makeDiff(backendId, prev, next, 'subscribed');
     return diff ? [diff] : [];
   }
 
-  markChannelClosed(
+  markUnsubscribed(
     backendId: string,
-    channelId: string,
     reason: string,
   ): BackendStateDiff[] {
     const prev = this.records.get(backendId);
     if (!prev) return [];
-    // Ignore if channelId doesn't match
-    if (prev.channelId !== channelId) return [];
 
     const next: BackendRuntimeRecord = {
       ...prev,
-      channelId: null,
-      channelEpoch: null,
-      catalogInitialized: false,
-      catalogEpoch: null,
-      openState: 'closed' as BackendOpenState,
+      subscribed: false,
+      dataInitialized: false,
+      openState: 'unsubscribed' as BackendOpenState,
       lastClosureReason: reason,
       capabilities: [],
     };
@@ -295,54 +224,35 @@ export class FacadeRegistryStore {
     return diff ? [diff] : [];
   }
 
-  markChannelRejected(backendId: string, reason: string): BackendStateDiff[] {
+  // --------------------------------------------------------------------------
+  // Backend Data Operations
+  // --------------------------------------------------------------------------
+
+  markDataInitialized(backendId: string): BackendStateDiff[] {
     const prev = this.records.get(backendId);
     if (!prev) return [];
 
     const next: BackendRuntimeRecord = {
       ...prev,
-      channelId: null,
-      channelEpoch: null,
-      openState: 'error' as BackendOpenState,
-      lastError: reason,
+      dataInitialized: true,
     };
     updateDerived(next);
     this.records.set(backendId, next);
-    const diff = makeDiff(backendId, prev, next, reason);
+    const diff = makeDiff(backendId, prev, next, 'data_initialized');
     return diff ? [diff] : [];
   }
 
-  // --------------------------------------------------------------------------
-  // Catalog Operations
-  // --------------------------------------------------------------------------
-
-  markCatalogInitialized(backendId: string, epoch: number): BackendStateDiff[] {
+  markDataReset(backendId: string): BackendStateDiff[] {
     const prev = this.records.get(backendId);
     if (!prev) return [];
 
     const next: BackendRuntimeRecord = {
       ...prev,
-      catalogInitialized: true,
-      catalogEpoch: epoch,
+      dataInitialized: false,
     };
     updateDerived(next);
     this.records.set(backendId, next);
-    const diff = makeDiff(backendId, prev, next, 'catalog_initialized');
-    return diff ? [diff] : [];
-  }
-
-  markCatalogReset(backendId: string, epoch: number): BackendStateDiff[] {
-    const prev = this.records.get(backendId);
-    if (!prev) return [];
-
-    const next: BackendRuntimeRecord = {
-      ...prev,
-      catalogInitialized: false,
-      catalogEpoch: epoch,
-    };
-    updateDerived(next);
-    this.records.set(backendId, next);
-    const diff = makeDiff(backendId, prev, next, 'catalog_reset');
+    const diff = makeDiff(backendId, prev, next, 'data_reset');
     return diff ? [diff] : [];
   }
 
@@ -350,10 +260,10 @@ export class FacadeRegistryStore {
   // Queries
   // --------------------------------------------------------------------------
 
-  /** Fix #16: Remove zombie records (null presence, no active channel) to prevent memory leak. */
+  /** Fix #16: Remove zombie records (null presence, not subscribed) to prevent memory leak. */
   collectGarbage(): void {
     for (const [id, record] of this.records) {
-      if (!record.presence && !record.channelId) {
+      if (!record.presence && !record.subscribed) {
         this.records.delete(id);
       }
     }
@@ -367,7 +277,4 @@ export class FacadeRegistryStore {
     return Array.from(this.records.values());
   }
 
-  getRegistryRevision(): number {
-    return this.registryRevision;
-  }
 }

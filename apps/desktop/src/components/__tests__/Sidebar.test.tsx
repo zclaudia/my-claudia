@@ -69,6 +69,8 @@ import { Sidebar } from '../Sidebar';
 import { useProjectStore } from '../../stores/projectStore';
 import { useProviderMetaStore } from '../../stores/providerMetaStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
+import { useFacadeStore } from '../../stores/facadeStore';
+import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
 import { usePermissionStore } from '../../stores/permissionStore';
@@ -78,6 +80,16 @@ import { useChatStore } from '../../stores/chatStore';
 import { useUIStore } from '../../stores/uiStore';
 import * as api from '../../services/api';
 import { groupSessionsByWorktree } from '../sidebar/worktreeGrouping';
+import { isAndroid } from '../../utils/platform';
+
+vi.mock('../../utils/platform', async (importOriginal) => {
+  const mod = await importOriginal<Record<string, any>>();
+  return {
+    ...mod,
+    isAndroid: vi.fn(() => false),
+    isDesktopTauri: vi.fn(() => false),
+  };
+});
 
 const baseProject = { id: 'proj-1', name: 'Project One', rootPath: '/tmp/proj1', createdAt: Date.now(), updatedAt: Date.now() };
 const baseSession = { id: 'sess-1', name: 'Session 1', projectId: 'proj-1', createdAt: Date.now(), updatedAt: Date.now() };
@@ -122,6 +134,19 @@ function setupStores(overrides: Record<string, any> = {}) {
     ...overrides.recoveryStore,
   } as any);
 
+  useFacadeStore.setState({
+    connectionState: 'connected',
+    backends: [
+      { backendId: 'local', runtimeState: 'ready', name: 'Local' },
+    ],
+    ...overrides.facadeStore,
+  } as any);
+
+  useMobileRecoveryStore.getState().reset();
+  if (overrides.mobileRecoveryStore) {
+    useMobileRecoveryStore.setState(overrides.mobileRecoveryStore as any);
+  }
+
   useSupervisionStore.setState({ agents: {}, ...overrides.supervisionStore } as any);
   usePermissionStore.setState({ pendingRequests: [], ...overrides.permissionStore } as any);
   usePromptRequestStore.setState({ pendingRequests: [], ...overrides.askStore } as any);
@@ -144,6 +169,7 @@ describe('Sidebar', () => {
   beforeEach(() => {
     setupStores();
     vi.clearAllMocks();
+    vi.mocked(isAndroid).mockReturnValue(false);
     (api.getSearchHistory as ReturnType<typeof vi.fn>).mockImplementation(() => neverSettles);
     (api.getProjectWorktrees as ReturnType<typeof vi.fn>).mockImplementation(() => neverSettles);
     selectionMocks.selectProject.mockReset();
@@ -216,6 +242,25 @@ describe('Sidebar', () => {
     });
     const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
     expect(container.textContent).toContain('No active sessions');
+  });
+
+  it('disables new project creation on Android while mobile recovery is running', () => {
+    vi.mocked(isAndroid).mockReturnValue(true);
+    setupStores({
+      mobileRecoveryStore: { phase: 'recovering' },
+      facadeStore: {
+        connectionState: 'connected',
+        backends: [{ backendId: 'local', runtimeState: 'ready', name: 'Local' }],
+      },
+      recoveryStore: {
+        backends: { local: { status: 'ready' } },
+      },
+    });
+
+    const { getByText } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
+    const newProjectButton = getByText('New Project').closest('button');
+
+    expect(newProjectButton).toBeDisabled();
   });
 
   // ---- Project expand/collapse ----

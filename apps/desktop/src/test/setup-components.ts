@@ -393,7 +393,6 @@ const mockFacadeStore = createMockStore({
   localBackendId: MOCK_LOCAL_BACKEND_ID,
   currentInstanceId: 'instance-local',
   currentDeviceId: 'device-local',
-  registryRevision: 1,
   snapshotVersion: 1,
   setFacade: vi.fn(),
   clearFacade: vi.fn(),

@@ -22,15 +22,52 @@ import { useSessionsStore } from '../stores/sessionsStore';
 import { useChatStore, type MessageWithToolCalls } from '../stores/chatStore';
 import { useToastStore } from '../stores/toastStore';
 import { useOwnershipStore } from '../stores/ownershipStore';
+import { useProjectStore } from '../stores/projectStore';
 import { handleServerMessage, cleanupServerSyncState } from '../services/messageHandler';
 import type { ServerFeature } from '@my-claudia/shared';
 import { isLegacyLocalBackendId } from '../utils/controlPlane';
 import { useTerminalStore } from '../stores/terminalStore';
 import { xtermRegistry } from '../utils/xtermRegistry';
 import { useRecoveryStore } from '../stores/recoveryStore';
+import type { RecoveryControllerEvent } from '../services/recoveryStateMachine';
 
 // Fix #21: use WeakRef-like pattern — clear on each facade lifecycle
 let facadeServerRuns = new Map<string, Set<string>>();
+let pendingAutoOpenBackends = new Set<string>();
+let autoOpenTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearPendingAutoOpen(): void {
+  pendingAutoOpenBackends.clear();
+  if (autoOpenTimer) {
+    clearTimeout(autoOpenTimer);
+    autoOpenTimer = null;
+  }
+}
+
+function scheduleAutoOpenBackends(backendIds: string[]): void {
+  for (const backendId of backendIds) {
+    pendingAutoOpenBackends.add(backendId);
+  }
+  if (pendingAutoOpenBackends.size === 0 || autoOpenTimer) return;
+  autoOpenTimer = setTimeout(() => {
+    autoOpenTimer = null;
+    const facade = useFacadeStore.getState().facade;
+    const snapshot = facade?.getSnapshot?.() ?? useFacadeStore.getState();
+    if (!facade || !('backends' in snapshot)) {
+      pendingAutoOpenBackends.clear();
+      return;
+    }
+
+    const queued = [...pendingAutoOpenBackends];
+    pendingAutoOpenBackends.clear();
+    for (const backendId of queued) {
+      const backend = snapshot.backends.find((item: any) => item.backendId === backendId);
+      if (backend && backend.openState === 'unsubscribed' && backend.runtimeState === 'visible') {
+        facade.openBackend(backendId);
+      }
+    }
+  }, 0);
+}
 
 function hasActiveRunsForBackend(backendId: string): boolean {
   const chatStore = useChatStore.getState();
@@ -68,7 +105,7 @@ function getOrCreateDirectDeviceId(): string {
  * Call this once at the app root (e.g. in ConnectionProvider).
  * Components consume facade state from useFacadeStore.
  */
-export function useBackendFacade(): void {
+export function useBackendFacade(dispatchRecoveryEvent: (event: RecoveryControllerEvent) => void): void {
   const facadeRef = useRef<BackendFacade | null>(null);
   const unsubEventRef = useRef<(() => void) | null>(null);
 
@@ -97,6 +134,7 @@ export function useBackendFacade(): void {
     }
     useFacadeStore.getState().clearFacade();
     facadeServerRuns = new Map(); // Fix #21: clear stale run tracking
+    clearPendingAutoOpen();
 
     let facade: BackendFacade | null = null;
 
@@ -119,11 +157,15 @@ export function useBackendFacade(): void {
     facadeRef.current = facade;
     useFacadeStore.getState().setFacade(facade);
 
-    // Subscribe to events → update facadeStore + sync bridge to gatewayStore
+    // Subscribe to events → update facadeStore + sync bridge to gatewayStore.
+    // All store writes run synchronously so recovery store stays consistent with
+    // facade state. The only deferred call is facade.openBackend() inside
+    // syncToGatewayStore — it uses setTimeout(0) to avoid re-entrant event
+    // emission that would exceed React's update depth on mobile.
     unsubEventRef.current = facade.onEvent((event: BackendFacadeEvent) => {
       useFacadeStore.getState().applyEvent(event);
       useRecoveryStore.getState().noteTransportMessage();
-      syncToGatewayStore(event);
+      syncToGatewayStore(event, dispatchRecoveryEvent);
     });
 
     // Connect
@@ -138,6 +180,7 @@ export function useBackendFacade(): void {
         facadeRef.current.disconnect();
         facadeRef.current = null;
       }
+      clearPendingAutoOpen();
       useFacadeStore.getState().clearFacade();
     };
   }, [mode, embeddedPort, directGatewayUrl, directGatewaySecret]);
@@ -146,7 +189,10 @@ export function useBackendFacade(): void {
 /**
  * Sync facade events to gatewayStore for gateway transport state only.
  */
-export function syncToGatewayStore(event: BackendFacadeEvent): void {
+export function syncToGatewayStore(
+  event: BackendFacadeEvent,
+  dispatchRecoveryEvent: (event: RecoveryControllerEvent) => void = () => {},
+): void {
   const gwStore = useGatewayStore.getState();
   const serverState = useServerStore.getState();
 
@@ -183,19 +229,27 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
       // Auto-open backends that should be open:
       // 1. Local backend if visible but closed
       // 2. Active remote backend if visible but closed (handles reconnect)
+      //
+      // IMPORTANT: Defer openBackend to avoid re-entrant event emission.
+      // openBackend() synchronously emits backend_state_changed, which would
+      // re-enter this event handler and cause cascading store writes that
+      // exceed React's maximum update depth on mobile.
       const facade = useFacadeStore.getState().facade;
       if (facade) {
-        const backendsToAutoOpen = new Set<string>();
-        if (resolvedLocalBackendId) backendsToAutoOpen.add(resolvedLocalBackendId);
-        if (serverState.activeServerId) backendsToAutoOpen.add(serverState.activeServerId);
-
-        for (const bid of backendsToAutoOpen) {
-          const b = snapshot.backends.find(item => item.backendId === bid);
-          if (b && b.openState === 'closed' && b.runtimeState === 'visible') {
-            facade.openBackend(bid);
-          }
+        const backendsToAutoOpen: string[] = [];
+        if (resolvedLocalBackendId) backendsToAutoOpen.push(resolvedLocalBackendId);
+        if (serverState.activeServerId && serverState.activeServerId !== resolvedLocalBackendId) {
+          backendsToAutoOpen.push(serverState.activeServerId);
         }
+
+        const toOpen = backendsToAutoOpen.filter(bid => {
+          const b = snapshot.backends.find(item => item.backendId === bid);
+          return b && b.openState === 'unsubscribed' && b.runtimeState === 'visible';
+        });
+
+        scheduleAutoOpenBackends(toOpen);
       }
+      dispatchRecoveryEvent({ type: 'facade_snapshot' });
       break;
     }
 
@@ -208,6 +262,7 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
           cleanupServerSyncState(`gw:${backend.backendId}`);
         }
       }
+      dispatchRecoveryEvent({ type: 'transport_changed' });
       break;
 
     case 'backend_state_changed': {
@@ -223,7 +278,6 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
           currentDeviceId: useFacadeStore.getState().currentDeviceId,
           backends: useFacadeStore.getState().backends,
           sessionStreams: useFacadeStore.getState().sessionStreams,
-          registryRevision: useFacadeStore.getState().registryRevision,
         });
         recoveryStore.startBackendRecovery(event.backendId);
       }
@@ -258,37 +312,50 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
           message: `Backend ${event.backendId} 连接断开，正在等待恢复${event.error ? `: ${event.error}` : ''}`,
         });
       }
+      dispatchRecoveryEvent({ type: 'backend_state_changed' });
       break;
     }
 
-    // --- Catalog events → sessionsStore + recoveryStore ---
-    case 'catalog_snapshot': {
-      const { backendId, items } = event;
-      const activeItems = items.filter((item) => !item.archived);
+    // --- Backend data events → sessionsStore + recoveryStore ---
+    case 'backend_data_snapshot': {
+      const { backendId, sessions, projects } = event;
+      const activeItems = sessions.filter((item) => !item.archived);
       useSessionsStore.getState().setRemoteSessions(backendId, activeItems.map(item => ({
         id: item.sessionId,
-        projectId: '',
+        projectId: item.projectId || '',
         name: item.title || '',
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
-        isActive: item.activeRunStatus === 'running',
+        isActive: item.runStatus === 'running',
         type: 'regular' as const,
       })));
-      const ownershipVersion = useRecoveryStore.getState().noteCatalogSyncSucceeded(backendId);
+      // Sync projects from snapshot (always replace, even if empty — snapshot is the truth)
+      if (projects) {
+        useProjectStore.getState().replaceProjectsForBackend(backendId, projects.map(p => ({
+          id: p.projectId,
+          name: p.name,
+          type: 'code' as const,
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+        })));
+      }
+      const ownershipVersion = useRecoveryStore.getState().noteDataSyncSucceeded(backendId);
       useOwnershipStore.getState().stampSessionOwnershipVersion(
         activeItems.map(item => item.sessionId),
         ownershipVersion,
       );
+      dispatchRecoveryEvent({ type: 'reconcile' });
       break;
     }
 
-    case 'catalog_event': {
-      const { backendId, op, item, sessionId } = event;
-      if (op === 'upsert' && item) {
+    case 'backend_data_event': {
+      const { backendId, event: dataEvent } = event;
+      if (dataEvent.op === 'session_upsert') {
+        const item = dataEvent.item;
         if (item.archived) {
           useSessionsStore.getState().handleSessionEvent(backendId, 'deleted', {
             id: item.sessionId,
-            projectId: '',
+            projectId: item.projectId || '',
             isActive: false,
             type: 'regular' as const,
             createdAt: item.createdAt,
@@ -302,22 +369,33 @@ export function syncToGatewayStore(event: BackendFacadeEvent): void {
           ? 'updated' : 'created';
         sessionStore.handleSessionEvent(backendId, eventType, {
           id: item.sessionId,
-          projectId: '',
+          projectId: item.projectId || '',
           name: item.title || '',
           createdAt: item.createdAt,
           updatedAt: item.updatedAt,
-          isActive: item.activeRunStatus === 'running',
+          isActive: item.runStatus === 'running',
           type: 'regular' as const,
         });
-      } else if (op === 'remove' && sessionId) {
+      } else if (dataEvent.op === 'session_remove') {
         useSessionsStore.getState().handleSessionEvent(backendId, 'deleted', {
-          id: sessionId,
+          id: dataEvent.sessionId,
           projectId: '',
           isActive: false,
           type: 'regular' as const,
           createdAt: 0,
           updatedAt: 0,
         });
+      } else if (dataEvent.op === 'project_upsert') {
+        const p = dataEvent.item;
+        useProjectStore.getState().upsertProjectForBackend(backendId, {
+          id: p.projectId,
+          name: p.name,
+          type: 'code' as const,
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+        });
+      } else if (dataEvent.op === 'project_remove') {
+        useProjectStore.getState().removeProjectForBackend(backendId, dataEvent.projectId);
       }
       break;
     }

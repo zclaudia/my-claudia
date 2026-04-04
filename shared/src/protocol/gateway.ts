@@ -5,7 +5,7 @@
  *
  * Key features:
  * - Epoch-bound routing: all messages tied to backendId + epoch
- * - Revision-based sync: registry and catalog use monotonic revisions with gap detection
+ * - Snapshot-based registry sync: full snapshot on every change + periodic push
  * - Channel abstraction: client↔backend interaction via gateway-managed channelId
  * - Stream demand flow control: gateway controls when backend pushes stream events
  * - Heartbeat + lease: application-level liveness detection
@@ -23,9 +23,6 @@ export type PeerSessionId = string;
 export type RecoveryToken = string;
 export type BackendId = string;
 export type Epoch = number;
-export type RegistryRevision = number;
-export type CatalogRevision = number;
-export type ChannelId = string;
 export type Offset = number;
 export type Seq = number;
 
@@ -51,7 +48,6 @@ export interface PeerHelloMessage {
     visible: boolean;
     capabilities: string[];
   };
-  lastRegistryRevision?: RegistryRevision;
 }
 
 export interface PeerReadyMessage {
@@ -67,18 +63,9 @@ export interface PeerReadyMessage {
   registrySync: RegistrySyncPayload;
 }
 
-export type RegistrySyncPayload =
-  | {
-      mode: 'snapshot';
-      revision: RegistryRevision;
-      items: BackendPresence[];
-    }
-  | {
-      mode: 'delta';
-      fromRevision: RegistryRevision;
-      toRevision: RegistryRevision;
-      events: RegistryEvent[];
-    };
+export interface RegistrySyncPayload {
+  items: BackendPresence[];
+}
 
 // ============================================================================
 // Registry Protocol
@@ -97,53 +84,15 @@ export interface BackendPresence {
   lastSeenAt: number;
 }
 
-export type RegistryEvent =
-  | {
-      revision: RegistryRevision;
-      op: 'upsert';
-      item: BackendPresence;
-    }
-  | {
-      revision: RegistryRevision;
-      op: 'remove';
-      backendId: BackendId;
-    };
-
-export interface ResyncRegistryMessage {
-  type: 'resync_registry';
-  lastRevision?: RegistryRevision;
+/** Client requests an immediate full registry snapshot (e.g. on mobile resume). */
+export interface RequestRegistrySnapshotMessage {
+  type: 'request_registry_snapshot';
 }
 
 export interface RegistrySnapshotMessage {
   type: 'registry_snapshot';
-  revision: RegistryRevision;
   items: BackendPresence[];
 }
-
-export interface RegistryDeltaMessage {
-  type: 'registry_delta';
-  fromRevision: RegistryRevision;
-  toRevision: RegistryRevision;
-  events: RegistryEvent[];
-}
-
-export interface RegistryEventMessage {
-  type: 'registry_event';
-  event: RegistryEvent;
-}
-
-export type RegistrySyncResponse =
-  | {
-      mode: 'snapshot';
-      revision: RegistryRevision;
-      items: BackendPresence[];
-    }
-  | {
-      mode: 'delta';
-      fromRevision: RegistryRevision;
-      toRevision: RegistryRevision;
-      events: RegistryEvent[];
-    };
 
 // ============================================================================
 // Backend Lease and Heartbeat
@@ -162,172 +111,100 @@ export interface HeartbeatAckMessage {
 }
 
 // ============================================================================
-// Backend Catalog Protocol
+// Backend Data Protocol (sessions + projects metadata)
 // ============================================================================
 
-export interface SessionCatalogItem {
+export type RunStatus = 'idle' | 'running' | 'waiting' | 'failed' | 'completed';
+
+export interface SessionItem {
   sessionId: string;
+  projectId?: string;
   title?: string;
   createdAt: number;
   updatedAt: number;
   lastMessageAt?: number;
   lastMessagePreview?: string;
-  activeRunStatus?: 'idle' | 'running';
+  runStatus: RunStatus;
   archived?: boolean;
 }
 
-export interface CatalogSnapshotMessage {
-  type: 'catalog_snapshot';
-  epoch: Epoch;
-  revision: CatalogRevision;
-  items: SessionCatalogItem[];
+export interface ProjectItem {
+  projectId: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
-export type CatalogEventMessage =
-  | {
-      type: 'catalog_event';
-      epoch: Epoch;
-      revision: CatalogRevision;
-      op: 'upsert';
-      item: SessionCatalogItem;
-    }
-  | {
-      type: 'catalog_event';
-      epoch: Epoch;
-      revision: CatalogRevision;
-      op: 'remove';
-      sessionId: string;
-    };
+/** Backend → Gateway → Client: full data snapshot (sessions + projects). */
+export interface BackendDataSnapshotMessage {
+  type: 'backend_data_snapshot';
+  /** Set by gateway when relaying to clients. Absent when backend sends to gateway. */
+  backendId?: BackendId;
+  sessions: SessionItem[];
+  projects: ProjectItem[];
+}
 
-export interface SubscribeBackendCatalogMessage {
-  type: 'subscribe_backend_catalog';
+/** Backend → Gateway → Client: incremental data event. */
+export type BackendDataEventMessage =
+  | { type: 'backend_data_event'; backendId?: BackendId; op: 'session_upsert'; item: SessionItem }
+  | { type: 'backend_data_event'; backendId?: BackendId; op: 'session_remove'; sessionId: string }
+  | { type: 'backend_data_event'; backendId?: BackendId; op: 'project_upsert'; item: ProjectItem }
+  | { type: 'backend_data_event'; backendId?: BackendId; op: 'project_remove'; projectId: string };
+
+/** Client → Gateway → Backend: request immediate data snapshot. */
+export interface RequestBackendDataSnapshotMessage {
+  type: 'request_backend_data_snapshot';
   backendId: BackendId;
-  expectedEpoch: Epoch;
-  lastRevision?: CatalogRevision;
 }
-
-export interface UnsubscribeBackendCatalogMessage {
-  type: 'unsubscribe_backend_catalog';
-  backendId: BackendId;
-  expectedEpoch: Epoch;
-}
-
-export interface BackendCatalogSnapshotMessage {
-  type: 'backend_catalog_snapshot';
-  backendId: BackendId;
-  epoch: Epoch;
-  revision: CatalogRevision;
-  items: SessionCatalogItem[];
-}
-
-export interface BackendCatalogDeltaMessage {
-  type: 'backend_catalog_delta';
-  backendId: BackendId;
-  epoch: Epoch;
-  fromRevision: CatalogRevision;
-  toRevision: CatalogRevision;
-  events: CatalogDeltaEvent[];
-}
-
-export type CatalogDeltaEvent =
-  | {
-      revision: CatalogRevision;
-      op: 'upsert';
-      item: SessionCatalogItem;
-    }
-  | {
-      revision: CatalogRevision;
-      op: 'remove';
-      sessionId: string;
-    };
-
-export type BackendCatalogEventMessage =
-  | {
-      type: 'backend_catalog_event';
-      backendId: BackendId;
-      epoch: Epoch;
-      revision: CatalogRevision;
-      op: 'upsert';
-      item: SessionCatalogItem;
-    }
-  | {
-      type: 'backend_catalog_event';
-      backendId: BackendId;
-      epoch: Epoch;
-      revision: CatalogRevision;
-      op: 'remove';
-      sessionId: string;
-    };
-
-export interface BackendCatalogResetMessage {
-  type: 'backend_catalog_reset';
-  backendId: BackendId;
-  epoch: Epoch;
-}
-
-export type BackendCatalogSyncResponse =
-  | {
-      mode: 'snapshot';
-      backendId: BackendId;
-      epoch: Epoch;
-      revision: CatalogRevision;
-      items: SessionCatalogItem[];
-    }
-  | {
-      mode: 'delta';
-      backendId: BackendId;
-      epoch: Epoch;
-      fromRevision: CatalogRevision;
-      toRevision: CatalogRevision;
-      events: CatalogDeltaEvent[];
-    };
 
 // ============================================================================
-// Backend Channel Protocol
+// Backend Subscription Protocol
 // ============================================================================
 
-export interface OpenBackendChannelMessage {
-  type: 'open_backend_channel';
+export interface SubscribeBackendMessage {
+  type: 'subscribe_backend';
   backendId: BackendId;
-  expectedEpoch: Epoch;
 }
 
-export interface BackendChannelOpenedMessage {
-  type: 'backend_channel_opened';
+export interface BackendSubscribedMessage {
+  type: 'backend_subscribed';
   backendId: BackendId;
   epoch: Epoch;
-  channelId: ChannelId;
   capabilities: string[];
 }
 
-export interface BackendChannelRejectedMessage {
-  type: 'backend_channel_rejected';
+export interface UnsubscribeBackendMessage {
+  type: 'unsubscribe_backend';
   backendId: BackendId;
-  reason: 'offline' | 'epoch_mismatch' | 'max_channels_exceeded';
 }
 
-export interface CloseBackendChannelMessage {
-  type: 'close_backend_channel';
-  channelId: ChannelId;
-}
-
-export interface BackendChannelClosedMessage {
-  type: 'backend_channel_closed';
-  channelId: ChannelId;
+export interface BackendUnsubscribedMessage {
+  type: 'backend_unsubscribed';
   backendId: BackendId;
-  reason: 'client_closed' | 'backend_offline' | 'epoch_changed' | 'peer_disconnected';
+  reason: 'client_unsubscribed' | 'backend_offline' | 'epoch_changed' | 'peer_disconnected';
 }
 
-export interface ChannelClientMessage {
-  type: 'channel_client_message';
-  channelId: ChannelId;
+export interface BackendClientMessage {
+  type: 'backend_client_message';
+  backendId: BackendId;
+  /** Gateway fills this with the sender's peerSessionId for server-side client identity. */
+  sourcePeerSessionId?: PeerSessionId;
   message: ClientMessage;
 }
 
-export interface ChannelServerMessage {
-  type: 'channel_server_message';
-  channelId: ChannelId;
+export interface BackendServerMessage {
+  type: 'backend_server_message';
+  backendId: BackendId;
+  /** If set, gateway routes to this specific client instead of broadcasting. */
+  targetPeerSessionId?: PeerSessionId;
   message: ServerMessage;
+}
+
+/** Gateway → Backend: a subscriber disconnected, clean up its server-side state. */
+export interface SubscriberDisconnectedMessage {
+  type: 'subscriber_disconnected';
+  backendId: BackendId;
+  peerSessionId: PeerSessionId;
 }
 
 // ============================================================================
@@ -348,25 +225,6 @@ export interface StreamDemandMessage {
   active: boolean;
 }
 
-export interface OpenSessionStreamMessage {
-  type: 'open_session_stream';
-  channelId: ChannelId;
-  sessionId: string;
-}
-
-export interface CloseSessionStreamMessage {
-  type: 'close_session_stream';
-  channelId: ChannelId;
-  sessionId: string;
-}
-
-export interface SessionStreamClosedMessage {
-  type: 'session_stream_closed';
-  channelId: ChannelId;
-  sessionId: string;
-  reason: 'client_closed' | 'channel_closed' | 'backend_offline' | 'epoch_changed';
-}
-
 export type RunStreamEventType =
   | 'run_started'
   | 'run_delta'
@@ -376,6 +234,7 @@ export type RunStreamEventType =
   | 'run_completed'
   | 'run_failed';
 
+/** Backend → Gateway: run stream event from backend (no backendId, gateway adds it). */
 export interface BackendRunStreamEvent {
   type: 'run_stream_event';
   eventType: RunStreamEventType;
@@ -385,10 +244,11 @@ export interface BackendRunStreamEvent {
   payload: unknown;
 }
 
+/** Gateway → Client: run stream event forwarded to subscribers. */
 export interface RunStreamEvent {
   type: 'run_stream_event';
   eventType: RunStreamEventType;
-  channelId: ChannelId;
+  backendId: BackendId;
   sessionId: string;
   runId: string;
   seq: Seq;
@@ -397,22 +257,23 @@ export interface RunStreamEvent {
 
 export interface CatchUpSessionContentMessage {
   type: 'catch_up_session_content';
-  channelId: ChannelId;
+  backendId: BackendId;
   sessionId: string;
   afterOffset: Offset;
 }
 
 export interface SessionContentPatchMessage {
   type: 'session_content_patch';
-  channelId: ChannelId;
+  backendId: BackendId;
   sessionId: string;
   messages: SessionMessage[];
   latestOffset: Offset;
+  runStatus?: RunStatus;
 }
 
 export interface SessionContentPatchErrorMessage {
   type: 'session_content_patch_error';
-  channelId: ChannelId;
+  backendId: BackendId;
   sessionId: string;
   afterOffset: Offset;
   message: string;
@@ -426,21 +287,14 @@ export type GatewayErrorCode =
   | 'INVALID_MESSAGE'
   | 'PROTOCOL_VERSION_MISMATCH'
   | 'UNAUTHORIZED'
-  | 'REGISTRY_REVISION_GAP'
-  | 'CATALOG_REVISION_GAP'
   | 'BACKEND_OFFLINE'
-  | 'BACKEND_EPOCH_MISMATCH'
-  | 'BACKEND_CHANNEL_NOT_FOUND'
-  | 'BACKEND_CHANNEL_CLOSED'
-  | 'MAX_CHANNELS_EXCEEDED'
+  | 'BACKEND_NOT_SUBSCRIBED'
   | 'SESSION_NOT_FOUND'
   | 'STREAM_GAP_DETECTED'
   | 'RATE_LIMITED';
 
 export type GatewayErrorRecovery =
-  | 'resync_registry'
-  | 'resync_catalog'
-  | 'reopen_channel'
+  | 'resubscribe'
   | 'catch_up_content'
   | 'reconnect';
 
@@ -457,88 +311,69 @@ export interface GatewayErrorMessage {
 
 export type PeerToGatewayMessage =
   | PeerHelloMessage
-  | ResyncRegistryMessage
+  | RequestRegistrySnapshotMessage
   | BackendHeartbeatMessage
-  | CatalogSnapshotMessage
-  | CatalogEventMessage
-  | SubscribeBackendCatalogMessage
-  | UnsubscribeBackendCatalogMessage
-  | OpenBackendChannelMessage
-  | CloseBackendChannelMessage
-  | ChannelClientMessage
-  | ChannelServerMessage
-  | OpenSessionStreamMessage
-  | CloseSessionStreamMessage
+  | BackendDataSnapshotMessage
+  | BackendDataEventMessage
+  | SubscribeBackendMessage
+  | UnsubscribeBackendMessage
+  | BackendClientMessage
+  | BackendServerMessage
   | BackendRunStreamEvent
   | CatchUpSessionContentMessage;
 
 export type GatewayToPeerMessage =
   | PeerReadyMessage
   | RegistrySnapshotMessage
-  | RegistryDeltaMessage
-  | RegistryEventMessage
   | HeartbeatAckMessage
   | StreamDemandMessage
-  | BackendCatalogSnapshotMessage
-  | BackendCatalogDeltaMessage
-  | BackendCatalogEventMessage
-  | BackendCatalogResetMessage
-  | BackendChannelOpenedMessage
-  | BackendChannelRejectedMessage
-  | BackendChannelClosedMessage
-  | ChannelServerMessage
+  | BackendDataSnapshotMessage
+  | BackendDataEventMessage
+  | BackendSubscribedMessage
+  | BackendUnsubscribedMessage
+  | BackendServerMessage
   | RunStreamEvent
-  | SessionStreamClosedMessage
   | SessionContentPatchMessage
   | SessionContentPatchErrorMessage
   | GatewayErrorMessage;
 
 export type BackendToGatewayMessage =
   | PeerHelloMessage
-  | ResyncRegistryMessage
+  | RequestRegistrySnapshotMessage
   | BackendHeartbeatMessage
-  | CatalogSnapshotMessage
-  | CatalogEventMessage
-  | ChannelServerMessage
+  | BackendDataSnapshotMessage
+  | BackendDataEventMessage
+  | BackendServerMessage
   | BackendRunStreamEvent;
 
 export type GatewayToBackendMessage =
   | PeerReadyMessage
   | RegistrySnapshotMessage
-  | RegistryDeltaMessage
-  | RegistryEventMessage
   | HeartbeatAckMessage
   | StreamDemandMessage
-  | ChannelClientMessage
+  | BackendClientMessage
+  | RequestBackendDataSnapshotMessage
+  | SubscriberDisconnectedMessage
   | GatewayErrorMessage;
 
 export type ClientToGatewayMessage =
   | PeerHelloMessage
-  | ResyncRegistryMessage
-  | SubscribeBackendCatalogMessage
-  | UnsubscribeBackendCatalogMessage
-  | OpenBackendChannelMessage
-  | CloseBackendChannelMessage
-  | ChannelClientMessage
-  | OpenSessionStreamMessage
-  | CloseSessionStreamMessage
+  | RequestRegistrySnapshotMessage
+  | SubscribeBackendMessage
+  | UnsubscribeBackendMessage
+  | BackendClientMessage
+  | RequestBackendDataSnapshotMessage
   | CatchUpSessionContentMessage;
 
 export type GatewayToClientMessage =
   | PeerReadyMessage
   | RegistrySnapshotMessage
-  | RegistryDeltaMessage
-  | RegistryEventMessage
-  | BackendCatalogSnapshotMessage
-  | BackendCatalogDeltaMessage
-  | BackendCatalogEventMessage
-  | BackendCatalogResetMessage
-  | BackendChannelOpenedMessage
-  | BackendChannelRejectedMessage
-  | BackendChannelClosedMessage
-  | ChannelServerMessage
+  | BackendDataSnapshotMessage
+  | BackendDataEventMessage
+  | BackendSubscribedMessage
+  | BackendUnsubscribedMessage
+  | BackendServerMessage
   | RunStreamEvent
-  | SessionStreamClosedMessage
   | SessionContentPatchMessage
   | SessionContentPatchErrorMessage
   | GatewayErrorMessage;
@@ -548,15 +383,13 @@ export type GatewayToClientMessage =
 // ============================================================================
 
 export interface ClientRegistryCache {
-  revision: RegistryRevision;
   items: Record<BackendId, BackendPresence>;
 }
 
-export interface BackendCatalogCache {
+export interface BackendDataCache {
   backendId: BackendId;
-  epoch: Epoch;
-  revision: CatalogRevision;
-  items: Record<string, SessionCatalogItem>;
+  sessions: Record<string, SessionItem>;
+  projects: Record<string, ProjectItem>;
 }
 
 export interface SessionContentCache {

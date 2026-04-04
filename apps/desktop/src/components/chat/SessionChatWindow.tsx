@@ -4,9 +4,13 @@ import { ConnectionProvider } from '../../contexts/ConnectionContext';
 import { ChatInterface } from './ChatInterface';
 import { useServerStore } from '../../stores/serverStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
+import { useFacadeStore } from '../../stores/facadeStore';
+import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import { useProjectStore } from '../../stores/projectStore';
 import * as api from '../../services/api';
 import { useSelectionCoordinator } from '../../hooks/useSelectionCoordinator';
+import { isAndroid } from '../../utils/platform';
+import { isMobileBackendUsable } from '../../services/mobileConnectionState';
 
 /** Compact context bar showing backend + project info for standalone windows */
 export function WindowContextBar({ serverName, projectId }: { serverName?: string; projectId?: string }) {
@@ -147,14 +151,26 @@ interface SessionChatContentProps {
 }
 
 function SessionChatContent({ sessionId, projectId }: SessionChatContentProps) {
+  const mobileRecoveryEnabled = isAndroid();
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { selectProject, selectSession } = useSelectionCoordinator();
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const isConnected = useRecoveryStore((s) => {
-    if (!activeServerId) return false;
+  const recoveryIsConnected = useRecoveryStore((s) => {
+    if (mobileRecoveryEnabled || !activeServerId) return false;
     return s.backends[activeServerId]?.status === 'ready';
   });
+  const facadeConnectionState = useFacadeStore((s) => s.connectionState);
+  const facadeBackends = useFacadeStore((s) => s.backends);
+  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
+  const isConnected = mobileRecoveryEnabled
+    ? isMobileBackendUsable({
+      backendId: activeServerId,
+      connectionState: facadeConnectionState,
+      backends: facadeBackends,
+      recoveryPhase: mobileRecoveryPhase,
+    })
+    : recoveryIsConnected;
 
   // Once WebSocket is connected, load project/session data into the stores
   useEffect(() => {

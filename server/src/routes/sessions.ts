@@ -179,7 +179,7 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
         const updatedSession = repo.findById(req.params.id);
 
         if (updatedSession) {
-          gatewayClient.commands.catalog.broadcastSessionEvent('updated', updatedSession);
+          gatewayClient.commands.backendData.broadcastSessionEvent('updated', updatedSession);
         }
       }
 

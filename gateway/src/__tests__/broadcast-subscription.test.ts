@@ -6,11 +6,23 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import WebSocket from 'ws';
 import type { Server } from 'http';
+import net from 'node:net';
 import { createGatewayServer } from '../server.js';
+import { closeTestServer, listenTestServer } from './test-server.js';
 
 const GATEWAY_SECRET = 'test-secret-broadcast';
-const TEST_PORT = 9002;
-const WS_URL = `ws://localhost:${TEST_PORT}/ws`;
+
+async function canBindLoopback(): Promise<boolean> {
+  return await new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once('error', () => resolve(false));
+    probe.listen(0, '127.0.0.1', () => {
+      probe.close(() => resolve(true));
+    });
+  });
+}
+
+const testIfLoopback = (await canBindLoopback()) ? test : test.skip;
 
 /**
  * MessageCollector - collects all messages and provides async waiting.
@@ -90,20 +102,21 @@ const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 const DELIVERY_SETTLE_MS = 20;
 const UNSUBSCRIBE_SETTLE_MS = 5;
 
-describe('Gateway v2 catalog subscriptions', () => {
+describe('Gateway v2 backend data relay', () => {
   let server: Server;
   let backendWs: WebSocket;
   let backendCollector: MessageCollector;
   let backendId: string;
   let backendEpoch: number;
+  let wsUrl: string;
   let openClients: WebSocket[] = [];
 
   beforeEach(async () => {
     server = createGatewayServer({ gatewaySecret: GATEWAY_SECRET });
-    await new Promise<void>((resolve) => server.listen(TEST_PORT, resolve));
+    ({ wsUrl } = await listenTestServer(server));
 
     // Register a backend
-    backendWs = new WebSocket(WS_URL);
+    backendWs = new WebSocket(wsUrl);
     await waitForOpen(backendWs);
     backendCollector = new MessageCollector(backendWs);
     backendWs.send(JSON.stringify({
@@ -117,30 +130,21 @@ describe('Gateway v2 catalog subscriptions', () => {
     const regResult = await backendCollector.waitFor('peer_ready');
     backendId = regResult.backend.backendId;
     backendEpoch = regResult.backend.epoch;
-
-    // Backend publishes a catalog snapshot so clients can subscribe
-    backendWs.send(JSON.stringify({
-      type: 'catalog_snapshot',
-      epoch: backendEpoch,
-      revision: 1,
-      items: [{ sessionId: 'sess-1', name: 'Session 1', createdAt: Date.now(), updatedAt: Date.now() }]
-    }));
   });
 
   afterEach(async () => {
     await Promise.all(openClients.map(ws => closeWs(ws)));
     openClients = [];
     await closeWs(backendWs);
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await closeTestServer(server);
   });
 
-  async function connectClient(): Promise<{ ws: WebSocket; collector: MessageCollector }> {
-    const clientWs = new WebSocket(WS_URL);
+  async function connectAndSubscribeClient(): Promise<{ ws: WebSocket; collector: MessageCollector }> {
+    const clientWs = new WebSocket(wsUrl);
     await waitForOpen(clientWs);
     openClients.push(clientWs);
     const collector = new MessageCollector(clientWs);
 
-    // Authenticate with gateway
     clientWs.send(JSON.stringify({
       type: 'peer_hello',
       protocolVersion: 2,
@@ -150,134 +154,136 @@ describe('Gateway v2 catalog subscriptions', () => {
     }));
     await collector.waitFor('peer_ready');
 
+    // Subscribe to backend
+    clientWs.send(JSON.stringify({ type: 'subscribe_backend', backendId }));
+    await collector.waitFor('backend_subscribed');
+
+    // Backend receives request_backend_data_snapshot — respond with snapshot
+    await backendCollector.waitFor('request_backend_data_snapshot');
+    backendWs.send(JSON.stringify({
+      type: 'backend_data_snapshot',
+      sessions: [{ sessionId: 'sess-1', title: 'Session 1', createdAt: Date.now(), updatedAt: Date.now(), runStatus: 'idle' }],
+      projects: [],
+    }));
+    await collector.waitFor('backend_data_snapshot');
+
     return { ws: clientWs, collector };
   }
 
-  test('subscribe_backend_catalog delivers catalog snapshot to subscriber', async () => {
-    const clientA = await connectClient();
+  testIfLoopback('backend_data_snapshot is relayed to subscribers', async () => {
+    const clientA = await connectAndSubscribeClient();
 
-    // Subscribe to catalog
-    clientA.ws.send(JSON.stringify({
-      type: 'subscribe_backend_catalog',
-      backendId,
-      expectedEpoch: backendEpoch
+    // Backend publishes another snapshot
+    backendWs.send(JSON.stringify({
+      type: 'backend_data_snapshot',
+      sessions: [
+        { sessionId: 'sess-1', title: 'Session 1', createdAt: Date.now(), updatedAt: Date.now(), runStatus: 'idle' },
+        { sessionId: 'sess-2', title: 'Session 2', createdAt: Date.now(), updatedAt: Date.now(), runStatus: 'running' },
+      ],
+      projects: [],
     }));
 
-    // Should receive a catalog snapshot
-    const snapshot = await clientA.collector.waitFor('backend_catalog_snapshot');
+    const snapshot = await clientA.collector.waitFor('backend_data_snapshot');
     expect(snapshot.backendId).toBe(backendId);
-    expect(snapshot.epoch).toBe(backendEpoch);
-    expect(snapshot.items).toBeInstanceOf(Array);
-    expect(snapshot.items.length).toBe(1);
-    expect(snapshot.items[0].sessionId).toBe('sess-1');
+    expect(snapshot.sessions).toBeInstanceOf(Array);
+    expect(snapshot.sessions.length).toBe(2);
+    expect(snapshot.sessions[0].sessionId).toBe('sess-1');
   });
 
-  test('catalog events are delivered to subscribers', async () => {
-    const clientA = await connectClient();
-    const clientB = await connectClient();
+  testIfLoopback('backend_data_event is relayed to subscribers', async () => {
+    const clientA = await connectAndSubscribeClient();
+    const clientB = await connectAndSubscribeClient();
 
-    // Both subscribe to catalog
-    clientA.ws.send(JSON.stringify({
-      type: 'subscribe_backend_catalog',
-      backendId,
-      expectedEpoch: backendEpoch
-    }));
-    await clientA.collector.waitFor('backend_catalog_snapshot');
-
-    clientB.ws.send(JSON.stringify({
-      type: 'subscribe_backend_catalog',
-      backendId,
-      expectedEpoch: backendEpoch
-    }));
-    await clientB.collector.waitFor('backend_catalog_snapshot');
-
-    // Backend publishes a catalog event
+    // Backend publishes a data event
     backendWs.send(JSON.stringify({
-      type: 'catalog_event',
-      epoch: backendEpoch,
-      revision: 2,
-      op: 'upsert',
-      item: { sessionId: 'sess-2', name: 'Session 2', createdAt: Date.now(), updatedAt: Date.now() }
+      type: 'backend_data_event',
+      op: 'session_upsert',
+      item: { sessionId: 'sess-2', title: 'Session 2', createdAt: Date.now(), updatedAt: Date.now(), runStatus: 'idle' },
     }));
 
-    // Both clients should receive the catalog event
-    const eventA = await clientA.collector.waitFor('backend_catalog_event');
+    const eventA = await clientA.collector.waitFor('backend_data_event');
     expect(eventA.backendId).toBe(backendId);
-    expect(eventA.op).toBe('upsert');
+    expect(eventA.op).toBe('session_upsert');
     expect(eventA.item.sessionId).toBe('sess-2');
 
-    const eventB = await clientB.collector.waitFor('backend_catalog_event');
+    const eventB = await clientB.collector.waitFor('backend_data_event');
     expect(eventB.backendId).toBe(backendId);
-    expect(eventB.op).toBe('upsert');
+    expect(eventB.op).toBe('session_upsert');
   });
 
-  test('unsubscribed clients do not receive catalog events', async () => {
-    const clientA = await connectClient();
-    const clientB = await connectClient();
+  testIfLoopback('project backend_data_event is relayed to subscribers', async () => {
+    const client = await connectAndSubscribeClient();
 
-    // Only client A subscribes
-    clientA.ws.send(JSON.stringify({
-      type: 'subscribe_backend_catalog',
-      backendId,
-      expectedEpoch: backendEpoch
-    }));
-    await clientA.collector.waitFor('backend_catalog_snapshot');
-
-    // Backend publishes a catalog event
     backendWs.send(JSON.stringify({
-      type: 'catalog_event',
-      epoch: backendEpoch,
-      revision: 2,
-      op: 'upsert',
-      item: { sessionId: 'sess-2', name: 'Session 2', createdAt: Date.now(), updatedAt: Date.now() }
+      type: 'backend_data_event',
+      op: 'project_upsert',
+      item: { projectId: 'proj-2', name: 'Project 2', createdAt: Date.now(), updatedAt: Date.now() },
+    }));
+
+    const event = await client.collector.waitFor('backend_data_event');
+    expect(event.backendId).toBe(backendId);
+    expect(event.op).toBe('project_upsert');
+    expect(event.item.projectId).toBe('proj-2');
+  });
+
+  testIfLoopback('unsubscribed clients do not receive backend data events', async () => {
+    const clientA = await connectAndSubscribeClient();
+
+    // Client B just connects but does NOT subscribe to the backend
+    const clientBWs = new WebSocket(wsUrl);
+    await waitForOpen(clientBWs);
+    openClients.push(clientBWs);
+    const clientBCollector = new MessageCollector(clientBWs);
+    clientBWs.send(JSON.stringify({
+      type: 'peer_hello',
+      protocolVersion: 2,
+      peerType: 'client-only',
+      gatewaySecret: GATEWAY_SECRET,
+      identity: { deviceId: 'client-dev', instanceId: `client-inst-nosub-${Date.now()}` }
+    }));
+    await clientBCollector.waitFor('peer_ready');
+
+    // Backend publishes a data event
+    backendWs.send(JSON.stringify({
+      type: 'backend_data_event',
+      op: 'session_upsert',
+      item: { sessionId: 'sess-2', title: 'Session 2', createdAt: Date.now(), updatedAt: Date.now(), runStatus: 'idle' },
     }));
 
     await delay(DELIVERY_SETTLE_MS);
 
-    const eventsA = clientA.collector.findAll(m => m.type === 'backend_catalog_event');
-    const eventsB = clientB.collector.findAll(m => m.type === 'backend_catalog_event');
+    const eventsA = clientA.collector.findAll(m => m.type === 'backend_data_event');
+    const eventsB = clientBCollector.findAll(m => m.type === 'backend_data_event');
 
     expect(eventsA).toHaveLength(1);
     expect(eventsB).toHaveLength(0);
   });
 
-  test('unsubscribe_backend_catalog stops catalog event delivery', async () => {
-    const client = await connectClient();
+  testIfLoopback('unsubscribe_backend stops backend data event delivery', async () => {
+    const client = await connectAndSubscribeClient();
 
-    // Subscribe
-    client.ws.send(JSON.stringify({
-      type: 'subscribe_backend_catalog',
-      backendId,
-      expectedEpoch: backendEpoch
-    }));
-    await client.collector.waitFor('backend_catalog_snapshot');
-
-    // Unsubscribe
-    client.ws.send(JSON.stringify({
-      type: 'unsubscribe_backend_catalog',
-      backendId,
-      expectedEpoch: backendEpoch
-    }));
+    // Unsubscribe from backend
+    client.ws.send(JSON.stringify({ type: 'unsubscribe_backend', backendId }));
+    await client.collector.waitFor('backend_unsubscribed');
 
     await delay(UNSUBSCRIBE_SETTLE_MS);
 
-    // Backend publishes a catalog event
+    // Backend publishes a data event
     backendWs.send(JSON.stringify({
-      type: 'catalog_event',
-      epoch: backendEpoch,
-      revision: 2,
-      op: 'upsert',
-      item: { sessionId: 'sess-2', name: 'Session 2', createdAt: Date.now(), updatedAt: Date.now() }
+      type: 'backend_data_event',
+      op: 'session_upsert',
+      item: { sessionId: 'sess-2', title: 'Session 2', createdAt: Date.now(), updatedAt: Date.now(), runStatus: 'idle' },
     }));
 
     await delay(DELIVERY_SETTLE_MS);
 
-    const events = client.collector.findAll(m => m.type === 'backend_catalog_event');
+    // Should not have received the event after the initial snapshot
+    const events = client.collector.findAll(m => m.type === 'backend_data_event');
     expect(events).toHaveLength(0);
   });
 });
 
-describe('Gateway v2 channel communication', () => {
+describe('Gateway v2 backend subscriptions', () => {
   let server: Server;
   let backendWsA: WebSocket;
   let backendWsB: WebSocket;
@@ -287,14 +293,15 @@ describe('Gateway v2 channel communication', () => {
   let backendEpochA: number;
   let backendIdB: string;
   let backendEpochB: number;
+  let wsUrl: string;
   let openClients: WebSocket[] = [];
 
   beforeEach(async () => {
     server = createGatewayServer({ gatewaySecret: GATEWAY_SECRET });
-    await new Promise<void>((resolve) => server.listen(TEST_PORT, resolve));
+    ({ wsUrl } = await listenTestServer(server));
 
     // Register backend A
-    backendWsA = new WebSocket(WS_URL);
+    backendWsA = new WebSocket(wsUrl);
     await waitForOpen(backendWsA);
     backendCollectorA = new MessageCollector(backendWsA);
     backendWsA.send(JSON.stringify({
@@ -310,7 +317,7 @@ describe('Gateway v2 channel communication', () => {
     backendEpochA = regA.backend.epoch;
 
     // Register backend B
-    backendWsB = new WebSocket(WS_URL);
+    backendWsB = new WebSocket(wsUrl);
     await waitForOpen(backendWsB);
     backendCollectorB = new MessageCollector(backendWsB);
     backendWsB.send(JSON.stringify({
@@ -331,11 +338,11 @@ describe('Gateway v2 channel communication', () => {
     openClients = [];
     await closeWs(backendWsA);
     await closeWs(backendWsB);
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await closeTestServer(server);
   });
 
-  async function connectClientWithChannel(backendId: string, epoch: number): Promise<{ ws: WebSocket; collector: MessageCollector; channelId: string }> {
-    const clientWs = new WebSocket(WS_URL);
+  async function connectClientWithSubscription(backendId: string): Promise<{ ws: WebSocket; collector: MessageCollector }> {
+    const clientWs = new WebSocket(wsUrl);
     await waitForOpen(clientWs);
     openClients.push(clientWs);
     const collector = new MessageCollector(clientWs);
@@ -349,61 +356,60 @@ describe('Gateway v2 channel communication', () => {
     }));
     await collector.waitFor('peer_ready');
 
-    // Open channel
+    // Subscribe to backend
     clientWs.send(JSON.stringify({
-      type: 'open_backend_channel',
+      type: 'subscribe_backend',
       backendId,
-      expectedEpoch: epoch
     }));
-    const opened = await collector.waitFor('backend_channel_opened');
+    await collector.waitFor('backend_subscribed');
 
-    return { ws: clientWs, collector, channelId: opened.channelId };
+    return { ws: clientWs, collector };
   }
 
-  test('channel_server_message delivers to the correct client channel', async () => {
-    const clientA = await connectClientWithChannel(backendIdA, backendEpochA);
-    const clientB = await connectClientWithChannel(backendIdA, backendEpochA);
+  testIfLoopback('backend_server_message delivers to all subscribers of that backend', async () => {
+    const clientA = await connectClientWithSubscription(backendIdA);
+    const clientB = await connectClientWithSubscription(backendIdA);
 
-    // Backend A sends a channel_server_message to client A's channel
+    // Backend A sends a backend_server_message — should go to ALL subscribers
     backendWsA.send(JSON.stringify({
-      type: 'channel_server_message',
-      channelId: clientA.channelId,
-      payload: { action: 'test', data: 'for A only' }
+      type: 'backend_server_message',
+      backendId: backendIdA,
+      payload: { action: 'test', data: 'for all subscribers' }
     }));
 
     await delay(DELIVERY_SETTLE_MS);
 
-    const msgsA = clientA.collector.findAll(m => m.type === 'channel_server_message' && m.payload?.data === 'for A only');
-    const msgsB = clientB.collector.findAll(m => m.type === 'channel_server_message' && m.payload?.data === 'for A only');
+    const msgsA = clientA.collector.findAll(m => m.type === 'backend_server_message' && m.payload?.data === 'for all subscribers');
+    const msgsB = clientB.collector.findAll(m => m.type === 'backend_server_message' && m.payload?.data === 'for all subscribers');
 
     expect(msgsA).toHaveLength(1);
-    expect(msgsB).toHaveLength(0);
+    expect(msgsB).toHaveLength(1);
   });
 
-  test('channels to different backends are independent', async () => {
-    const clientChannelA = await connectClientWithChannel(backendIdA, backendEpochA);
-    const clientChannelB = await connectClientWithChannel(backendIdB, backendEpochB);
+  testIfLoopback('subscriptions to different backends are independent', async () => {
+    const clientSubA = await connectClientWithSubscription(backendIdA);
+    const clientSubB = await connectClientWithSubscription(backendIdB);
 
-    // Backend A sends to channel A
+    // Backend A sends to its subscribers
     backendWsA.send(JSON.stringify({
-      type: 'channel_server_message',
-      channelId: clientChannelA.channelId,
+      type: 'backend_server_message',
+      backendId: backendIdA,
       payload: { from: 'A' }
     }));
 
-    // Backend B sends to channel B
+    // Backend B sends to its subscribers
     backendWsB.send(JSON.stringify({
-      type: 'channel_server_message',
-      channelId: clientChannelB.channelId,
+      type: 'backend_server_message',
+      backendId: backendIdB,
       payload: { from: 'B' }
     }));
 
     await delay(DELIVERY_SETTLE_MS);
 
-    const fromA = clientChannelA.collector.findAll(m => m.type === 'channel_server_message' && m.payload?.from === 'A');
-    const fromB = clientChannelB.collector.findAll(m => m.type === 'channel_server_message' && m.payload?.from === 'B');
-    const crossA = clientChannelA.collector.findAll(m => m.type === 'channel_server_message' && m.payload?.from === 'B');
-    const crossB = clientChannelB.collector.findAll(m => m.type === 'channel_server_message' && m.payload?.from === 'A');
+    const fromA = clientSubA.collector.findAll(m => m.type === 'backend_server_message' && m.payload?.from === 'A');
+    const fromB = clientSubB.collector.findAll(m => m.type === 'backend_server_message' && m.payload?.from === 'B');
+    const crossA = clientSubA.collector.findAll(m => m.type === 'backend_server_message' && m.payload?.from === 'B');
+    const crossB = clientSubB.collector.findAll(m => m.type === 'backend_server_message' && m.payload?.from === 'A');
 
     expect(fromA).toHaveLength(1);
     expect(fromB).toHaveLength(1);
@@ -411,31 +417,31 @@ describe('Gateway v2 channel communication', () => {
     expect(crossB).toHaveLength(0);
   });
 
-  test('close_backend_channel stops message delivery', async () => {
-    const client = await connectClientWithChannel(backendIdA, backendEpochA);
+  testIfLoopback('unsubscribe_backend stops message delivery', async () => {
+    const client = await connectClientWithSubscription(backendIdA);
 
-    // Close the channel
+    // Unsubscribe from backend
     client.ws.send(JSON.stringify({
-      type: 'close_backend_channel',
-      channelId: client.channelId
+      type: 'unsubscribe_backend',
+      backendId: backendIdA
     }));
-    await client.collector.waitFor('backend_channel_closed');
+    await client.collector.waitFor('backend_unsubscribed');
 
     // Backend tries to send — should not be delivered
     backendWsA.send(JSON.stringify({
-      type: 'channel_server_message',
-      channelId: client.channelId,
+      type: 'backend_server_message',
+      backendId: backendIdA,
       payload: { data: 'should not arrive' }
     }));
 
     await delay(DELIVERY_SETTLE_MS);
 
-    const msgs = client.collector.findAll(m => m.type === 'channel_server_message' && m.payload?.data === 'should not arrive');
+    const msgs = client.collector.findAll(m => m.type === 'backend_server_message' && m.payload?.data === 'should not arrive');
     expect(msgs).toHaveLength(0);
   });
 
-  test('registry events notify all peers when a new backend connects', async () => {
-    const clientWs = new WebSocket(WS_URL);
+  testIfLoopback('registry events notify all peers when a new backend connects', async () => {
+    const clientWs = new WebSocket(wsUrl);
     await waitForOpen(clientWs);
     openClients.push(clientWs);
     const collector = new MessageCollector(clientWs);
@@ -450,7 +456,7 @@ describe('Gateway v2 channel communication', () => {
     await collector.waitFor('peer_ready');
 
     // Register a new backend C
-    const backendWsC = new WebSocket(WS_URL);
+    const backendWsC = new WebSocket(wsUrl);
     await waitForOpen(backendWsC);
     const collectorC = new MessageCollector(backendWsC);
     backendWsC.send(JSON.stringify({
@@ -463,10 +469,11 @@ describe('Gateway v2 channel communication', () => {
     }));
     await collectorC.waitFor('peer_ready');
 
-    // Client should receive a registry_event for the new backend
-    const event = await collector.waitFor('registry_event');
-    expect(event.event.op).toBe('upsert');
-    expect(event.event.item.name).toBe('Backend C');
+    // Client should receive a registry_snapshot containing the new backend
+    const snapshot = await collector.waitFor('registry_snapshot');
+    expect(snapshot.items).toBeInstanceOf(Array);
+    const backendC = snapshot.items.find((b: any) => b.name === 'Backend C');
+    expect(backendC).toBeDefined();
 
     await closeWs(backendWsC);
   });

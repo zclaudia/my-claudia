@@ -88,9 +88,21 @@ import { useUIStore } from '../../stores/uiStore';
 import { usePluginStore } from '../../stores/pluginStore';
 import { useProcessMonitorStore } from '../../stores/processMonitorStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
+import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import * as api from '../../services/api';
 import { clearLogs, getLogCount, exportLogs } from '../../services/logger';
 import { invoke } from '@tauri-apps/api/core';
+import { isAndroid } from '../../utils/platform';
+
+vi.mock('../../utils/platform', async (importOriginal) => {
+  const mod = await importOriginal<Record<string, any>>();
+  return {
+    ...mod,
+    isAndroid: vi.fn(() => false),
+    isMacOS: vi.fn(() => false),
+    isTauri: vi.fn(() => false),
+  };
+});
 
 async function renderSettingsPanel(props: Partial<Parameters<typeof SettingsPanel>[0]> = {}) {
   let view!: ReturnType<typeof render>;
@@ -154,7 +166,6 @@ function setupStores(overrides: Record<string, any> = {}) {
     localBackendId: localBackend.backendId,
     currentInstanceId: 'instance-local',
     currentDeviceId: 'device-local',
-    registryRevision: 1,
     snapshotVersion: 1,
     ...overrides.facadeStore,
   } as any);
@@ -192,6 +203,10 @@ function setupStores(overrides: Record<string, any> = {}) {
       },
     },
   } as any);
+  useMobileRecoveryStore.getState().reset();
+  if (overrides.mobileRecoveryStore) {
+    useMobileRecoveryStore.setState(overrides.mobileRecoveryStore as any);
+  }
 
 }
 
@@ -201,6 +216,7 @@ describe('SettingsPanel', () => {
     useProcessMonitorStore.getState().clearCleanupResult();
     vi.clearAllMocks();
     mockRestartEmbeddedServer.mockResolvedValue(undefined);
+    vi.mocked(isAndroid).mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -537,6 +553,35 @@ describe('SettingsPanel', () => {
     await clickAsync(cleanupBtn!);
 
     expect(mockSendMessage).toHaveBeenCalledWith({ type: 'kill_leaked_processes' });
+  });
+
+  it('blocks leaked process cleanup on Android while mobile recovery is running', async () => {
+    vi.mocked(isAndroid).mockReturnValue(true);
+    setupStores({
+      mobileRecoveryStore: { phase: 'recovering' },
+      facadeStore: {
+        connectionState: 'connected',
+        backends: [
+          { backendId: 'local-standalone', name: 'Local', online: true, runtimeState: 'ready', isThisInstance: true, instanceId: 'instance-local' },
+        ],
+      },
+    });
+
+    const { container } = await renderSettingsPanel();
+    const debugTab = container.querySelector('[data-testid="debug-tab"]');
+    expect(debugTab).toBeTruthy();
+    await clickAsync(debugTab!);
+
+    const cleanupBtn = Array.from(container.querySelectorAll('button')).find(b =>
+      b.textContent === 'Clean Leaked Processes'
+    );
+    expect(cleanupBtn).toBeTruthy();
+    await clickAsync(cleanupBtn!);
+
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(container.textContent).toContain('Server disconnected');
+    });
   });
 
   it('renders server cleanup results from the process monitor store', async () => {

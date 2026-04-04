@@ -283,8 +283,11 @@ export function handleServerMessage(
       if (isRunEventGap(msg.runId, msg.seq)) recoverRunGap(ctx, msg.runId, msg.seq, msg.sessionId);
       if (isStaleRunEvent(msg.runId, msg.seq)) break;
       terminalRunSeqByRun.delete(msg.runId);
-      const currentSessionId = useProjectStore.getState().selectedSessionId;
-      const targetSessionId = msg.sessionId || currentSessionId;
+      const targetSessionId = msg.sessionId;
+      if (!targetSessionId) {
+        console.warn('[messageHandler] run_started missing sessionId, ignoring');
+        break;
+      }
       const assistantMsgId = msg.assistantMessageId || msg.runId;
       const userMsgId = msg.userMessageId;
       const clientReqId = msg.clientRequestId;

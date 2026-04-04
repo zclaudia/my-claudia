@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useProjectStore } from '../projectStore';
 import { useOwnershipStore } from '../ownershipStore';
 import type { Project, Session } from '@my-claudia/shared';
@@ -41,7 +41,10 @@ vi.mock('../chatStore', () => ({
 }));
 
 describe('projectStore', () => {
+  let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
+    consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     mockSetActiveServer.mockReset();
     mockServerStoreState.activeServerId = 'local';
     useProjectStore.setState({
@@ -56,6 +59,10 @@ describe('projectStore', () => {
     });
     useOwnershipStore.getState().clearSessionOwners();
     useOwnershipStore.getState().clearProjectOwners();
+  });
+
+  afterEach(() => {
+    consoleWarnSpy.mockRestore();
   });
 
   const createProject = (overrides: Partial<Project> = {}): Project => ({
@@ -114,6 +121,85 @@ describe('projectStore', () => {
       useProjectStore.getState().addProject(p2);
 
       expect(useProjectStore.getState().projects).toEqual([p1, p2]);
+    });
+
+    it('upsertProjectForBackend updates only the matching backend project', () => {
+      const remoteOriginal = createProject({ id: 'shared-id', name: 'Remote Original' });
+      const localKeep = createProject({ id: 'local-p1', name: 'Local Keep' });
+      useOwnershipStore.getState().setProjectOwner('shared-id', 'remote-1');
+      useOwnershipStore.getState().setProjectOwner('local-p1', 'local-backend-1');
+      useProjectStore.setState({
+        projects: [remoteOriginal, localKeep],
+      });
+
+      useProjectStore.getState().upsertProjectForBackend('remote-1', createProject({
+        id: 'shared-id',
+        name: 'Remote Updated',
+        updatedAt: remoteOriginal.updatedAt + 1,
+      }));
+
+      expect(useProjectStore.getState().projects).toEqual([
+        expect.objectContaining({ id: 'shared-id', name: 'Remote Updated' }),
+        localKeep,
+      ]);
+      expect(useOwnershipStore.getState().getProjectBackendId('shared-id')).toBe('remote-1');
+    });
+
+    it('removeProjectForBackend ignores projects owned by a different backend', () => {
+      const remoteProject = createProject({ id: 'shared-id', name: 'Remote Project' });
+      const localProject = createProject({ id: 'local-p1', name: 'Local Project' });
+      useOwnershipStore.getState().setProjectOwner('shared-id', 'remote-1');
+      useOwnershipStore.getState().setProjectOwner('local-p1', 'local-backend-1');
+      useProjectStore.setState({
+        projects: [remoteProject, localProject],
+      });
+
+      useProjectStore.getState().removeProjectForBackend('local-backend-1', 'shared-id');
+
+      expect(useProjectStore.getState().projects).toEqual([remoteProject, localProject]);
+      expect(useOwnershipStore.getState().getProjectBackendId('shared-id')).toBe('remote-1');
+    });
+
+    it('upsertProjectForBackend ignores collisions from a different backend', () => {
+      const remoteProject = createProject({ id: 'shared-id', name: 'Remote Project' });
+      useOwnershipStore.getState().setProjectOwner('shared-id', 'remote-1');
+      useProjectStore.setState({
+        projects: [remoteProject],
+      });
+
+      useProjectStore.getState().upsertProjectForBackend('local-backend-1', createProject({
+        id: 'shared-id',
+        name: 'Local Collision',
+      }));
+
+      expect(useProjectStore.getState().projects).toEqual([remoteProject]);
+      expect(useOwnershipStore.getState().getProjectBackendId('shared-id')).toBe('remote-1');
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Ignoring project event collision for shared-id')
+      );
+    });
+
+    it('replaceProjectsForBackend ignores snapshot collisions from a different backend', () => {
+      const remoteProject = createProject({ id: 'shared-id', name: 'Remote Project' });
+      useOwnershipStore.getState().setProjectOwner('shared-id', 'remote-1');
+      useProjectStore.setState({
+        projects: [remoteProject],
+      });
+
+      useProjectStore.getState().replaceProjectsForBackend('local-backend-1', [
+        createProject({ id: 'shared-id', name: 'Local Collision' }),
+        createProject({ id: 'local-p1', name: 'Local Project' }),
+      ]);
+
+      expect(useProjectStore.getState().projects).toEqual([
+        remoteProject,
+        expect.objectContaining({ id: 'local-p1', name: 'Local Project' }),
+      ]);
+      expect(useOwnershipStore.getState().getProjectBackendId('shared-id')).toBe('remote-1');
+      expect(useOwnershipStore.getState().getProjectBackendId('local-p1')).toBe('local-backend-1');
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Ignoring project snapshot collision for shared-id')
+      );
     });
 
     it('updateProject updates specific project', () => {

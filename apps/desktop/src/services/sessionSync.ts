@@ -288,7 +288,7 @@ async function fullSync(backendId: string): Promise<RemoteSession[] | null> {
   }
 }
 
-export async function syncBackendCatalog(
+export async function syncBackendData(
   backendId: string,
   mode: 'full' | 'delta' = 'full',
 ): Promise<{ completed: boolean; sessions: RemoteSession[] }> {

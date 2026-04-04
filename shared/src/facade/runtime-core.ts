@@ -24,7 +24,7 @@ import type {
   BackendFacadeEvent,
   BackendFacadeMode,
   BackendFacadeSnapshot,
-  BackendRuntimeState,
+  BackendStateDiff,
   StreamManagerResult,
 } from './types.js';
 import type { BackendPresence } from '../protocol/gateway.js';
@@ -146,10 +146,12 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
       capturedAt: 0,
       connection: { state: 'disconnected' },
       identity: { instanceId: '', deviceId: '' },
-      registry: { revision: 0, items: [] },
-      channels: { items: [] },
+      registry: { items: [] },
+      subscriptions: { backendIds: [] },
     });
     this.streamManager.applyBootstrap();
+    // Notify listeners of the disconnected state so UI can react to programmatic shutdown
+    this.emitFacadeEvent({ type: 'connection_state_changed', state: 'disconnected' });
   }
 
   // --------------------------------------------------------------------------
@@ -167,7 +169,6 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
       currentDeviceId: this.currentDeviceId,
       backends: this.registryStore.getAllBackends(),
       streams: this.streamManager.getAllStreams(),
-      registryRevision: this.registryStore.getRegistryRevision(),
     });
   }
 
@@ -196,13 +197,13 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
     const backend = this.registryStore.getBackend(backendId);
     if (!backend || !backend.presence) return;
 
-    const diffs = this.registryStore.markChannelOpening(backendId, backend.presence.epoch);
-    this.adapter.commands.channel.openBackendChannel(backendId, backend.presence.epoch);
-    // For local backends, the channel open + catalog init may complete synchronously,
-    // advancing the state to 'ready'. Only emit the 'opening' diffs if the state
+    const diffs = this.registryStore.markSubscribing(backendId);
+    this.adapter.commands.backend.subscribe(backendId);
+    // For local backends, the subscribe + catalog init may complete synchronously,
+    // advancing the state to 'ready'. Only emit the 'subscribing' diffs if the state
     // hasn't already progressed beyond them.
     const currentBackend = this.registryStore.getBackend(backendId);
-    if (currentBackend && currentBackend.runtimeState === 'opening') {
+    if (currentBackend && currentBackend.runtimeState === 'subscribing') {
       this.emitBackendDiffs(diffs);
     }
   }
@@ -210,14 +211,14 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
   closeBackend(backendId: string): void {
     this.desiredOpenBackends.delete(backendId);
     const backend = this.registryStore.getBackend(backendId);
-    if (!backend || !backend.channelId) return;
+    if (!backend || !backend.subscribed) return;
 
-    this.adapter.commands.channel.closeBackendChannel(backend.channelId);
-    const diffs = this.registryStore.markChannelClosed(backendId, backend.channelId, 'user_closed');
+    this.adapter.commands.backend.unsubscribe(backendId);
+    const diffs = this.registryStore.markUnsubscribed(backendId, 'user_closed');
     this.emitBackendDiffs(diffs);
 
     // Notify stream manager
-    const streamResult = this.streamManager.handleBackendLostChannel(
+    const streamResult = this.streamManager.handleBackendUnsubscribed(
       backendId, 'user_closed', { willAutoRecover: false },
     );
     this.executeStreamResult(streamResult);
@@ -225,8 +226,8 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
 
   sendToBackend(backendId: string, message: ClientMessage): void {
     const backend = this.registryStore.getBackend(backendId);
-    if (!backend || !backend.channelId) return;
-    this.adapter.commands.channel.sendToBackend(backend.channelId, message);
+    if (!backend || !backend.subscribed) return;
+    this.adapter.commands.backend.sendToBackend(backendId, message);
   }
 
   // --------------------------------------------------------------------------
@@ -237,23 +238,19 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
     const backend = this.registryStore.getBackend(backendId);
     const result = this.streamManager.requestOpen(backendId, sessionId, {
       backendReady: backend?.runtimeState === 'ready',
-      channelId: backend?.channelId ?? null,
     });
     this.executeStreamResult(result);
   }
 
   closeSessionStream(backendId: string, sessionId: string): void {
-    const backend = this.registryStore.getBackend(backendId);
-    const result = this.streamManager.requestClose(backendId, sessionId, {
-      channelId: backend?.channelId ?? null,
-    });
+    const result = this.streamManager.requestClose(backendId, sessionId);
     this.executeStreamResult(result);
   }
 
   catchUpContent(backendId: string, sessionId: string, afterOffset: number): void {
     const backend = this.registryStore.getBackend(backendId);
-    if (!backend || !backend.channelId) return;
-    this.adapter.commands.stream.catchUp(backend.channelId, sessionId, afterOffset);
+    if (!backend || !backend.subscribed) return;
+    this.adapter.commands.stream.catchUp(backendId, sessionId, afterOffset);
   }
 
   // --------------------------------------------------------------------------
@@ -291,26 +288,17 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
       case 'registry_snapshot_received':
         this.handleRegistrySnapshot(event);
         break;
-      case 'registry_event_received':
-        this.handleRegistryEvent(event);
+      case 'backend_subscribed':
+        this.handleBackendSubscribed(event);
         break;
-      case 'backend_channel_opened':
-        this.handleBackendChannelOpened(event);
+      case 'backend_unsubscribed':
+        this.handleBackendUnsubscribed(event);
         break;
-      case 'backend_channel_closed':
-        this.handleBackendChannelClosed(event);
+      case 'backend_data_snapshot_received':
+        this.handleBackendDataSnapshot(event);
         break;
-      case 'backend_channel_rejected':
-        this.handleBackendChannelRejected(event);
-        break;
-      case 'catalog_snapshot_received':
-        this.handleCatalogSnapshot(event);
-        break;
-      case 'catalog_event_received':
-        this.handleCatalogEvent(event);
-        break;
-      case 'catalog_reset_received':
-        this.handleCatalogReset(event);
+      case 'backend_data_event_received':
+        this.handleBackendDataEvent(event);
         break;
       case 'session_stream_closed':
         this.handleSessionStreamClosed(event);
@@ -348,7 +336,7 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
   // --------------------------------------------------------------------------
 
   private handleRegistrySnapshot(event: Extract<FacadeAdapterEvent, { type: 'registry_snapshot_received' }>): void {
-    const diffs = this.registryStore.applyRegistrySnapshot(event.revision, event.items);
+    const diffs = this.registryStore.applyRegistrySnapshot(event.items);
 
     // Re-evaluate local backend
     this.updateLocalBackendId(event.items);
@@ -359,64 +347,34 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
     this.reopenDesiredBackends();
   }
 
-  private handleRegistryEvent(event: Extract<FacadeAdapterEvent, { type: 'registry_event_received' }>): void {
-    const diffs = this.registryStore.applyRegistryEvent(
-      event.revision, event.op, event.item, event.backendId,
-    );
-
-    // Re-evaluate local backend on upsert
-    if (event.op === 'upsert' && event.item) {
-      this.updateLocalBackendId([event.item]);
-    }
-
-    this.emitBackendDiffs(diffs);
-
-    // A registry upsert with a new epoch invalidates the channel, pushing the
-    // backend into 'error'. Re-open it if it was previously desired.
-    if (event.op === 'upsert' && event.item) {
-      const backend = this.registryStore.getBackend(event.item.backendId);
-      if (
-        backend
-        && backend.presence
-        && (backend.openState === 'closed' || backend.openState === 'error')
-        && this.desiredOpenBackends.has(event.item.backendId)
-      ) {
-        this.openBackend(event.item.backendId);
-      }
-    }
-  }
-
   // --------------------------------------------------------------------------
-  // Channel
+  // Subscription
   // --------------------------------------------------------------------------
 
-  private handleBackendChannelOpened(event: Extract<FacadeAdapterEvent, { type: 'backend_channel_opened' }>): void {
-    const diffs = this.registryStore.markChannelOpened(
-      event.backendId, event.channelId, event.epoch, event.capabilities,
+  private handleBackendSubscribed(event: Extract<FacadeAdapterEvent, { type: 'backend_subscribed' }>): void {
+    const diffs = this.registryStore.markSubscribed(
+      event.backendId, event.epoch, event.capabilities,
     );
 
-    // Subscribe to catalog (may complete synchronously for local backends)
-    this.adapter.commands.catalog.subscribe(event.backendId, event.epoch);
-
-    // Only emit channel-opened diffs if catalog subscribe hasn't already
-    // advanced the state to 'ready' synchronously.
+    // Backend data snapshot will be pushed automatically by the backend
+    // (gateway sends request_backend_data_snapshot on subscribe).
+    // Only emit diffs if data hasn't already initialized synchronously.
     const currentBackend = this.registryStore.getBackend(event.backendId);
     if (!currentBackend || currentBackend.runtimeState !== 'ready') {
       this.emitBackendDiffs(diffs);
     }
   }
 
-  private handleBackendChannelClosed(event: Extract<FacadeAdapterEvent, { type: 'backend_channel_closed' }>): void {
+  private handleBackendUnsubscribed(event: Extract<FacadeAdapterEvent, { type: 'backend_unsubscribed' }>): void {
     const backend = this.registryStore.getBackend(event.backendId);
-    const wasReady = backend?.runtimeState === 'ready';
 
-    const diffs = this.registryStore.markChannelClosed(
-      event.backendId, event.channelId, event.reason,
+    const diffs = this.registryStore.markUnsubscribed(
+      event.backendId, event.reason,
     );
 
     // Notify stream manager
     const willAutoRecover = backend?.presence !== null;
-    const streamResult = this.streamManager.handleBackendLostChannel(
+    const streamResult = this.streamManager.handleBackendUnsubscribed(
       event.backendId, event.reason, { willAutoRecover },
     );
     this.executeStreamResult(streamResult);
@@ -424,50 +382,37 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
     this.emitBackendDiffs(diffs);
   }
 
-  private handleBackendChannelRejected(event: Extract<FacadeAdapterEvent, { type: 'backend_channel_rejected' }>): void {
-    const diffs = this.registryStore.markChannelRejected(event.backendId, event.reason);
-    this.emitBackendDiffs(diffs);
-  }
-
   // --------------------------------------------------------------------------
-  // Catalog
+  // Backend Data
   // --------------------------------------------------------------------------
 
-  private handleCatalogSnapshot(event: Extract<FacadeAdapterEvent, { type: 'catalog_snapshot_received' }>): void {
-    const diffs = this.registryStore.markCatalogInitialized(event.backendId, event.epoch);
+  private handleBackendDataSnapshot(event: Extract<FacadeAdapterEvent, { type: 'backend_data_snapshot_received' }>): void {
+    const diffs = this.registryStore.markDataInitialized(event.backendId);
 
-    // Emit catalog event
+    // Emit backend data snapshot event
     this.emitFacadeEvent({
-      type: 'catalog_snapshot',
+      type: 'backend_data_snapshot',
       backendId: event.backendId,
-      items: event.items,
+      sessions: event.sessions,
+      projects: event.projects,
     });
 
     // Check if backend became ready → trigger stream auto-resume
     const backend = this.registryStore.getBackend(event.backendId);
-    if (backend && backend.runtimeState === 'ready' && backend.channelId) {
-      const streamResult = this.streamManager.handleBackendBecameReady(
-        event.backendId, backend.channelId,
-      );
+    if (backend && backend.runtimeState === 'ready' && backend.subscribed) {
+      const streamResult = this.streamManager.handleBackendBecameReady(event.backendId);
       this.executeStreamResult(streamResult);
     }
 
     this.emitBackendDiffs(diffs);
   }
 
-  private handleCatalogEvent(event: Extract<FacadeAdapterEvent, { type: 'catalog_event_received' }>): void {
+  private handleBackendDataEvent(event: Extract<FacadeAdapterEvent, { type: 'backend_data_event_received' }>): void {
     this.emitFacadeEvent({
-      type: 'catalog_event',
+      type: 'backend_data_event',
       backendId: event.backendId,
-      op: event.op,
-      item: event.item,
-      sessionId: event.sessionId,
+      event: event.event,
     });
-  }
-
-  private handleCatalogReset(event: Extract<FacadeAdapterEvent, { type: 'catalog_reset_received' }>): void {
-    const diffs = this.registryStore.markCatalogReset(event.backendId, event.epoch);
-    this.emitBackendDiffs(diffs);
   }
 
   // --------------------------------------------------------------------------
@@ -476,14 +421,14 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
 
   private handleSessionStreamClosed(event: Extract<FacadeAdapterEvent, { type: 'session_stream_closed' }>): void {
     const result = this.streamManager.handleSessionStreamClosed(
-      event.backendId, event.channelId, event.sessionId, event.reason,
+      event.backendId, event.sessionId, event.reason,
     );
     this.executeStreamResult(result);
   }
 
   private handleContentPatch(event: Extract<FacadeAdapterEvent, { type: 'content_patch_received' }>): void {
     const result = this.streamManager.handleContentPatch(
-      event.backendId, event.channelId, event.sessionId,
+      event.backendId, event.sessionId,
       event.messages, event.latestOffset,
     );
     this.executeStreamResult(result);
@@ -501,7 +446,7 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
 
   private handleRunEvent(event: Extract<FacadeAdapterEvent, { type: 'run_event_received' }>): void {
     const result = this.streamManager.handleRunEvent(
-      event.backendId, event.channelId, event.sessionId, event.event,
+      event.backendId, event.sessionId, event.event,
     );
     this.executeStreamResult(result);
   }
@@ -531,23 +476,17 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
       const backend = this.registryStore.getBackend(backendId);
       if (!backend || !backend.presence) continue;
 
-      // Reopen closed or errored backends
-      if (backend.openState === 'closed' || backend.openState === 'error') {
+      // Reopen unsubscribed or errored backends
+      if (backend.openState === 'unsubscribed' || backend.openState === 'error') {
         this.openBackend(backendId);
         continue;
       }
 
-      // Unstick backends that have an open channel but failed catalog subscription
-      // (e.g. after BACKEND_EPOCH_MISMATCH during subscribe_backend_catalog).
-      // The channel is open but catalogInitialized is false, so runtimeState is 'opening'.
-      if (
-        backend.openState === 'open'
-        && backend.runtimeState === 'opening'
-        && backend.channelId
-        && !backend.catalogInitialized
-      ) {
-        this.adapter.commands.catalog.subscribe(backendId, backend.presence.epoch);
-      }
+      // Unstick backends that are subscribed but haven't received data yet.
+      // This can happen after reconnection — the gateway will request
+      // a data snapshot from the backend when we re-subscribe, but if
+      // that didn't arrive, we remain in 'subscribing'. No client-side
+      // action needed; the backend will push data on the next heartbeat cycle.
     }
   }
 
@@ -586,15 +525,11 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
     // Execute commands via adapter
     for (const cmd of result.commands) {
       switch (cmd.type) {
-        case 'open_session_stream':
-          this.adapter.commands.stream.open(cmd.channelId, cmd.sessionId);
-          break;
-        case 'close_session_stream':
-          this.adapter.commands.stream.close(cmd.channelId, cmd.sessionId);
-          break;
         case 'catch_up_content':
-          this.adapter.commands.stream.catchUp(cmd.channelId, cmd.sessionId, cmd.afterOffset);
+          this.adapter.commands.stream.catchUp(cmd.backendId, cmd.sessionId, cmd.afterOffset);
           break;
+        // open_session_stream and close_session_stream are now local-only operations
+        // (stream state is managed internally; the gateway delivers events based on subscription)
       }
     }
 
@@ -605,12 +540,12 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
   }
 
   /** Fix #3: proper type-safe emit for backend diffs */
-  private emitBackendDiffs(diffs: Array<{ backendId: string; nextRuntimeState: string; reason?: string }>): void {
+  private emitBackendDiffs(diffs: BackendStateDiff[]): void {
     for (const diff of diffs) {
       this.emitFacadeEvent({
         type: 'backend_state_changed',
         backendId: diff.backendId,
-        state: diff.nextRuntimeState as BackendRuntimeState,
+        state: diff.nextRuntimeState,
         error: diff.reason,
       });
     }

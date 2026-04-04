@@ -203,6 +203,26 @@ describe('projects routes', () => {
       const row = db.prepare('SELECT permission_policy FROM projects WHERE id = ?').get(res.body.data.id) as any;
       expect(JSON.parse(row.permission_policy)).toEqual(permissionPolicy);
     });
+
+    it('emits project_upsert callback with created project', async () => {
+      const onProjectChanged = vi.fn();
+      const callbackApp = express();
+      callbackApp.use(express.json());
+      callbackApp.use('/api/projects', createProjectRoutes(db, onProjectChanged));
+
+      const res = await request(callbackApp)
+        .post('/api/projects')
+        .send({ name: 'Callback Project' });
+
+      expect(res.status).toBe(201);
+      expect(onProjectChanged).toHaveBeenCalledWith({
+        type: 'project_upsert',
+        project: expect.objectContaining({
+          id: res.body.data.id,
+          name: 'Callback Project',
+        }),
+      });
+    });
   });
 
   describe('GET /api/projects', () => {
@@ -507,6 +527,32 @@ describe('projects routes', () => {
       expect(row.system_prompt).toBeNull();
       expect(row.permission_policy).toBeNull();
     });
+
+    it('emits project_upsert callback with updated project', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO projects (id, name, type, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('p1', 'Original', 'code', now, now);
+
+      const onProjectChanged = vi.fn();
+      const callbackApp = express();
+      callbackApp.use(express.json());
+      callbackApp.use('/api/projects', createProjectRoutes(db, onProjectChanged));
+
+      const res = await request(callbackApp)
+        .put('/api/projects/p1')
+        .send({ name: 'Updated' });
+
+      expect(res.status).toBe(200);
+      expect(onProjectChanged).toHaveBeenCalledWith({
+        type: 'project_upsert',
+        project: expect.objectContaining({
+          id: 'p1',
+          name: 'Updated',
+        }),
+      });
+    });
   });
 
   describe('DELETE /api/projects/:id', () => {
@@ -552,6 +598,70 @@ describe('projects routes', () => {
       // Confirm it is gone
       const after = db.prepare('SELECT id FROM projects WHERE id = ?').get('p1');
       expect(after).toBeUndefined();
+    });
+
+    it('emits project_remove callback with deleted project id', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO projects (id, name, type, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('p1', 'Delete Me', 'code', now, now);
+
+      const onProjectChanged = vi.fn();
+      const callbackApp = express();
+      callbackApp.use(express.json());
+      callbackApp.use('/api/projects', createProjectRoutes(db, onProjectChanged));
+
+      const res = await request(callbackApp).delete('/api/projects/p1');
+
+      expect(res.status).toBe(200);
+      expect(onProjectChanged).toHaveBeenCalledWith({
+        type: 'project_remove',
+        projectId: 'p1',
+      });
+    });
+
+    it('bridges project CRUD callbacks into gateway project events', async () => {
+      const broadcastProjectEvent = vi.fn();
+      const onProjectChanged = vi.fn((event) => {
+        if (event.type === 'project_upsert') {
+          broadcastProjectEvent('updated', event.project);
+        } else {
+          broadcastProjectEvent('deleted', { id: event.projectId });
+        }
+      });
+      const callbackApp = express();
+      callbackApp.use(express.json());
+      callbackApp.use('/api/projects', createProjectRoutes(db, onProjectChanged));
+
+      const created = await request(callbackApp)
+        .post('/api/projects')
+        .send({ name: 'Bridge Project' });
+      expect(created.status).toBe(201);
+      expect(broadcastProjectEvent).toHaveBeenNthCalledWith(
+        1,
+        'updated',
+        expect.objectContaining({ id: created.body.data.id, name: 'Bridge Project' }),
+      );
+
+      const updated = await request(callbackApp)
+        .put(`/api/projects/${created.body.data.id}`)
+        .send({ name: 'Bridge Project Renamed' });
+      expect(updated.status).toBe(200);
+      expect(broadcastProjectEvent).toHaveBeenNthCalledWith(
+        2,
+        'updated',
+        expect.objectContaining({ id: created.body.data.id, name: 'Bridge Project Renamed' }),
+      );
+
+      const removed = await request(callbackApp)
+        .delete(`/api/projects/${created.body.data.id}`);
+      expect(removed.status).toBe(200);
+      expect(broadcastProjectEvent).toHaveBeenNthCalledWith(
+        3,
+        'deleted',
+        { id: created.body.data.id },
+      );
     });
   });
 

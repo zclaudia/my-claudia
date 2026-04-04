@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useGatewayStore } from '../../stores/gatewayStore';
-import { useRecoveryStore } from '../../stores/recoveryStore';
+import { useFacadeStore } from '../../stores/facadeStore';
+import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
+import { isMobileGatewayConnected } from '../../services/mobileConnectionState';
 
 export function MobileGatewayConfig() {
   const {
@@ -9,9 +11,13 @@ export function MobileGatewayConfig() {
     setDirectGatewayConfig,
     clearDirectGatewayConfig,
   } = useGatewayStore();
-  const transportStatus = useRecoveryStore((s) => s.transport.status);
-  const isGatewayConnected = transportStatus === 'connected';
-  const controlPlaneError = useRecoveryStore((s) => s.transport.error);
+  const facadeConnectionState = useFacadeStore((s) => s.connectionState);
+  const facadeConnectionError = useFacadeStore((s) => s.connectionError);
+  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
+  const mobileRecoveryError = useMobileRecoveryStore((s) => s.lastError);
+  const isGatewayConnected = isMobileGatewayConnected(facadeConnectionState, mobileRecoveryPhase);
+  const displayStatus = isGatewayConnected ? 'connected' : facadeConnectionState;
+  const displayError = facadeConnectionError || mobileRecoveryError;
 
   const [url, setUrl] = useState(directGatewayUrl || '');
   const [secret, setSecret] = useState(directGatewaySecret || '');
@@ -43,7 +49,7 @@ export function MobileGatewayConfig() {
         <div className="flex items-center gap-2">
           <span className={`w-2 h-2 rounded-full ${isGatewayConnected ? 'bg-success' : 'bg-destructive'}`} />
           <span className="text-sm">
-            {isGatewayConnected ? 'Gateway connected' : `Gateway ${transportStatus}`}
+            {isGatewayConnected ? 'Gateway connected' : `Gateway ${displayStatus}`}
           </span>
         </div>
         {directGatewayUrl && (
@@ -51,9 +57,9 @@ export function MobileGatewayConfig() {
             Config: {directGatewayUrl}
           </p>
         )}
-        {controlPlaneError && (
+        {displayError && (
           <p className="text-[10px] text-destructive break-all">
-            Error: {controlPlaneError}
+            Error: {displayError}
           </p>
         )}
       </div>

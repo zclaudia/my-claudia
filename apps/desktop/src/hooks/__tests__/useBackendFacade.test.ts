@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../services/messageHandler', () => ({
   handleServerMessage: vi.fn(),
@@ -19,8 +19,12 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { xtermRegistry } from '../../utils/xtermRegistry';
 
 describe('useBackendFacade run_event forwarding', () => {
+  let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.clearAllMocks();
+    consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     useToastStore.setState({ toasts: [] });
     useServerStore.setState({
       activeServerId: null,
@@ -47,7 +51,6 @@ describe('useBackendFacade run_event forwarding', () => {
       localBackendId: 'local-standalone',
       currentInstanceId: 'instance-local',
       currentDeviceId: 'device-local',
-      registryRevision: 1,
       snapshotVersion: 1,
     });
     useChatStore.setState({
@@ -99,6 +102,12 @@ describe('useBackendFacade run_event forwarding', () => {
       poppedOutTerminals: {},
       reattachTerminals: {},
     } as any);
+  });
+
+  afterEach(() => {
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+    consoleWarnSpy.mockRestore();
   });
 
   it('forwards local backend run events to the shared message handler', () => {
@@ -154,7 +163,6 @@ describe('useBackendFacade run_event forwarding', () => {
         localBackendId: 'local-standalone',
         currentInstanceId: 'instance-local',
         currentDeviceId: 'device-local',
-        registryRevision: 2,
         sessionStreams: {},
         backends: [
           {
@@ -213,7 +221,6 @@ describe('useBackendFacade run_event forwarding', () => {
         localBackendId: 'local-embedded',
         currentInstanceId: 'instance-local',
         currentDeviceId: 'device-local',
-        registryRevision: 4,
         sessionStreams: {},
         backends: [
           {
@@ -237,6 +244,59 @@ describe('useBackendFacade run_event forwarding', () => {
     expect(useServerStore.getState().activeServerId).toBe('local-embedded');
   });
 
+  it('deduplicates deferred auto-open across repeated snapshots', () => {
+    const openBackend = vi.fn();
+    useFacadeStore.setState({
+      ...useFacadeStore.getState(),
+      facade: {
+        getSnapshot: () => ({
+          backends: [
+            { backendId: 'remote-1', openState: 'unsubscribed', runtimeState: 'visible' },
+          ],
+        }),
+        openBackend,
+      } as any,
+    });
+    useServerStore.setState({
+      ...useServerStore.getState(),
+      activeServerId: 'remote-1',
+    });
+
+    const snapshot = {
+      snapshotVersion: 2,
+      capturedAt: Date.now(),
+      mode: 'direct',
+      connectionState: 'connected',
+      localBackendId: null,
+      currentInstanceId: 'instance-local',
+      currentDeviceId: 'device-local',
+      sessionStreams: {},
+      backends: [
+        {
+          backendId: 'remote-1',
+          name: 'Remote',
+          online: true,
+          runtimeState: 'visible',
+          openState: 'unsubscribed',
+          instanceId: 'instance-remote',
+          deviceId: 'device-remote',
+          channel: 'prod',
+          isThisInstance: false,
+          isThisDevice: false,
+          capabilities: [],
+        },
+      ],
+    };
+
+    syncToGatewayStore({ type: 'snapshot_updated', snapshot } as any);
+    syncToGatewayStore({ type: 'snapshot_updated', snapshot } as any);
+
+    expect(openBackend).not.toHaveBeenCalled();
+    vi.runAllTimers();
+    expect(openBackend).toHaveBeenCalledTimes(1);
+    expect(openBackend).toHaveBeenCalledWith('remote-1');
+  });
+
   it('keeps active runs alive while a backend reconnects unexpectedly', () => {
     useChatStore.setState({
       ...useChatStore.getState(),
@@ -257,7 +317,7 @@ describe('useBackendFacade run_event forwarding', () => {
     syncToGatewayStore({
       type: 'backend_state_changed',
       backendId: 'remote-1',
-      state: 'opening',
+      state: 'subscribing',
       error: 'peer_disconnected',
     } as any);
 
@@ -271,14 +331,15 @@ describe('useBackendFacade run_event forwarding', () => {
     });
   });
 
-  it('filters archived sessions out of catalog snapshots', () => {
+  it('filters archived sessions out of backend data snapshots', () => {
     syncToGatewayStore({
-      type: 'catalog_snapshot',
+      type: 'backend_data_snapshot',
       backendId: 'remote-1',
-      items: [
-        { sessionId: 'session-1', title: 'Active', createdAt: 1, updatedAt: 2, activeRunStatus: 'idle' },
-        { sessionId: 'session-archived', title: 'Archived', createdAt: 3, updatedAt: 4, activeRunStatus: 'idle', archived: true },
+      sessions: [
+        { sessionId: 'session-1', title: 'Active', createdAt: 1, updatedAt: 2, runStatus: 'idle' },
+        { sessionId: 'session-archived', title: 'Archived', createdAt: 3, updatedAt: 4, runStatus: 'idle', archived: true },
       ],
+      projects: [],
     } as any);
 
     expect(useSessionsStore.getState().remoteSessions.get('remote-1')).toEqual([
@@ -286,35 +347,36 @@ describe('useBackendFacade run_event forwarding', () => {
     ]);
   });
 
-  it('catalog_snapshot initializes recoveryStore catalog as ready and stamps ownership', () => {
+  it('backend_data_snapshot initializes recoveryStore data sync as ready and stamps ownership', () => {
     useRecoveryStore.setState({
       backends: {
-        'remote-1': { backendId: 'remote-1', status: 'ready', desiredOpen: true, channelReady: true, catalogReady: false, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
+        'remote-1': { backendId: 'remote-1', status: 'ready', subscribed: true, dataReady: false, retryCount: 0, lastError: null, lastCloseReason: null, statusEnteredAt: Date.now() },
       },
-      catalogs: {},
+      dataSyncs: {},
       nextOwnershipVersion: 1,
     } as any);
 
     syncToGatewayStore({
-      type: 'catalog_snapshot',
+      type: 'backend_data_snapshot',
       backendId: 'remote-1',
-      items: [
-        { sessionId: 's1', title: 'S1', createdAt: 1, updatedAt: 2, activeRunStatus: 'idle' },
-        { sessionId: 's2', title: 'S2', createdAt: 3, updatedAt: 4, activeRunStatus: 'idle' },
+      sessions: [
+        { sessionId: 's1', title: 'S1', createdAt: 1, updatedAt: 2, runStatus: 'idle' },
+        { sessionId: 's2', title: 'S2', createdAt: 3, updatedAt: 4, runStatus: 'idle' },
       ],
+      projects: [],
     } as any);
 
-    const catalog = useRecoveryStore.getState().catalogs['remote-1'];
-    expect(catalog).toBeDefined();
-    expect(catalog.status).toBe('ready');
-    expect(catalog.ownershipVersion).toBe(1);
+    const dataSync = useRecoveryStore.getState().dataSyncs['remote-1'];
+    expect(dataSync).toBeDefined();
+    expect(dataSync.status).toBe('ready');
+    expect(dataSync.ownershipVersion).toBe(1);
 
     const backend = useRecoveryStore.getState().backends['remote-1'];
-    expect(backend.catalogReady).toBe(true);
+    expect(backend.dataReady).toBe(true);
     expect(backend.status).toBe('ready');
   });
 
-  it('removes archived sessions on catalog upsert events', () => {
+  it('removes archived sessions on backend data upsert events', () => {
     useSessionsStore.setState({
       ...useSessionsStore.getState(),
       remoteSessions: new Map([
@@ -327,22 +389,145 @@ describe('useBackendFacade run_event forwarding', () => {
     } as any);
 
     syncToGatewayStore({
-      type: 'catalog_event',
+      type: 'backend_data_event',
       backendId: 'remote-1',
-      op: 'upsert',
-      item: {
-        sessionId: 'session-2',
-        title: 'Session 2',
-        createdAt: 2,
-        updatedAt: 3,
-        activeRunStatus: 'idle',
-        archived: true,
+      event: {
+        type: 'backend_data_event',
+        op: 'session_upsert',
+        item: {
+          sessionId: 'session-2',
+          title: 'Session 2',
+          createdAt: 2,
+          updatedAt: 3,
+          runStatus: 'idle',
+          archived: true,
+        },
       },
     } as any);
 
     expect(useSessionsStore.getState().remoteSessions.get('remote-1')).toEqual([
       expect.objectContaining({ id: 'session-1', name: 'Session 1' }),
     ]);
+  });
+
+  it('upserts remote projects with the event backend owner instead of the active backend', () => {
+    useServerStore.setState({
+      ...useServerStore.getState(),
+      activeServerId: 'local-standalone',
+    });
+    useProjectStore.setState({
+      ...useProjectStore.getState(),
+      projects: [{ id: 'project-1', name: 'Local Project', type: 'code', createdAt: 1, updatedAt: 1 }],
+    } as any);
+    useOwnershipStore.setState({
+      ...useOwnershipStore.getState(),
+      projectBackendIds: { 'project-1': 'local-standalone' },
+    } as any);
+
+    syncToGatewayStore({
+      type: 'backend_data_event',
+      backendId: 'remote-1',
+      event: {
+        type: 'backend_data_event',
+        op: 'project_upsert',
+        item: {
+          projectId: 'project-2',
+          name: 'Remote Project',
+          createdAt: 10,
+          updatedAt: 11,
+        },
+      },
+    } as any);
+
+    expect(useProjectStore.getState().projects).toEqual([
+      expect.objectContaining({ id: 'project-1', name: 'Local Project' }),
+      expect.objectContaining({ id: 'project-2', name: 'Remote Project' }),
+    ]);
+    expect(useOwnershipStore.getState().getProjectBackendId('project-2')).toBe('remote-1');
+  });
+
+  it('removes only the project owned by the event backend', () => {
+    useProjectStore.setState({
+      ...useProjectStore.getState(),
+      projects: [
+        { id: 'shared-project', name: 'Remote Project', type: 'code', createdAt: 1, updatedAt: 1 },
+        { id: 'local-project', name: 'Local Project', type: 'code', createdAt: 2, updatedAt: 2 },
+      ],
+    } as any);
+    useOwnershipStore.setState({
+      ...useOwnershipStore.getState(),
+      projectBackendIds: {
+        'shared-project': 'remote-1',
+        'local-project': 'local-standalone',
+      },
+    } as any);
+
+    syncToGatewayStore({
+      type: 'backend_data_event',
+      backendId: 'local-standalone',
+      event: {
+        type: 'backend_data_event',
+        op: 'project_remove',
+        projectId: 'shared-project',
+      },
+    } as any);
+
+    expect(useProjectStore.getState().projects).toEqual([
+      expect.objectContaining({ id: 'shared-project', name: 'Remote Project' }),
+      expect.objectContaining({ id: 'local-project', name: 'Local Project' }),
+    ]);
+
+    syncToGatewayStore({
+      type: 'backend_data_event',
+      backendId: 'remote-1',
+      event: {
+        type: 'backend_data_event',
+        op: 'project_remove',
+        projectId: 'shared-project',
+      },
+    } as any);
+
+    expect(useProjectStore.getState().projects).toEqual([
+      expect.objectContaining({ id: 'local-project', name: 'Local Project' }),
+    ]);
+  });
+
+  it('ignores project_upsert when another backend already owns the same project id', () => {
+    useProjectStore.setState({
+      ...useProjectStore.getState(),
+      projects: [
+        { id: 'shared-project', name: 'Remote Project', type: 'code', createdAt: 1, updatedAt: 1 },
+      ],
+    } as any);
+    useOwnershipStore.setState({
+      ...useOwnershipStore.getState(),
+      projectBackendIds: {
+        'shared-project': 'remote-1',
+      },
+    } as any);
+
+    syncToGatewayStore({
+      type: 'backend_data_event',
+      backendId: 'local-standalone',
+      event: {
+        type: 'backend_data_event',
+        op: 'project_upsert',
+        item: {
+          projectId: 'shared-project',
+          name: 'Local Collision',
+          createdAt: 10,
+          updatedAt: 11,
+        },
+      },
+    } as any);
+
+    expect(useProjectStore.getState().projects).toEqual([
+      expect.objectContaining({ id: 'shared-project', name: 'Remote Project' }),
+    ]);
+    expect(useOwnershipStore.getState().getProjectBackendId('shared-project')).toBe('remote-1');
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Ignoring project event collision for shared-project')
+    );
   });
 
   it('marks remote terminals for reattach on transport disconnect', () => {

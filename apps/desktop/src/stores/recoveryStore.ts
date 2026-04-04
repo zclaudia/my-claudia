@@ -9,8 +9,8 @@ import type {
 
 export type RecoveryCoordinatorStatus = 'ready' | 'background' | 'recovering' | 'error';
 export type TransportStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error' | 'stopped';
-export type BackendRecoveryStatus = 'absent' | 'visible' | 'opening' | 'ready' | 'degraded' | 'error';
-export type CatalogRecoveryStatus = 'idle' | 'stale' | 'syncing_full' | 'syncing_delta' | 'ready' | 'error';
+export type BackendRecoveryStatus = 'absent' | 'visible' | 'subscribing' | 'ready' | 'error';
+export type DataSyncStatus = 'idle' | 'stale' | 'syncing_full' | 'syncing_delta' | 'ready' | 'error';
 export type ActiveSessionRecoveryStatus =
   | 'idle'
   | 'resolving_owner'
@@ -26,9 +26,8 @@ export type BackendRecoveryViewState =
   | 'offline'
   | 'transport_reconnecting'
   | 'backend_visible'
-  | 'backend_opening'
-  | 'backend_recovering'
-  | 'catalog_syncing'
+  | 'backend_subscribing'
+  | 'data_syncing'
   | 'session_syncing'
   | 'ready'
   | 'error';
@@ -47,18 +46,17 @@ export interface TransportState {
 export interface BackendRecoveryState {
   backendId: string;
   status: BackendRecoveryStatus;
-  desiredOpen: boolean;
-  channelReady: boolean;
-  catalogReady: boolean;
+  subscribed: boolean;
+  dataReady: boolean;
   retryCount: number;
   lastError: string | null;
   lastCloseReason: string | null;
   statusEnteredAt: number;
 }
 
-export interface CatalogRecoveryState {
+export interface DataSyncState {
   backendId: string;
-  status: CatalogRecoveryStatus;
+  status: DataSyncStatus;
   ownershipVersion: number;
   retryCount: number;
   lastError: string | null;
@@ -128,26 +126,20 @@ function mapTransportStatus(state: BackendConnectionState): TransportStatus {
 
 function mapBackendStatus(
   runtimeState: BackendRuntimeState,
-  current: BackendRecoveryState | undefined,
-): { status: BackendRecoveryStatus; channelReady: boolean } {
+): { status: BackendRecoveryStatus; subscribed: boolean } {
   switch (runtimeState) {
     case 'ready':
-      return { status: 'ready', channelReady: true };
-    case 'opening':
-      return { status: 'opening', channelReady: false };
-    case 'visible': {
-      const wasPreviouslyActive = current?.status === 'ready' || current?.status === 'degraded';
-      return { status: wasPreviouslyActive ? 'degraded' : 'visible', channelReady: false };
-    }
+      return { status: 'ready', subscribed: true };
+    case 'subscribing':
+      return { status: 'subscribing', subscribed: false };
+    case 'visible':
+      return { status: 'visible', subscribed: false };
     case 'offline':
-      return {
-        status: current?.desiredOpen || current?.status === 'ready' ? 'degraded' : 'absent',
-        channelReady: false,
-      };
+      return { status: 'absent', subscribed: false };
     case 'error':
-      return { status: 'error', channelReady: false };
+      return { status: 'error', subscribed: false };
     default:
-      return { status: 'absent', channelReady: false };
+      return { status: 'absent', subscribed: false };
   }
 }
 
@@ -159,9 +151,8 @@ function upsertBackendState(
 ): BackendRecoveryState {
   const enteredAt = current?.status === status ? current.statusEnteredAt : now();
   return {
-    desiredOpen: current?.desiredOpen ?? false,
-    channelReady: current?.channelReady ?? false,
-    catalogReady: current?.catalogReady ?? false,
+    subscribed: current?.subscribed ?? false,
+    dataReady: current?.dataReady ?? false,
     retryCount: current?.retryCount ?? 0,
     lastError: current?.lastError ?? null,
     lastCloseReason: current?.lastCloseReason ?? null,
@@ -173,12 +164,12 @@ function upsertBackendState(
   };
 }
 
-function upsertCatalogState(
-  current: CatalogRecoveryState | undefined,
+function upsertDataSyncState(
+  current: DataSyncState | undefined,
   backendId: string,
-  status: CatalogRecoveryStatus,
-  overrides: Partial<CatalogRecoveryState> = {},
-): CatalogRecoveryState {
+  status: DataSyncStatus,
+  overrides: Partial<DataSyncState> = {},
+): DataSyncState {
   const enteredAt = current?.status === status ? current.statusEnteredAt : now();
   return {
     ownershipVersion: current?.ownershipVersion ?? 0,
@@ -209,20 +200,20 @@ function updateActiveSession(
 
 export const RECOVERY_TIMEOUTS = {
   TRANSPORT_CONNECT: 10_000,
-  BACKEND_OPEN: 15_000,
-  CATALOG_SYNC: 10_000,
+  BACKEND_SUBSCRIBE: 15_000,
+  DATA_SYNC: 10_000,
   SESSION_STREAM_OPEN: 10_000,
   SESSION_CATCHUP: 15_000,
   RECONCILE_INTERVAL: 30_000,
-  CATALOG_STALENESS_ACTIVE: 5 * 60_000,
-  CATALOG_STALENESS_INACTIVE: 15 * 60_000,
+  DATA_STALENESS_ACTIVE: 5 * 60_000,
+  DATA_STALENESS_INACTIVE: 15 * 60_000,
 } as const;
 
 export const RECOVERY_MAX_RETRIES = {
   TRANSPORT: 5,
   BACKEND: 3,
-  CATALOG_FULL: 3,
-  CATALOG_DELTA: 1,
+  DATA_SYNC_FULL: 3,
+  DATA_SYNC_DELTA: 1,
   SESSION_STREAM: 2,
   SESSION_CATCHUP: 2,
 } as const;
@@ -233,7 +224,7 @@ interface RecoveryState {
   activeBackendId: string | null;
   selectedSessionId: string | null;
   backends: Record<string, BackendRecoveryState>;
-  catalogs: Record<string, CatalogRecoveryState>;
+  dataSyncs: Record<string, DataSyncState>;
   activeSession: ActiveSessionRecoveryState;
   nextOwnershipVersion: number;
   backgroundAt: number | null;
@@ -244,10 +235,10 @@ interface RecoveryState {
   startBackendRecovery: (backendId: string) => void;
   setTransportState: (state: BackendConnectionState, error?: string | null) => void;
   applySnapshot: (snapshot: BackendFacadeSnapshot) => void;
-  noteBackendDesiredOpen: (backendId: string) => void;
-  noteCatalogSyncStarted: (backendId: string, mode: 'full' | 'delta') => void;
-  noteCatalogSyncFailed: (backendId: string, error: string) => void;
-  noteCatalogSyncSucceeded: (backendId: string) => number;
+  noteBackendSubscribing: (backendId: string) => void;
+  noteDataSyncStarted: (backendId: string, mode: 'full' | 'delta') => void;
+  noteDataSyncFailed: (backendId: string, error: string) => void;
+  noteDataSyncSucceeded: (backendId: string) => number;
   noteActiveSessionResolving: (sessionId: string, backendId: string | null) => void;
   noteActiveSessionOwnerVerified: (sessionId: string, backendId: string, ownershipVersion: number) => void;
   noteActiveSessionWaiting: (sessionId: string, backendId: string | null) => void;
@@ -261,7 +252,7 @@ interface RecoveryState {
   noteActiveSessionMessage: () => void;
   noteTransportTimeout: () => void;
   noteBackendTimeout: (backendId: string) => void;
-  noteCatalogSyncTimeout: (backendId: string) => void;
+  noteDataSyncTimeout: (backendId: string) => void;
   noteActiveSessionTimeout: () => void;
   completeRecoveryIfPossible: () => void;
   markReady: () => void;
@@ -275,7 +266,7 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
   activeBackendId: null,
   selectedSessionId: null,
   backends: {},
-  catalogs: {},
+  dataSyncs: {},
   activeSession: initialActiveSession(),
   nextOwnershipVersion: 1,
   backgroundAt: null,
@@ -327,24 +318,23 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
     for (const [backendId, backend] of Object.entries(state.backends)) {
       backends[backendId] = {
         ...backend,
-        status: backend.status === 'ready' ? 'degraded' : backend.status,
-        // Preserve channelReady — it reflects the facade's actual channel state.
-        // If the channel is still open (common in embedded mode), keeping this true
-        // lets noteCatalogSyncSucceeded restore the backend to ready after sync.
-        catalogReady: false,
+        // Preserve subscribed — it reflects the facade's actual subscription state.
+        // If still subscribed (common in embedded mode), keeping this true
+        // lets noteDataSyncSucceeded restore the backend to ready after sync.
+        dataReady: false,
         retryCount: 0,
         lastCloseReason: backend.status === 'ready' ? 'transport_reconnecting' : backend.lastCloseReason,
         statusEnteredAt: now(),
       };
     }
 
-    const catalogs: Record<string, CatalogRecoveryState> = {};
-    for (const [backendId, catalog] of Object.entries(state.catalogs)) {
-      catalogs[backendId] = {
-        ...catalog,
-        status: backendId === state.activeBackendId ? 'stale' : catalog.status,
+    const dataSyncs: Record<string, DataSyncState> = {};
+    for (const [backendId, dataSync] of Object.entries(state.dataSyncs)) {
+      dataSyncs[backendId] = {
+        ...dataSync,
+        status: backendId === state.activeBackendId ? 'stale' : dataSync.status,
         retryCount: 0,
-        statusEnteredAt: backendId === state.activeBackendId ? now() : catalog.statusEnteredAt,
+        statusEnteredAt: backendId === state.activeBackendId ? now() : dataSync.statusEnteredAt,
       };
     }
 
@@ -372,7 +362,7 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
         retryCount: 0,
       },
       backends,
-      catalogs,
+      dataSyncs,
       activeSession,
       backgroundAt: null,
     };
@@ -386,21 +376,21 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
     const backend = state.backends[backendId];
     if (!backend) return state;
 
-    // Only recover catalogs that were previously tracked (i.e. synced at least
-    // once). Missing catalog entry means first boot, not a disruption.
-    const catalogNeedsSync = state.catalogs[backendId] != null
-      && state.catalogs[backendId].status !== 'ready';
+    // Only recover data syncs that were previously tracked (i.e. synced at least
+    // once). Missing data sync entry means first boot, not a disruption.
+    const dataNeedsSync = state.dataSyncs[backendId] != null
+      && state.dataSyncs[backendId].status !== 'ready';
     // Only recover sessions that were actively in use — idle means first boot.
     const sessionNeedsRecovery = state.selectedSessionId
       && state.activeSession.status !== 'live'
       && state.activeSession.status !== 'idle';
 
-    if (!catalogNeedsSync && !sessionNeedsRecovery) return state;
+    if (!dataNeedsSync && !sessionNeedsRecovery) return state;
 
-    const catalogs = { ...state.catalogs };
-    if (catalogs[backendId]) {
-      catalogs[backendId] = {
-        ...catalogs[backendId],
+    const dataSyncs = { ...state.dataSyncs };
+    if (dataSyncs[backendId]) {
+      dataSyncs[backendId] = {
+        ...dataSyncs[backendId],
         status: 'stale',
         retryCount: 0,
         lastError: null,
@@ -421,7 +411,7 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
 
     return {
       coordinator: 'recovering',
-      catalogs,
+      dataSyncs,
       activeSession,
     };
   }),
@@ -450,15 +440,15 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
     for (const backend of snapshot.backends) {
       seen.add(backend.backendId);
       const current = backends[backend.backendId];
-      const mapped = mapBackendStatus(backend.runtimeState, current);
+      const mapped = mapBackendStatus(backend.runtimeState);
       backends[backend.backendId] = upsertBackendState(
         current,
         backend.backendId,
         mapped.status,
         {
           lastError: backend.lastError ?? current?.lastError ?? null,
-          channelReady: mapped.channelReady,
-          catalogReady: mapped.channelReady ? (current?.catalogReady ?? false) : false,
+          subscribed: mapped.subscribed,
+          dataReady: mapped.subscribed ? (current?.dataReady ?? false) : false,
         },
       );
     }
@@ -466,8 +456,8 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
     for (const backendId of Object.keys(backends)) {
       if (!seen.has(backendId)) {
         backends[backendId] = upsertBackendState(backends[backendId], backendId, 'absent', {
-          channelReady: false,
-          catalogReady: false,
+          subscribed: false,
+          dataReady: false,
         });
       }
     }
@@ -491,21 +481,20 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
     };
   }),
 
-  noteBackendDesiredOpen: (backendId) => set((state) => ({
+  noteBackendSubscribing: (backendId) => set((state) => ({
     backends: {
       ...state.backends,
-      [backendId]: upsertBackendState(state.backends[backendId], backendId, 'opening', {
-        desiredOpen: true,
+      [backendId]: upsertBackendState(state.backends[backendId], backendId, 'subscribing', {
         lastError: null,
       }),
     },
   })),
 
-  noteCatalogSyncStarted: (backendId, mode) => set((state) => ({
-    catalogs: {
-      ...state.catalogs,
-      [backendId]: upsertCatalogState(
-        state.catalogs[backendId],
+  noteDataSyncStarted: (backendId, mode) => set((state) => ({
+    dataSyncs: {
+      ...state.dataSyncs,
+      [backendId]: upsertDataSyncState(
+        state.dataSyncs[backendId],
         backendId,
         mode === 'delta' ? 'syncing_delta' : 'syncing_full',
         { lastError: null },
@@ -513,21 +502,22 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
     },
   })),
 
-  noteCatalogSyncFailed: (backendId, error) => set((state) => {
-    const current = state.catalogs[backendId];
+  noteDataSyncFailed: (backendId, error) => set((state) => {
+    const current = state.dataSyncs[backendId];
     const retryCount = (current?.retryCount ?? 0) + 1;
     const maxRetries = current?.status === 'syncing_delta'
-      ? RECOVERY_MAX_RETRIES.CATALOG_DELTA
-      : RECOVERY_MAX_RETRIES.CATALOG_FULL;
+      ? RECOVERY_MAX_RETRIES.DATA_SYNC_DELTA
+      : RECOVERY_MAX_RETRIES.DATA_SYNC_FULL;
     const retriesExhausted = retryCount >= maxRetries;
-    const nextStatus: CatalogRecoveryStatus = retriesExhausted
-      ? 'error'
-      : current?.status === 'syncing_delta' ? 'stale' : (current?.status ?? 'error');
+    // On failure (not exhausted), reset to 'stale' so the planner can re-trigger sync.
+    // Previously syncing_full stayed as syncing_full, causing the planner to think a sync
+    // was still in flight and only recovering via the 30s reconciliation tick.
+    const nextStatus: DataSyncStatus = retriesExhausted ? 'error' : 'stale';
     return {
       coordinator: retriesExhausted && state.coordinator === 'recovering' ? 'error' : state.coordinator,
-      catalogs: {
-        ...state.catalogs,
-        [backendId]: upsertCatalogState(current, backendId, nextStatus, {
+      dataSyncs: {
+        ...state.dataSyncs,
+        [backendId]: upsertDataSyncState(current, backendId, nextStatus, {
           lastError: error,
           retryCount,
         }),
@@ -535,16 +525,16 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
     };
   }),
 
-  noteCatalogSyncSucceeded: (backendId) => {
+  noteDataSyncSucceeded: (backendId) => {
     const ownershipVersion = get().nextOwnershipVersion;
     set((state) => {
       const backend = state.backends[backendId];
-      const channelReady = backend?.channelReady ?? false;
-      const backendStatus = channelReady ? 'ready' as const : (backend?.status ?? 'opening' as const);
+      const subscribed = backend?.subscribed ?? false;
+      const backendStatus = subscribed ? 'ready' as const : (backend?.status ?? 'subscribing' as const);
       return {
-        catalogs: {
-          ...state.catalogs,
-          [backendId]: upsertCatalogState(state.catalogs[backendId], backendId, 'ready', {
+        dataSyncs: {
+          ...state.dataSyncs,
+          [backendId]: upsertDataSyncState(state.dataSyncs[backendId], backendId, 'ready', {
             ownershipVersion,
             retryCount: 0,
             lastError: null,
@@ -555,8 +545,7 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
         backends: {
           ...state.backends,
           [backendId]: upsertBackendState(backend, backendId, backendStatus, {
-            desiredOpen: backend?.desiredOpen ?? true,
-            catalogReady: true,
+            dataReady: true,
           }),
         },
       };
@@ -662,31 +651,31 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
         ...state.backends,
         [backendId]: upsertBackendState(backend, backendId, 'error', {
           retryCount,
-          lastError: `Backend open timeout (attempt ${retryCount}/${RECOVERY_MAX_RETRIES.BACKEND})`,
-          channelReady: false,
-          catalogReady: false,
+          lastError: `Backend subscribe timeout (attempt ${retryCount}/${RECOVERY_MAX_RETRIES.BACKEND})`,
+          subscribed: false,
+          dataReady: false,
         }),
       },
     };
   }),
 
-  noteCatalogSyncTimeout: (backendId) => set((state) => {
-    const catalog = state.catalogs[backendId];
-    if (!catalog) return state;
-    const retryCount = catalog.retryCount + 1;
-    const wasDelta = catalog.status === 'syncing_delta';
-    const maxRetries = wasDelta ? RECOVERY_MAX_RETRIES.CATALOG_DELTA : RECOVERY_MAX_RETRIES.CATALOG_FULL;
+  noteDataSyncTimeout: (backendId) => set((state) => {
+    const dataSync = state.dataSyncs[backendId];
+    if (!dataSync) return state;
+    const retryCount = dataSync.retryCount + 1;
+    const wasDelta = dataSync.status === 'syncing_delta';
+    const maxRetries = wasDelta ? RECOVERY_MAX_RETRIES.DATA_SYNC_DELTA : RECOVERY_MAX_RETRIES.DATA_SYNC_FULL;
     const retriesExhausted = retryCount >= maxRetries;
-    const nextStatus: CatalogRecoveryStatus = wasDelta
+    const nextStatus: DataSyncStatus = wasDelta
       ? 'stale'
-      : (retriesExhausted ? 'error' : catalog.status);
+      : (retriesExhausted ? 'error' : dataSync.status);
     return {
       coordinator: retriesExhausted && !wasDelta && state.coordinator === 'recovering' ? 'error' : state.coordinator,
-      catalogs: {
-        ...state.catalogs,
-        [backendId]: upsertCatalogState(catalog, backendId, nextStatus, {
+      dataSyncs: {
+        ...state.dataSyncs,
+        [backendId]: upsertDataSyncState(dataSync, backendId, nextStatus, {
           retryCount,
-          lastError: `Catalog sync timeout (attempt ${retryCount}/${maxRetries})`,
+          lastError: `Data sync timeout (attempt ${retryCount}/${maxRetries})`,
         }),
       },
     };
@@ -724,9 +713,9 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
     }
 
     const backend = state.backends[state.activeBackendId];
-    const catalog = state.catalogs[state.activeBackendId];
+    const dataSync = state.dataSyncs[state.activeBackendId];
     if (!backend || backend.status !== 'ready') return state;
-    if (!catalog || catalog.status !== 'ready') return state;
+    if (!dataSync || dataSync.status !== 'ready') return state;
     if (!state.selectedSessionId) {
       return { coordinator: 'ready' };
     }
@@ -759,12 +748,12 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
   getBackendViewState: (backendId) => {
     const state = get();
     const backend = backendId ? state.backends[backendId] ?? null : null;
-    const catalog = backendId ? state.catalogs[backendId] ?? null : null;
+    const dataSync = backendId ? state.dataSyncs[backendId] ?? null : null;
     const activeSession = state.activeSession.sessionId && backendId === state.activeBackendId
       ? state.activeSession
       : null;
 
-    if (state.transport.status === 'error' || backend?.status === 'error' || catalog?.status === 'error' || activeSession?.status === 'error') {
+    if (state.transport.status === 'error' || backend?.status === 'error' || dataSync?.status === 'error' || activeSession?.status === 'error') {
       return 'error';
     }
     if (state.transport.status === 'idle' || state.transport.status === 'stopped') {
@@ -774,11 +763,10 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
       return 'transport_reconnecting';
     }
     if (!backend || backend.status === 'absent') return 'offline';
-    if (backend.status === 'degraded') return 'backend_recovering';
     if (backend.status === 'visible') return 'backend_visible';
-    if (backend.status === 'opening') return 'backend_opening';
-    if (!catalog || catalog.status === 'stale' || catalog.status === 'syncing_full' || catalog.status === 'syncing_delta' || catalog.status === 'idle') {
-      return 'catalog_syncing';
+    if (backend.status === 'subscribing') return 'backend_subscribing';
+    if (!dataSync || dataSync.status === 'stale' || dataSync.status === 'syncing_full' || dataSync.status === 'syncing_delta' || dataSync.status === 'idle') {
+      return 'data_syncing';
     }
     if (
       state.selectedSessionId
@@ -802,7 +790,8 @@ export function getRecoverySessionStream(
 
 export function isBackendReady(backendId: string | null | undefined): boolean {
   if (!backendId) return false;
-  return useRecoveryStore.getState().backends[backendId]?.status === 'ready';
+  const state = useRecoveryStore.getState();
+  return state.transport.status === 'connected' && state.backends[backendId]?.status === 'ready';
 }
 
 export function isTransportReady(): boolean {

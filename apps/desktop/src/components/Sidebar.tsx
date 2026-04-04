@@ -31,6 +31,8 @@ import { useProjectStore } from '../stores/projectStore';
 import { useProviderMetaStore } from '../stores/providerMetaStore';
 import { useServerStore } from '../stores/serverStore';
 import { useRecoveryStore } from '../stores/recoveryStore';
+import { useFacadeStore } from '../stores/facadeStore';
+import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import { isLegacyLocalBackendId, resolveCanonicalBackendId } from '../utils/controlPlane';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import { usePermissionStore } from '../stores/permissionStore';
@@ -64,6 +66,8 @@ import { reorderProjects } from '../services/api/projects';
 import { reorderSessions } from '../services/api/sessions';
 import type { GitWorktree } from '@my-claudia/shared';
 import type { WorktreeGroup } from './sidebar/worktreeGrouping';
+import { isMobileBackendUsable } from '../services/mobileConnectionState';
+import { isAndroid } from '../utils/platform';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -90,6 +94,7 @@ export function Sidebar({
   onOpenNotifications,
   isNotificationsOpen = false,
 }: SidebarProps) {
+  const mobileRecoveryEnabled = isAndroid();
   const requestMessageJump = useUIStore((s) => s.requestMessageJump);
   const projects = useProjectStore((s) => s.projects) ?? [];
   const sessions = useProjectStore((s) => s.sessions) ?? [];
@@ -102,10 +107,21 @@ export function Sidebar({
   const storeReorderSessions = useProjectStore((s) => s.reorderSessions);
 
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const isConnected = useRecoveryStore((s) => {
-    if (!activeServerId) return false;
+  const recoveryIsConnected = useRecoveryStore((s) => {
+    if (mobileRecoveryEnabled || !activeServerId) return false;
     return s.backends[activeServerId]?.status === 'ready';
   });
+  const facadeConnectionState = useFacadeStore((s) => s.connectionState);
+  const facadeBackends = useFacadeStore((s) => s.backends);
+  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
+  const isConnected = mobileRecoveryEnabled
+    ? isMobileBackendUsable({
+      backendId: activeServerId,
+      connectionState: facadeConnectionState,
+      backends: facadeBackends,
+      recoveryPhase: mobileRecoveryPhase,
+    })
+    : recoveryIsConnected;
   const scopedProviders = useProviderMetaStore((s) => s.getProviders(activeServerId));
   const providers = scopedProviders.length > 0 ? scopedProviders : legacyProviders;
   const {

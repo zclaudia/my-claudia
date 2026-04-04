@@ -20,7 +20,6 @@ import type {
 } from '@my-claudia/shared';
 import type { ClientMessage, ServerMessage } from '@my-claudia/shared';
 import type { LocalBackendHandler } from './embedded-adapter.js';
-import { parseLocalChannelId } from './channel-id.js';
 
 export class StandaloneFacadeAdapter implements FacadeRuntimeGatewayAdapter {
   private listeners: Array<(event: FacadeAdapterEvent) => void> = [];
@@ -29,7 +28,7 @@ export class StandaloneFacadeAdapter implements FacadeRuntimeGatewayAdapter {
   private readonly deviceId: string;
   private readonly backendId: string;
   private readonly localHandler: LocalBackendHandler | null;
-  private localChannelId: string | null = null;
+  private localSubscribed = false;
 
   constructor(options: {
     serverPort: number;
@@ -65,10 +64,6 @@ export class StandaloneFacadeAdapter implements FacadeRuntimeGatewayAdapter {
     };
   }
 
-  private isLocalChannel(channelId: string): boolean {
-    return channelId.startsWith('local:');
-  }
-
   // --------------------------------------------------------------------------
   // Commands — local backend short-circuit
   // --------------------------------------------------------------------------
@@ -82,65 +77,44 @@ export class StandaloneFacadeAdapter implements FacadeRuntimeGatewayAdapter {
         this.emit({ type: 'connection_state_changed', state: 'disconnected' });
       },
     },
-    channel: {
-      openBackendChannel: (backendId, epoch) => {
+    backend: {
+      subscribe: (backendId) => {
         if (backendId === this.backendId) {
-          // Local backend — synthesize channel open
-          const virtualChannelId = `local:${backendId}:${epoch}`;
-          this.localChannelId = virtualChannelId;
+          this.localSubscribed = true;
           this.emit({
-            type: 'backend_channel_opened',
+            type: 'backend_subscribed',
             backendId,
-            channelId: virtualChannelId,
-            epoch,
+            epoch: 1,
             capabilities: this.localHandler?.getCapabilities() ?? [],
           });
-        }
-      },
-      closeBackendChannel: (channelId) => {
-        if (this.isLocalChannel(channelId)) {
-          const parsed = parseLocalChannelId(channelId);
-          if (parsed) {
-            if (parsed.backendId === this.backendId && this.localChannelId === channelId) {
-              this.localChannelId = null;
-            }
+          // Immediately push backend data snapshot
+          if (this.localHandler) {
             this.emit({
-              type: 'backend_channel_closed',
-              backendId: parsed.backendId,
-              channelId,
-              reason: 'client_closed',
+              type: 'backend_data_snapshot_received',
+              backendId,
+              sessions: this.localHandler.getSessionItems(),
+              projects: this.localHandler.getProjectItems(),
             });
           }
         }
       },
-      sendToBackend: (_channelId, message) => {
-        void this.localHandler?.onMessage(message);
-      },
-    },
-    catalog: {
-      subscribe: (backendId, epoch) => {
-        if (backendId === this.backendId && this.localHandler) {
-          const items = this.localHandler.getCatalogItems();
+      unsubscribe: (backendId) => {
+        if (backendId === this.backendId) {
+          this.localSubscribed = false;
           this.emit({
-            type: 'catalog_snapshot_received',
+            type: 'backend_unsubscribed',
             backendId,
-            epoch,
-            revision: 1,
-            items,
+            reason: 'client_unsubscribed',
           });
         }
       },
-      unsubscribe: () => {},
+      sendToBackend: (_backendId, message) => {
+        void this.localHandler?.onMessage(message);
+      },
     },
     stream: {
-      open: (_channelId, sessionId) => {
-        this.localHandler?.onStreamOpen(sessionId);
-      },
-      close: (_channelId, sessionId) => {
-        this.localHandler?.onStreamClose(sessionId);
-      },
-      catchUp: (channelId, sessionId, afterOffset) => {
-        void this.handleLocalCatchUp(channelId, sessionId, afterOffset);
+      catchUp: (backendId, sessionId, afterOffset) => {
+        void this.handleLocalCatchUp(backendId, sessionId, afterOffset);
       },
     },
   };
@@ -159,10 +133,9 @@ export class StandaloneFacadeAdapter implements FacadeRuntimeGatewayAdapter {
           deviceId: this.deviceId,
         },
         registry: {
-          revision: 1,
           items: [this.buildLocalPresence()],
         },
-        channels: { items: [] },
+        subscriptions: { backendIds: [] },
       }),
     },
     connection: {
@@ -173,16 +146,14 @@ export class StandaloneFacadeAdapter implements FacadeRuntimeGatewayAdapter {
       getDeviceId: () => this.deviceId,
     },
     registry: {
-      getRevision: () => 1,
       getSnapshot: () => {
         const map = new Map<string, BackendPresence>();
         map.set(this.backendId, this.buildLocalPresence());
         return map;
       },
     },
-    channel: {
-      get: () => undefined,
-      getAll: () => new Map(),
+    backend: {
+      isSubscribed: (backendId) => backendId === this.backendId && this.localSubscribed,
     },
     http: {
       getBaseUrl: () => `http://localhost:${this.serverPort}`,
@@ -214,29 +185,25 @@ export class StandaloneFacadeAdapter implements FacadeRuntimeGatewayAdapter {
     }
   }
 
-  private async handleLocalCatchUp(channelId: string, sessionId: string, afterOffset: number): Promise<void> {
+  private async handleLocalCatchUp(backendId: string, sessionId: string, afterOffset: number): Promise<void> {
     if (!this.localHandler) return;
     try {
       const messages = await this.localHandler.onCatchUp(sessionId, afterOffset);
       const maxOffset = messages.length > 0
         ? Math.max(...messages.map(m => m.offset))
         : afterOffset;
-      const backendId = parseLocalChannelId(channelId)?.backendId ?? this.backendId;
       this.emit({
         type: 'content_patch_received',
         backendId,
-        channelId,
         sessionId,
         messages,
         latestOffset: maxOffset,
       });
     } catch (error) {
-      const backendId = parseLocalChannelId(channelId)?.backendId ?? this.backendId;
       console.error('[StandaloneAdapter] Local catch-up error:', error);
       this.emit({
         type: 'content_patch_failed',
         backendId,
-        channelId,
         sessionId,
         afterOffset,
         error: error instanceof Error ? error.message : 'Catch-up failed',
@@ -248,15 +215,21 @@ export class StandaloneFacadeAdapter implements FacadeRuntimeGatewayAdapter {
     if (!this.localHandler) return;
     this.localHandler.onServerEvent((message) => {
       const sessionId = this.getSessionId(message);
-      if (!sessionId) return;
-      const channelId = this.localChannelId ?? `local:${this.backendId}:0`;
-      this.emit({
-        type: 'run_event_received',
-        backendId: this.backendId,
-        channelId,
-        sessionId,
-        event: message,
-      });
+      if (sessionId) {
+        this.emit({
+          type: 'run_event_received',
+          backendId: this.backendId,
+          sessionId,
+          event: message,
+        });
+      } else {
+        // Non-session messages (terminal output, heartbeats, etc.)
+        this.emit({
+          type: 'backend_message_received',
+          backendId: this.backendId,
+          message,
+        });
+      }
     });
   }
 

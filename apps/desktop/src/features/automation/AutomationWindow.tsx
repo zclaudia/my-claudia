@@ -875,9 +875,8 @@ function AutomationBackendSelector({
       case 'ready':
         return 'bg-success';
       case 'transport_reconnecting':
-      case 'backend_opening':
-      case 'backend_recovering':
-      case 'catalog_syncing':
+      case 'backend_subscribing':
+      case 'data_syncing':
       case 'session_syncing':
         return 'bg-warning animate-pulse';
       case 'error':

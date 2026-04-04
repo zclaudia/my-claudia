@@ -30,7 +30,6 @@ describe('AutomationWindow', () => {
       currentDeviceId: null,
       mode: 'embedded',
       sessionStreams: {},
-      registryRevision: 0,
       snapshotVersion: 0,
     });
     useServerStore.setState({

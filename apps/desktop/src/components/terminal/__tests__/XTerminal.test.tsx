@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, fireEvent, render } from '@testing-library/react';
 import { useTerminalStore } from '../../../stores/terminalStore';
 import { useServerStore } from '../../../stores/serverStore';
+import { useFacadeStore } from '../../../stores/facadeStore';
+import { useMobileRecoveryStore } from '../../../stores/mobileRecoveryStore';
+import { isAndroid } from '../../../utils/platform';
 
 const mockSendMessage = vi.fn();
 const mockConnectServer = vi.fn();
@@ -75,6 +78,14 @@ vi.mock('../../../utils/xtermRegistry', () => {
   };
 });
 
+vi.mock('../../../utils/platform', async (importOriginal) => {
+  const mod = await importOriginal<Record<string, any>>();
+  return {
+    ...mod,
+    isAndroid: vi.fn(() => false),
+  };
+});
+
 import { XTerminal } from '../XTerminal';
 
 describe('XTerminal', () => {
@@ -106,6 +117,12 @@ describe('XTerminal', () => {
       localServerPort: null,
       controlPlaneMode: 'gateway-direct',
     });
+    useFacadeStore.setState({
+      connectionState: 'connected',
+      backends: [{ backendId: 'backend-1', runtimeState: 'ready', name: 'Backend 1' }],
+    } as any);
+    useMobileRecoveryStore.getState().reset();
+    vi.mocked(isAndroid).mockReturnValue(false);
   });
 
   it('renders a container div', () => {
@@ -237,6 +254,26 @@ describe('XTerminal', () => {
     expect(mockSendMessage).not.toHaveBeenCalledWith(expect.objectContaining({
       type: 'terminal_open',
       terminalId: 'term-disconnected',
+    }));
+  });
+
+  it('does not send terminal_open on Android while mobile recovery is running', async () => {
+    vi.mocked(isAndroid).mockReturnValue(true);
+    useFacadeStore.setState({
+      connectionState: 'connected',
+      backends: [{ backendId: 'backend-1', runtimeState: 'ready', name: 'Backend 1' }],
+    } as any);
+    useMobileRecoveryStore.setState({ phase: 'recovering' } as any);
+
+    render(
+      <XTerminal terminalId="term-mobile-recovering" projectId="proj-1" />
+    );
+
+    await flushTerminalMount();
+
+    expect(mockSendMessage).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: 'terminal_open',
+      terminalId: 'term-mobile-recovering',
     }));
   });
 

@@ -15,6 +15,9 @@ const {
   mockRecoveryStoreState,
   mockUseRecoveryStore,
   mockIsBackendReady,
+  mockMobileRecoveryStoreState,
+  mockUseMobileRecoveryStore,
+  mockIsAndroid,
 } = vi.hoisted(() => {
   const serverState: Record<string, any> = {
     activeServerId: null,
@@ -48,12 +51,22 @@ const {
 
   const recoveryState: Record<string, any> = {
     backends: {},
+    transport: { status: 'connected' },
   };
   const recoveryHook: any = vi.fn((selector?: any) => {
     if (selector) return selector(recoveryState);
     return recoveryState;
   });
   recoveryHook.getState = vi.fn(() => recoveryState);
+
+  const mobileRecoveryState: Record<string, any> = {
+    phase: 'idle',
+  };
+  const mobileRecoveryHook: any = vi.fn((selector?: any) => {
+    if (selector) return selector(mobileRecoveryState);
+    return mobileRecoveryState;
+  });
+  mobileRecoveryHook.getState = vi.fn(() => mobileRecoveryState);
 
   return {
     mockServerStoreState: serverState,
@@ -65,6 +78,9 @@ const {
     mockRecoveryStoreState: recoveryState,
     mockUseRecoveryStore: recoveryHook,
     mockIsBackendReady: vi.fn(() => false),
+    mockMobileRecoveryStoreState: mobileRecoveryState,
+    mockUseMobileRecoveryStore: mobileRecoveryHook,
+    mockIsAndroid: vi.fn(() => false),
   };
 });
 
@@ -87,6 +103,14 @@ vi.mock('../../stores/recoveryStore', () => ({
   isBackendReady: mockIsBackendReady,
 }));
 
+vi.mock('../../stores/mobileRecoveryStore', () => ({
+  useMobileRecoveryStore: mockUseMobileRecoveryStore,
+}));
+
+vi.mock('../../utils/platform', () => ({
+  isAndroid: mockIsAndroid,
+}));
+
 // ---- Tests ----
 
 describe('hooks/useMultiServerSocket', () => {
@@ -103,9 +127,11 @@ describe('hooks/useMultiServerSocket', () => {
     mockFacadeStoreState.backends = [];
     mockFacadeStoreState.connectionState = 'idle';
     mockRecoveryStoreState.backends = {};
+    mockMobileRecoveryStoreState.phase = 'idle';
 
     mockGatewayConnection.isBackendConnected.mockReturnValue(false);
     mockIsBackendReady.mockReturnValue(false);
+    mockIsAndroid.mockReturnValue(false);
   });
 
   describe('initialization', () => {
@@ -339,6 +365,32 @@ describe('hooks/useMultiServerSocket', () => {
         expect(mockIsBackendReady).toHaveBeenCalledWith('backend-1');
       });
 
+      it('uses mobile recovery connection state on Android', () => {
+        mockIsAndroid.mockReturnValue(true);
+        mockFacadeStoreState.connectionState = 'connected';
+        mockFacadeStoreState.backends = [
+          { backendId: 'backend-1', runtimeState: 'ready' },
+        ] as any;
+
+        const { result } = renderHook(() => useMultiServerSocket());
+
+        expect(result.current.isServerConnected('backend-1')).toBe(true);
+        expect(mockIsBackendReady).not.toHaveBeenCalled();
+      });
+
+      it('treats Android backend as disconnected while mobile recovery is running', () => {
+        mockIsAndroid.mockReturnValue(true);
+        mockFacadeStoreState.connectionState = 'connected';
+        mockFacadeStoreState.backends = [
+          { backendId: 'backend-1', runtimeState: 'ready' },
+        ] as any;
+        mockMobileRecoveryStoreState.phase = 'recovering';
+
+        const { result } = renderHook(() => useMultiServerSocket());
+
+        expect(result.current.isServerConnected('backend-1')).toBe(false);
+      });
+
       it('returns false when backend is found but isBackendReady returns false', () => {
         const backend = { backendId: 'backend-1', online: false, runtimeState: 'offline' };
         mockFacadeStoreState.backends = [backend];
@@ -489,8 +541,26 @@ describe('hooks/useMultiServerSocket', () => {
       it('returns only connected backend ids', () => {
         mockRecoveryStoreState.backends = {
           b1: { status: 'ready' },
-          b2: { status: 'opening' },
+          b2: { status: 'subscribing' },
         };
+
+        const { result } = renderHook(() => useMultiServerSocket());
+
+        let servers: string[] = [];
+        act(() => {
+          servers = result.current.getConnectedServers();
+        });
+
+        expect(servers).toEqual(['b1']);
+      });
+
+      it('uses facade runtime state on Android', () => {
+        mockIsAndroid.mockReturnValue(true);
+        mockFacadeStoreState.connectionState = 'connected';
+        mockFacadeStoreState.backends = [
+          { backendId: 'b1', runtimeState: 'ready' },
+          { backendId: 'b2', runtimeState: 'subscribing' },
+        ] as any;
 
         const { result } = renderHook(() => useMultiServerSocket());
 

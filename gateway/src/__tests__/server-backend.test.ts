@@ -4,11 +4,24 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import WebSocket from 'ws';
 import type { Server } from 'http';
+import net from 'node:net';
 import { createGatewayServer } from '../server.js';
+import { closeTestServer, listenTestServer } from './test-server.js';
 
 const GATEWAY_SECRET = 'test-secret-backend';
-const TEST_PORT = 9030;
-const WS_URL = `ws://localhost:${TEST_PORT}/ws`;
+let WS_URL = '';
+
+async function canBindLoopback(): Promise<boolean> {
+  return await new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once('error', () => resolve(false));
+    probe.listen(0, '127.0.0.1', () => {
+      probe.close(() => resolve(true));
+    });
+  });
+}
+
+const describeIfLoopback = (await canBindLoopback()) ? describe : describe.skip;
 
 // Helper: wait for WebSocket to open
 function waitForOpen(ws: WebSocket): Promise<void> {
@@ -91,7 +104,7 @@ async function registerClientV2(ws: WebSocket): Promise<{ peerSessionId: string;
   return { peerSessionId: ready.peerSessionId, registrySync: ready.registrySync };
 }
 
-describe('Gateway Backend Message Handling', () => {
+describeIfLoopback('Gateway Backend Message Handling', () => {
   let server: Server;
   let backendWs: WebSocket;
   let backendId: string;
@@ -101,7 +114,7 @@ describe('Gateway Backend Message Handling', () => {
 
   beforeEach(async () => {
     server = createGatewayServer({ gatewaySecret: GATEWAY_SECRET });
-    await new Promise<void>((resolve) => server.listen(TEST_PORT, resolve));
+    ({ wsUrl: WS_URL } = await listenTestServer(server));
 
     // Register a backend
     backendWs = new WebSocket(WS_URL);
@@ -117,7 +130,7 @@ describe('Gateway Backend Message Handling', () => {
     await Promise.all(openClients.map(ws => closeWs(ws)));
     openClients = [];
     await closeWs(backendWs);
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await closeTestServer(server);
   });
 
   describe('Backend Registration', () => {
@@ -125,7 +138,6 @@ describe('Gateway Backend Message Handling', () => {
       const readyMsg = backendCollector.find(m => m.type === 'peer_ready');
       expect(readyMsg).toBeDefined();
       expect(readyMsg.registrySync).toBeDefined();
-      expect(readyMsg.registrySync.mode).toBe('snapshot');
       expect(readyMsg.registrySync.items).toBeInstanceOf(Array);
     });
 
@@ -170,28 +182,26 @@ describe('Gateway Backend Message Handling', () => {
     });
   });
 
-  describe('Channel Communication', () => {
-    test('should open a channel to backend', async () => {
+  describe('Backend Subscriptions', () => {
+    test('should subscribe to backend', async () => {
       const clientWs = new WebSocket(WS_URL);
       await waitForOpen(clientWs);
       openClients.push(clientWs);
 
       await registerClientV2(clientWs);
 
-      // Open a channel to the backend
+      // Subscribe to the backend
       clientWs.send(JSON.stringify({
-        type: 'open_backend_channel',
+        type: 'subscribe_backend',
         backendId,
-        expectedEpoch: backendEpoch
       }));
 
-      const opened = await waitForMessage(clientWs, 'backend_channel_opened');
-      expect(opened.backendId).toBe(backendId);
-      expect(opened.channelId).toBeDefined();
-      expect(opened.epoch).toBe(backendEpoch);
+      const subscribed = await waitForMessage(clientWs, 'backend_subscribed');
+      expect(subscribed.backendId).toBe(backendId);
+      expect(subscribed.epoch).toBe(backendEpoch);
     });
 
-    test('should reject channel to non-existent backend', async () => {
+    test('should return error for non-existent backend', async () => {
       const clientWs = new WebSocket(WS_URL);
       await waitForOpen(clientWs);
       openClients.push(clientWs);
@@ -199,17 +209,15 @@ describe('Gateway Backend Message Handling', () => {
       await registerClientV2(clientWs);
 
       clientWs.send(JSON.stringify({
-        type: 'open_backend_channel',
+        type: 'subscribe_backend',
         backendId: 'nonexist1',
-        expectedEpoch: 1
       }));
 
-      const rejected = await waitForMessage(clientWs, 'backend_channel_rejected');
-      expect(rejected.backendId).toBe('nonexist1');
-      expect(rejected.reason).toBe('offline');
+      const error = await waitForMessage(clientWs, 'gateway_error');
+      expect(error.code).toBe('BACKEND_OFFLINE');
     });
 
-    test('should forward channel_client_message to backend', async () => {
+    test('should forward backend_client_message to backend', async () => {
       const clientWs = new WebSocket(WS_URL);
       await waitForOpen(clientWs);
       openClients.push(clientWs);
@@ -217,28 +225,26 @@ describe('Gateway Backend Message Handling', () => {
       await registerClientV2(clientWs);
 
       clientWs.send(JSON.stringify({
-        type: 'open_backend_channel',
+        type: 'subscribe_backend',
         backendId,
-        expectedEpoch: backendEpoch
       }));
 
-      const opened = await waitForMessage(clientWs, 'backend_channel_opened');
-      const channelId = opened.channelId;
+      await waitForMessage(clientWs, 'backend_subscribed');
 
-      // Send a channel message from client
+      // Send a message from client to backend
       clientWs.send(JSON.stringify({
-        type: 'channel_client_message',
-        channelId,
+        type: 'backend_client_message',
+        backendId,
         payload: { action: 'test', data: 'hello' }
       }));
 
       // Backend should receive it
-      const msg = await waitForMessage(backendWs, 'channel_client_message');
-      expect(msg.channelId).toBe(channelId);
+      const msg = await waitForMessage(backendWs, 'backend_client_message');
+      expect(msg.backendId).toBe(backendId);
       expect(msg.payload.action).toBe('test');
     });
 
-    test('should forward channel_server_message to client', async () => {
+    test('should forward backend_server_message to subscribed clients', async () => {
       const clientWs = new WebSocket(WS_URL);
       await waitForOpen(clientWs);
       openClients.push(clientWs);
@@ -246,25 +252,77 @@ describe('Gateway Backend Message Handling', () => {
       await registerClientV2(clientWs);
 
       clientWs.send(JSON.stringify({
-        type: 'open_backend_channel',
+        type: 'subscribe_backend',
         backendId,
-        expectedEpoch: backendEpoch
       }));
 
-      const opened = await waitForMessage(clientWs, 'backend_channel_opened');
-      const channelId = opened.channelId;
+      await waitForMessage(clientWs, 'backend_subscribed');
 
-      // Backend sends a channel_server_message
+      // Backend sends a backend_server_message
       backendWs.send(JSON.stringify({
-        type: 'channel_server_message',
-        channelId,
+        type: 'backend_server_message',
+        backendId,
         payload: { action: 'response', data: 'world' }
       }));
 
       // Client should receive it
-      const msg = await waitForMessage(clientWs, 'channel_server_message');
-      expect(msg.channelId).toBe(channelId);
+      const msg = await waitForMessage(clientWs, 'backend_server_message');
+      expect(msg.backendId).toBe(backendId);
       expect(msg.payload.action).toBe('response');
+    });
+
+    test('should ignore session_content_patch with mismatched backendId', async () => {
+      const clientWs = new WebSocket(WS_URL);
+      await waitForOpen(clientWs);
+      openClients.push(clientWs);
+      const clientCollector = createMessageCollector(clientWs);
+
+      await registerClientV2(clientWs);
+
+      clientWs.send(JSON.stringify({
+        type: 'subscribe_backend',
+        backendId,
+      }));
+
+      await waitForMessage(clientWs, 'backend_subscribed');
+
+      backendWs.send(JSON.stringify({
+        type: 'session_content_patch',
+        backendId: 'wrong-backend',
+        sessionId: 'session-1',
+        messages: [],
+        latestOffset: 0,
+      }));
+
+      await delay(50);
+      expect(clientCollector.find((message) => message.type === 'session_content_patch')).toBeUndefined();
+    });
+
+    test('should ignore session_content_patch_error with mismatched backendId', async () => {
+      const clientWs = new WebSocket(WS_URL);
+      await waitForOpen(clientWs);
+      openClients.push(clientWs);
+      const clientCollector = createMessageCollector(clientWs);
+
+      await registerClientV2(clientWs);
+
+      clientWs.send(JSON.stringify({
+        type: 'subscribe_backend',
+        backendId,
+      }));
+
+      await waitForMessage(clientWs, 'backend_subscribed');
+
+      backendWs.send(JSON.stringify({
+        type: 'session_content_patch_error',
+        backendId: 'wrong-backend',
+        sessionId: 'session-1',
+        afterOffset: 0,
+        message: 'boom',
+      }));
+
+      await delay(50);
+      expect(clientCollector.find((message) => message.type === 'session_content_patch_error')).toBeUndefined();
     });
   });
 
@@ -285,29 +343,27 @@ describe('Gateway Backend Message Handling', () => {
   });
 
   describe('Backend Disconnect', () => {
-    test('should notify clients via channel_closed when backend disconnects', async () => {
+    test('should notify subscribers via backend_unsubscribed when backend disconnects', async () => {
       const clientWs = new WebSocket(WS_URL);
       await waitForOpen(clientWs);
       openClients.push(clientWs);
 
       await registerClientV2(clientWs);
 
-      // Open a channel
+      // Subscribe to backend
       clientWs.send(JSON.stringify({
-        type: 'open_backend_channel',
+        type: 'subscribe_backend',
         backendId,
-        expectedEpoch: backendEpoch
       }));
 
-      await waitForMessage(clientWs, 'backend_channel_opened');
+      await waitForMessage(clientWs, 'backend_subscribed');
 
       // Close backend connection
       await closeWs(backendWs);
 
-      await delay(200);
-
-      // Client should receive registry_event showing backend removed
-      // (and backend_channel_closed for the channel)
+      // Client should receive backend_unsubscribed
+      const unsubscribed = await waitForMessage(clientWs, 'backend_unsubscribed');
+      expect(unsubscribed.backendId).toBe(backendId);
     });
   });
 

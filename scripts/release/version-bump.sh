@@ -51,22 +51,41 @@ case "$PLATFORM" in
   *) echo "ERROR: Unknown platform '$PLATFORM'. Use: android|macos|linux|windows" >&2; exit 1 ;;
 esac
 
-# --- Read version.json (only major + minor) ---
-VERSION_FILE="version.json"
-if [ ! -f "$VERSION_FILE" ]; then
-  echo "ERROR: $VERSION_FILE not found" >&2
-  exit 1
+# --- Read base version ---
+# If .version file exists with a valid semver (MAJOR.MINOR.BUILD), use it as the
+# base version. This allows local overrides without git tags or version.json.
+DOT_VERSION_FILE=".version"
+if [ -f "$DOT_VERSION_FILE" ]; then
+  DOT_VERSION=$(cat "$DOT_VERSION_FILE" | tr -d '[:space:]')
+  if [[ "$DOT_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+    MAJOR="${BASH_REMATCH[1]}"
+    MINOR="${BASH_REMATCH[2]}"
+    BUILD="${BASH_REMATCH[3]}"
+    echo "  Using .version override: ${MAJOR}.${MINOR}.${BUILD}" >&2
+  else
+    echo "WARNING: .version has invalid format '$DOT_VERSION', falling back to version.json" >&2
+    DOT_VERSION=""
+  fi
 fi
 
-MAJOR=$(python3 -c "import json; print(json.load(open('$VERSION_FILE'))['major'])")
-MINOR=$(python3 -c "import json; print(json.load(open('$VERSION_FILE'))['minor'])")
+if [ -z "${DOT_VERSION:-}" ]; then
+  # Fall back to version.json + git tags
+  VERSION_FILE="version.json"
+  if [ ! -f "$VERSION_FILE" ]; then
+    echo "ERROR: $VERSION_FILE not found" >&2
+    exit 1
+  fi
 
-# --- Get build number from release tags ---
-LATEST_TAG=$(git tag -l "v${MAJOR}.${MINOR}.*" --sort=-version:refname | head -1)
-if [ -n "$LATEST_TAG" ]; then
-  BUILD=$(echo "$LATEST_TAG" | sed "s/^v${MAJOR}\.${MINOR}\.//")
-else
-  BUILD=0
+  MAJOR=$(python3 -c "import json; print(json.load(open('$VERSION_FILE'))['major'])")
+  MINOR=$(python3 -c "import json; print(json.load(open('$VERSION_FILE'))['minor'])")
+
+  # --- Get build number from release tags ---
+  LATEST_TAG=$(git tag -l "v${MAJOR}.${MINOR}.*" --sort=-version:refname | head -1)
+  if [ -n "$LATEST_TAG" ]; then
+    BUILD=$(echo "$LATEST_TAG" | sed "s/^v${MAJOR}\.${MINOR}\.//")
+  else
+    BUILD=0
+  fi
 fi
 
 # --- Bump or set build ---

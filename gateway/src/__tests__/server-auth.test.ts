@@ -4,10 +4,32 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import WebSocket from 'ws';
 import type { Server } from 'http';
+import net from 'node:net';
 import { createGatewayServer } from '../server.js';
 import { closeTestServer, listenTestServer } from './test-server.js';
 
 const GATEWAY_SECRET = 'test-secret-auth';
+
+async function canBindLoopback(): Promise<boolean> {
+  return await new Promise((resolve) => {
+    const probe = net.createServer();
+    const finish = (result: boolean) => {
+      clearTimeout(timer);
+      probe.removeAllListeners('error');
+      try {
+        probe.close();
+      } catch {}
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish(false), 200);
+    probe.once('error', () => finish(false));
+    probe.listen(0, '127.0.0.1', () => {
+      probe.close(() => finish(true));
+    });
+  });
+}
+
+const describeIfLoopback = (await canBindLoopback()) ? describe : describe.skip;
 
 // Helper: wait for WebSocket to open
 function waitForOpen(ws: WebSocket): Promise<void> {
@@ -69,7 +91,7 @@ function sendClientHello(ws: WebSocket, secret: string | null) {
   }));
 }
 
-describe('Gateway Authentication', () => {
+describeIfLoopback('Gateway Authentication', () => {
   let server: Server;
   let wsUrl: string;
   let httpUrl: string;

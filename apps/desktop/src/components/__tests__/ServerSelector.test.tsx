@@ -8,12 +8,21 @@ vi.mock('../../contexts/ConnectionContext', () => ({
   }),
 }));
 vi.mock('../../hooks/useMediaQuery', () => ({ useIsMobile: () => false }));
+vi.mock('../../utils/platform', async (importOriginal) => {
+  const mod = await importOriginal<Record<string, any>>();
+  return {
+    ...mod,
+    isAndroid: vi.fn(() => false),
+  };
+});
 
 import { ServerSelector } from '../ServerSelector';
 import { useServerStore } from '../../stores/serverStore';
 import { useGatewayStore } from '../../stores/gatewayStore';
 import { useFacadeStore } from '../../stores/facadeStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
+import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
+import { isAndroid } from '../../utils/platform';
 
 describe('ServerSelector', () => {
   beforeEach(() => {
@@ -25,14 +34,13 @@ describe('ServerSelector', () => {
       setActiveServer: vi.fn(),
     } as any);
     useFacadeStore.setState({
-      backends: [{ backendId: 'local', name: 'Local Server', online: true, isThisInstance: true } as any],
+      backends: [{ backendId: 'local', name: 'Local Server', online: true, runtimeState: 'ready', isThisInstance: true } as any],
       localBackendId: 'local',
       currentInstanceId: 'inst-local',
       connectionState: 'connected',
       mode: 'embedded',
       sessionStreams: {},
       snapshotVersion: 1,
-      registryRevision: 1,
     });
 
     useGatewayStore.setState({
@@ -60,13 +68,13 @@ describe('ServerSelector', () => {
         local: {
           backendId: 'local',
           status: 'ready',
-          desiredOpen: true,
+          subscribed: true,
           lastError: null,
           lastCloseReason: null,
           statusEnteredAt: Date.now(),
         },
       },
-      catalogs: {
+      dataSyncs: {
         local: {
           backendId: 'local',
           status: 'ready',
@@ -88,6 +96,8 @@ describe('ServerSelector', () => {
       nextOwnershipVersion: 2,
       backgroundAt: null,
     } as any);
+    useMobileRecoveryStore.getState().reset();
+    vi.mocked(isAndroid).mockReturnValue(false);
   });
 
   it('renders without crashing', () => {
@@ -106,6 +116,7 @@ describe('ServerSelector', () => {
         backendId: 'local',
         name: 'Backend on zhanghai-super-long-hostname-with-extra-labels',
         online: true,
+        runtimeState: 'ready',
         isThisInstance: true,
       } as any],
     });
@@ -218,5 +229,37 @@ describe('ServerSelector', () => {
     rerender(<ServerSelector />);
 
     expect(container.querySelector('[data-testid="connection-status"]')!.textContent).toBe('Reconnecting...');
+  });
+
+  it('uses mobile recovery status on Android', () => {
+    vi.mocked(isAndroid).mockReturnValue(true);
+    useGatewayStore.setState({
+      gatewayUrl: 'wss://gw.example.com',
+      gatewaySecret: 'sec',
+      isConnected: true,
+    } as any);
+
+    const { container } = render(<ServerSelector />);
+    const button = container.querySelector('[data-testid="server-selector"]')!;
+    fireEvent.click(button);
+
+    expect(container.querySelector('[data-testid="connection-status"]')!.textContent).toBe('Connected');
+  });
+
+  it('shows recovering state on Android while mobile recovery job is running', () => {
+    vi.mocked(isAndroid).mockReturnValue(true);
+    useGatewayStore.setState({
+      gatewayUrl: 'wss://gw.example.com',
+      gatewaySecret: 'sec',
+      isConnected: true,
+    } as any);
+    useMobileRecoveryStore.setState({ phase: 'recovering' } as any);
+
+    const { container } = render(<ServerSelector />);
+    const button = container.querySelector('[data-testid="server-selector"]')!;
+    fireEvent.click(button);
+
+    expect(container.querySelector('[data-testid="connection-status"]')!.textContent).toBe('Subscribing...');
+    expect(container.textContent).toContain('Disconnected');
   });
 });

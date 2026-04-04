@@ -7,6 +7,10 @@ import type { Project, ApiResponse, PermissionPolicy } from '@my-claudia/shared'
 import { ProjectRepository } from '../repositories/project.js';
 import { listGitWorktrees, createGitWorktree } from '../utils/git-worktrees.js';
 
+export type ProjectChangeEvent =
+  | { type: 'project_upsert'; project: Project }
+  | { type: 'project_remove'; projectId: string };
+
 /** 确保 .worktrees 已加入 .gitignore，不存在则追加 */
 function ensureWorktreesGitignore(repoPath: string): void {
   const gitignorePath = path.join(repoPath, '.gitignore');
@@ -27,7 +31,7 @@ function ensureWorktreesGitignore(repoPath: string): void {
 
 export function createProjectRoutes(
   db: Database.Database,
-  onProjectChanged?: () => void,
+  onProjectChanged?: (event?: ProjectChangeEvent) => void,
 ): Router {
   const router = Router();
   const repo = new ProjectRepository(db);
@@ -95,7 +99,7 @@ export function createProjectRoutes(
         sortOrder,
       });
 
-      onProjectChanged?.();
+      onProjectChanged?.({ type: 'project_upsert', project });
       res.status(201).json({ success: true, data: project } as ApiResponse<Project>);
     } catch (error) {
       console.error('Error creating project:', error);
@@ -121,7 +125,8 @@ export function createProjectRoutes(
       if (Object.prototype.hasOwnProperty.call(body, 'reviewProviderId')) patch.reviewProviderId = body.reviewProviderId ?? null;
 
       try {
-        repo.update(req.params.id, patch);
+        const project = repo.update(req.params.id, patch);
+        onProjectChanged?.({ type: 'project_upsert', project });
       } catch (error) {
         if (error instanceof Error && error.message.includes('not found')) {
           res.status(404).json({
@@ -133,7 +138,6 @@ export function createProjectRoutes(
         throw error;
       }
 
-      onProjectChanged?.();
       res.json({ success: true } as ApiResponse<void>);
     } catch (error) {
       console.error('Error updating project:', error);
@@ -170,7 +174,7 @@ export function createProjectRoutes(
       }
 
       console.log(`[Delete Project] Successfully deleted project ${projectId}`);
-      onProjectChanged?.();
+      onProjectChanged?.({ type: 'project_remove', projectId });
       res.json({ success: true } as ApiResponse<void>);
     } catch (error) {
       console.error('Error deleting project:', error);

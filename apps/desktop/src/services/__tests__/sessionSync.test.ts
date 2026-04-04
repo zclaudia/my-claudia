@@ -154,7 +154,7 @@ describe('services/sessionSync', () => {
     vi.useRealTimers();
   });
 
-  describe('syncBackendCatalog', () => {
+  describe('syncBackendData', () => {
     it('performs full sync for local backend and replaces sessions', async () => {
       sessionsState.remoteSessions = new Map([
         ['local-standalone', [{ id: 'deleted-session', updatedAt: 1 }]],
@@ -169,8 +169,8 @@ describe('services/sessionSync', () => {
         })
       );
 
-      const { syncBackendCatalog } = await import('../sessionSync.js');
-      const result = await syncBackendCatalog('local-standalone', 'full');
+      const { syncBackendData } = await import('../sessionSync.js');
+      const result = await syncBackendData('local-standalone', 'full');
 
       expect(global.fetch).toHaveBeenCalledWith(
         'http://localhost:3100/api/sessions/sync?since=0',
@@ -214,8 +214,8 @@ describe('services/sessionSync', () => {
         })
       );
 
-      const { syncBackendCatalog } = await import('../sessionSync.js');
-      const result = await syncBackendCatalog('remote-1', 'delta');
+      const { syncBackendData } = await import('../sessionSync.js');
+      const result = await syncBackendData('remote-1', 'delta');
 
       expect(mockResolveGatewayBackendUrl).toHaveBeenCalledWith('remote-1');
       expect(mockGetGatewayAuthHeaders).toHaveBeenCalled();
@@ -249,8 +249,8 @@ describe('services/sessionSync', () => {
     it('returns incomplete result when no local request URL is available', async () => {
       serverState.localServerPort = 0;
 
-      const { syncBackendCatalog } = await import('../sessionSync.js');
-      const result = await syncBackendCatalog('local-standalone', 'full');
+      const { syncBackendData } = await import('../sessionSync.js');
+      const result = await syncBackendData('local-standalone', 'full');
 
       expect(global.fetch).not.toHaveBeenCalled();
       expect(result).toEqual({ completed: false, sessions: [] });

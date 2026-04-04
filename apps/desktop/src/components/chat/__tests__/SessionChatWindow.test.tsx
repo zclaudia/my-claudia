@@ -125,6 +125,9 @@ const mockSelectSession = vi.fn();
 const mockSetActiveServer = vi.fn();
 
 let mockRecoveryStatus = 'disconnected';
+let mockMobileRecoveryPhase = 'idle';
+let mockFacadeConnectionState = 'idle';
+let mockFacadeBackends: Array<{ backendId: string; runtimeState: string }> = [];
 
 // Mock stores
 vi.mock('../../../stores/serverStore', () => ({
@@ -156,6 +159,23 @@ vi.mock('../../../stores/recoveryStore', () => ({
   } as any),
 }));
 
+vi.mock('../../../stores/facadeStore', () => ({
+  useFacadeStore: (selector: any) => selector({
+    connectionState: mockFacadeConnectionState,
+    backends: mockFacadeBackends,
+  } as any),
+}));
+
+vi.mock('../../../stores/mobileRecoveryStore', () => ({
+  useMobileRecoveryStore: (selector: any) => selector({
+    phase: mockMobileRecoveryPhase,
+  } as any),
+}));
+
+vi.mock('../../../utils/platform', () => ({
+  isAndroid: vi.fn(() => false),
+}));
+
 vi.mock('../../../stores/projectStore', () => ({
   useProjectStore: Object.assign(
     (selector: any) => selector({
@@ -177,16 +197,21 @@ vi.mock('../../../stores/projectStore', () => ({
 }));
 
 import { SessionChatWindow } from '../SessionChatWindow';
+import { isAndroid } from '../../../utils/platform';
 
 describe('SessionChatWindow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRecoveryStatus = 'disconnected';
+    mockMobileRecoveryPhase = 'idle';
+    mockFacadeConnectionState = 'idle';
+    mockFacadeBackends = [];
     mockGetProjects.mockResolvedValue([]);
     mockGetSessions.mockResolvedValue([]);
     mockGetProviders.mockResolvedValue([]);
     mockWindowClose.mockClear();
     mockSetActiveServer.mockClear();
+    vi.mocked(isAndroid).mockReturnValue(false);
     vi.mocked(getCurrentWindow).mockReturnValue({
       show: vi.fn(),
       setFocus: vi.fn(),
@@ -309,6 +334,48 @@ describe('SessionChatWindow', () => {
     await waitFor(() => {
       expect(container.textContent).toContain('ChatInterface: sess-42');
     });
+  });
+
+  it('uses mobile recovery readiness on Android', async () => {
+    vi.mocked(isAndroid).mockReturnValue(true);
+    mockFacadeConnectionState = 'connected';
+    mockFacadeBackends = [
+      { backendId: 'backend-1', runtimeState: 'ready' },
+    ];
+    mockMobileRecoveryPhase = 'ready';
+
+    const { container } = render(
+      <SessionChatWindow
+        sessionId="sess-42"
+        projectId="proj-1"
+        serverUrl="http://localhost:3100"
+        authToken="test-token"
+      />
+    );
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('ChatInterface: sess-42');
+    });
+  });
+
+  it('keeps loading spinner on Android while mobile recovery is running', () => {
+    vi.mocked(isAndroid).mockReturnValue(true);
+    mockFacadeConnectionState = 'connected';
+    mockFacadeBackends = [
+      { backendId: 'backend-1', runtimeState: 'ready' },
+    ];
+    mockMobileRecoveryPhase = 'recovering';
+
+    const { container } = render(
+      <SessionChatWindow
+        sessionId="sess-1"
+        projectId="proj-1"
+        serverUrl="http://localhost:3100"
+        authToken="test-token"
+      />
+    );
+
+    expect(container.querySelector('svg.animate-spin')).toBeTruthy();
   });
 
   it('shows error state when API calls fail', async () => {

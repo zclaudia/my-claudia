@@ -13,6 +13,8 @@ const {
   mockGatewayStoreState,
   mockSetState,
   mockIsBackendReady,
+  mockMobileRecoveryStoreState,
+  mockIsAndroid,
 } = vi.hoisted(() => {
   const mockFacade = {
     openBackend: vi.fn(),
@@ -41,15 +43,32 @@ const {
 
   const mockIsBackendReady = vi.fn(() => false);
 
-  return { mockFacade, mockFacadeStoreState, mockGatewayStoreState, mockSetState, mockIsBackendReady };
+  const mockMobileRecoveryStoreState = {
+    phase: 'idle',
+  };
+
+  return {
+    mockFacade,
+    mockFacadeStoreState,
+    mockGatewayStoreState,
+    mockSetState,
+    mockIsBackendReady,
+    mockMobileRecoveryStoreState,
+    mockIsAndroid: vi.fn(() => false),
+  };
 });
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
 vi.mock('../../stores/facadeStore', () => ({
-  useFacadeStore: vi.fn((selector?: any) =>
-    selector ? selector(mockFacadeStoreState) : mockFacadeStoreState,
+  useFacadeStore: Object.assign(
+    vi.fn((selector?: any) =>
+      selector ? selector(mockFacadeStoreState) : mockFacadeStoreState,
+    ),
+    {
+      getState: () => mockFacadeStoreState,
+    },
   ),
 }));
 
@@ -83,6 +102,21 @@ vi.mock('../../stores/recoveryStore', () => ({
   isBackendReady: (...args: any[]) => mockIsBackendReady(...args),
 }));
 
+vi.mock('../../stores/mobileRecoveryStore', () => ({
+  useMobileRecoveryStore: Object.assign(
+    vi.fn((selector?: any) =>
+      selector ? selector(mockMobileRecoveryStoreState) : mockMobileRecoveryStoreState,
+    ),
+    {
+      getState: () => mockMobileRecoveryStoreState,
+    },
+  ),
+}));
+
+vi.mock('../../utils/platform', () => ({
+  isAndroid: mockIsAndroid,
+}));
+
 describe('hooks/useGatewayConnection', () => {
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -103,8 +137,10 @@ describe('hooks/useGatewayConnection', () => {
     mockFacadeStoreState.facade = mockFacade as any;
     mockFacadeStoreState.backends = [];
     mockFacadeStoreState.connectionState = 'connected';
+    mockMobileRecoveryStoreState.phase = 'idle';
 
     mockIsBackendReady.mockReturnValue(false);
+    mockIsAndroid.mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -305,6 +341,30 @@ describe('hooks/useGatewayConnection', () => {
     const { result } = renderHook(() => useGatewayConnection());
 
     expect(result.current.isBackendConnected('backend-1')).toBe(true);
+  });
+
+  it('uses mobile recovery state on Android', () => {
+    mockIsAndroid.mockReturnValue(true);
+    mockFacadeStoreState.backends = [
+      { backendId: 'backend-1', online: true, runtimeState: 'ready' },
+    ] as any;
+
+    const { result } = renderHook(() => useGatewayConnection());
+
+    expect(result.current.isBackendConnected('backend-1')).toBe(true);
+    expect(mockIsBackendReady).not.toHaveBeenCalled();
+  });
+
+  it('returns false on Android while recovery job is running', () => {
+    mockIsAndroid.mockReturnValue(true);
+    mockFacadeStoreState.backends = [
+      { backendId: 'backend-1', online: true, runtimeState: 'ready' },
+    ] as any;
+    mockMobileRecoveryStoreState.phase = 'recovering';
+
+    const { result } = renderHook(() => useGatewayConnection());
+
+    expect(result.current.isBackendConnected('backend-1')).toBe(false);
   });
 
   it('isBackendConnected returns false when backend not found', () => {

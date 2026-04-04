@@ -1,15 +1,26 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import type { Server } from 'http';
+import net from 'node:net';
 import WebSocket from 'ws';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { createGatewayServer } from '../server.js';
+import { closeTestServer, listenTestServer } from './test-server.js';
 
 const GATEWAY_SECRET = 'test-secret-stream-v2';
-const TEST_PORT = 9060;
-const WS_URL = `ws://127.0.0.1:${TEST_PORT}/ws`;
-const HTTP_URL = `http://127.0.0.1:${TEST_PORT}`;
+
+async function canBindLoopback(): Promise<boolean> {
+  return await new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once('error', () => resolve(false));
+    probe.listen(0, '127.0.0.1', () => {
+      probe.close(() => resolve(true));
+    });
+  });
+}
+
+const testIfLoopback = (await canBindLoopback()) ? test : test.skip;
 
 function waitForOpen(ws: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -76,6 +87,8 @@ async function registerBackend(ws: WebSocket, name: string) {
 describe('Gateway Proxy Streaming V2', () => {
   let server: Server;
   let dataDir: string;
+  let wsUrl: string;
+  let httpUrl: string;
   let previousDataDir: string | undefined;
 
   beforeEach(async () => {
@@ -86,11 +99,11 @@ describe('Gateway Proxy Streaming V2', () => {
       gatewaySecret: GATEWAY_SECRET,
       proxyStreamingTimeoutMs: 100,
     });
-    await new Promise<void>((resolve) => server.listen(TEST_PORT, '127.0.0.1', resolve));
+    ({ wsUrl, httpUrl } = await listenTestServer(server));
   });
 
   afterEach(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await closeTestServer(server);
     if (previousDataDir === undefined) {
       delete process.env.MY_CLAUDIA_DATA_DIR;
     } else {
@@ -99,8 +112,8 @@ describe('Gateway Proxy Streaming V2', () => {
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
-  test('does not return 502 after http_proxy_response_start begins streaming', async () => {
-    const backendWs = new WebSocket(WS_URL);
+  testIfLoopback('does not return 502 after http_proxy_response_start begins streaming', async () => {
+    const backendWs = new WebSocket(wsUrl);
     await waitForOpen(backendWs);
     const backendId = await registerBackend(backendWs, 'stream-backend');
 
@@ -132,7 +145,7 @@ describe('Gateway Proxy Streaming V2', () => {
       }));
     });
 
-    const response = await fetch(`${HTTP_URL}/api/proxy/${backendId}/stream`, {
+    const response = await fetch(`${httpUrl}/api/proxy/${backendId}/stream`, {
       headers: { Authorization: `Bearer ${GATEWAY_SECRET}` },
     });
 
@@ -142,8 +155,8 @@ describe('Gateway Proxy Streaming V2', () => {
     await closeWs(backendWs);
   });
 
-  test('preserves attachment headers and binary body for streamed downloads', async () => {
-    const backendWs = new WebSocket(WS_URL);
+  testIfLoopback('preserves attachment headers and binary body for streamed downloads', async () => {
+    const backendWs = new WebSocket(wsUrl);
     await waitForOpen(backendWs);
     const backendId = await registerBackend(backendWs, 'download-backend');
 
@@ -176,7 +189,7 @@ describe('Gateway Proxy Streaming V2', () => {
       }));
     });
 
-    const response = await fetch(`${HTTP_URL}/api/proxy/${backendId}/download`, {
+    const response = await fetch(`${httpUrl}/api/proxy/${backendId}/download`, {
       headers: { Authorization: `Bearer ${GATEWAY_SECRET}` },
     });
 
@@ -190,8 +203,8 @@ describe('Gateway Proxy Streaming V2', () => {
     await closeWs(backendWs);
   });
 
-  test('preserves binary request bodies when proxying uploads', async () => {
-    const backendWs = new WebSocket(WS_URL);
+  testIfLoopback('preserves binary request bodies when proxying uploads', async () => {
+    const backendWs = new WebSocket(wsUrl);
     await waitForOpen(backendWs);
     const backendId = await registerBackend(backendWs, 'upload-backend');
 
@@ -202,7 +215,7 @@ describe('Gateway Proxy Streaming V2', () => {
     }>(backendWs, 'http_proxy_request');
 
     const uploadBody = new Uint8Array([0x00, 0x01, 0xfe, 0xff, 0x41]);
-    const responsePromise = fetch(`${HTTP_URL}/api/proxy/${backendId}/upload`, {
+    const responsePromise = fetch(`${httpUrl}/api/proxy/${backendId}/upload`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${GATEWAY_SECRET}`,
@@ -230,8 +243,8 @@ describe('Gateway Proxy Streaming V2', () => {
     await closeWs(backendWs);
   });
 
-  test('fails the client request when a streaming response stalls after start', async () => {
-    const backendWs = new WebSocket(WS_URL);
+  testIfLoopback('fails the client request when a streaming response stalls after start', async () => {
+    const backendWs = new WebSocket(wsUrl);
     await waitForOpen(backendWs);
     const backendId = await registerBackend(backendWs, 'stalled-stream-backend');
 
@@ -257,7 +270,7 @@ describe('Gateway Proxy Streaming V2', () => {
 
     // fetch() itself resolves (headers arrived), but reading the body should fail
     // because the server destroys the stream after proxyStreamingTimeoutMs (100ms)
-    const response = await fetch(`${HTTP_URL}/api/proxy/${backendId}/stall`, {
+    const response = await fetch(`${httpUrl}/api/proxy/${backendId}/stall`, {
       headers: { Authorization: `Bearer ${GATEWAY_SECRET}` },
     });
     expect(response.status).toBe(200);

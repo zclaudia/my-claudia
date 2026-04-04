@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Command, type Child } from '@tauri-apps/plugin-shell';
 import { appDataDir, resolveResource } from '@tauri-apps/api/path';
 import { invoke } from '@tauri-apps/api/core';
@@ -339,8 +339,8 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
     };
   }, [restartNonce, startServerDev, startServerProd]);
 
-  return {
+  return useMemo(() => ({
     ...state,
     restart,
-  };
+  }), [state, restart]);
 }

@@ -15,38 +15,25 @@ import type {
   PeerReadyMessage,
   RegistrySyncPayload,
   BackendPresence,
-  RegistryEvent,
   RegistrySnapshotMessage,
-  RegistryDeltaMessage,
-  RegistryEventMessage,
-  RegistrySyncResponse,
-  ResyncRegistryMessage,
   BackendHeartbeatMessage,
   HeartbeatAckMessage,
-  CatalogSnapshotMessage,
-  CatalogEventMessage,
-  SubscribeBackendCatalogMessage,
-  UnsubscribeBackendCatalogMessage,
-  BackendCatalogSnapshotMessage,
-  BackendCatalogDeltaMessage,
-  BackendCatalogEventMessage,
-  BackendCatalogResetMessage,
-  BackendCatalogSyncResponse,
-  OpenBackendChannelMessage,
-  BackendChannelOpenedMessage,
-  BackendChannelRejectedMessage,
-  CloseBackendChannelMessage,
-  BackendChannelClosedMessage,
-  ChannelClientMessage,
-  ChannelServerMessage,
+  BackendDataSnapshotMessage,
+  BackendDataEventMessage,
+  RequestBackendDataSnapshotMessage,
+  SubscribeBackendMessage,
+  BackendSubscribedMessage,
+  UnsubscribeBackendMessage,
+  BackendUnsubscribedMessage,
+  BackendClientMessage,
+  BackendServerMessage,
   StreamDemandMessage,
-  OpenSessionStreamMessage,
-  CloseSessionStreamMessage,
-  SessionStreamClosedMessage,
   BackendRunStreamEvent,
   RunStreamEvent,
   CatchUpSessionContentMessage,
   SessionContentPatchMessage,
+  SessionContentPatchErrorMessage,
+  SubscriberDisconnectedMessage,
   GatewayErrorMessage,
   GatewayHttpProxyRequest,
   GatewayHttpProxyResponse,
@@ -55,7 +42,7 @@ import type {
   GatewayHttpProxyResponseEnd,
 } from '@my-claudia/shared';
 import { GatewayStorage } from './storage.js';
-import { GatewayState, type PeerSession, type ChannelState } from './state.js';
+import { GatewayState, type PeerSession } from './state.js';
 import { encodeProxyRequestBody } from './proxy-body.js';
 
 // ============================================================================
@@ -238,50 +225,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
 
   // --- Poll Recovery: Registry ---
   app.get('/sync/registry', requireRecoveryToken, (_req: Request, res: Response) => {
-    const sinceRevision = parseInt(_req.query.sinceRevision as string) || 0;
-    const delta = state.getRegistryDelta(sinceRevision);
-    if (delta && delta.length > 0) {
-      const response: RegistrySyncResponse = {
-        mode: 'delta',
-        fromRevision: sinceRevision,
-        toRevision: state.registry.revision,
-        events: delta,
-      };
-      res.json(response);
-    } else {
-      const response: RegistrySyncResponse = {
-        mode: 'snapshot',
-        revision: state.registry.revision,
-        items: Array.from(state.registry.items.values()),
-      };
-      res.json(response);
-    }
-  });
-
-  // --- Poll Recovery: Catalog ---
-  app.get('/sync/backend-catalog/:backendId', requireRecoveryToken, (req: Request, res: Response) => {
-    const { backendId } = req.params;
-    const epoch = parseInt(req.query.epoch as string) || 0;
-    const sinceRevision = parseInt(req.query.sinceRevision as string) || 0;
-    const catalog = state.catalogs.get(backendId);
-    if (!catalog || catalog.epoch !== epoch) {
-      res.status(404).json({ success: false, error: { code: 'BACKEND_OFFLINE', message: 'Backend catalog not found or epoch mismatch' } });
-      return;
-    }
-    const delta = state.getCatalogDelta(backendId, sinceRevision);
-    if (delta && delta.length > 0) {
-      const response: BackendCatalogSyncResponse = {
-        mode: 'delta', backendId, epoch: catalog.epoch,
-        fromRevision: sinceRevision, toRevision: catalog.revision, events: delta,
-      };
-      res.json(response);
-    } else {
-      const response: BackendCatalogSyncResponse = {
-        mode: 'snapshot', backendId, epoch: catalog.epoch,
-        revision: catalog.revision, items: Array.from(catalog.items.values()),
-      };
-      res.json(response);
-    }
+    res.json({ items: state.getRegistrySnapshot() });
   });
 
   // --- HTTP Proxy ---
@@ -290,9 +234,11 @@ export function createGatewayServer(config: GatewayConfig): Server {
     reject: (error: Error) => void;
     timeout: NodeJS.Timeout;
     res?: Response;
+    backendId: string;
   }>();
   const pendingStreamingRequests = new Map<string, {
     res: Response; resolve: () => void; timeout: NodeJS.Timeout;
+    backendId: string;
   }>();
 
   function abortStreamingResponse(requestId: string, res: Response, reason: string): void {
@@ -367,7 +313,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
 
       const response = await new Promise<GatewayHttpProxyResponse | null>((resolve, reject) => {
         const timeout = setTimeout(() => { pendingHttpRequests.delete(requestId); reject(new Error('Proxy request timeout')); }, proxyRequestTimeoutMs);
-        pendingHttpRequests.set(requestId, { resolve, reject, timeout, res });
+        pendingHttpRequests.set(requestId, { resolve, reject, timeout, res, backendId });
         sendToWs(backendPeer.ws, proxyRequest);
       });
       if (response === null) return;
@@ -406,6 +352,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
     cleanedUp = true;
     clearInterval(pingInterval);
     clearInterval(leaseCheckInterval);
+    clearInterval(registryPollInterval);
     clearInterval(rateLimitCleanup);
     state.destroy();
     storage.close();
@@ -424,6 +371,13 @@ export function createGatewayServer(config: GatewayConfig): Server {
       if (now - lease.lastHeartbeatAt > lease.leaseTtlMs) { console.log(`[Gateway] Backend ${backendId} lease expired`); handleBackendLeaseExpired(backendId); }
     }
   }, 5_000);
+
+  // Periodic registry snapshot push — fallback to keep clients in sync
+  const registryPollInterval = setInterval(() => {
+    if (state.peers.size > 0) {
+      broadcastRegistrySnapshot();
+    }
+  }, 30_000);
 
   function extractIp(req: IncomingMessage): string {
     if (trustProxy) {
@@ -563,8 +517,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
       name: identity.name || '',
       recoveryToken,
       isAlive: true,
-      catalogSubscriptions: new Set(),
-      channels: new Set()
+      subscribedBackends: new Set()
     };
 
     let backendInfo: PeerReadyMessage['backend'] | undefined;
@@ -579,18 +532,18 @@ export function createGatewayServer(config: GatewayConfig): Server {
       state.addLease({ backendId, epoch, peerSessionId, leaseTtlMs: state.config.defaultLeaseTtlMs, lastHeartbeatAt: Date.now(), leaseTimer: null });
       const presence: BackendPresence = { backendId, instanceId: identity.instanceId, deviceId: identity.deviceId, name: identity.name || '', channel, visible: message.backend.visible, capabilities: message.backend.capabilities, epoch, connectedAt: Date.now(), lastSeenAt: Date.now() };
       state.registryUpsert(presence);
-      state.streamDemand.set(backendId, { channelCount: 0, active: false });
+      state.streamDemand.set(backendId, { subscriberCount: 0, active: false });
       backendInfo = { backendId, epoch, leaseTtlMs: state.config.defaultLeaseTtlMs };
     }
 
     state.addPeer(peer);
     recoveryTokens.set(recoveryToken, peerSessionId);
-    const registrySync = buildRegistrySyncPayload(message.lastRegistryRevision);
+    const registrySync: RegistrySyncPayload = { items: state.getRegistrySnapshot() };
     const ready: PeerReadyMessage = { type: 'peer_ready', protocolVersion: 2, peerSessionId, recoveryToken, backend: backendInfo, registrySync };
     sendToWs(ws, ready);
 
     if (peer.backendId) {
-      broadcastRegistryEvent({ revision: state.registry.revision, op: 'upsert', item: state.registry.items.get(peer.backendId)! }, peerSessionId);
+      broadcastRegistrySnapshot(peerSessionId);
     }
     console.log(`[Gateway] Peer ${peerSessionId} connected (${peerType}, backend=${peer.backendId || 'none'})`);
     return peerSessionId;
@@ -605,24 +558,23 @@ export function createGatewayServer(config: GatewayConfig): Server {
     if (!peer) return;
     switch (message.type) {
       case 'backend_heartbeat': handleBackendHeartbeat(peer, message); break;
-      case 'catalog_snapshot': handleCatalogSnapshot(peer, message); break;
-      case 'catalog_event': handleCatalogEvent(peer, message); break;
+      case 'backend_data_snapshot': handleBackendDataSnapshot(peer, message); break;
+      case 'backend_data_event': handleBackendDataEvent(peer, message); break;
       case 'run_stream_event': handleBackendRunStreamEvent(peer, message); break;
-      case 'resync_registry': handleResyncRegistry(peer, message); break;
-      case 'subscribe_backend_catalog': handleSubscribeBackendCatalog(peer, message); break;
-      case 'unsubscribe_backend_catalog': handleUnsubscribeBackendCatalog(peer, message); break;
-      case 'open_backend_channel': handleOpenBackendChannel(peer, message); break;
-      case 'close_backend_channel': handleCloseBackendChannel(peer, message); break;
-      case 'channel_client_message': handleChannelClientMessage(peer, message); break;
-      case 'channel_server_message': handleChannelServerMessage(peer, message); break;
-      case 'open_session_stream': handleOpenSessionStream(peer, message); break;
-      case 'close_session_stream': handleCloseSessionStream(peer, message); break;
+      case 'request_registry_snapshot': handleRequestRegistrySnapshot(peer); break;
+      case 'request_backend_data_snapshot': handleRequestBackendDataSnapshot(peer, message); break;
+      case 'subscribe_backend': handleSubscribeBackend(peer, message); break;
+      case 'unsubscribe_backend': handleUnsubscribeBackend(peer, message); break;
+      case 'backend_client_message': handleBackendClientMessage(peer, message); break;
+      case 'backend_server_message': handleBackendServerMessage(peer, message); break;
+      case 'session_content_patch': handleSessionContentPatch(peer, message); break;
+      case 'session_content_patch_error': handleSessionContentPatchError(peer, message); break;
       case 'catch_up_session_content': handleCatchUpSessionContent(peer, message); break;
       case 'http_proxy_response': handleHttpProxyResponse(message); break;
       case 'http_proxy_response_start': handleHttpProxyResponseStart(message); break;
       case 'http_proxy_response_chunk': handleHttpProxyResponseChunk(message); break;
       case 'http_proxy_response_end': handleHttpProxyResponseEnd(message); break;
-      case 'ping': sendToWs(peer.ws, { type: 'pong', ts: message.ts, registryRevision: state.registry.revision }); break;
+      case 'ping': sendToWs(peer.ws, { type: 'pong', ts: message.ts }); break;
       default: sendToWs(peer.ws, { type: 'gateway_error', code: 'INVALID_MESSAGE', message: `Unknown message type: ${message.type}` } satisfies GatewayErrorMessage);
     }
   }
@@ -642,58 +594,39 @@ export function createGatewayServer(config: GatewayConfig): Server {
     sendToWs(peer.ws, { type: 'heartbeat_ack', epoch: msg.epoch, streamDemand: state.getStreamDemand(backendId) } satisfies HeartbeatAckMessage);
   }
 
-  function handleCatalogSnapshot(peer: PeerSession, msg: CatalogSnapshotMessage): void {
-    if (!isCurrentBackendOwner(peer, msg.epoch)) return;
+  function handleBackendDataSnapshot(peer: PeerSession, msg: BackendDataSnapshotMessage): void {
+    if (!isCurrentBackendOwner(peer)) return;
     const backendId = peer.backendId!;
-    state.setCatalogSnapshot(backendId, msg.epoch, msg.revision, msg.items);
-    const catalog = state.catalogs.get(backendId);
-    if (!catalog) return;
-    const snapshot: BackendCatalogSnapshotMessage = { type: 'backend_catalog_snapshot', backendId, epoch: msg.epoch, revision: msg.revision, items: msg.items };
-    for (const sub of catalog.subscribers) { const p = state.peers.get(sub); if (p) sendToWs(p.ws, snapshot); }
+    // Pure relay: forward to all subscribers, adding backendId for routing
+    const subscribers = state.getSubscribers(backendId);
+    const relayMsg = { ...msg, backendId };
+    for (const subId of subscribers) {
+      const p = state.peers.get(subId);
+      if (p) sendToWs(p.ws, relayMsg);
+    }
   }
 
-  function handleCatalogEvent(peer: PeerSession, msg: CatalogEventMessage): void {
-    if (!isCurrentBackendOwner(peer, msg.epoch)) return;
+  function handleBackendDataEvent(peer: PeerSession, msg: BackendDataEventMessage): void {
+    if (!isCurrentBackendOwner(peer)) return;
     const backendId = peer.backendId!;
-    const currentCatalog = state.catalogs.get(backendId);
-    if (!currentCatalog) {
-      sendToWs(peer.ws, {
-        type: 'gateway_error',
-        code: 'INVALID_MESSAGE',
-        message: `Catalog ${backendId} is not initialized`,
-        recovery: 'resync_catalog',
-      } satisfies GatewayErrorMessage);
-      return;
+    // Pure relay: forward to all subscribers, adding backendId for routing
+    const subscribers = state.getSubscribers(backendId);
+    const relayMsg = { ...msg, backendId };
+    for (const subId of subscribers) {
+      const p = state.peers.get(subId);
+      if (p) sendToWs(p.ws, relayMsg);
     }
-    const expectedRevision = currentCatalog.revision + 1;
-    if (msg.revision !== expectedRevision) {
-      sendToWs(peer.ws, {
-        type: 'gateway_error',
-        code: 'INVALID_MESSAGE',
-        message: `Catalog revision mismatch for ${backendId}: expected ${expectedRevision}, got ${msg.revision}`,
-        recovery: 'resync_catalog',
-      } satisfies GatewayErrorMessage);
-      return;
-    }
-    let catalog: ReturnType<typeof state.catalogUpsert>;
-    if (msg.op === 'upsert') catalog = state.catalogUpsert(backendId, msg.epoch, msg.revision, msg.item);
-    else catalog = state.catalogRemove(backendId, msg.epoch, msg.revision, msg.sessionId);
-    if (!catalog) return;
-    const event: BackendCatalogEventMessage = msg.op === 'upsert'
-      ? { type: 'backend_catalog_event', backendId, epoch: msg.epoch, revision: msg.revision, op: 'upsert', item: msg.item }
-      : { type: 'backend_catalog_event', backendId, epoch: msg.epoch, revision: msg.revision, op: 'remove', sessionId: msg.sessionId };
-    for (const sub of catalog.subscribers) { const p = state.peers.get(sub); if (p) sendToWs(p.ws, event); }
   }
 
   function handleBackendRunStreamEvent(peer: PeerSession, msg: BackendRunStreamEvent): void {
     if (!isCurrentBackendOwner(peer)) return;
     const backendId = peer.backendId!;
-    for (const channel of state.channels.values()) {
-      if (channel.backendId === backendId && channel.openStreams.has(msg.sessionId)) {
-        const clientEvent: RunStreamEvent = { type: 'run_stream_event', eventType: msg.eventType, channelId: channel.channelId, sessionId: msg.sessionId, runId: msg.runId, seq: msg.seq, payload: msg.payload };
-        const clientPeer = state.peers.get(channel.peerSessionId);
-        if (clientPeer) sendToWs(clientPeer.ws, clientEvent);
-      }
+    const subscribers = state.getSubscribers(backendId);
+    if (subscribers.size === 0) return;
+    const clientEvent: RunStreamEvent = { type: 'run_stream_event', eventType: msg.eventType, backendId, sessionId: msg.sessionId, runId: msg.runId, seq: msg.seq, payload: msg.payload };
+    for (const subId of subscribers) {
+      const clientPeer = state.peers.get(subId);
+      if (clientPeer) sendToWs(clientPeer.ws, clientEvent);
     }
   }
 
@@ -701,124 +634,126 @@ export function createGatewayServer(config: GatewayConfig): Server {
   // Client Message Handlers
   // ========================================================================
 
-  function handleResyncRegistry(peer: PeerSession, msg: ResyncRegistryMessage): void {
-    const sync = buildRegistrySyncPayload(msg.lastRevision);
-    if (sync.mode === 'snapshot') sendToWs(peer.ws, { type: 'registry_snapshot', revision: sync.revision, items: sync.items } satisfies RegistrySnapshotMessage);
-    else sendToWs(peer.ws, { type: 'registry_delta', fromRevision: sync.fromRevision, toRevision: sync.toRevision, events: sync.events } satisfies RegistryDeltaMessage);
+  function handleRequestRegistrySnapshot(peer: PeerSession): void {
+    sendToWs(peer.ws, { type: 'registry_snapshot', items: state.getRegistrySnapshot() } satisfies RegistrySnapshotMessage);
   }
 
-  function handleSubscribeBackendCatalog(peer: PeerSession, msg: SubscribeBackendCatalogMessage): void {
-    const catalog = state.catalogs.get(msg.backendId);
-    if (!catalog || catalog.epoch !== msg.expectedEpoch) {
-      sendToWs(peer.ws, { type: 'gateway_error', code: 'BACKEND_EPOCH_MISMATCH', message: `Backend ${msg.backendId} not found or epoch mismatch`, recovery: 'resync_registry' } satisfies GatewayErrorMessage);
+  function handleRequestBackendDataSnapshot(peer: PeerSession, msg: RequestBackendDataSnapshotMessage): void {
+    // Relay request to the backend peer so it can push a fresh snapshot
+    const bp = findBackendPeer(msg.backendId);
+    if (!bp) {
+      sendToWs(peer.ws, { type: 'gateway_error', code: 'BACKEND_OFFLINE', message: `Backend ${msg.backendId} not found or offline`, recovery: 'reconnect' } satisfies GatewayErrorMessage);
       return;
     }
-    state.addCatalogSubscriber(msg.backendId, peer.peerSessionId);
-    peer.catalogSubscriptions.add(msg.backendId);
-    if (msg.lastRevision !== undefined) {
-      const delta = state.getCatalogDelta(msg.backendId, msg.lastRevision);
-      if (delta && delta.length > 0) {
-        sendToWs(peer.ws, { type: 'backend_catalog_delta', backendId: msg.backendId, epoch: catalog.epoch, fromRevision: msg.lastRevision, toRevision: catalog.revision, events: delta } satisfies BackendCatalogDeltaMessage);
-        return;
-      }
-    }
-    sendToWs(peer.ws, { type: 'backend_catalog_snapshot', backendId: msg.backendId, epoch: catalog.epoch, revision: catalog.revision, items: Array.from(catalog.items.values()) } satisfies BackendCatalogSnapshotMessage);
+    sendToWs(bp.ws, { type: 'request_backend_data_snapshot', backendId: msg.backendId } satisfies RequestBackendDataSnapshotMessage);
   }
 
-  function handleUnsubscribeBackendCatalog(peer: PeerSession, msg: UnsubscribeBackendCatalogMessage): void {
-    const catalog = state.catalogs.get(msg.backendId);
-    if (catalog && catalog.epoch === msg.expectedEpoch) state.removeCatalogSubscriber(msg.backendId, peer.peerSessionId);
-    peer.catalogSubscriptions.delete(msg.backendId);
-  }
-
-  function handleOpenBackendChannel(peer: PeerSession, msg: OpenBackendChannelMessage): void {
-    const existing = state.findChannel(peer.peerSessionId, msg.backendId);
-    if (existing) {
-      const lease = state.leases.get(msg.backendId);
-      sendToWs(peer.ws, {
-        type: 'backend_channel_opened',
-        backendId: msg.backendId,
-        epoch: lease?.epoch ?? 0,
-        channelId: existing.channelId,
-        capabilities: state.registry.items.get(msg.backendId)?.capabilities ?? []
-      } satisfies BackendChannelOpenedMessage);
+  function handleSubscribeBackend(peer: PeerSession, msg: SubscribeBackendMessage): void {
+    const presence = state.registry.items.get(msg.backendId);
+    if (!presence) {
+      sendToWs(peer.ws, { type: 'gateway_error', code: 'BACKEND_OFFLINE', message: `Backend ${msg.backendId} not found or offline`, recovery: 'reconnect' } satisfies GatewayErrorMessage);
       return;
     }
     const lease = state.leases.get(msg.backendId);
-    if (!lease) { sendToWs(peer.ws, { type: 'backend_channel_rejected', backendId: msg.backendId, reason: 'offline' } satisfies BackendChannelRejectedMessage); return; }
-    if (lease.epoch !== msg.expectedEpoch) { sendToWs(peer.ws, { type: 'backend_channel_rejected', backendId: msg.backendId, reason: 'epoch_mismatch' } satisfies BackendChannelRejectedMessage); return; }
-    const channelId = uuidv4();
-    const channel: ChannelState = { channelId, backendId: msg.backendId, epoch: lease.epoch, peerSessionId: peer.peerSessionId, openStreams: new Set() };
-    state.addChannel(channel);
-    if (state.getStreamDemand(msg.backendId)) {
+    if (!lease) {
+      sendToWs(peer.ws, { type: 'gateway_error', code: 'BACKEND_OFFLINE', message: `Backend ${msg.backendId} not found or offline`, recovery: 'reconnect' } satisfies GatewayErrorMessage);
+      return;
+    }
+    // Check if this peer is already subscribed before adding
+    const alreadySubscribed = peer.subscribedBackends.has(msg.backendId);
+    const demandChanged = state.addSubscription(msg.backendId, peer.peerSessionId);
+    if (demandChanged) {
       const bp = findBackendPeer(msg.backendId);
       if (bp) sendToWs(bp.ws, { type: 'stream_demand', active: true } satisfies StreamDemandMessage);
     }
-    sendToWs(peer.ws, { type: 'backend_channel_opened', backendId: msg.backendId, epoch: lease.epoch, channelId, capabilities: state.registry.items.get(msg.backendId)?.capabilities ?? [] } satisfies BackendChannelOpenedMessage);
-  }
-
-  function handleCloseBackendChannel(peer: PeerSession, msg: CloseBackendChannelMessage): void {
-    const channel = state.channels.get(msg.channelId);
-    if (!channel || channel.peerSessionId !== peer.peerSessionId) return;
-    const backendId = channel.backendId;
-    const backendPeer = findBackendPeer(backendId);
-    state.removeChannel(msg.channelId);
-    sendToWs(peer.ws, { type: 'backend_channel_closed', channelId: msg.channelId, backendId, reason: 'client_closed' } satisfies BackendChannelClosedMessage);
-    if (backendPeer) {
-      sendToWs(backendPeer.ws, { type: 'backend_channel_closed', channelId: msg.channelId, backendId, reason: 'client_closed' } satisfies BackendChannelClosedMessage);
-    }
-    if (!state.getStreamDemand(backendId)) {
-      const bp = findBackendPeer(backendId);
-      if (bp) sendToWs(bp.ws, { type: 'stream_demand', active: false } satisfies StreamDemandMessage);
+    sendToWs(peer.ws, { type: 'backend_subscribed', backendId: msg.backendId, epoch: lease.epoch, capabilities: presence.capabilities } satisfies BackendSubscribedMessage);
+    // Request a fresh data snapshot for new subscriptions.
+    // Duplicate subscribe_backend from the same peer should not trigger
+    // redundant full snapshots that get broadcast to all existing subscribers.
+    if (!alreadySubscribed) {
+      const bp = findBackendPeer(msg.backendId);
+      if (bp) sendToWs(bp.ws, { type: 'request_backend_data_snapshot', backendId: msg.backendId } satisfies RequestBackendDataSnapshotMessage);
     }
   }
 
-  function handleChannelClientMessage(peer: PeerSession, msg: ChannelClientMessage): void {
-    const channel = state.channels.get(msg.channelId);
-    if (!channel || channel.peerSessionId !== peer.peerSessionId) {
-      sendToWs(peer.ws, { type: 'gateway_error', code: 'BACKEND_CHANNEL_NOT_FOUND', message: 'Channel not found', recovery: 'reopen_channel' } satisfies GatewayErrorMessage);
+  function handleUnsubscribeBackend(peer: PeerSession, msg: UnsubscribeBackendMessage): void {
+    const demandChanged = state.removeSubscription(msg.backendId, peer.peerSessionId);
+    sendToWs(peer.ws, { type: 'backend_unsubscribed', backendId: msg.backendId, reason: 'client_unsubscribed' } satisfies BackendUnsubscribedMessage);
+    // Notify backend to clean up this client's server-side state (virtualClient, terminal, etc.)
+    const bp = findBackendPeer(msg.backendId);
+    if (bp) {
+      sendToWs(bp.ws, { type: 'subscriber_disconnected', backendId: msg.backendId, peerSessionId: peer.peerSessionId } satisfies SubscriberDisconnectedMessage);
+    }
+    if (demandChanged && bp) {
+      sendToWs(bp.ws, { type: 'stream_demand', active: false } satisfies StreamDemandMessage);
+    }
+  }
+
+  function handleBackendClientMessage(peer: PeerSession, msg: BackendClientMessage): void {
+    const subscribers = state.getSubscribers(msg.backendId);
+    if (!subscribers.has(peer.peerSessionId)) {
+      sendToWs(peer.ws, { type: 'gateway_error', code: 'BACKEND_NOT_SUBSCRIBED', message: 'Not subscribed to backend', recovery: 'resubscribe' } satisfies GatewayErrorMessage);
       return;
     }
-    const backendPeer = findBackendPeer(channel.backendId);
+    const backendPeer = findBackendPeer(msg.backendId);
     if (!backendPeer) {
       sendToWs(peer.ws, { type: 'gateway_error', code: 'BACKEND_OFFLINE', message: 'Backend offline', recovery: 'reconnect' } satisfies GatewayErrorMessage);
       return;
     }
-    sendToWs(backendPeer.ws, msg);
+    // Attach sender identity so backend can distinguish different clients
+    sendToWs(backendPeer.ws, { ...msg, sourcePeerSessionId: peer.peerSessionId });
   }
 
-  function handleChannelServerMessage(peer: PeerSession, msg: ChannelServerMessage): void {
+  function handleBackendServerMessage(peer: PeerSession, msg: BackendServerMessage): void {
     if (!isCurrentBackendOwner(peer)) return;
     const backendId = peer.backendId!;
-    const channel = state.channels.get(msg.channelId);
-    if (!channel || channel.backendId !== backendId) return;
-    const clientPeer = state.peers.get(channel.peerSessionId);
-    if (clientPeer) sendToWs(clientPeer.ws, msg);
-  }
+    if (msg.backendId !== backendId) return;
 
-  function handleOpenSessionStream(peer: PeerSession, msg: OpenSessionStreamMessage): void {
-    const channel = state.channels.get(msg.channelId);
-    if (!channel || channel.peerSessionId !== peer.peerSessionId) {
-      sendToWs(peer.ws, { type: 'gateway_error', code: 'BACKEND_CHANNEL_NOT_FOUND', message: 'Channel not found', recovery: 'reopen_channel' } satisfies GatewayErrorMessage); return;
+    // If targetPeerSessionId is set, route to that specific client
+    if (msg.targetPeerSessionId) {
+      const targetPeer = state.peers.get(msg.targetPeerSessionId);
+      if (targetPeer) sendToWs(targetPeer.ws, msg);
+      return;
     }
-    channel.openStreams.add(msg.sessionId);
+
+    // Otherwise broadcast to all subscribers
+    const subscribers = state.getSubscribers(backendId);
+    for (const subId of subscribers) {
+      const clientPeer = state.peers.get(subId);
+      if (clientPeer) sendToWs(clientPeer.ws, msg);
+    }
   }
 
-  function handleCloseSessionStream(peer: PeerSession, msg: CloseSessionStreamMessage): void {
-    const channel = state.channels.get(msg.channelId);
-    if (!channel || channel.peerSessionId !== peer.peerSessionId) return;
-    channel.openStreams.delete(msg.sessionId);
-    sendToWs(peer.ws, { type: 'session_stream_closed', channelId: msg.channelId, sessionId: msg.sessionId, reason: 'client_closed' } satisfies SessionStreamClosedMessage);
+  function handleSessionContentPatch(peer: PeerSession, msg: SessionContentPatchMessage): void {
+    if (!isCurrentBackendOwner(peer)) return;
+    const backendId = peer.backendId!;
+    if (msg.backendId !== backendId) return;
+    const subscribers = state.getSubscribers(backendId);
+    for (const subId of subscribers) {
+      const clientPeer = state.peers.get(subId);
+      if (clientPeer) sendToWs(clientPeer.ws, msg);
+    }
+  }
+
+  function handleSessionContentPatchError(peer: PeerSession, msg: SessionContentPatchErrorMessage): void {
+    if (!isCurrentBackendOwner(peer)) return;
+    const backendId = peer.backendId!;
+    if (msg.backendId !== backendId) return;
+    const subscribers = state.getSubscribers(backendId);
+    for (const subId of subscribers) {
+      const clientPeer = state.peers.get(subId);
+      if (clientPeer) sendToWs(clientPeer.ws, msg);
+    }
   }
 
   function handleCatchUpSessionContent(peer: PeerSession, msg: CatchUpSessionContentMessage): void {
-    const channel = state.channels.get(msg.channelId);
-    if (!channel || channel.peerSessionId !== peer.peerSessionId) {
-      sendToWs(peer.ws, { type: 'gateway_error', code: 'BACKEND_CHANNEL_NOT_FOUND', message: 'Channel not found', recovery: 'reopen_channel' } satisfies GatewayErrorMessage); return;
+    const subscribers = state.getSubscribers(msg.backendId);
+    if (!subscribers.has(peer.peerSessionId)) {
+      sendToWs(peer.ws, { type: 'gateway_error', code: 'BACKEND_NOT_SUBSCRIBED', message: 'Not subscribed to backend', recovery: 'resubscribe' } satisfies GatewayErrorMessage); return;
     }
-    const bp = findBackendPeer(channel.backendId);
+    const bp = findBackendPeer(msg.backendId);
     if (!bp) { sendToWs(peer.ws, { type: 'gateway_error', code: 'BACKEND_OFFLINE', message: 'Backend offline', recovery: 'reconnect' } satisfies GatewayErrorMessage); return; }
-    sendToWs(bp.ws, { type: 'catch_up_session_content', channelId: msg.channelId, sessionId: msg.sessionId, afterOffset: msg.afterOffset });
+    sendToWs(bp.ws, { type: 'catch_up_session_content', backendId: msg.backendId, sessionId: msg.sessionId, afterOffset: msg.afterOffset });
   }
 
   // ========================================================================
@@ -843,7 +778,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
       clearTimeout(streaming.timeout);
       pendingStreamingRequests.delete(msg.requestId);
     });
-    pendingStreamingRequests.set(msg.requestId, { res, resolve: pending.resolve as unknown as () => void, timeout: streamTimeout });
+    pendingStreamingRequests.set(msg.requestId, { res, resolve: pending.resolve as unknown as () => void, timeout: streamTimeout, backendId: pending.backendId });
     pending.resolve(null);
   }
   function handleHttpProxyResponseChunk(msg: GatewayHttpProxyResponseChunk): void {
@@ -874,14 +809,21 @@ export function createGatewayServer(config: GatewayConfig): Server {
     if (!lease) return;
     const peer = state.peers.get(lease.peerSessionId);
     rejectPendingProxyRequests(backendId);
-    notifyChannelsClosed(backendId, 'backend_offline');
+    notifySubscribersBackendGone(backendId, 'backend_offline');
     state.registryRemove(backendId);
-    broadcastRegistryEvent({ revision: state.registry.revision, op: 'remove', backendId });
-    broadcastCatalogReset(backendId, lease.epoch);
+    broadcastRegistrySnapshot();
     state.removeBackend(backendId);
     if (peer) {
       peer.backendId = undefined;
       peer.epoch = undefined;
+      // Clean up this peer's client-side subscriptions and notify backends of demand changes
+      const affectedBackends = state.removeAllSubscriptions(peer.peerSessionId);
+      for (const bid of affectedBackends) {
+        if (!state.getStreamDemand(bid)) {
+          const bp = findBackendPeer(bid);
+          if (bp) sendToWs(bp.ws, { type: 'stream_demand', active: false } satisfies StreamDemandMessage);
+        }
+      }
       peer.ws.terminate();
       unregisterRecoveryToken(peer);
       state.removePeer(peer.peerSessionId);
@@ -890,17 +832,16 @@ export function createGatewayServer(config: GatewayConfig): Server {
 
   function rejectPendingProxyRequests(backendId: string): void {
     for (const [requestId, pending] of pendingHttpRequests) {
-      if (pending.res) {
-        const lease = state.leases.get(backendId);
-        if (!lease) {
-          clearTimeout(pending.timeout);
-          pendingHttpRequests.delete(requestId);
-          pending.reject(new Error('Backend disconnected'));
-        }
+      if (pending.backendId === backendId) {
+        clearTimeout(pending.timeout);
+        pendingHttpRequests.delete(requestId);
+        pending.reject(new Error('Backend disconnected'));
       }
     }
     for (const [requestId, streaming] of pendingStreamingRequests) {
-      abortStreamingResponse(requestId, streaming.res, 'Backend disconnected');
+      if (streaming.backendId === backendId) {
+        abortStreamingResponse(requestId, streaming.res, 'Backend disconnected');
+      }
     }
   }
 
@@ -910,21 +851,21 @@ export function createGatewayServer(config: GatewayConfig): Server {
     console.log(`[Gateway] Peer ${peerSessionId} disconnected`);
     if (peer.backendId && isCurrentBackendOwner(peer)) {
       rejectPendingProxyRequests(peer.backendId);
-      notifyChannelsClosed(peer.backendId, 'backend_offline');
+      notifySubscribersBackendGone(peer.backendId, 'backend_offline');
       state.registryRemove(peer.backendId);
-      broadcastRegistryEvent({ revision: state.registry.revision, op: 'remove', backendId: peer.backendId });
-      broadcastCatalogReset(peer.backendId, peer.epoch!, peerSessionId);
+      broadcastRegistrySnapshot(peerSessionId);
       state.removeBackend(peer.backendId);
     }
-    for (const channelId of peer.channels) {
-      const channel = state.channels.get(channelId);
-      if (channel) {
-        const backendPeer = findBackendPeer(channel.backendId);
-        state.removeChannel(channelId);
-        if (backendPeer) {
-          sendToWs(backendPeer.ws, { type: 'backend_channel_closed', channelId, backendId: channel.backendId, reason: 'peer_disconnected' } satisfies BackendChannelClosedMessage);
+    // Clean up this peer's subscriptions: notify backends and update stream demand
+    const affectedBackends = state.removeAllSubscriptions(peerSessionId);
+    for (const backendId of affectedBackends) {
+      const bp = findBackendPeer(backendId);
+      if (bp) {
+        // Notify backend to clean up this client's server-side state
+        sendToWs(bp.ws, { type: 'subscriber_disconnected', backendId, peerSessionId } satisfies SubscriberDisconnectedMessage);
+        if (!state.getStreamDemand(backendId)) {
+          sendToWs(bp.ws, { type: 'stream_demand', active: false } satisfies StreamDemandMessage);
         }
-        if (!state.getStreamDemand(channel.backendId)) { const bp = findBackendPeer(channel.backendId); if (bp) sendToWs(bp.ws, { type: 'stream_demand', active: false } satisfies StreamDemandMessage); }
       }
     }
     peer.ws.terminate();
@@ -936,33 +877,22 @@ export function createGatewayServer(config: GatewayConfig): Server {
   // Helpers
   // ========================================================================
 
-  function buildRegistrySyncPayload(lastRevision?: number): RegistrySyncPayload {
-    if (lastRevision !== undefined && lastRevision > 0) {
-      const delta = state.getRegistryDelta(lastRevision);
-      if (delta && delta.length > 0) return { mode: 'delta', fromRevision: lastRevision, toRevision: state.registry.revision, events: delta };
-    }
-    return { mode: 'snapshot', revision: state.registry.revision, items: Array.from(state.registry.items.values()) };
-  }
-
-  function broadcastRegistryEvent(event: RegistryEvent, excludePeerSessionId?: string): void {
-    const msg: RegistryEventMessage = { type: 'registry_event', event };
+  function broadcastRegistrySnapshot(excludePeerSessionId?: string): void {
+    const msg: RegistrySnapshotMessage = { type: 'registry_snapshot', items: state.getRegistrySnapshot() };
     for (const peer of state.peers.values()) { if (peer.peerSessionId !== excludePeerSessionId) sendToWs(peer.ws, msg); }
   }
 
-  function notifyChannelsClosed(backendId: string, reason: BackendChannelClosedMessage['reason']): void {
-    for (const [channelId, channel] of state.channels) {
-      if (channel.backendId === backendId) {
-        const clientPeer = state.peers.get(channel.peerSessionId);
-        const backendPeer = findBackendPeer(backendId);
-        if (clientPeer) {
-          for (const sessionId of channel.openStreams) sendToWs(clientPeer.ws, { type: 'session_stream_closed', channelId, sessionId, reason: reason === 'backend_offline' ? 'backend_offline' : 'channel_closed' } satisfies SessionStreamClosedMessage);
-          sendToWs(clientPeer.ws, { type: 'backend_channel_closed', channelId, backendId, reason } satisfies BackendChannelClosedMessage);
-        }
-        if (backendPeer) {
-          sendToWs(backendPeer.ws, { type: 'backend_channel_closed', channelId, backendId, reason } satisfies BackendChannelClosedMessage);
-        }
-        state.removeChannel(channelId);
+  function notifySubscribersBackendGone(backendId: string, reason: BackendUnsubscribedMessage['reason']): void {
+    const subscribers = state.getSubscribers(backendId);
+    for (const subId of subscribers) {
+      const clientPeer = state.peers.get(subId);
+      if (clientPeer) {
+        sendToWs(clientPeer.ws, { type: 'backend_unsubscribed', backendId, reason } satisfies BackendUnsubscribedMessage);
       }
+    }
+    // Clean up all subscriptions for this backend
+    for (const subId of [...subscribers]) {
+      state.removeSubscription(backendId, subId);
     }
   }
 
@@ -983,27 +913,13 @@ export function createGatewayServer(config: GatewayConfig): Server {
     recoveryTokens.delete(peer.recoveryToken);
   }
 
-  function broadcastCatalogReset(backendId: string, epoch: number, excludePeerSessionId?: string): void {
-    const catalog = state.catalogs.get(backendId);
-    if (!catalog) return;
-    for (const sub of catalog.subscribers) {
-      if (sub === excludePeerSessionId) continue;
-      const peer = state.peers.get(sub);
-      if (peer) {
-        sendToWs(peer.ws, { type: 'backend_catalog_reset', backendId, epoch } satisfies BackendCatalogResetMessage);
-      }
-    }
-  }
-
   function handleBackendOwnerReplaced(
     backendId: string,
     previousEpoch: number,
     nextEpoch: number,
     previousPeerSessionId: string,
   ): void {
-    notifyChannelsClosed(backendId, 'epoch_changed');
-    broadcastCatalogReset(backendId, previousEpoch, previousPeerSessionId);
-    state.resetCatalog(backendId, nextEpoch);
+    notifySubscribersBackendGone(backendId, 'epoch_changed');
     state.removeLease(backendId);
 
     const previousPeer = state.peers.get(previousPeerSessionId);
