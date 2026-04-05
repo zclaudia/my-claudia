@@ -6,16 +6,12 @@ import type { ReactNode } from 'react';
 vi.unmock('@/contexts/ConnectionContext');
 
 const {
-  mockUseRecoveryCoordinator,
   mockUseMobileRecoveryJobManager,
-  mockUseMobileRecoveryLifecycle,
-  mockIsAndroid,
+  mockUseRecoveryLifecycle,
   mockMobileRecoveryManager,
 } = vi.hoisted(() => ({
-  mockUseRecoveryCoordinator: vi.fn(() => vi.fn()),
   mockUseMobileRecoveryJobManager: vi.fn(),
-  mockUseMobileRecoveryLifecycle: vi.fn(),
-  mockIsAndroid: vi.fn(() => false),
+  mockUseRecoveryLifecycle: vi.fn(),
   mockMobileRecoveryManager: {
     start: vi.fn(),
     retry: vi.fn(),
@@ -32,16 +28,12 @@ vi.mock('../../hooks/useBackendFacade', () => ({
   useBackendFacade: vi.fn(),
 }));
 
-vi.mock('../../hooks/useRecoveryCoordinator', () => ({
-  useRecoveryCoordinator: mockUseRecoveryCoordinator,
-}));
-
 vi.mock('../../hooks/useMobileRecoveryJob', () => ({
   useMobileRecoveryJobManager: mockUseMobileRecoveryJobManager,
 }));
 
-vi.mock('../../hooks/useMobileRecoveryLifecycle', () => ({
-  useMobileRecoveryLifecycle: mockUseMobileRecoveryLifecycle,
+vi.mock('../../hooks/useRecoveryLifecycle', () => ({
+  useRecoveryLifecycle: mockUseRecoveryLifecycle,
 }));
 
 // Mock useWslServer
@@ -153,14 +145,6 @@ vi.mock('../../utils/crypto', () => ({
   isEncryptionAvailable: vi.fn(() => false),
 }));
 
-vi.mock('../../utils/platform', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../utils/platform')>();
-  return {
-    ...actual,
-    isAndroid: mockIsAndroid,
-  };
-});
-
 const mockFacadeStore = {
   facade: null as any,
 };
@@ -183,7 +167,6 @@ describe('ConnectionContext', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUseMobileRecoveryJobManager.mockReturnValue(mockMobileRecoveryManager);
-    mockIsAndroid.mockReturnValue(false);
     mockFacadeStore.facade = null;
     mockPermissionStore.pendingRequests = [];
     mockAskUserStore.pendingRequests = [];
@@ -528,9 +511,8 @@ describe('ConnectionContext', () => {
     expect(result.current.getConnectedServers).toBeDefined();
   });
 
-  it('uses the mobile recovery runtime on Android and disables the legacy coordinator', () => {
+  it('uses the unified recovery runtime and lifecycle', () => {
     const facade = { forceReconnect: vi.fn(), probeHealth: vi.fn() } as any;
-    mockIsAndroid.mockReturnValue(true);
     mockFacadeStore.facade = facade;
 
     const wrapper = ({ children }: { children: ReactNode }) => (
@@ -539,12 +521,7 @@ describe('ConnectionContext', () => {
 
     renderHook(() => useConnection(), { wrapper });
 
-    expect(mockUseRecoveryCoordinator).toHaveBeenCalledWith({
-      disableController: true,
-      disableLifecycle: true,
-      disableReconciliation: true,
-    });
     expect(mockUseMobileRecoveryJobManager).toHaveBeenCalledOnce();
-    expect(mockUseMobileRecoveryLifecycle).toHaveBeenCalledWith(true, facade, mockMobileRecoveryManager);
+    expect(mockUseRecoveryLifecycle).toHaveBeenCalledWith(facade, mockMobileRecoveryManager);
   });
 });

@@ -3,14 +3,12 @@ import { Loader2 } from 'lucide-react';
 import type { Workflow } from '@my-claudia/shared';
 import { ConnectionProvider } from '../../../contexts/ConnectionContext';
 import { useServerStore } from '../../../stores/serverStore';
-import { useRecoveryStore } from '../../../stores/recoveryStore';
 import { useFacadeStore } from '../../../stores/facadeStore';
 import { useMobileRecoveryStore } from '../../../stores/mobileRecoveryStore';
 import { useProjectStore } from '../../../stores/projectStore';
 import * as api from '../../../services/api';
 import { WorkflowEditor } from './WorkflowEditor';
 import { isMobileBackendUsable } from '../../../services/mobileConnectionState';
-import { isAndroid } from '../../../utils/platform';
 
 interface WorkflowEditorWindowProps {
   projectId: string;
@@ -56,26 +54,19 @@ export function WorkflowEditorWindow({
 }
 
 function WorkflowEditorWindowContent({ projectId, workflowId, serverUrl, authToken, initialMode }: Omit<WorkflowEditorWindowProps, 'serverId' | 'serverName' | 'gatewayUrl' | 'gatewaySecret'>) {
-  const mobileRecoveryEnabled = isAndroid();
   const [workflow, setWorkflow] = useState<Workflow | undefined>(undefined);
   const [loading, setLoading] = useState(!!workflowId);
   const [error, setError] = useState<string | null>(null);
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const recoveryIsConnected = useRecoveryStore((s) => {
-    if (mobileRecoveryEnabled || !activeServerId) return false;
-    return s.backends[activeServerId]?.status === 'ready';
-  });
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const facadeBackends = useFacadeStore((s) => s.backends);
   const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
-  const isConnected = mobileRecoveryEnabled
-    ? isMobileBackendUsable({
-      backendId: activeServerId,
-      connectionState: facadeConnectionState,
-      backends: facadeBackends,
-      recoveryPhase: mobileRecoveryPhase,
-    })
-    : recoveryIsConnected;
+  const isConnected = isMobileBackendUsable({
+    backendId: activeServerId,
+    connectionState: facadeConnectionState,
+    backends: facadeBackends,
+    recoveryPhase: mobileRecoveryPhase,
+  });
 
   useEffect(() => {
     if (!isConnected) return;

@@ -293,7 +293,9 @@ describe('SessionChatWindow', () => {
   });
 
   it('loads data and renders ChatInterface when connected', async () => {
-    mockRecoveryStatus = 'ready';
+    mockFacadeConnectionState = 'connected';
+    mockFacadeBackends = [{ backendId: 'backend-1', runtimeState: 'ready' }];
+    mockMobileRecoveryPhase = 'ready';
 
     const { container } = render(
       <SessionChatWindow
@@ -320,7 +322,9 @@ describe('SessionChatWindow', () => {
   });
 
   it('passes sessionId to ChatInterface', async () => {
-    mockRecoveryStatus = 'ready';
+    mockFacadeConnectionState = 'connected';
+    mockFacadeBackends = [{ backendId: 'backend-1', runtimeState: 'ready' }];
+    mockMobileRecoveryPhase = 'ready';
 
     const { container } = render(
       <SessionChatWindow
@@ -379,7 +383,9 @@ describe('SessionChatWindow', () => {
   });
 
   it('shows error state when API calls fail', async () => {
-    mockRecoveryStatus = 'ready';
+    mockFacadeConnectionState = 'connected';
+    mockFacadeBackends = [{ backendId: 'backend-1', runtimeState: 'ready' }];
+    mockMobileRecoveryPhase = 'ready';
     mockGetProjects.mockRejectedValueOnce(new Error('Server unreachable'));
 
     const { container } = render(
@@ -397,7 +403,9 @@ describe('SessionChatWindow', () => {
   });
 
   it('shows Close Window button on error', async () => {
-    mockRecoveryStatus = 'ready';
+    mockFacadeConnectionState = 'connected';
+    mockFacadeBackends = [{ backendId: 'backend-1', runtimeState: 'ready' }];
+    mockMobileRecoveryPhase = 'ready';
     mockGetProjects.mockRejectedValueOnce(new Error('Failed'));
 
     const { container } = render(
@@ -415,7 +423,9 @@ describe('SessionChatWindow', () => {
   });
 
   it('uses tauri window close for error action', async () => {
-    mockRecoveryStatus = 'ready';
+    mockFacadeConnectionState = 'connected';
+    mockFacadeBackends = [{ backendId: 'backend-1', runtimeState: 'ready' }];
+    mockMobileRecoveryPhase = 'ready';
     mockGetProjects.mockRejectedValueOnce(new Error('Failed'));
 
     const { findByText } = render(

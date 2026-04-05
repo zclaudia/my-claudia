@@ -181,7 +181,8 @@ describe('ProviderManager', () => {
   });
 
   it('shows "Connect to a server first" when disconnected', async () => {
-    mockRecoveryState.backends.local.status = 'offline';
+    mockFacadeState.connectionState = 'idle';
+    mockFacadeState.backends = [];
 
     await renderProviderManager({ onClose: mockOnClose });
 

@@ -29,7 +29,6 @@ import { isLegacyLocalBackendId } from '../utils/controlPlane';
 import { useTerminalStore } from '../stores/terminalStore';
 import { xtermRegistry } from '../utils/xtermRegistry';
 import { useRecoveryStore } from '../stores/recoveryStore';
-import type { RecoveryControllerEvent } from '../services/recoveryStateMachine';
 
 // Fix #21: use WeakRef-like pattern — clear on each facade lifecycle
 let facadeServerRuns = new Map<string, Set<string>>();
@@ -105,7 +104,7 @@ function getOrCreateDirectDeviceId(): string {
  * Call this once at the app root (e.g. in ConnectionProvider).
  * Components consume facade state from useFacadeStore.
  */
-export function useBackendFacade(dispatchRecoveryEvent: (event: RecoveryControllerEvent) => void): void {
+export function useBackendFacade(): void {
   const facadeRef = useRef<BackendFacade | null>(null);
   const unsubEventRef = useRef<(() => void) | null>(null);
 
@@ -165,7 +164,7 @@ export function useBackendFacade(dispatchRecoveryEvent: (event: RecoveryControll
     unsubEventRef.current = facade.onEvent((event: BackendFacadeEvent) => {
       useFacadeStore.getState().applyEvent(event);
       useRecoveryStore.getState().noteTransportMessage();
-      syncToGatewayStore(event, dispatchRecoveryEvent);
+      syncToGatewayStore(event);
     });
 
     // Connect
@@ -191,7 +190,6 @@ export function useBackendFacade(dispatchRecoveryEvent: (event: RecoveryControll
  */
 export function syncToGatewayStore(
   event: BackendFacadeEvent,
-  dispatchRecoveryEvent: (event: RecoveryControllerEvent) => void = () => {},
 ): void {
   const gwStore = useGatewayStore.getState();
   const serverState = useServerStore.getState();
@@ -199,7 +197,6 @@ export function syncToGatewayStore(
   switch (event.type) {
     case 'snapshot_updated': {
       const snapshot = event.snapshot;
-      useRecoveryStore.getState().applySnapshot(snapshot);
       gwStore.setConnected(snapshot.connectionState === 'connected');
       const resolvedLocalBackendId =
         snapshot.localBackendId
@@ -249,39 +246,21 @@ export function syncToGatewayStore(
 
         scheduleAutoOpenBackends(toOpen);
       }
-      dispatchRecoveryEvent({ type: 'facade_snapshot' });
       break;
     }
 
     case 'connection_state_changed':
-      useRecoveryStore.getState().setTransportState(event.state, event.error ?? null);
       gwStore.setConnected(event.state === 'connected');
+      useRecoveryStore.getState().setTransportState(event.state, event.error);
       if (event.state !== 'connected') {
         for (const backend of useFacadeStore.getState().backends) {
           cleanupServerSyncState(backend.backendId);
           cleanupServerSyncState(`gw:${backend.backendId}`);
         }
       }
-      dispatchRecoveryEvent({ type: 'transport_changed' });
       break;
 
     case 'backend_state_changed': {
-      const recoveryStore = useRecoveryStore.getState();
-      if (event.state === 'ready') {
-        recoveryStore.applySnapshot(useFacadeStore.getState().facade?.getSnapshot?.() ?? {
-          snapshotVersion: useFacadeStore.getState().snapshotVersion,
-          capturedAt: Date.now(),
-          mode: useFacadeStore.getState().mode ?? 'embedded',
-          connectionState: useFacadeStore.getState().connectionState,
-          localBackendId: useFacadeStore.getState().localBackendId,
-          currentInstanceId: useFacadeStore.getState().currentInstanceId,
-          currentDeviceId: useFacadeStore.getState().currentDeviceId,
-          backends: useFacadeStore.getState().backends,
-          sessionStreams: useFacadeStore.getState().sessionStreams,
-        });
-        recoveryStore.startBackendRecovery(event.backendId);
-      }
-
       if (event.state === 'offline' || event.state === 'error') {
         cleanupServerSyncState(event.backendId);
         cleanupServerSyncState(`gw:${event.backendId}`);
@@ -312,11 +291,10 @@ export function syncToGatewayStore(
           message: `Backend ${event.backendId} 连接断开，正在等待恢复${event.error ? `: ${event.error}` : ''}`,
         });
       }
-      dispatchRecoveryEvent({ type: 'backend_state_changed' });
       break;
     }
 
-    // --- Backend data events → sessionsStore + recoveryStore ---
+    // --- Backend data events → sessionsStore ---
     case 'backend_data_snapshot': {
       const { backendId, sessions, projects } = event;
       const activeItems = sessions.filter((item) => !item.archived);
@@ -344,7 +322,6 @@ export function syncToGatewayStore(
         activeItems.map(item => item.sessionId),
         ownershipVersion,
       );
-      dispatchRecoveryEvent({ type: 'reconcile' });
       break;
     }
 

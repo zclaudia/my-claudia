@@ -13,21 +13,21 @@ vi.mock('../../services/appLifecycleManager', () => ({
   },
 }));
 
-import { useMobileRecoveryLifecycle } from '../useMobileRecoveryLifecycle';
+import { useRecoveryLifecycle } from '../useRecoveryLifecycle';
 
-describe('useMobileRecoveryLifecycle', () => {
+describe('useRecoveryLifecycle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('registers lifecycle callbacks when enabled', () => {
+  it('registers lifecycle callbacks when facade is present', () => {
     const facade = {} as any;
     const manager = {
       start: vi.fn(),
       cancel: vi.fn(),
     } as any;
 
-    renderHook(() => useMobileRecoveryLifecycle(true, facade, manager));
+    renderHook(() => useRecoveryLifecycle(facade, manager));
 
     expect(startMock).toHaveBeenCalledOnce();
     const [, options] = startMock.mock.calls[0];
@@ -40,17 +40,8 @@ describe('useMobileRecoveryLifecycle', () => {
     expect(manager.cancel).toHaveBeenCalledTimes(2);
   });
 
-  it('does nothing when disabled', () => {
-    renderHook(() => useMobileRecoveryLifecycle(false, {} as any, {
-      start: vi.fn(),
-      cancel: vi.fn(),
-    } as any));
-
-    expect(startMock).not.toHaveBeenCalled();
-  });
-
   it('does nothing when facade is missing', () => {
-    renderHook(() => useMobileRecoveryLifecycle(true, null, {
+    renderHook(() => useRecoveryLifecycle(null, {
       start: vi.fn(),
       cancel: vi.fn(),
     } as any));
@@ -67,10 +58,9 @@ describe('useMobileRecoveryLifecycle', () => {
     } as any;
 
     const { rerender } = renderHook(
-      ({ enabled, facade }) => useMobileRecoveryLifecycle(enabled, facade, manager),
+      ({ facade }) => useRecoveryLifecycle(facade, manager),
       {
         initialProps: {
-          enabled: true,
           facade: facadeA as any,
         },
       },
@@ -79,7 +69,6 @@ describe('useMobileRecoveryLifecycle', () => {
     expect(startMock).toHaveBeenCalledTimes(1);
 
     rerender({
-      enabled: true,
       facade: facadeB as any,
     });
 
@@ -88,7 +77,7 @@ describe('useMobileRecoveryLifecycle', () => {
   });
 
   it('stops the lifecycle on unmount', () => {
-    const { unmount } = renderHook(() => useMobileRecoveryLifecycle(true, {} as any, {
+    const { unmount } = renderHook(() => useRecoveryLifecycle({} as any, {
       start: vi.fn(),
       cancel: vi.fn(),
     } as any));

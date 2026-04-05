@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useServerStore } from '../stores/serverStore';
-import { useRecoveryStore } from '../stores/recoveryStore';
 import { useFacadeStore } from '../stores/facadeStore';
 import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
-import { useGatewayStore, shouldShowNonCurrentInstanceBackend } from '../stores/gatewayStore';
+import { useGatewayStore } from '../stores/gatewayStore';
 import { useUIStore, type FontSizePreset } from '../stores/uiStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
@@ -27,9 +26,8 @@ import { AgentSettings } from './settings/AgentSettings';
 import { PermissionSettings } from './settings/PermissionSettings';
 import { NotificationSettingsInline } from './settings/NotificationSettings';
 import { MobileGatewayConfig } from './settings/MobileGatewayConfig';
-import { isAndroid, isMacOS, isTauri } from '../utils/platform';
+import { isMacOS, isTauri } from '../utils/platform';
 import { useControlPlaneMode } from '../hooks/useControlPlaneMode';
-import type { BackendRecoveryViewState } from '../stores/recoveryStore';
 import {
   getMobileBackendViewState,
   getVisibleMobileBackends,
@@ -37,13 +35,11 @@ import {
   type MobileBackendViewState,
 } from '../services/mobileConnectionState';
 
-function getViewStateLabel(viewState: BackendRecoveryViewState | MobileBackendViewState): string | null {
+function getViewStateLabel(viewState: MobileBackendViewState): string | null {
   switch (viewState) {
     case 'transport_reconnecting':
       return 'Reconnecting';
     case 'backend_subscribing':
-    case 'data_syncing':
-    case 'session_syncing':
       return 'Connecting';
     case 'backend_visible':
       return 'Idle';
@@ -64,7 +60,6 @@ interface SettingsPanelProps {
 }
 
 export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
-  const mobileRecoveryEnabled = isAndroid();
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [openCodeImportDialogOpen, setOpenCodeImportDialogOpen] = useState(false);
@@ -101,28 +96,17 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const currentInstanceId = useFacadeStore((s) => s.currentInstanceId);
   const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
   const activeServer = facadeBackends.find(b => b.backendId === activeServerId) ?? null;
-  const recoveryIsConnected = useRecoveryStore((s) => {
-    if (mobileRecoveryEnabled || !activeServerId) return false;
-    return s.backends[activeServerId]?.status === 'ready';
+  const isConnected = isMobileBackendUsable({
+    backendId: activeServerId,
+    connectionState: facadeConnectionState,
+    backends: facadeBackends,
+    recoveryPhase: mobileRecoveryPhase,
   });
-  const isConnected = mobileRecoveryEnabled
-    ? isMobileBackendUsable({
-      backendId: activeServerId,
-      connectionState: facadeConnectionState,
-      backends: facadeBackends,
-      recoveryPhase: mobileRecoveryPhase,
-    })
-    : recoveryIsConnected;
-  const getRecoveryBackendViewState = useRecoveryStore((s) => (
-    mobileRecoveryEnabled ? null : s.getBackendViewState
-  ));
   const isActiveLocalBackend = !!activeServerId && (
     activeServerId === localBackendId || activeServer?.isThisInstance === true
   );
   const isEmbeddedLocalMode = controlPlaneMode === 'embedded-local';
-  const visibleGatewayBackends = mobileRecoveryEnabled
-    ? getVisibleMobileBackends(facadeBackends, mobileRecoveryPhase, currentInstanceId, showLocalBackend)
-    : facadeBackends.filter(b => shouldShowNonCurrentInstanceBackend(b, currentInstanceId, showLocalBackend));
+  const visibleGatewayBackends = getVisibleMobileBackends(facadeBackends, mobileRecoveryPhase, currentInstanceId, showLocalBackend);
 
   // SDK version check
   const localServerPort = useServerStore((s) => s.localServerPort);
@@ -263,14 +247,12 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   }, [activeTab, isEmbeddedLocalMode]);
 
   const handleBackendSwitch = (backend: GatewayBackendInfo) => {
-    const viewState = mobileRecoveryEnabled
-      ? getMobileBackendViewState(
-        backend.backendId,
-        facadeConnectionState,
-        facadeBackends,
-        mobileRecoveryPhase,
-      )
-      : getRecoveryBackendViewState?.(backend.backendId) ?? 'offline';
+    const viewState = getMobileBackendViewState(
+      backend.backendId,
+      facadeConnectionState,
+      facadeBackends,
+      mobileRecoveryPhase,
+    );
     if (viewState !== 'ready') return;
     const serverId = backend.backendId;
     setActiveServer(serverId);
@@ -564,18 +546,16 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                           {visibleGatewayBackends.map((backend) => {
                             const gwId = backend.backendId;
                             const isActive = activeServerId === gwId;
-                            const viewState = mobileRecoveryEnabled
-                              ? getMobileBackendViewState(
-                                gwId,
-                                facadeConnectionState,
-                                facadeBackends,
-                                mobileRecoveryPhase,
-                              )
-                              : getRecoveryBackendViewState?.(gwId) ?? 'offline';
+                            const viewState = getMobileBackendViewState(
+                              gwId,
+                              facadeConnectionState,
+                              facadeBackends,
+                              mobileRecoveryPhase,
+                            );
                             const isReachable = viewState === 'ready';
                             const statusColor = viewState === 'ready'
                               ? 'bg-success'
-                              : viewState === 'transport_reconnecting' || viewState === 'backend_subscribing' || viewState === 'data_syncing' || viewState === 'session_syncing'
+                              : viewState === 'transport_reconnecting' || viewState === 'backend_subscribing'
                               ? 'bg-warning animate-pulse'
                               : viewState === 'backend_visible'
                               ? 'bg-warning'

@@ -168,19 +168,10 @@ describe('ServerSelector', () => {
   });
 
   it('shows connecting status', () => {
-    useServerStore.setState({
-      connections: {
-        local: { status: 'connecting', error: null, isLocalConnection: true, features: [] },
-      },
+    useFacadeStore.setState({
+      connectionState: 'connecting',
+      backends: [{ backendId: 'local', runtimeState: 'visible', name: 'Local Server', isThisInstance: true }],
     } as any);
-    useRecoveryStore.setState((state) => ({
-      ...state,
-      coordinator: 'recovering',
-      transport: {
-        ...state.transport,
-        status: 'connecting',
-      },
-    }));
 
     const { container } = render(<ServerSelector />);
     const button = container.querySelector('[data-testid="server-selector"]')!;
@@ -208,7 +199,7 @@ describe('ServerSelector', () => {
     expect(container.textContent).toContain('Local Server');
   });
 
-  it('updates dropdown status when recovery state changes after open', () => {
+  it('updates dropdown status when facade connection state changes after open', () => {
     const { container, rerender } = render(<ServerSelector />);
     const button = container.querySelector('[data-testid="server-selector"]')!;
     fireEvent.click(button);
@@ -216,14 +207,10 @@ describe('ServerSelector', () => {
     expect(container.querySelector('[data-testid="connection-status"]')!.textContent).toBe('Connected');
 
     act(() => {
-      useRecoveryStore.setState((state) => ({
-        ...state,
-        coordinator: 'recovering',
-        transport: {
-          ...state.transport,
-          status: 'reconnecting',
-        },
-      }));
+      useFacadeStore.setState({
+        connectionState: 'connecting',
+        backends: [{ backendId: 'local', runtimeState: 'visible', name: 'Local Server', isThisInstance: true }],
+      } as any);
     });
 
     rerender(<ServerSelector />);

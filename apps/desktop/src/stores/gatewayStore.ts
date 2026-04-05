@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { GatewayBackendInfo, BackendSnapshot } from '@my-claudia/shared';
-import { useFacadeStore } from './facadeStore';
+
 
 export type BackendAuthStatus = 'authenticated' | 'pending' | 'failed';
 export const GATEWAY_SERVER_PREFIX = 'gw:';
@@ -35,7 +35,6 @@ interface GatewayState {
   directGatewayUrl: string | null;
   directGatewaySecret: string | null;
   lastActiveBackendId: string | null;
-  subscribedBackendIds: string[];
   showLocalBackend: boolean;
 
   // ---------------------------------------------------------------------------
@@ -51,8 +50,6 @@ interface GatewayState {
   setDirectGatewayConfig: (url: string, secret: string) => void;
   setLastActiveBackend: (serverId: string | null) => void;
   clearDirectGatewayConfig: () => void;
-  toggleBackendSubscription: (backendId: string) => void;
-  isBackendSubscribed: (backendId: string) => boolean;
   setShowLocalBackend: (show: boolean) => void;
 
   // Getters
@@ -94,9 +91,6 @@ export const useGatewayStore = create<GatewayState>()(
       directGatewayUrl: null,
       directGatewaySecret: null,
       lastActiveBackendId: null,
-
-      // Backend subscription (persisted) — empty = all subscribed
-      subscribedBackendIds: [],
 
       // Dev debug
       showLocalBackend: false,
@@ -151,31 +145,6 @@ export const useGatewayStore = create<GatewayState>()(
         });
       },
 
-      toggleBackendSubscription: (backendId) => {
-        set((state) => {
-          const current = state.subscribedBackendIds;
-          if (current.length === 0) {
-            // Currently "all subscribed" — switch to explicit list excluding this one
-            const facadeIds = useFacadeStore.getState().backends.map(b => b.backendId);
-            return { subscribedBackendIds: facadeIds.filter(id => id !== backendId) };
-          }
-          if (current.includes(backendId)) {
-            // Unsubscribe
-            const updated = current.filter(id => id !== backendId);
-            // If removing last one would make list empty, keep at least one
-            return { subscribedBackendIds: updated };
-          }
-          // Subscribe
-          return { subscribedBackendIds: [...current, backendId] };
-        });
-      },
-
-      isBackendSubscribed: (backendId) => {
-        const { subscribedBackendIds } = get();
-        // Empty array = all subscribed
-        return subscribedBackendIds.length === 0 || subscribedBackendIds.includes(backendId);
-      },
-
       isConfigured: () => {
         const state = get();
         return !!state.gatewayUrl && !!state.gatewaySecret;
@@ -193,7 +162,6 @@ export const useGatewayStore = create<GatewayState>()(
         directGatewayUrl: state.directGatewayUrl,
         directGatewaySecret: state.directGatewaySecret,
         lastActiveBackendId: state.lastActiveBackendId,
-        subscribedBackendIds: state.subscribedBackendIds,
       }),
       migrate: (persisted: any, version: number) => {
         if (version < 2) {
@@ -204,10 +172,7 @@ export const useGatewayStore = create<GatewayState>()(
           delete persisted.backendApiKeys;
         }
         // v4: adds directGatewayUrl, directGatewaySecret, lastActiveBackendId
-        // v5: adds subscribedBackendIds (defaults to [] = all subscribed)
-        if (version < 5) {
-          persisted.subscribedBackendIds = [];
-        }
+        // v5: subscribedBackendIds removed (was unused notification filter)
         return persisted;
       }
     }

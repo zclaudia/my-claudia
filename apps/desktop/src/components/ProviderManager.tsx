@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { ChevronDown, Check } from 'lucide-react';
 import type { ProviderConfig } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
-import { useRecoveryStore } from '../stores/recoveryStore';
 import { useFacadeStore } from '../stores/facadeStore';
 import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import { useProjectStore } from '../stores/projectStore';
@@ -10,7 +9,6 @@ import { useProviderMetaStore } from '../stores/providerMetaStore';
 import * as api from '../services/api';
 import { useAndroidBack } from '../hooks/useAndroidBack';
 import { isMobileBackendUsable } from '../services/mobileConnectionState';
-import { isAndroid } from '../utils/platform';
 
 /** Lightweight PCP capability summary for UI display (mirrors server manifests) */
 type CapLevel = 'strict' | 'best_effort' | 'none';
@@ -65,23 +63,16 @@ interface ProviderManagerProps {
 }
 
 export function ProviderManager({ isOpen, onClose, inline = false }: ProviderManagerProps) {
-  const mobileRecoveryEnabled = isAndroid();
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const recoveryIsConnected = useRecoveryStore((s) => {
-    if (mobileRecoveryEnabled || !activeServerId) return false;
-    return s.backends[activeServerId]?.status === 'ready';
-  });
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const facadeBackends = useFacadeStore((s) => s.backends);
   const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
-  const isConnected = mobileRecoveryEnabled
-    ? isMobileBackendUsable({
-      backendId: activeServerId,
-      connectionState: facadeConnectionState,
-      backends: facadeBackends,
-      recoveryPhase: mobileRecoveryPhase,
-    })
-    : recoveryIsConnected;
+  const isConnected = isMobileBackendUsable({
+    backendId: activeServerId,
+    connectionState: facadeConnectionState,
+    backends: facadeBackends,
+    recoveryPhase: mobileRecoveryPhase,
+  });
   const storeProviders = useProviderMetaStore((s) => s.getProviders(activeServerId));
 
   const [providers, setProviders] = useState<ProviderConfig[]>([]);

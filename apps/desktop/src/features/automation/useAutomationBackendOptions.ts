@@ -2,11 +2,10 @@ import { useMemo } from 'react';
 import type { BackendSnapshot } from '@my-claudia/shared';
 import { useFacadeStore } from '../../stores/facadeStore';
 import { useServerStore } from '../../stores/serverStore';
-import { useRecoveryStore, type BackendRecoveryViewState } from '../../stores/recoveryStore';
 import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import { isLocalBackendId } from '../../utils/controlPlane';
 import { getMobileBackendViewState, type MobileBackendViewState } from '../../services/mobileConnectionState';
-import { isAndroid } from '../../utils/platform';
+import type { BackendRecoveryViewState } from '../../stores/recoveryStore';
 
 export interface AutomationBackendOption {
   backendId: string;
@@ -39,26 +38,20 @@ export function resolveInitialAutomationBackendId(params: {
 }
 
 export function useAutomationBackendOptions(): AutomationBackendOption[] {
-  const mobileRecoveryEnabled = isAndroid();
   const backends = useFacadeStore((state) => state.backends);
   const facadeConnectionState = useFacadeStore((state) => state.connectionState);
   const connections = useServerStore((state) => state.connections);
-  const getRecoveryBackendViewState = useRecoveryStore((s) => (
-    mobileRecoveryEnabled ? null : s.getBackendViewState
-  ));
   const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
 
   return useMemo(
     () =>
       backends.map((backend) => {
-        const viewState = mobileRecoveryEnabled
-          ? getMobileBackendViewState(
-            backend.backendId,
-            facadeConnectionState,
-            backends,
-            mobileRecoveryPhase,
-          )
-          : getRecoveryBackendViewState?.(backend.backendId) ?? 'offline';
+        const viewState = getMobileBackendViewState(
+          backend.backendId,
+          facadeConnectionState,
+          backends,
+          mobileRecoveryPhase,
+        );
         return {
           backendId: backend.backendId,
           name: backend.name,
@@ -70,6 +63,6 @@ export function useAutomationBackendOptions(): AutomationBackendOption[] {
           backend,
         };
       }),
-    [backends, connections, facadeConnectionState, getRecoveryBackendViewState, mobileRecoveryEnabled, mobileRecoveryPhase],
+    [backends, connections, facadeConnectionState, mobileRecoveryPhase],
   );
 }

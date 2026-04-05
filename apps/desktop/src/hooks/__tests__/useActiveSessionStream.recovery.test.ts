@@ -5,7 +5,6 @@ import { useFacadeStore } from '../../stores/facadeStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useOwnershipStore } from '../../stores/ownershipStore';
-import { useRecoveryStore } from '../../stores/recoveryStore';
 import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 
 describe('useActiveSessionStream recovery gating', () => {
@@ -62,49 +61,23 @@ describe('useActiveSessionStream recovery gating', () => {
       projectBackendIds: {},
       taskOwners: {},
     } as any);
-    useRecoveryStore.setState({
-      coordinator: 'recovering',
-      transport: {
-        status: 'connected',
-        mode: 'direct',
-        generation: 1,
-        error: null,
-        peerSessionId: null,
-        statusEnteredAt: Date.now(),
-      },
-      activeBackendId: 'backend-1',
-      selectedSessionId: 'session-1',
-      backends: {},
-      dataSyncs: {},
-      activeSession: {
-        sessionId: 'session-1',
-        status: 'waiting_backend_ready',
-        backendId: 'backend-1',
-        ownershipVersion: 1,
-        lastError: null,
-        hasGapMarker: false,
-        statusEnteredAt: Date.now(),
-      },
-      nextOwnershipVersion: 2,
-      backgroundAt: null,
-    } as any);
     useMobileRecoveryStore.setState({
-      phase: 'idle',
-      step: null,
+      phase: 'recovering',
+      step: 'backend',
       activeBackendId: 'backend-1',
       selectedSessionId: 'session-1',
       currentJob: {
-        jobId: null,
-        status: 'idle',
-        reason: null,
-        startedAt: null,
+        jobId: 1,
+        status: 'running',
+        reason: 'resume',
+        startedAt: Date.now(),
         finishedAt: null,
       },
       lastError: null,
     });
   });
 
-  it('defers backend and stream maintenance while the recovery coordinator owns the selected session', () => {
+  it('defers backend and stream maintenance while the recovery job owns the selected session', () => {
     renderHook(() => useActiveSessionStream());
 
     expect(facade.openBackend).not.toHaveBeenCalled();
@@ -116,14 +89,20 @@ describe('useActiveSessionStream recovery gating', () => {
     const { rerender } = renderHook(() => useActiveSessionStream());
 
     act(() => {
-      useRecoveryStore.setState((state) => ({
-        ...state,
-        coordinator: 'ready',
-        activeSession: {
-          ...state.activeSession,
-          status: 'live',
+      useMobileRecoveryStore.setState({
+        phase: 'ready',
+        step: null,
+        activeBackendId: 'backend-1',
+        selectedSessionId: 'session-1',
+        currentJob: {
+          jobId: 1,
+          status: 'completed',
+          reason: 'resume',
+          startedAt: Date.now(),
+          finishedAt: Date.now(),
         },
-      }));
+        lastError: null,
+      });
     });
 
     rerender();
@@ -131,15 +110,7 @@ describe('useActiveSessionStream recovery gating', () => {
     expect(facade.openSessionStream).toHaveBeenCalledWith('backend-1', 'session-1');
   });
 
-  it('defers backend and stream maintenance while the mobile recovery job owns the selected session', () => {
-    useRecoveryStore.setState((state) => ({
-      ...state,
-      coordinator: 'ready',
-      activeSession: {
-        ...state.activeSession,
-        status: 'live',
-      },
-    }));
+  it('defers backend and stream maintenance while the mobile recovery job owns the selected session (session step)', () => {
     useMobileRecoveryStore.setState({
       phase: 'recovering',
       step: 'session',

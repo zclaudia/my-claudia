@@ -3,15 +3,14 @@ import type { BackendFacade } from '@my-claudia/shared';
 import { appLifecycleManager } from '../services/appLifecycleManager';
 import type { RecoveryJobManager } from '../services/recoveryJobManager';
 
-export function useMobileRecoveryLifecycle(
-  enabled: boolean,
+export function useRecoveryLifecycle(
   facade: BackendFacade | null,
   manager: RecoveryJobManager,
 ): void {
   const initialRecoveryFired = useRef(false);
 
   useEffect(() => {
-    if (!enabled || !facade) return;
+    if (!facade) return;
 
     // Fire initial recovery on cold start (not just resume)
     if (!initialRecoveryFired.current) {
@@ -32,5 +31,5 @@ export function useMobileRecoveryLifecycle(
     });
 
     return () => appLifecycleManager.stop();
-  }, [enabled, facade, manager]);
+  }, [facade, manager]);
 }

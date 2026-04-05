@@ -8,11 +8,9 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { xtermRegistry } from '../../utils/xtermRegistry';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useServerStore } from '../../stores/serverStore';
-import { useRecoveryStore } from '../../stores/recoveryStore';
 import { useFacadeStore } from '../../stores/facadeStore';
 import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import { isMobileBackendUsable } from '../../services/mobileConnectionState';
-import { isAndroid } from '../../utils/platform';
 
 /** Convert CSS HSL string "H S% L%" to hex "#rrggbb" */
 function hslToHex(hsl: string): string {
@@ -69,7 +67,6 @@ interface XTerminalProps {
 }
 
 export function XTerminal({ terminalId, projectId, workingDirectory, mode = 'open' }: XTerminalProps) {
-  const mobileRecoveryEnabled = isAndroid();
   const containerRef = useRef<HTMLDivElement>(null);
   const { sendMessage, connectServer } = useConnection();
   const { resolvedTheme } = useTheme();
@@ -78,33 +75,17 @@ export function XTerminal({ terminalId, projectId, workingDirectory, mode = 'ope
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const clearNeedsReattach = useTerminalStore((s) => s.clearNeedsReattach);
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const recoveryActiveServerStatus = useRecoveryStore((s) => {
-    if (mobileRecoveryEnabled) return 'disconnected' as const;
-    if (!activeServerId) return 'disconnected' as const;
-    const backend = s.backends[activeServerId];
-    if (!backend) return 'disconnected' as const;
-    switch (backend.status) {
-      case 'ready': return 'connected' as const;
-      case 'subscribing': return 'connecting' as const;
-      case 'error': return 'error' as const;
-      default: return 'disconnected' as const;
-    }
-  });
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const facadeBackends = useFacadeStore((s) => s.backends);
   const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
-  const activeServerStatus = mobileRecoveryEnabled
-    ? (
-      isMobileBackendUsable({
-        backendId: activeServerId,
-        connectionState: facadeConnectionState,
-        backends: facadeBackends,
-        recoveryPhase: mobileRecoveryPhase,
-      })
-        ? 'connected'
-        : (facadeConnectionState === 'error' ? 'error' : 'disconnected')
-    )
-    : recoveryActiveServerStatus;
+  const activeServerStatus = isMobileBackendUsable({
+    backendId: activeServerId,
+    connectionState: facadeConnectionState,
+    backends: facadeBackends,
+    recoveryPhase: mobileRecoveryPhase,
+  })
+    ? 'connected'
+    : (facadeConnectionState === 'error' ? 'error' : 'disconnected');
 
   const focusTerminal = (requireVisible = true) => {
     const terminal = terminalRef.current;

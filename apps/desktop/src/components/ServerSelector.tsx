@@ -6,13 +6,12 @@ import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import type { BackendSnapshot } from '@my-claudia/shared';
-import { useRecoveryStore, type BackendRecoveryViewState } from '../stores/recoveryStore';
+import type { BackendRecoveryViewState } from '../stores/recoveryStore';
 import {
   getMobileBackendViewState,
   isMobileGatewayConnected,
   type MobileBackendViewState,
 } from '../services/mobileConnectionState';
-import { isAndroid } from '../utils/platform';
 
 function formatLatency(latencyMs?: number | null): string | null {
   if (latencyMs == null) return null;
@@ -20,32 +19,19 @@ function formatLatency(latencyMs?: number | null): string | null {
 }
 
 export function ServerSelector() {
-  const mobileRecoveryEnabled = isAndroid();
   const activeServerId = useServerStore((s) => s.activeServerId);
   const connections = useServerStore((s) => s.connections);
   const setActiveServer = useServerStore((s) => s.setActiveServer);
 
   const gatewayUrl = useGatewayStore((s) => s.gatewayUrl);
   const gatewaySecret = useGatewayStore((s) => s.gatewaySecret);
-  const isGatewayConnected = useGatewayStore((s) => s.isConnected);
   const setLastActiveBackend = useGatewayStore((s) => s.setLastActiveBackend);
-  const toggleBackendSubscription = useGatewayStore((s) => s.toggleBackendSubscription);
-  const isBackendSubscribed = useGatewayStore((s) => s.isBackendSubscribed);
   const showLocalBackend = useGatewayStore((s) => s.showLocalBackend);
 
   const { connectServer } = useConnection();
   const isMobile = useIsMobile();
 
   const [isOpen, setIsOpen] = useState(false);
-  const getBackendViewState = useRecoveryStore((s) => (
-    mobileRecoveryEnabled ? null : s.getBackendViewState
-  ));
-  const recoveryTransportError = useRecoveryStore((s) => (
-    mobileRecoveryEnabled ? null : s.transport.error
-  ));
-  const recoveryBackendErrors = useRecoveryStore((s) => (
-    mobileRecoveryEnabled ? null : s.backends
-  ));
   const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
 
   const backends = useFacadeStore((s) => s.backends);
@@ -61,17 +47,11 @@ export function ServerSelector() {
   const displayedBackend = activeBackend || fallbackBackend;
   const displayedBackendId = displayedBackend?.backendId ?? activeServerId ?? null;
   const getViewState = (backendId: string | null | undefined): BackendRecoveryViewState | MobileBackendViewState => (
-    mobileRecoveryEnabled
-      ? getMobileBackendViewState(backendId, facadeConnectionState, backends, mobileRecoveryPhase)
-      : getBackendViewState?.(backendId) ?? 'offline'
+    getMobileBackendViewState(backendId, facadeConnectionState, backends, mobileRecoveryPhase)
   );
   const activeRecoveryState = getViewState(displayedBackendId);
-  const activeRecoveryError = displayedBackendId
-    ? (recoveryBackendErrors?.[displayedBackendId]?.lastError ?? recoveryTransportError)
-    : null;
-  const isGatewayReady = mobileRecoveryEnabled
-    ? isMobileGatewayConnected(facadeConnectionState, mobileRecoveryPhase)
-    : isGatewayConnected;
+  const activeRecoveryError: string | null = null;
+  const isGatewayReady = isMobileGatewayConnected(facadeConnectionState, mobileRecoveryPhase);
   const isGatewayConfigured = !!gatewayUrl && !!gatewaySecret;
   // Show all backends in the dropdown. When the active server is remote,
   // the local backend must be visible so the user can switch back.
@@ -199,11 +179,11 @@ export function ServerSelector() {
                       key={backend.backendId}
                       backend={backend}
                       isActive={activeServerId === backend.backendId}
-                      isSubscribed={isBackendSubscribed(backend.backendId)}
+
                       latencyMs={connections[backend.backendId]?.latencyMs}
                       recoveryViewState={getViewState(backend.backendId)}
                       onClick={() => handleBackendClick(backend)}
-                      onToggleSubscription={() => toggleBackendSubscription(backend.backendId)}
+
                     />
                   );
                   // Only show group headers when there are items in both groups
@@ -249,19 +229,15 @@ export function ServerSelector() {
 function GatewayBackendItem({
   backend,
   isActive,
-  isSubscribed,
   latencyMs,
   recoveryViewState,
   onClick,
-  onToggleSubscription
 }: {
   backend: BackendSnapshot;
   isActive: boolean;
-  isSubscribed: boolean;
   latencyMs?: number | null;
   recoveryViewState: BackendRecoveryViewState | MobileBackendViewState;
   onClick: () => void;
-  onToggleSubscription: () => void;
 }) {
   const isReachable = recoveryViewState !== 'offline';
   const statusColor = recoveryViewState === 'ready'
@@ -313,19 +289,6 @@ function GatewayBackendItem({
             {offlineLabel}
           </span>
         )}
-        <button
-          onClick={(e) => { e.stopPropagation(); onToggleSubscription(); }}
-          className={`p-1 rounded transition-colors flex-shrink-0 ${
-            isSubscribed
-              ? 'text-primary hover:text-primary/70'
-              : 'text-muted-foreground/30 hover:text-muted-foreground/60'
-          }`}
-          title={isSubscribed ? 'Subscribed to notifications (click to unsubscribe)' : 'Not subscribed (click to subscribe)'}
-        >
-          <svg className="w-3.5 h-3.5" fill={isSubscribed ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-          </svg>
-        </button>
       </div>
       <div className="text-xs text-muted-foreground truncate ml-4 mt-0.5">
         {backend.backendId}

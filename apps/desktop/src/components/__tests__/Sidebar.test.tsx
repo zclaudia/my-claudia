@@ -72,6 +72,7 @@ import { useRecoveryStore } from '../../stores/recoveryStore';
 import { useFacadeStore } from '../../stores/facadeStore';
 import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import { useServerStore } from '../../stores/serverStore';
+import { useOwnershipStore } from '../../stores/ownershipStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { usePromptRequestStore } from '../../stores/promptRequestStore';
@@ -81,6 +82,7 @@ import { useUIStore } from '../../stores/uiStore';
 import * as api from '../../services/api';
 import { groupSessionsByWorktree } from '../sidebar/worktreeGrouping';
 import { isAndroid } from '../../utils/platform';
+import { resolveCanonicalBackendId } from '../../utils/controlPlane';
 
 vi.mock('../../utils/platform', async (importOriginal) => {
   const mod = await importOriginal<Record<string, any>>();
@@ -93,6 +95,7 @@ vi.mock('../../utils/platform', async (importOriginal) => {
 
 const baseProject = { id: 'proj-1', name: 'Project One', rootPath: '/tmp/proj1', createdAt: Date.now(), updatedAt: Date.now() };
 const baseSession = { id: 'sess-1', name: 'Session 1', projectId: 'proj-1', createdAt: Date.now(), updatedAt: Date.now() };
+const LOCAL_BACKEND_ID = 'local-standalone';
 
 function setupStores(overrides: Record<string, any> = {}) {
   useProviderMetaStore.setState({
@@ -116,18 +119,18 @@ function setupStores(overrides: Record<string, any> = {}) {
 
   useServerStore.setState({
     servers: [{ id: 'local', name: 'Local', address: 'localhost:3100', isDefault: true, createdAt: 0 }],
-    activeServerId: 'local',
+    activeServerId: LOCAL_BACKEND_ID,
     connections: {
-      local: { status: 'connected', error: null, isLocalConnection: true, features: [] },
+      [LOCAL_BACKEND_ID]: { status: 'connected', error: null, isLocalConnection: true, features: [] },
     },
     setActiveServer: vi.fn(),
-    getDefaultServer: vi.fn().mockReturnValue({ id: 'local', name: 'Local', address: 'localhost:3100' }),
+    getDefaultServer: vi.fn().mockReturnValue({ id: LOCAL_BACKEND_ID, name: 'Local', address: 'localhost:3100' }),
     ...overrides.serverStore,
   } as any);
 
   useRecoveryStore.setState({
     backends: {
-      local: {
+      [LOCAL_BACKEND_ID]: {
         status: 'ready',
       },
     },
@@ -137,8 +140,12 @@ function setupStores(overrides: Record<string, any> = {}) {
   useFacadeStore.setState({
     connectionState: 'connected',
     backends: [
-      { backendId: 'local', runtimeState: 'ready', name: 'Local' },
+      { backendId: LOCAL_BACKEND_ID, runtimeState: 'ready', name: 'Local', isThisInstance: true, channel: 'local' },
     ],
+    localBackendId: LOCAL_BACKEND_ID,
+    currentInstanceId: null,
+    currentDeviceId: null,
+    snapshotVersion: 0,
     ...overrides.facadeStore,
   } as any);
 
@@ -156,6 +163,13 @@ function setupStores(overrides: Record<string, any> = {}) {
     poppedOutSessions: new Map(),
     requestForceScrollToBottom: vi.fn(),
     ...overrides.uiStore,
+  } as any);
+
+  useOwnershipStore.setState({
+    sessionBackendIds: {},
+    sessionOwnershipVersions: {},
+    projectBackendIds: {},
+    taskOwners: {},
   } as any);
 }
 
@@ -203,6 +217,41 @@ describe('Sidebar', () => {
   it('shows project name when expanded', () => {
     const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
     expect(container.textContent).toContain('Project One');
+  });
+
+  it('only shows projects owned by the active backend', () => {
+    setupStores({
+      projectStore: {
+        projects: [
+          { ...baseProject, id: 'proj-a', name: 'Project A' },
+          { ...baseProject, id: 'proj-b', name: 'Project B' },
+        ],
+        sessions: [],
+      },
+      serverStore: {
+        activeServerId: 'backend-a',
+      },
+      recoveryStore: {
+        backends: {
+          'backend-a': { status: 'ready' },
+        },
+      },
+      facadeStore: {
+        connectionState: 'connected',
+        backends: [{ backendId: 'backend-a', runtimeState: 'ready', name: 'Backend A' }],
+      },
+    });
+    useOwnershipStore.setState({
+      projectBackendIds: {
+        'proj-a': 'backend-a',
+        'proj-b': 'backend-b',
+      },
+    } as any);
+
+    const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
+
+    expect(container.textContent).toContain('Project A');
+    expect(container.textContent).not.toContain('Project B');
   });
 
   it('shows MyClaudia header when hideHeader is false', () => {
@@ -490,10 +539,11 @@ describe('Sidebar', () => {
 
   it('disables New Project button when disconnected', () => {
     setupStores({
-      recoveryStore: {
-        backends: {
-          local: { status: 'offline' },
-        },
+      facadeStore: {
+        connectionState: 'disconnected',
+        backends: [
+          { backendId: LOCAL_BACKEND_ID, runtimeState: 'offline', name: 'Local', isThisInstance: true, channel: 'local' },
+        ],
       },
     });
     const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
@@ -974,10 +1024,11 @@ describe('Sidebar', () => {
 
   it('does not create session when disconnected', async () => {
     setupStores({
-      recoveryStore: {
-        backends: {
-          local: { status: 'offline' },
-        },
+      facadeStore: {
+        connectionState: 'disconnected',
+        backends: [
+          { backendId: LOCAL_BACKEND_ID, runtimeState: 'offline', name: 'Local', isThisInstance: true, channel: 'local' },
+        ],
       },
     });
     const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
@@ -1066,7 +1117,10 @@ describe('Sidebar', () => {
     const localBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'select-active');
     if (localBtn) {
       fireEvent.click(localBtn);
-      expect(selectionMocks.selectSessionOnBackend).toHaveBeenCalledWith('local', 'sess-1');
+      expect(selectionMocks.selectSessionOnBackend).toHaveBeenCalledWith(
+        resolveCanonicalBackendId('local', 'local'),
+        'sess-1'
+      );
     }
   });
 

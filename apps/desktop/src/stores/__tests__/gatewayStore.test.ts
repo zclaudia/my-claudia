@@ -103,50 +103,6 @@ describe('gatewayStore', () => {
     expect(state.backendAuthStatus).toEqual({});
   });
 
-  it('toggles backend subscriptions using facade backend ids when all are subscribed', () => {
-    useFacadeStore.setState({
-      backends: [
-        {
-          backendId: 'b1',
-          name: 'B1',
-          online: true,
-          runtimeState: 'ready',
-          openState: 'open',
-          channelId: 'c1',
-          instanceId: 'i1',
-          deviceId: 'd1',
-          channel: 'prod',
-          isThisInstance: false,
-          isThisDevice: false,
-          capabilities: [],
-        },
-        {
-          backendId: 'b2',
-          name: 'B2',
-          online: true,
-          runtimeState: 'ready',
-          openState: 'open',
-          channelId: 'c2',
-          instanceId: 'i2',
-          deviceId: 'd2',
-          channel: 'prod',
-          isThisInstance: false,
-          isThisDevice: false,
-          capabilities: [],
-        },
-      ],
-    });
-
-    useGatewayStore.getState().toggleBackendSubscription('b1');
-    expect(useGatewayStore.getState().subscribedBackendIds).toEqual(['b2']);
-  });
-
-  it('returns true when backend is subscribed', () => {
-    useGatewayStore.setState({ subscribedBackendIds: ['b1'] });
-    expect(useGatewayStore.getState().isBackendSubscribed('b1')).toBe(true);
-    expect(useGatewayStore.getState().isBackendSubscribed('b2')).toBe(false);
-  });
-
   it('returns true for hasDirectConfig only when both fields exist', () => {
     expect(useGatewayStore.getState().hasDirectConfig()).toBe(false);
     useGatewayStore.setState({ directGatewayUrl: 'url', directGatewaySecret: 'sec' });

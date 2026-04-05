@@ -13,13 +13,10 @@ import type { ClientMessage } from '@my-claudia/shared';
 import { useGatewayStore } from '../stores/gatewayStore';
 import { getServerGatewayStatus } from '../services/api';
 import { useFacadeStore } from '../stores/facadeStore';
-import { isBackendReady as isBackendReadyRecovery } from '../stores/recoveryStore';
 import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import { isMobileBackendUsable } from '../services/mobileConnectionState';
-import { isAndroid } from '../utils/platform';
 
 export function useGatewayConnection() {
-  const mobileRecoveryEnabled = isAndroid();
   const facade = useFacadeStore((s) => s.facade);
 
   // Poll server gateway status and sync to store
@@ -76,16 +73,13 @@ export function useGatewayConnection() {
 
   const isBackendConnected = useCallback((backendId: string) => {
     if (!facade) return false;
-    if (mobileRecoveryEnabled) {
-      return isMobileBackendUsable({
-        backendId,
-        connectionState: useFacadeStore.getState().connectionState,
-        backends: useFacadeStore.getState().backends,
-        recoveryPhase: useMobileRecoveryStore.getState().phase,
-      });
-    }
-    return isBackendReadyRecovery(backendId);
-  }, [facade, mobileRecoveryEnabled]);
+    return isMobileBackendUsable({
+      backendId,
+      connectionState: useFacadeStore.getState().connectionState,
+      backends: useFacadeStore.getState().backends,
+      recoveryPhase: useMobileRecoveryStore.getState().phase,
+    });
+  }, [facade]);
 
   const disconnectGateway = useCallback(() => {
     facade?.disconnect();

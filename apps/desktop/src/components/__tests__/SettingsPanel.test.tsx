@@ -458,9 +458,9 @@ describe('SettingsPanel', () => {
           'remote-1': { status: 'connected', error: null, isLocalConnection: false, features: [] },
         },
       },
-      recoveryStore: {
-        'local-standalone': { status: 'disconnected' },
-        'remote-1': { status: 'ready' },
+      facadeStore: {
+        connectionState: 'idle',
+        backends: [],
       },
     });
     const { container } = await renderSettingsPanel();

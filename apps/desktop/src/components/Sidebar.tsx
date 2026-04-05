@@ -30,7 +30,6 @@ async function openSessionInNewWindow(sessionId: string, projectId: string) {
 import { useProjectStore } from '../stores/projectStore';
 import { useProviderMetaStore } from '../stores/providerMetaStore';
 import { useServerStore } from '../stores/serverStore';
-import { useRecoveryStore } from '../stores/recoveryStore';
 import { useFacadeStore } from '../stores/facadeStore';
 import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import { isLegacyLocalBackendId, resolveCanonicalBackendId } from '../utils/controlPlane';
@@ -67,7 +66,6 @@ import { reorderSessions } from '../services/api/sessions';
 import type { GitWorktree } from '@my-claudia/shared';
 import type { WorktreeGroup } from './sidebar/worktreeGrouping';
 import { isMobileBackendUsable } from '../services/mobileConnectionState';
-import { isAndroid } from '../utils/platform';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -94,7 +92,6 @@ export function Sidebar({
   onOpenNotifications,
   isNotificationsOpen = false,
 }: SidebarProps) {
-  const mobileRecoveryEnabled = isAndroid();
   const requestMessageJump = useUIStore((s) => s.requestMessageJump);
   const projects = useProjectStore((s) => s.projects) ?? [];
   const sessions = useProjectStore((s) => s.sessions) ?? [];
@@ -107,21 +104,15 @@ export function Sidebar({
   const storeReorderSessions = useProjectStore((s) => s.reorderSessions);
 
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const recoveryIsConnected = useRecoveryStore((s) => {
-    if (mobileRecoveryEnabled || !activeServerId) return false;
-    return s.backends[activeServerId]?.status === 'ready';
-  });
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const facadeBackends = useFacadeStore((s) => s.backends);
   const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
-  const isConnected = mobileRecoveryEnabled
-    ? isMobileBackendUsable({
-      backendId: activeServerId,
-      connectionState: facadeConnectionState,
-      backends: facadeBackends,
-      recoveryPhase: mobileRecoveryPhase,
-    })
-    : recoveryIsConnected;
+  const isConnected = isMobileBackendUsable({
+    backendId: activeServerId,
+    connectionState: facadeConnectionState,
+    backends: facadeBackends,
+    recoveryPhase: mobileRecoveryPhase,
+  });
   const scopedProviders = useProviderMetaStore((s) => s.getProviders(activeServerId));
   const providers = scopedProviders.length > 0 ? scopedProviders : legacyProviders;
   const {
@@ -201,26 +192,50 @@ export function Sidebar({
   const [expandedWorktrees, setExpandedWorktrees] = useState<Set<string>>(new Set());
   const [regularSessionsCollapsed, setRegularSessionsCollapsed] = useState<Set<string>>(new Set());
   const [worktreesByProject, setWorktreesByProject] = useState<Map<string, GitWorktree[]>>(new Map());
+  const ownershipStore = useOwnershipStore();
 
-  const settingsProject = settingsProjectId ? projects?.find(p => p.id === settingsProjectId) || null : null;
+  const visibleProjects = useMemo(() => {
+    if (!activeServerId) return projects;
+    return projects.filter((project) => {
+      const ownerBackendId = ownershipStore.getProjectBackendId(project.id);
+      return !ownerBackendId || ownerBackendId === activeServerId;
+    });
+  }, [activeServerId, ownershipStore, projects]);
+
+  const visibleProjectIds = useMemo(
+    () => new Set(visibleProjects.map((project) => project.id)),
+    [visibleProjects]
+  );
+
+  const visibleSessions = useMemo(() => {
+    if (!activeServerId) return sessions;
+    return sessions.filter((session) => {
+      const ownerBackendId =
+        ownershipStore.getSessionBackendId(session.id)
+        ?? ownershipStore.getProjectBackendId(session.projectId);
+      return (!ownerBackendId || ownerBackendId === activeServerId) && visibleProjectIds.has(session.projectId);
+    });
+  }, [activeServerId, ownershipStore, sessions, visibleProjectIds]);
+
+  const settingsProject = settingsProjectId ? visibleProjects.find(p => p.id === settingsProjectId) || null : null;
 
   const internalProjectIds = useMemo(
-    () => new Set(projects.filter(p => p.isInternal).map(p => p.id)),
-    [projects]
+    () => new Set(visibleProjects.filter(p => p.isInternal).map(p => p.id)),
+    [visibleProjects]
   );
 
   const sessionsByProject = useMemo(() => {
     const grouped = new Map<string, typeof sessions>();
-    const visibleSessions = sessions.filter(s => s.type !== 'background' && !internalProjectIds.has(s.projectId));
-    visibleSessions.forEach(session => {
+    const filteredSessions = visibleSessions.filter(s => s.type !== 'background' && !internalProjectIds.has(s.projectId));
+    filteredSessions.forEach(session => {
       const projectSessions = grouped.get(session.projectId) || [];
       projectSessions.push(session);
       grouped.set(session.projectId, projectSessions);
     });
     return grouped;
-  }, [sessions]);
+  }, [visibleSessions, internalProjectIds]);
 
-  const filteredProjects = projects.filter(p => !p.isInternal);
+  const filteredProjects = visibleProjects.filter(p => !p.isInternal);
 
   const getFilteredSessionsForProject = useCallback((projectId: string) => {
     return sessionsByProject.get(projectId) || [];
@@ -242,10 +257,10 @@ export function Sidebar({
   // Group sessions by worktree for a project
   const getWorktreeGroupsForProject = useCallback((projectId: string): WorktreeGroup[] => {
     const projectSessions = sessionsByProject.get(projectId) || [];
-    const project = projects.find(p => p.id === projectId);
+    const project = visibleProjects.find(p => p.id === projectId);
     const worktrees = worktreesByProject.get(projectId) || [];
     return groupSessionsByWorktreeFn(projectSessions, project?.rootPath, worktrees);
-  }, [sessionsByProject, projects, worktreesByProject]);
+  }, [sessionsByProject, visibleProjects, worktreesByProject]);
 
   const toggleWorktree = useCallback((key: string) => {
     setExpandedWorktrees(prev => {
@@ -259,7 +274,7 @@ export function Sidebar({
   // Auto-expand worktree group when a session is selected
   useEffect(() => {
     if (!selectedSessionId) return;
-    const session = sessions.find(s => s.id === selectedSessionId);
+    const session = visibleSessions.find(s => s.id === selectedSessionId);
     if (!session) return;
     const groups = getWorktreeGroupsForProject(session.projectId);
     if (groups.length === 0) return;
@@ -273,7 +288,7 @@ export function Sidebar({
         break;
       }
     }
-  }, [selectedSessionId, sessions, getWorktreeGroupsForProject]);
+  }, [selectedSessionId, visibleSessions, getWorktreeGroupsForProject]);
 
   const toggleRegularSessions = useCallback((projectId: string) => {
     setRegularSessionsCollapsed(prev => {

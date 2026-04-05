@@ -12,7 +12,7 @@ const {
   mockFacadeStoreState,
   mockGatewayStoreState,
   mockSetState,
-  mockIsBackendReady,
+  mockMobileRecoveryStoreState,
 } = vi.hoisted(() => {
   const mockFacade = {
     openBackend: vi.fn(),
@@ -39,17 +39,35 @@ const {
     Object.assign(mockGatewayStoreState, updates);
   });
 
-  const mockIsBackendReady = vi.fn(() => false);
+  const mockMobileRecoveryStoreState = {
+    phase: 'ready' as string,
+  };
 
-  return { mockFacade, mockFacadeStoreState, mockGatewayStoreState, mockSetState, mockIsBackendReady };
+  return { mockFacade, mockFacadeStoreState, mockGatewayStoreState, mockSetState, mockMobileRecoveryStoreState };
 });
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
 vi.mock('../../stores/facadeStore', () => ({
-  useFacadeStore: vi.fn((selector?: any) =>
-    selector ? selector(mockFacadeStoreState) : mockFacadeStoreState,
+  useFacadeStore: Object.assign(
+    vi.fn((selector?: any) =>
+      selector ? selector(mockFacadeStoreState) : mockFacadeStoreState,
+    ),
+    {
+      getState: () => mockFacadeStoreState,
+    },
+  ),
+}));
+
+vi.mock('../../stores/mobileRecoveryStore', () => ({
+  useMobileRecoveryStore: Object.assign(
+    vi.fn((selector?: any) =>
+      selector ? selector(mockMobileRecoveryStoreState) : mockMobileRecoveryStoreState,
+    ),
+    {
+      getState: () => mockMobileRecoveryStoreState,
+    },
   ),
 }));
 
@@ -79,10 +97,6 @@ vi.mock('../../services/api', () => ({
   ),
 }));
 
-vi.mock('../../stores/recoveryStore', () => ({
-  isBackendReady: (...args: any[]) => mockIsBackendReady(...args),
-}));
-
 describe('useGatewayConnection facade delegation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -97,7 +111,7 @@ describe('useGatewayConnection facade delegation', () => {
     mockFacadeStoreState.backends = [];
     mockFacadeStoreState.connectionState = 'connected';
 
-    mockIsBackendReady.mockReturnValue(false);
+    mockMobileRecoveryStoreState.phase = 'ready';
   });
 
   afterEach(() => {
@@ -125,13 +139,25 @@ describe('useGatewayConnection facade delegation', () => {
     expect(mockFacade.sendToBackend).toHaveBeenCalledWith('backend-1', message);
   });
 
-  it('isBackendConnected checks facade backends via isBackendReady', () => {
-    mockIsBackendReady.mockReturnValue(true);
+  it('isBackendConnected uses isMobileBackendUsable', () => {
+    mockFacadeStoreState.backends = [
+      { backendId: 'b1', runtimeState: 'ready' },
+    ];
+    mockMobileRecoveryStoreState.phase = 'ready';
 
     const { result } = renderHook(() => useGatewayConnection());
 
     expect(result.current.isBackendConnected('b1')).toBe(true);
-    expect(mockIsBackendReady).toHaveBeenCalledWith('b1');
+  });
+
+  it('isBackendConnected returns false when backend not ready', () => {
+    mockFacadeStoreState.backends = [
+      { backendId: 'b1', runtimeState: 'offline' },
+    ];
+
+    const { result } = renderHook(() => useGatewayConnection());
+
+    expect(result.current.isBackendConnected('b1')).toBe(false);
   });
 
   it('disconnectGateway delegates to facade.disconnect', () => {

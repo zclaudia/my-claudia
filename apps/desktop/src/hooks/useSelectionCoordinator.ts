@@ -3,19 +3,16 @@ import { useConnection } from '../contexts/ConnectionContext';
 import { useOwnershipStore } from '../stores/ownershipStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
-import { useRecoveryStore } from '../stores/recoveryStore';
 import { useFacadeStore } from '../stores/facadeStore';
 import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import { getControlPlaneMode, resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/controlPlane';
 import { isMobileBackendUsable } from '../services/mobileConnectionState';
-import { isAndroid } from '../utils/platform';
 
 interface SelectSessionOptions {
   backendId?: string | null;
 }
 
 export function useSelectionCoordinator() {
-  const mobileRecoveryEnabled = isAndroid();
   const { connectServer } = useConnection();
   const activeServerId = useServerStore((s) => s.activeServerId);
   const setActiveServer = useServerStore((s) => s.setActiveServer);
@@ -29,14 +26,12 @@ export function useSelectionCoordinator() {
     const canonicalBackendId = resolveCanonicalBackendId(backendId, resolveLocalBackendId() ?? backendId ?? null);
     if (!canonicalBackendId) return;
     if (activeServerId === canonicalBackendId) {
-      const backendReady = mobileRecoveryEnabled
-        ? isMobileBackendUsable({
-          backendId: canonicalBackendId,
-          connectionState: facadeConnectionState,
-          backends: facadeBackends,
-          recoveryPhase: mobileRecoveryPhase,
-        })
-        : useRecoveryStore.getState().backends[canonicalBackendId]?.status === 'ready';
+      const backendReady = isMobileBackendUsable({
+        backendId: canonicalBackendId,
+        connectionState: facadeConnectionState,
+        backends: facadeBackends,
+        recoveryPhase: mobileRecoveryPhase,
+      });
       if (backendReady) {
         return;
       }
@@ -52,7 +47,6 @@ export function useSelectionCoordinator() {
     connectServer,
     facadeBackends,
     facadeConnectionState,
-    mobileRecoveryEnabled,
     mobileRecoveryPhase,
     selectProjectInStore,
     selectSessionInStore,

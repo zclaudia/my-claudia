@@ -25,6 +25,10 @@ interface ActiveJob {
 // guards against all steps collectively taking too long.
 const OVERALL_JOB_TIMEOUT = 45_000;
 
+// After this many consecutive failures, stop automatic retries.
+// Manual retry() always works regardless of this limit.
+const MAX_AUTO_RETRY_FAILURES = 3;
+
 const defaultDependencies: RecoveryJobDependencies = {
   ensureTransportConnected: async () => {},
   ensureActiveBackendReady: async () => {},
@@ -35,6 +39,7 @@ export class RecoveryJobManager {
   private nextJobId = 1;
   private activeJob: ActiveJob | null = null;
   private deps: RecoveryJobDependencies;
+  private consecutiveFailures = 0;
 
   constructor(deps: Partial<RecoveryJobDependencies> = {}) {
     this.deps = {
@@ -55,13 +60,24 @@ export class RecoveryJobManager {
     const changed = prev.activeBackendId !== activeBackendId || prev.selectedSessionId !== selectedSessionId;
     useMobileRecoveryStore.getState().setSelection(activeBackendId, selectedSessionId);
 
-    // If selection changed while a job is running, cancel and restart with fresh selection
-    if (changed && this.activeJob && !this.activeJob.cancelled) {
-      this.start('backend_reconnect');
+    if (changed) {
+      // New backend/session gets a fresh retry budget
+      this.consecutiveFailures = 0;
+
+      // If a job is running, cancel and restart with fresh selection
+      if (this.activeJob && !this.activeJob.cancelled) {
+        this.start('backend_reconnect');
+      }
     }
   }
 
   start(reason: MobileRecoveryReason): number {
+    // Block automatic retries after too many consecutive failures.
+    // Manual retry (via retry()) bypasses this check.
+    if (reason !== 'manual_retry' && this.consecutiveFailures >= MAX_AUTO_RETRY_FAILURES) {
+      return -1;
+    }
+
     if (this.activeJob) {
       this.cancel(this.activeJob.jobId, 'selection_change');
     }
@@ -76,6 +92,7 @@ export class RecoveryJobManager {
   }
 
   retry(): number {
+    this.consecutiveFailures = 0;
     return this.start('manual_retry');
   }
 
@@ -158,10 +175,12 @@ export class RecoveryJobManager {
       ]);
 
       if (!activeJob.cancelled) {
+        this.consecutiveFailures = 0;
         useMobileRecoveryStore.getState().completeJob(activeJob.jobId);
       }
     } catch (error: unknown) {
       if (activeJob.cancelled) return;
+      this.consecutiveFailures++;
       const message = error instanceof Error ? error.message : 'Recovery job failed';
       useMobileRecoveryStore.getState().failJob(activeJob.jobId, message);
     } finally {
