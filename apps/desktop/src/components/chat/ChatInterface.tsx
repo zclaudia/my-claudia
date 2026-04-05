@@ -17,6 +17,7 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { useBottomPanelStore } from '../../stores/bottomPanelStore';
 import { useUIStore } from '../../stores/uiStore';
 import { usePermissionStore } from '../../stores/permissionStore';
+import { usePromptRequestStore } from '../../stores/promptRequestStore';
 import { useDraftEditorStore } from '../../stores/draftEditorStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useIsMobile } from '../../hooks/useMediaQuery';
@@ -42,6 +43,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     sendMessage: activeServerSendMessage,
     sendToServer,
     handlePermissionDecision,
+    handlePromptAnswer,
   } = useConnection();
   const isMobile = useIsMobile();
   const activeServerId = useServerStore((s) => s.activeServerId);
@@ -94,6 +96,11 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   const permissionRequests = useMemo(
     () => allPendingRequests.filter(r => r.sessionId === sessionId || !r.sessionId),
     [allPendingRequests, sessionId],
+  );
+  const allPromptRequests = usePromptRequestStore(state => state.pendingRequests);
+  const promptRequests = useMemo(
+    () => allPromptRequests.filter(r => r.sessionId === sessionId || !r.sessionId),
+    [allPromptRequests, sessionId],
   );
   // Message pagination & scroll management
   const pagination = useMessagePagination({ sessionId, isConnected, isMobile });
@@ -267,6 +274,8 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
         onCancelRun={handleCancelRun}
         permissionRequests={permissionRequests}
         onPermissionDecision={handlePermissionDecision}
+        promptRequests={promptRequests}
+        onPromptAnswer={handlePromptAnswer}
       />
 
       {/* Background Tasks Panel */}
