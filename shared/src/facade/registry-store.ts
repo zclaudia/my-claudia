@@ -121,6 +121,10 @@ export class FacadeRegistryStore {
     // Remove backends no longer in registry
     for (const [id, prev] of this.records) {
       if (!newIds.has(id)) {
+        // Already offline/error — don't re-emit diff on every snapshot
+        if (prev.runtimeState === 'offline' || (prev.runtimeState === 'error' && !prev.presence)) {
+          continue;
+        }
         const next: BackendRuntimeRecord = {
           ...prev,
           presence: null,
@@ -133,7 +137,6 @@ export class FacadeRegistryStore {
         updateDerived(next);
         const diff = makeDiff(id, prev, next, 'registry_removed');
         if (diff) diffs.push(diff);
-        // Keep record for potential stream cleanup; runtime can GC later
         this.records.set(id, next);
       }
     }
@@ -141,18 +144,39 @@ export class FacadeRegistryStore {
     // Upsert present backends
     for (const item of items) {
       const prev = this.records.get(item.backendId);
-      const next = prev
-        ? { ...prev, presence: item, currentEpoch: item.epoch }
-        : createDefaultRecord(item.backendId, item);
 
-      // Epoch change invalidates subscription and backend data
-      if (prev && prev.currentEpoch !== null && prev.currentEpoch !== item.epoch) {
-        next.subscribed = false;
-        next.dataInitialized = false;
-        next.openState = prev.openState === 'subscribed' ? 'error' : 'unsubscribed';
-        next.capabilities = [];
+      if (prev) {
+        // Same epoch — just update presence reference, no state change
+        if (prev.currentEpoch === item.epoch || prev.currentEpoch === null) {
+          prev.presence = item;
+          if (prev.currentEpoch === null) prev.currentEpoch = item.epoch;
+          continue;
+        }
+
+        // Epoch changed — invalidate subscription and data
+        const prevState = { runtimeState: prev.runtimeState, openState: prev.openState };
+        prev.presence = item;
+        prev.currentEpoch = item.epoch;
+        prev.subscribed = false;
+        prev.dataInitialized = false;
+        prev.openState = prev.openState === 'subscribed' ? 'error' : 'unsubscribed';
+        prev.capabilities = [];
+        updateDerived(prev);
+        if (prev.runtimeState !== prevState.runtimeState || prev.openState !== prevState.openState) {
+          diffs.push({
+            backendId: item.backendId,
+            previousRuntimeState: prevState.runtimeState,
+            nextRuntimeState: prev.runtimeState,
+            previousOpenState: prevState.openState,
+            nextOpenState: prev.openState,
+            reason: 'epoch_changed',
+          });
+        }
+        continue;
       }
 
+      // New backend — create default record
+      const next = createDefaultRecord(item.backendId, item);
       updateDerived(next);
       const diff = makeDiff(item.backendId, prev, next, 'registry_snapshot');
       if (diff) diffs.push(diff);

@@ -323,7 +323,9 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
   // --------------------------------------------------------------------------
 
   private handleConnectionStateChanged(event: Extract<FacadeAdapterEvent, { type: 'connection_state_changed' }>): void {
-    this.connectionState = event.state as BackendConnectionState;
+    const newState = event.state as BackendConnectionState;
+    if (this.connectionState === newState) return; // Skip if unchanged
+    this.connectionState = newState;
     this.emitFacadeEvent({
       type: 'connection_state_changed',
       state: this.connectionState,
@@ -542,11 +544,15 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
   /** Fix #3: proper type-safe emit for backend diffs */
   private emitBackendDiffs(diffs: BackendStateDiff[]): void {
     for (const diff of diffs) {
+      // Only pass reason as error when the backend actually entered an error/offline state.
+      // Normal transition reasons like 'subscribed', 'registry_snapshot', 'data_initialized'
+      // are not errors and should not trigger error toasts in the UI.
+      const isErrorState = diff.nextRuntimeState === 'error' || diff.nextRuntimeState === 'offline';
       this.emitFacadeEvent({
         type: 'backend_state_changed',
         backendId: diff.backendId,
         state: diff.nextRuntimeState,
-        error: diff.reason,
+        error: isErrorState ? diff.reason : undefined,
       });
     }
   }

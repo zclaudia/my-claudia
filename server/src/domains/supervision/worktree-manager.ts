@@ -2,8 +2,8 @@ import type {
   SupervisionTask,
   SupervisionLogEvent,
 } from '@my-claudia/shared';
-import type { ProjectRepository } from '../../repositories/project.js';
-import type { SessionRepository } from '../../repositories/session.js';
+import type { ProjectRepository } from '../projects/repository.js';
+import type { SessionRepository } from '../sessions/repository.js';
 import { WorktreePool } from './worktree-pool.js';
 
 export interface WorktreeManagerDeps {

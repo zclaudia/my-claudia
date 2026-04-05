@@ -96,7 +96,7 @@ conversation 当前的 6 个子目录中，`context/`、`interactions/`、`memor
 |---|---|---|---|---|
 | 1 | conversation/ws/ 混合三类职责，17 个文件过于臃肿 | 高 | ws/ 全部文件 | 将 run-handler/run-lifecycle 等提取为 runs/ 子模块 |
 | 2 | orchestration 不是真正的 Bounded Context | 中 | orchestration/ | 明确定位为协调层，文档说明，不视为平等领域 |
-| 3 | notification-feed/notification-service.ts 是推送基础设施混在领域中 | 中 | notification-service.ts | 移至 infrastructure/push/ 或 services/ |
+| 3 | notification/notification-service.ts 是推送基础设施混在领域中 | 中 | notification-service.ts | 移至 infrastructure/push/ 或 services/ |
 | 4 | "Task" 在四个域含义不同（SupervisionTask/OrchestratorTask/ScheduledTask/SystemTask） | 中 | 4个域 | 制定统一语言词汇表（见 R13） |
 | 5 | scheduled-tasks/agent-triggers 占用域注册开销但实质废弃 | 低 | server-setup.ts | 彻底删除（见 R11）|
 
@@ -142,9 +142,9 @@ conversation 当前的 6 个子目录中，`context/`、`interactions/`、`memor
 ```
 跨域依赖（仅 conversation 域有对外跨域 import）：
 
-conversation/ws/message-handler.ts:14       ──type──→ notification-feed/service.ts
-conversation/ws/handlers/notification-feed.ts:7  ──type──→ notification-feed/service.ts
-conversation/ws/handlers/claudia.ts:19      ──type──→ notification-feed/service.ts
+conversation/ws/message-handler.ts:14       ──type──→ notification/service.ts
+conversation/ws/handlers/notification-feed.ts:7  ──type──→ notification/service.ts
+conversation/ws/handlers/claudia.ts:19      ──type──→ notification/service.ts
 conversation/ws/handlers/claudia.ts:21      ──runtime→ orchestration/claudia-branch-service.ts
 conversation/ws/run-bootstrap.ts:12         ──runtime→ gateway/gateway-instance.ts
 
@@ -933,4 +933,3 @@ proposed → pending → queued → planning → running
 
 **Review 完成日期：2026-04-01**
 **下一步行动：按 Roadmap P0 项开始整改**
-

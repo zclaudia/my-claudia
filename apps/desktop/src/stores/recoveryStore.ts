@@ -248,7 +248,6 @@ interface RecoveryState {
   noteActiveSessionLive: (sessionId: string, backendId: string) => void;
   noteActiveSessionStale: () => void;
   noteActiveSessionError: (error: string) => void;
-  noteTransportMessage: () => void;
   noteActiveSessionMessage: () => void;
   noteTransportTimeout: () => void;
   noteBackendTimeout: (backendId: string) => void;
@@ -526,15 +525,22 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
   }),
 
   noteDataSyncSucceeded: (backendId) => {
-    const ownershipVersion = get().nextOwnershipVersion;
-    set((state) => {
-      const backend = state.backends[backendId];
-      const subscribed = backend?.subscribed ?? false;
-      const backendStatus = subscribed ? 'ready' as const : (backend?.status ?? 'subscribing' as const);
+    const state = get();
+    const dataSync = state.dataSyncs[backendId];
+    const backend = state.backends[backendId];
+    // If already in ready state with data, skip store write to avoid re-renders
+    if (dataSync?.status === 'ready' && backend?.dataReady) {
+      return dataSync.ownershipVersion ?? state.nextOwnershipVersion;
+    }
+    const ownershipVersion = state.nextOwnershipVersion;
+    set((s) => {
+      const b = s.backends[backendId];
+      const subscribed = b?.subscribed ?? false;
+      const backendStatus = subscribed ? 'ready' as const : (b?.status ?? 'subscribing' as const);
       return {
         dataSyncs: {
-          ...state.dataSyncs,
-          [backendId]: upsertDataSyncState(state.dataSyncs[backendId], backendId, 'ready', {
+          ...s.dataSyncs,
+          [backendId]: upsertDataSyncState(s.dataSyncs[backendId], backendId, 'ready', {
             ownershipVersion,
             retryCount: 0,
             lastError: null,
@@ -543,8 +549,8 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
         },
         nextOwnershipVersion: ownershipVersion + 1,
         backends: {
-          ...state.backends,
-          [backendId]: upsertBackendState(backend, backendId, backendStatus, {
+          ...s.backends,
+          [backendId]: upsertBackendState(b, backendId, backendStatus, {
             dataReady: true,
           }),
         },
@@ -617,10 +623,6 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
   noteActiveSessionError: (error) => set((state) => ({
     coordinator: state.coordinator === 'recovering' ? 'error' : state.coordinator,
     activeSession: updateActiveSession(state.activeSession, 'error', { lastError: error }),
-  })),
-
-  noteTransportMessage: () => set((state) => ({
-    transport: { ...state.transport, lastMessageAt: now() },
   })),
 
   noteActiveSessionMessage: () => set((state) => ({

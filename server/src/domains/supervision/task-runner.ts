@@ -8,7 +8,7 @@ import type {
   SupervisionLogEvent,
 } from '@my-claudia/shared';
 import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
-import { ProjectRepository } from '../../repositories/project.js';
+import { ProjectRepository } from '../projects/repository.js';
 import type { ContextManager, WorkflowAction } from './context-manager.js';
 
 const execAsync = promisify(exec);

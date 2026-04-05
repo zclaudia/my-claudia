@@ -14,8 +14,8 @@ import { WorkflowGeneratorService } from './generator.js';
 import { createWorkflowRoutes } from './routes.js';
 import { sendMessage } from '../conversation/ws/broadcast.js';
 import type { ConnectedClient } from '../conversation/ws/types.js';
-import type { NotificationService } from '../notification-feed/notification-service.js';
-import { workflowStepRegistry } from '../../plugins/workflow-step-registry.js';
+import type { PushNotificationService } from '../notification/notification-service.js';
+import { workflowStepRegistry } from '../plugins/index.js';
 import type { SystemTaskRegistryPort } from '../../services/system-task-registry.js';
 
 import {
@@ -37,7 +37,7 @@ export interface WorkflowDomainDeps {
   app: Express;
   authMiddleware: RequestHandler;
   clients: Map<string, ConnectedClient>;
-  notificationService: NotificationService;
+  notificationService: PushNotificationService;
   systemTaskRegistry: SystemTaskRegistryPort;
 }
 

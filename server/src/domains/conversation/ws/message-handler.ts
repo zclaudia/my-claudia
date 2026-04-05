@@ -11,7 +11,7 @@ import type { TerminalManager } from '../../../terminal-manager.js';
 import type { ProcessMonitor } from '../../../utils/process-monitor.js';
 import type { initDatabase } from '../../../storage/db.js';
 import type { ConnectedClient, ActiveRun } from './types.js';
-import type { NotificationFeedService } from '../../../domains/notification-feed/service.js';
+import type { NotificationService } from '../../../domains/notification/service.js';
 import type { TaskOrchestrator } from '../../orchestration/types.js';
 import type { BranchAllocatorPort } from '../../orchestration/claudia-branch-service.js';
 import type { ProviderRegistryPort } from '../../../providers/registry.js';
@@ -45,7 +45,7 @@ export interface MessageHandlerContext {
   cancelRun: (runId: string) => void;
   broadcastPluginState: () => void;
   findProcessPidsByTaskCommand: (taskCommand?: string, excludedPids?: number[]) => Promise<number[]>;
-  notificationService?: NotificationFeedService;
+  notificationService?: NotificationService;
   orchestrator?: TaskOrchestrator;
   branchAllocator?: BranchAllocatorPort;
   providerRegistry?: ProviderRegistryPort;

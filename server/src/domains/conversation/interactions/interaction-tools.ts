@@ -13,7 +13,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import http from 'http';
-import { toolRegistry } from '../../../plugins/tool-registry.js';
+import { toolRegistry } from '../../plugins/index.js';
 import { interactionDispatcher } from './interaction-dispatcher.js';
 import { normalizeTodoItems } from './todo-normalizer.js';
 import { trackAndAutoComplete } from './todo-state-tracker.js';

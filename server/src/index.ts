@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createServer, createVirtualClient, activeRuns, connectedClients, cancelRun } from './server.js';
 import { autoDetectProviders, checkProviderVersions, startTempFileCleanup, shutdownProviders } from './providers/initializer.js';
-import { pluginLoader } from './plugins/loader.js';
+import { pluginLoader } from './domains/plugins/loader.js';
 import { registerBuiltinCommands } from './commands/init.js';
 import { sanitizeInheritedProviderEnv } from './utils/startup-env.js';
 import { isIgnorableProcessError } from './utils/process-error-filter.js';
@@ -113,7 +113,7 @@ async function main() {
     }
 
     // Register workspace + external skills as MCP bridge tools
-    const { setDatabase: setSkillDb, registerSkillTools } = await import('./plugins/skill-tools.js');
+    const { setDatabase: setSkillDb, registerSkillTools } = await import('./domains/plugins/skill-tools.js');
     setSkillDb(serverContext.db);
     const skillCount = await registerSkillTools();
     if (skillCount > 0) {

@@ -7,7 +7,7 @@
 import type { Database } from 'better-sqlite3';
 import type { ServerMessage, Session } from '@my-claudia/shared';
 import type { AIRunnerPort } from '../ports/step-executor.js';
-import { SessionRepository } from '../../../repositories/session.js';
+import { SessionRepository } from '../../sessions/repository.js';
 import { createVirtualClient, handleRunStart } from '../../../server.js';
 
 export class VirtualClientAIRunner implements AIRunnerPort {

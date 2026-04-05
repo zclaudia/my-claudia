@@ -12,7 +12,7 @@ import { pluginEvents } from '../../../events/index.js';
 import { generateToolSignature } from '../../../loop-detection.js';
 import type { ProviderRegistryPort } from '../../../providers/registry.js';
 import type { ClaudeMessage, SystemInfo } from '../../../providers/types.js';
-import type { NotificationService } from '../../notification-feed/notification-service.js';
+import type { PushNotificationService } from '../../notification/notification-service.js';
 
 export interface ProviderEventState {
   sdkSessionId?: string;
@@ -26,7 +26,7 @@ interface HandleProviderEventParams {
   db: ActiveRun['db'];
   input: string;
   modeValue: string;
-  notificationService: NotificationService;
+  notificationService: PushNotificationService;
   persistSessionWorkingDirectory: (nextWorkingDirectory: string | null | undefined) => void;
   providerType: string;
   runId: string;

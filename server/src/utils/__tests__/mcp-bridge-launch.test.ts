@@ -11,7 +11,7 @@ vi.mock('fs', async () => {
   };
 });
 
-vi.mock('../../plugins/tool-registry.js', () => ({
+vi.mock('../../domains/plugins/tool-registry.js', () => ({
   toolRegistry: {
     getBridgeTools: getBridgeToolsMock,
   },
@@ -29,36 +29,36 @@ describe('mcp-bridge-launch', () => {
   });
 
   it('prefers compiled js bridge when available', async () => {
-    existsSyncMock.mockImplementation((filePath) => filePath.endsWith('/plugins/mcp-bridge.js'));
+    existsSyncMock.mockImplementation((filePath) => filePath.endsWith('/domains/plugins/mcp-bridge.js'));
 
     const { resolveMcpBridgeLaunchConfig } = await import('../mcp-bridge-launch.js');
     const result = resolveMcpBridgeLaunchConfig('file:///tmp/providers/kimi-sdk.js');
 
     expect(result.command).toBe(process.execPath);
-    expect(result.args).toEqual(['/dist/plugins/mcp-bridge.js']);
+    expect(result.args).toEqual(['/dist/domains/plugins/mcp-bridge.js']);
   });
 
   it('prefers server/dist js bridge over source ts bridge in dev', async () => {
     existsSyncMock.mockImplementation((filePath) =>
-      filePath === '/repo/server/dist/plugins/mcp-bridge.js'
-      || filePath === '/repo/server/src/plugins/mcp-bridge.ts'
+      filePath === '/repo/server/dist/domains/plugins/mcp-bridge.js'
+      || filePath === '/repo/server/src/domains/plugins/mcp-bridge.ts'
     );
 
     const { resolveMcpBridgeLaunchConfig } = await import('../mcp-bridge-launch.js');
     const result = resolveMcpBridgeLaunchConfig('file:///repo/server/src/utils/mcp-bridge-launch.ts');
 
     expect(result.command).toBe(process.execPath);
-    expect(result.args).toEqual(['/repo/server/dist/plugins/mcp-bridge.js']);
+    expect(result.args).toEqual(['/repo/server/dist/domains/plugins/mcp-bridge.js']);
   });
 
   it('falls back to ts bridge with tsx loader in dev', async () => {
-    existsSyncMock.mockImplementation((filePath) => filePath.endsWith('/plugins/mcp-bridge.ts'));
+    existsSyncMock.mockImplementation((filePath) => filePath.endsWith('/domains/plugins/mcp-bridge.ts'));
 
     const { resolveMcpBridgeLaunchConfig } = await import('../mcp-bridge-launch.js');
     const result = resolveMcpBridgeLaunchConfig('file:///tmp/providers/kimi-sdk.js');
 
     expect(result.command).toBe(process.execPath);
-    expect(result.args).toEqual(['--import', 'tsx/esm', '/tmp/plugins/mcp-bridge.ts']);
+    expect(result.args).toEqual(['--import', 'tsx/esm', '/tmp/domains/plugins/mcp-bridge.ts']);
   });
 
   it('does not force an empty CLAUDIA_SESSION_ID when no static session is provided', async () => {

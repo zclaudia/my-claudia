@@ -9,8 +9,7 @@ import type { WorkflowService } from './service.js';
 import type { WorkflowGeneratorService } from './generator.js';
 import { normalizeWorkflowDefinition, type WorkflowStepTypeMeta, type WorkflowDefinition, type WorkflowNodeDef } from '@my-claudia/shared';
 import { isValidCron } from '../../utils/cron.js';
-import { workflowStepRegistry } from '../../plugins/workflow-step-registry.js';
-import { workflowTriggerRegistry } from '../../plugins/workflow-trigger-registry.js';
+import { workflowStepRegistry, workflowTriggerRegistry } from '../plugins/index.js';
 
 function validateWorkflowDefinition(res: Response, definition: unknown): definition is WorkflowDefinition {
   const workflowDefinition = normalizeWorkflowDefinition(definition);

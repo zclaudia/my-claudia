@@ -4,7 +4,7 @@ import type { AIReviewQueue } from '../agent/ai-review-queue.js';
 import type { PermissionDecision, SystemInfo } from '../../../providers/types.js';
 import type { initDatabase } from '../../../storage/db.js';
 import type { ProcessMonitor } from '../../../utils/process-monitor.js';
-import type { NotificationService } from '../../notification-feed/notification-service.js';
+import type { PushNotificationService } from '../../notification/notification-service.js';
 
 export interface ConnectedClient {
   id: string;

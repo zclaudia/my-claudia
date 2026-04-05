@@ -109,6 +109,8 @@ export const useOwnershipStore = create<OwnershipState>()((set, get) => ({
 
   stampSessionOwnershipVersion: (sessionIds, ownershipVersion) => set((state) => {
     if (sessionIds.length === 0) return state;
+    const allUpToDate = sessionIds.every(id => state.sessionOwnershipVersions[id] === ownershipVersion);
+    if (allUpToDate) return state;
     const next = { ...state.sessionOwnershipVersions };
     for (const sessionId of sessionIds) {
       next[sessionId] = ownershipVersion;

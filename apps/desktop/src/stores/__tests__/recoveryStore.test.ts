@@ -585,12 +585,6 @@ describe('recoveryStore', () => {
   });
 
   describe('message tracking', () => {
-    it('noteTransportMessage updates lastMessageAt', () => {
-      expect(useRecoveryStore.getState().transport.lastMessageAt).toBeNull();
-      useRecoveryStore.getState().noteTransportMessage();
-      expect(useRecoveryStore.getState().transport.lastMessageAt).toBeGreaterThan(0);
-    });
-
     it('noteActiveSessionMessage updates activeSession.lastMessageAt', () => {
       useRecoveryStore.setState({
         activeSession: {

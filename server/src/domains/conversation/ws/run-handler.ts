@@ -7,8 +7,8 @@ import { formatProviderErrorMessage, isHardQuotaExceededError } from '../../../h
 import type { ProviderRegistryPort } from '../../../providers/registry.js';
 import { createTraceRecorder } from '../../../utils/provider-trace.js';
 import type { initDatabase } from '../../../storage/db.js';
-import { NotificationService } from '../../notification-feed/notification-service.js';
-import type { NotificationFeedService } from '../../notification-feed/service.js';
+import { PushNotificationService } from '../../notification/notification-service.js';
+import type { NotificationService } from '../../notification/service.js';
 import { ProcessMonitor } from '../../../utils/process-monitor.js';
 import { consumeProviderStream } from './consume-provider-stream.js';
 import { initializeRunBootstrap, type RunStartMessage } from './run-bootstrap.js';
@@ -26,8 +26,8 @@ const AI_REVIEW_SYSTEM_PROMPT = [
 export interface RunHandlerContext {
   activeRuns: Map<string, ActiveRun>;
   processMonitor: ProcessMonitor | null;
-  notificationService: NotificationService;
-  notificationFeedService?: NotificationFeedService;
+  notificationService: PushNotificationService;
+  notificationsService?: NotificationService;
   serverPort: number | null;
   broadcastHeartbeat: () => void;
   providerRegistry: ProviderRegistryPort;
@@ -58,7 +58,7 @@ function buildAIReviewFeedSummary(aiResult: import('@my-claudia/shared').AIRevie
 }
 
 function postAIReviewFeedItem(
-  feedService: NotificationFeedService | undefined,
+  feedService: NotificationService | undefined,
   input: {
     sessionId: string;
     projectId: string;
@@ -113,7 +113,7 @@ export async function handleRunStart(
   const activeRuns = ctx!.activeRuns;
   const processMonitor = ctx!.processMonitor;
   const notificationService = ctx!.notificationService;
-  const notificationFeedService = ctx!.notificationFeedService;
+  const notificationsService = ctx!.notificationsService;
   const serverPort = ctx!.serverPort;
   const broadcastHeartbeat = ctx!.broadcastHeartbeat;
   const runId = uuidv4();
@@ -212,7 +212,7 @@ export async function handleRunStart(
       message,
       notificationService,
       onAIReviewResolved: ({ requestId, toolName, detail, result }) => {
-        postAIReviewFeedItem(notificationFeedService, {
+        postAIReviewFeedItem(notificationsService, {
           sessionId: message.sessionId,
           projectId: session.project_id,
           requestId,

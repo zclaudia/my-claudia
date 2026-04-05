@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
-import { SessionSearchRepository } from '../session-search.js';
+import { SessionSearchRepository } from '../../domains/sessions/search-repository.js';
 
 function createTestDb(): Database.Database {
   const db = new Database(':memory:');

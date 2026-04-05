@@ -1,8 +1,13 @@
 import type Database from 'better-sqlite3';
 import type { ContextTemplate } from '../context/types.js';
 import type { RunOptions } from '../../../providers/types.js';
-import { getDiscoveredSkills, loadSkillContent, buildSkillDirectoryHint } from '../../../plugins/skill-tools.js';
-import { selectSkills } from '../../../plugins/skill-selector.js';
+import {
+  buildSkillDirectoryHint,
+  getDiscoveredSkills,
+  loadSkillContent,
+  selectSkills,
+  toolRegistry as pluginToolRegistry,
+} from '../../plugins/index.js';
 import {
   providerSupportsNativePlanMode,
   buildNonNativePlanPrompt,
@@ -12,7 +17,6 @@ import {
 } from '../../../helpers/server-utils.js';
 import { createContextEngine } from '../context/engine.js';
 import { workspaceService } from '../../../services/workspace.js';
-import { toolRegistry as pluginToolRegistry } from '../../../plugins/tool-registry.js';
 import { mapPermissionMode } from '../../../providers/pcp-permission.js';
 
 interface SessionContext {

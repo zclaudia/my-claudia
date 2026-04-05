@@ -97,10 +97,12 @@ export const useGatewayStore = create<GatewayState>()(
       setShowLocalBackend: (show) => set({ showLocalBackend: show }),
 
       setConnected: (connected) => {
-        set({ isConnected: connected });
-        if (!connected) {
-          set({ backendAuthStatus: {} });
-        }
+        const current = get();
+        if (current.isConnected === connected) return;
+        set(connected
+          ? { isConnected: true }
+          : { isConnected: false, backendAuthStatus: {} }
+        );
       },
 
       setBackendAuthStatus: (backendId, status) => {

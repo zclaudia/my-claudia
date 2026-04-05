@@ -105,7 +105,10 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
   readonly queries: FacadeAdapterQueries = {
     bootstrap: {
       getInitialState: (): FacadeAdapterBootstrapState => {
-        const registryItems = Array.from(this.gatewayClient.queries.registry.getItems().values());
+        const remoteItems = Array.from(this.gatewayClient.queries.registry.getItems().values());
+        const registryItems = this.localBackendId
+          ? [this.buildLocalPresence(), ...remoteItems]
+          : remoteItems;
         const backendIds: string[] = [];
         // Add local backend if subscribed
         if (this.localBackendId && this.localSubscribed) {
@@ -178,6 +181,21 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
     return this.localBackendId !== null && backendId === this.localBackendId;
   }
 
+  private buildLocalPresence(): BackendPresence {
+    return {
+      backendId: this.localBackendId!,
+      instanceId: this.gatewayClient.queries.identity.getInstanceId(),
+      deviceId: this.gatewayClient.queries.identity.getDeviceId(),
+      name: 'Local Server',
+      channel: 'local',
+      visible: true,
+      capabilities: this.localHandler?.getCapabilities() ?? [],
+      epoch: this.gatewayClient.queries.identity.getEpoch() ?? 1,
+      connectedAt: Date.now(),
+      lastSeenAt: Date.now(),
+    };
+  }
+
   // --------------------------------------------------------------------------
   // Local Backend Short-Circuit Handlers
   // --------------------------------------------------------------------------
@@ -187,7 +205,7 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
     this.emit({
       type: 'backend_subscribed',
       backendId,
-      epoch: 1,
+      epoch: this.gatewayClient.queries.identity.getEpoch() ?? 1,
       capabilities: this.localHandler?.getCapabilities() ?? [],
     });
     // Immediately push backend data snapshot for local backend
@@ -254,7 +272,12 @@ export class EmbeddedGatewayAdapter implements FacadeRuntimeGatewayAdapter {
       },
 
       onRegistrySnapshotChanged: (items) => {
-        this.emit({ type: 'registry_snapshot_received', items });
+        // Include local backend in registry snapshot so runtime-core doesn't
+        // mark it as removed on every 30s gateway registry push.
+        const allItems = this.localBackendId
+          ? [this.buildLocalPresence(), ...items]
+          : items;
+        this.emit({ type: 'registry_snapshot_received', items: allItems });
       },
 
       onOutgoingBackendSubscribed: (backendId, epoch, capabilities) => {

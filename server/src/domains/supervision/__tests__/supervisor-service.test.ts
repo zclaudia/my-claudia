@@ -107,7 +107,7 @@ vi.mock('../worktree-pool.js', () => {
 import { SupervisorService } from '../supervisor-service.js';
 import { SupervisionTaskRepository } from '../../../repositories/supervision-task.js';
 import { ProjectRepository } from '../../../repositories/project.js';
-import { SessionRepository } from '../../../repositories/session.js';
+import { SessionRepository } from '../../sessions/repository.js';
 import type { ProjectAgent, SupervisorConfig } from '@my-claudia/shared';
 
 function createTestDb(): Database.Database {

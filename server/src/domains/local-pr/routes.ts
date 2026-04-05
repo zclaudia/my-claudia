@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import type { ApiResponse, LocalPR, WorktreeConfig } from '@my-claudia/shared';
 import type { LocalPRService } from './service.js';
-import { ProjectRepository } from '../../repositories/project.js';
+import { ProjectRepository } from '../projects/repository.js';
 import { WorktreeConfigRepository } from '../../repositories/worktree-config.js';
 import type { Database } from 'better-sqlite3';
 

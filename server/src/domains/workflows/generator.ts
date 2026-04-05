@@ -13,11 +13,11 @@ import type {
   ServerMessage,
   Session,
 } from '@my-claudia/shared';
-import { SessionRepository } from '../../repositories/session.js';
+import { SessionRepository } from '../sessions/repository.js';
 import { createVirtualClient, handleRunStart } from '../../server.js';
 import { isValidCron } from '../../utils/cron.js';
 import { autoLayoutGraph } from '../../utils/workflow-layout.js';
-import { workflowStepRegistry } from '../../plugins/workflow-step-registry.js';
+import { workflowStepRegistry } from '../plugins/index.js';
 import { BUILTIN_WORKFLOW_TEMPLATES } from './templates.js';
 import { v4 as uuidv4 } from 'uuid';
 

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
-import { createProviderRoutes } from '../providers.js';
+import { createProviderRoutes } from '../../domains/providers/routes.js';
 
 // Mock child_process for CLI model fetching
 const mockExecFile = vi.fn();
@@ -71,7 +71,7 @@ vi.mock('../../commands/registry.js', () => ({
 }));
 
 // Mock tool registry
-vi.mock('../../plugins/tool-registry.js', () => ({
+vi.mock('../../domains/plugins/tool-registry.js', () => ({
   toolRegistry: {
     getDefinitionsBySource: vi.fn(() => []),
   },
@@ -620,7 +620,7 @@ describe('providers routes', () => {
 
   describe('GET /api/providers/:id/commands with plugin commands via registry', () => {
     it('calls toolRegistry.getDefinitionsBySource for plugin tools', async () => {
-      const { toolRegistry } = await import('../../plugins/tool-registry.js');
+      const { toolRegistry } = await import('../../domains/plugins/tool-registry.js');
       // Verify registry is mocked and callable
       expect(toolRegistry.getDefinitionsBySource).toBeDefined();
       const result = toolRegistry.getDefinitionsBySource('plugin');
@@ -818,7 +818,7 @@ describe('providers routes', () => {
 
     it('works when accessed via a separate router mount', async () => {
       // Test toolRegistry mock directly to verify the integration code
-      const { toolRegistry } = await import('../../plugins/tool-registry.js');
+      const { toolRegistry } = await import('../../domains/plugins/tool-registry.js');
       vi.mocked(toolRegistry.getDefinitionsBySource).mockReturnValueOnce([
         { name: 'test-tool', description: 'A test tool', inputSchema: {} } as any,
       ]);

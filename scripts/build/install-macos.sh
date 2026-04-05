@@ -47,8 +47,8 @@ rm -rf "\$APP_DEST"
 cp -R "\$APP_SRC" "\$APP_DEST"
 
 # Verify critical files were copied
-if [ ! -f "\$APP_DEST/Contents/Resources/server/plugins/mcp-bridge.js" ]; then
-  echo "ERROR: plugins/mcp-bridge.js missing after install!"
+if [ ! -f "\$APP_DEST/Contents/Resources/server/domains/plugins/mcp-bridge.js" ]; then
+  echo "ERROR: domains/plugins/mcp-bridge.js missing after install!"
   exit 1
 fi
 echo "Install verified OK"

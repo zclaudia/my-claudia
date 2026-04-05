@@ -89,6 +89,10 @@ export const usePromptRequestStore = create<PromptRequestState>((set, get) => ({
 
   clearStaleRequests: (serverId, validIds) =>
     set((state) => {
+      const hasStale = state.pendingRequests.some(
+        (r) => r.serverId === serverId && !validIds.has(r.requestId),
+      );
+      if (!hasStale) return state;
       const remaining = state.pendingRequests.filter(
         (r) => r.serverId !== serverId || validIds.has(r.requestId),
       );

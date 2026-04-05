@@ -158,6 +158,12 @@ export class EmbeddedFacadeClient implements BackendFacade {
         }
         break;
 
+      case 'backend_state_changed':
+        for (const listener of this.eventListeners) {
+          try { listener(msg as BackendFacadeEvent); } catch { /* ignore */ }
+        }
+        break;
+
       default:
         // All other messages are BackendFacadeEvent
         for (const listener of this.eventListeners) {

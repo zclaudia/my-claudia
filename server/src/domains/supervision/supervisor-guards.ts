@@ -5,7 +5,7 @@ import type {
   SupervisionLogEvent,
 } from '@my-claudia/shared';
 import type { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
-import type { ProjectRepository } from '../../repositories/project.js';
+import type { ProjectRepository } from '../projects/repository.js';
 
 export interface SupervisorGuardsDeps {
   db: Database;

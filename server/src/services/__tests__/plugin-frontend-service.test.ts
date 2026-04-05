@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { PluginFrontendError, PluginFrontendService } from '../plugin-frontend-service.js';
+import { PluginFrontendError, PluginFrontendService } from '../../domains/plugins/frontend-service.js';
 
 describe('PluginFrontendService', () => {
   it('resolves frontend files within plugin directory', () => {

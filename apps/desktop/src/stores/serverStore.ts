@@ -75,6 +75,9 @@ export const useServerStore = create<ServerState>()((set, get) => ({
 
   setServerFeatures: (serverId, features) => {
     const state = get();
+    const existing = state.connections[serverId]?.features;
+    // Skip if features haven't changed (avoids re-renders from periodic snapshot updates)
+    if (existing && existing.length === features.length && existing.every((f, i) => f === features[i])) return;
     set({
       connections: {
         ...state.connections,

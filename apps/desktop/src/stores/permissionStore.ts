@@ -114,6 +114,11 @@ export const usePermissionStore = create<PermissionState>((set, get) => ({
   // Remove requests for a server that are not in the valid set (state heartbeat reconciliation)
   clearStaleRequests: (serverId, validIds) =>
     set((state) => {
+      const hasStale = state.pendingRequests.some(
+        r => r.serverId === serverId && !validIds.has(r.requestId)
+      );
+      if (!hasStale) return state;
+
       const removedIds = state.pendingRequests
         .filter(r => r.serverId === serverId && !validIds.has(r.requestId))
         .map(r => r.requestId);

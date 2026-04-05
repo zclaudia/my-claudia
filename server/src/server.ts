@@ -18,9 +18,9 @@ import { initWorkspace } from './services/workspace.js';
 import type { GatewayConfig, GatewayStatus } from './routes/gateway.js';
 import { TerminalManager } from './terminal-manager.js';
 import { generateKeyPair, getPublicKeyPem } from './utils/crypto.js';
-import { pluginLoader } from './plugins/loader.js';
+import { pluginLoader } from './domains/plugins/loader.js';
 import type { ProcessMonitor } from './utils/process-monitor.js';
-import type { NotificationService } from './domains/notification-feed/notification-service.js';
+import type { PushNotificationService } from './domains/notification/notification-service.js';
 import { ClaudiaBranchService } from './domains/orchestration/claudia-branch-service.js';
 import { providerRegistry } from './providers/registry.js';
 
@@ -70,7 +70,7 @@ function broadcastPluginState(): void {
 }
 function buildStateHeartbeat(): StateHeartbeatMessage {
   const heartbeat = _buildStateHeartbeat(activeRuns);
-  heartbeat.unreadFeedCount = notificationFeedService?.getUnreadCount() ?? 0;
+  heartbeat.unreadFeedCount = notificationsService?.getUnreadCount() ?? 0;
   return heartbeat;
 }
 
@@ -138,9 +138,9 @@ const activeRuns = new Map<string, ActiveRun>();
 // Module-level shared state (initialized in createServer)
 let processMonitor: ProcessMonitor | null = null;
 let connectedClients = new Map<string, ConnectedClient>();
-let notificationService: NotificationService;
+let pushNotificationService: PushNotificationService;
 let serverPort: number | null = null;
-let notificationFeedService: import('./domains/notification-feed/service.js').NotificationFeedService | undefined;
+let notificationsService: import('./domains/notification/service.js').NotificationService | undefined;
 let taskOrchestrator: import('./domains/orchestration/types.js').TaskOrchestrator | undefined;
 let branchAllocator: ClaudiaBranchService | undefined;
 let facadeHubRef: import('./domains/gateway/ws-hub.js').FacadeWsHub | null = null;
@@ -159,7 +159,7 @@ function getMessageHandlerContext(): MessageHandlerContext {
     cancelRun,
     broadcastPluginState,
     findProcessPidsByTaskCommand,
-    notificationService: notificationFeedService,
+    notificationService: notificationsService,
     orchestrator: taskOrchestrator,
     branchAllocator,
     providerRegistry,
@@ -171,8 +171,8 @@ function getRunHandlerContext(): RunHandlerContext {
   return {
     activeRuns,
     processMonitor,
-    notificationService,
-    notificationFeedService,
+    notificationService: pushNotificationService,
+    notificationsService,
     serverPort,
     broadcastHeartbeat,
     providerRegistry,
@@ -243,10 +243,10 @@ export async function createServer(): Promise<ServerContext> {
     buildStateHeartbeat, broadcastHeartbeat, broadcastPluginState,
     handleRunStart,
     getServerPort: () => serverPort,
-    setNotificationService: (ns) => { notificationService = ns; },
+    setNotificationService: (ns) => { pushNotificationService = ns; },
     setProcessMonitor: (pm) => { processMonitor = pm; },
   });
-  notificationFeedService = setup.notificationFeedService;
+  notificationsService = setup.notificationsService;
   taskOrchestrator = setup.orchestrator;
 
   // Error handling middleware (must be after routes)

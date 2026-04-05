@@ -816,7 +816,7 @@ server/src/
 - `shared/src/features/workflows.ts` — `project_id` 改为 NULLABLE
 - `server/src/server.ts` — 新增 `agent_start` / `agent_cancel` 消息处理，统一 ticker
 - `server/src/ws/run-handler.ts` — 支持 agent 模式的工具注入和 context 模板选择
-- `server/src/routes/plugin-tools.ts` / `server/src/plugins/mcp-bridge.ts` — 按 `sessionId` 应用 ToolExposureProfile + PCP 过滤
+- `server/src/domains/plugins/tools-routes.ts` / `server/src/domains/plugins/mcp-bridge.ts` — 按 `sessionId` 应用 ToolExposureProfile + PCP 过滤
 - `server/src/services/supervision/supervisor-service.ts` — 底层改为调 TaskOrchestrator
 - `server/src/storage/db.ts` — 增加 `orchestrator_tasks` / `agent_memory_candidate` migration
 

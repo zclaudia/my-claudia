@@ -33,13 +33,13 @@ vi.mock('../run-lifecycle.js', () => ({
   cleanupPendingPermissions: cleanupPendingPermissionsMock,
 }));
 
-vi.mock('../../../../plugins/skill-tools.js', () => ({
+vi.mock('../../../../domains/plugins/skill-tools.js', () => ({
   getDiscoveredSkills: getDiscoveredSkillsMock,
   loadSkillContent: loadSkillContentMock,
   buildSkillDirectoryHint: buildSkillDirectoryHintMock,
 }));
 
-vi.mock('../../../../plugins/skill-selector.js', () => ({
+vi.mock('../../../../domains/plugins/skill-selector.js', () => ({
   selectSkills: selectSkillsMock,
 }));
 
@@ -70,7 +70,7 @@ vi.mock('../../../../services/workspace.js', () => ({
   },
 }));
 
-vi.mock('../../../../plugins/tool-registry.js', () => ({
+vi.mock('../../../../domains/plugins/tool-registry.js', () => ({
   toolRegistry: {
     getAll: toolRegistryGetAllMock,
   },

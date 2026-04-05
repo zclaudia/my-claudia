@@ -14,7 +14,7 @@ import type {
 } from '@my-claudia/shared';
 import { WorkflowRunRepository } from './workflow-run-repository.js';
 import { WorkflowStepRunRepository } from './workflow-step-run-repository.js';
-import { ProjectRepository } from '../../repositories/project.js';
+import { ProjectRepository } from '../projects/repository.js';
 import { renderConfig, type RenderContext } from './template-renderer.js';
 import type { StepExecutorPort, StepResult, StepContext, ApprovalPort } from './ports/step-executor.js';
 import type { Database } from 'better-sqlite3';

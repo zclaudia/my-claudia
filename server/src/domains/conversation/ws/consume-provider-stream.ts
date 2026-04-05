@@ -1,6 +1,6 @@
 import type { ClaudeMessage } from '../../../providers/types.js';
 import type { ProviderRegistryPort } from '../../../providers/registry.js';
-import type { NotificationService } from '../../notification-feed/notification-service.js';
+import type { PushNotificationService } from '../../notification/notification-service.js';
 import { summarizeProviderMessage, type TraceRecorder } from '../../../utils/provider-trace.js';
 import type { ActiveRun } from './types.js';
 import { handleProviderEvent, type ProviderEventState } from './run-events.js';
@@ -14,7 +14,7 @@ interface ConsumeProviderStreamInput {
   db: ActiveRun['db'];
   input: string;
   modeValue: string;
-  notificationService: NotificationService;
+  notificationService: PushNotificationService;
   persistSessionWorkingDirectory: (nextWorkingDirectory: string | null | undefined) => void;
   providerRunner: AsyncIterable<ClaudeMessage>;
   providerType: string;

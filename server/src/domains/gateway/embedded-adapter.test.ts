@@ -35,7 +35,7 @@ function createGatewayClientMock() {
     },
     queries: {
       connection: { isConnected: () => true },
-      identity: { getInstanceId: () => 'instance-1', getDeviceId: () => 'device-1' },
+      identity: { getInstanceId: () => 'instance-1', getDeviceId: () => 'device-1', getBackendId: () => 'backend-local', getEpoch: () => 1 },
       registry: { getItems: () => new Map() },
       channel: {
         getOutgoing: vi.fn(),

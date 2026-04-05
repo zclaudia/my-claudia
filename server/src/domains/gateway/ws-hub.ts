@@ -51,7 +51,6 @@ export class FacadeWsHub {
   private clients = new Map<string, FacadeClientSession>();
   private clientIdCounter = 0;
   private unsubscribeEvent: (() => void) | null = null;
-
   constructor(private readonly core: BackendFacadeRuntimeCore) {}
 
   // --------------------------------------------------------------------------

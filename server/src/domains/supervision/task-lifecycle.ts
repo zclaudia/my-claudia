@@ -6,8 +6,8 @@ import type {
   SupervisionLogEvent,
 } from '@my-claudia/shared';
 import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
-import { ProjectRepository } from '../../repositories/project.js';
-import { SessionRepository } from '../../repositories/session.js';
+import { ProjectRepository } from '../projects/repository.js';
+import { SessionRepository } from '../sessions/repository.js';
 import { TaskRunner } from './task-runner.js';
 import { WorktreeManager } from './worktree-manager.js';
 import type { CheckpointEngine } from './checkpoint-engine.js';

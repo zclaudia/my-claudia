@@ -4,14 +4,14 @@ import type {
   DismissNotificationsMessage,
   NotificationListMessage,
 } from '@my-claudia/shared';
-import type { NotificationFeedService } from '../../../../domains/notification-feed/service.js';
+import type { NotificationService } from '../../../../domains/notification/service.js';
 import type { ConnectedClient } from '../types.js';
 import { sendMessage } from '../broadcast.js';
 
 export function handleGetNotifications(
   client: ConnectedClient,
   message: GetNotificationsMessage,
-  notificationService: NotificationFeedService,
+  notificationService: NotificationService,
 ): void {
   const result = notificationService.listItems({
     limit: message.limit,
@@ -29,7 +29,7 @@ export function handleGetNotifications(
 
 export function handleMarkNotificationsRead(
   message: MarkNotificationsReadMessage,
-  notificationService: NotificationFeedService,
+  notificationService: NotificationService,
 ): void {
   if (Array.isArray(message.itemIds)) {
     notificationService.markRead(message.itemIds);
@@ -38,13 +38,13 @@ export function handleMarkNotificationsRead(
 
 export function handleDismissNotifications(
   message: DismissNotificationsMessage,
-  notificationService: NotificationFeedService,
+  notificationService: NotificationService,
 ): void {
   if (Array.isArray(message.itemIds)) {
     notificationService.dismissItems(message.itemIds);
   }
 }
 
-export function handleClearReadNotifications(notificationService: NotificationFeedService): void {
+export function handleClearReadNotifications(notificationService: NotificationService): void {
   notificationService.clearRead();
 }

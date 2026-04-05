@@ -1,9 +1,9 @@
 import type { Database } from 'better-sqlite3';
 import type { LocalPR, LocalPRStatus, ServerMessage, Session } from '@my-claudia/shared';
 import { LocalPRRepository } from './repository.js';
-import { ProjectRepository } from '../../repositories/project.js';
-import { ProviderRepository } from '../../repositories/provider.js';
-import { SessionRepository } from '../../repositories/session.js';
+import { ProjectRepository } from '../projects/repository.js';
+import { ProviderRepository } from '../providers/repository.js';
+import { SessionRepository } from '../sessions/repository.js';
 import { WorktreeConfigRepository } from '../../repositories/worktree-config.js';
 import { Mutex } from 'async-mutex';
 import { mkdir, rm, writeFile } from 'fs/promises';

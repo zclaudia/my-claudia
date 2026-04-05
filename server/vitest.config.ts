@@ -30,7 +30,7 @@ export default defineConfig(async () => {
         reporter: ['text', 'json', 'html'],
         all: true,
         include: ['src/**/*.ts'],
-        exclude: ['**/*.d.ts', 'src/index.ts', 'src/test/**', 'src/**/__tests__/**', 'src/verification/**', 'src/plugins/worker-runner.ts', 'src/plugins/mcp-bridge.ts', 'src/server.ts'],
+        exclude: ['**/*.d.ts', 'src/index.ts', 'src/test/**', 'src/**/__tests__/**', 'src/verification/**', 'src/domains/plugins/worker-runner.ts', 'src/domains/plugins/mcp-bridge.ts', 'src/server.ts'],
       },
     },
   };

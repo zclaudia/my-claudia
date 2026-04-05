@@ -80,6 +80,8 @@ export const useSessionsStore = create<SessionsState>((set) => ({
   recentlyCompletedSessions: [],
 
   setRemoteSessions: (backendId: string, sessions: RemoteSession[]) => {
+    // Note: caller (backend_data_snapshot handler) already checks sessionsChanged
+    // before calling this method, so no duplicate diff check needed here.
     useOwnershipStore.getState().removeSessionOwnersByBackend(backendId);
     useOwnershipStore.getState().setSessionOwners(sessions.map((s) => s.id), backendId);
     set((state) => {
@@ -195,18 +197,19 @@ export const useSessionsStore = create<SessionsState>((set) => ({
   reconcileActiveStatus: (backendId: string, activeSessionIds: Set<string>) => {
     set((state) => {
       const sessions = state.remoteSessions.get(backendId);
-      const newActiveMap = new Map(state.activeSessionIdsByBackend);
-      newActiveMap.set(backendId, new Set(activeSessionIds));
-      if (!sessions) return { activeSessionIdsByBackend: newActiveMap };
+      if (!sessions) return state;
+
+      // Check if any session's isActive actually changed
+      const changed = sessions.some(s => s.isActive !== activeSessionIds.has(s.id));
+      if (!changed) return state;
 
       const updated = sessions.map(s => ({
         ...s,
         isActive: activeSessionIds.has(s.id)
       }));
 
-      // Only update if something changed
-      const changed = sessions.some((s, i) => s.isActive !== updated[i].isActive);
-      if (!changed) return { activeSessionIdsByBackend: newActiveMap };
+      const newActiveMap = new Map(state.activeSessionIdsByBackend);
+      newActiveMap.set(backendId, new Set(activeSessionIds));
 
       // Track sessions that just completed (were active, now aren't)
       let recentlyCompleted = state.recentlyCompletedSessions;

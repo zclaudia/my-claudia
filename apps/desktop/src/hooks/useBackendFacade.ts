@@ -35,16 +35,34 @@ let facadeServerRuns = new Map<string, Set<string>>();
 let pendingAutoOpenBackends = new Set<string>();
 let autoOpenTimer: ReturnType<typeof setTimeout> | null = null;
 
+// Track auto-open failures per backend to prevent infinite retry loops.
+// Cleared on facade lifecycle reset.
+const AUTO_OPEN_MAX_FAILURES = 3;
+let autoOpenFailures = new Map<string, number>();
+
 function clearPendingAutoOpen(): void {
   pendingAutoOpenBackends.clear();
+  autoOpenFailures.clear();
   if (autoOpenTimer) {
     clearTimeout(autoOpenTimer);
     autoOpenTimer = null;
   }
 }
 
+/** Called when a backend enters error/offline after auto-open attempt. */
+function noteAutoOpenFailure(backendId: string): void {
+  autoOpenFailures.set(backendId, (autoOpenFailures.get(backendId) ?? 0) + 1);
+}
+
+/** Called when a backend successfully reaches ready state. */
+function noteAutoOpenSuccess(backendId: string): void {
+  autoOpenFailures.delete(backendId);
+}
+
 function scheduleAutoOpenBackends(backendIds: string[]): void {
   for (const backendId of backendIds) {
+    // Skip backends that have failed too many times
+    if ((autoOpenFailures.get(backendId) ?? 0) >= AUTO_OPEN_MAX_FAILURES) continue;
     pendingAutoOpenBackends.add(backendId);
   }
   if (pendingAutoOpenBackends.size === 0 || autoOpenTimer) return;
@@ -163,7 +181,6 @@ export function useBackendFacade(): void {
     // emission that would exceed React's update depth on mobile.
     unsubEventRef.current = facade.onEvent((event: BackendFacadeEvent) => {
       useFacadeStore.getState().applyEvent(event);
-      useRecoveryStore.getState().noteTransportMessage();
       syncToGatewayStore(event);
     });
 
@@ -252,6 +269,10 @@ export function syncToGatewayStore(
     case 'connection_state_changed':
       gwStore.setConnected(event.state === 'connected');
       useRecoveryStore.getState().setTransportState(event.state, event.error);
+      // Fresh transport connection → give all backends a new chance
+      if (event.state === 'connected') {
+        autoOpenFailures.clear();
+      }
       if (event.state !== 'connected') {
         for (const backend of useFacadeStore.getState().backends) {
           cleanupServerSyncState(backend.backendId);
@@ -261,6 +282,13 @@ export function syncToGatewayStore(
       break;
 
     case 'backend_state_changed': {
+      // Track auto-open success/failure for retry limiting
+      if (event.state === 'ready') {
+        noteAutoOpenSuccess(event.backendId);
+      } else if (event.state === 'error' || event.state === 'offline') {
+        noteAutoOpenFailure(event.backendId);
+      }
+
       if (event.state === 'offline' || event.state === 'error') {
         cleanupServerSyncState(event.backendId);
         cleanupServerSyncState(`gw:${event.backendId}`);
@@ -298,7 +326,7 @@ export function syncToGatewayStore(
     case 'backend_data_snapshot': {
       const { backendId, sessions, projects } = event;
       const activeItems = sessions.filter((item) => !item.archived);
-      useSessionsStore.getState().setRemoteSessions(backendId, activeItems.map(item => ({
+      const mappedSessions = activeItems.map(item => ({
         id: item.sessionId,
         projectId: item.projectId || '',
         name: item.title || '',
@@ -306,7 +334,30 @@ export function syncToGatewayStore(
         updatedAt: item.updatedAt,
         isActive: item.runStatus === 'running',
         type: 'regular' as const,
-      })));
+      }));
+
+      // Check if sessions actually changed before writing to stores
+      const currentSessions = useSessionsStore.getState().remoteSessions.get(backendId);
+      const sessionsChanged = !currentSessions
+        || currentSessions.length !== mappedSessions.length
+        || currentSessions.some((s, i) =>
+          s.id !== mappedSessions[i].id
+          || s.updatedAt !== mappedSessions[i].updatedAt
+          || s.isActive !== mappedSessions[i].isActive
+        );
+
+      // Always mark sync as succeeded (snapshot arrival = authoritative sync, even if data unchanged)
+      const ownershipVersion = useRecoveryStore.getState().noteDataSyncSucceeded(backendId);
+      useOwnershipStore.getState().stampSessionOwnershipVersion(
+        activeItems.map(item => item.sessionId),
+        ownershipVersion,
+      );
+
+      // Only write to sessionsStore if data actually changed (avoids re-renders)
+      if (sessionsChanged) {
+        useSessionsStore.getState().setRemoteSessions(backendId, mappedSessions);
+      }
+
       // Sync projects from snapshot (always replace, even if empty — snapshot is the truth)
       if (projects) {
         useProjectStore.getState().replaceProjectsForBackend(backendId, projects.map(p => ({
@@ -317,11 +368,6 @@ export function syncToGatewayStore(
           updatedAt: p.updatedAt,
         })));
       }
-      const ownershipVersion = useRecoveryStore.getState().noteDataSyncSucceeded(backendId);
-      useOwnershipStore.getState().stampSessionOwnershipVersion(
-        activeItems.map(item => item.sessionId),
-        ownershipVersion,
-      );
       break;
     }
 

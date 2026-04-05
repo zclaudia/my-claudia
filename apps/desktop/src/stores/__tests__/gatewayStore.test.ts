@@ -43,6 +43,7 @@ describe('gatewayStore', () => {
   });
 
   it('clears backend auth status on disconnect', () => {
+    useGatewayStore.getState().setConnected(true);
     useGatewayStore.getState().setBackendAuthStatus('backend-1', 'authenticated');
     useGatewayStore.getState().setConnected(false);
     expect(useGatewayStore.getState().backendAuthStatus).toEqual({});

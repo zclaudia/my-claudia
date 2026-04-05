@@ -60,17 +60,55 @@ export const useFacadeStore = create<FacadeState>((set, get) => ({
   clearFacade: () => set({ ...initialState }),
 
   applySnapshot: (snapshot) =>
-    set((state) => ({
-      mode: snapshot.mode,
-      connectionState: snapshot.connectionState,
-      connectionError: snapshot.connectionState === 'connected' ? null : state.connectionError,
-      backends: snapshot.backends,
-      sessionStreams: snapshot.sessionStreams,
-      localBackendId: snapshot.localBackendId,
-      currentInstanceId: snapshot.currentInstanceId,
-      currentDeviceId: snapshot.currentDeviceId,
-      snapshotVersion: snapshot.snapshotVersion,
-    })),
+    set((state) => {
+      // Reuse existing array/object references if content hasn't changed.
+      // This avoids re-rendering components that subscribe to specific fields
+      // when periodic snapshot publishes arrive with identical data.
+      const backendsChanged = state.backends.length !== snapshot.backends.length
+        || state.backends.some((b, i) => {
+          const nb = snapshot.backends[i];
+          return b.backendId !== nb.backendId
+            || b.runtimeState !== nb.runtimeState
+            || b.openState !== nb.openState
+            || b.online !== nb.online
+            || b.lastError !== nb.lastError
+            || b.capabilities?.length !== nb.capabilities?.length
+            || b.capabilities?.some((c, j) => c !== nb.capabilities?.[j]);
+        });
+
+      const stateStreamKeys = Object.keys(state.sessionStreams);
+      const snapshotStreamKeys = Object.keys(snapshot.sessionStreams);
+      const streamsChanged = stateStreamKeys.length !== snapshotStreamKeys.length
+        || stateStreamKeys.some(key =>
+          !snapshot.sessionStreams[key]
+          || state.sessionStreams[key].state !== snapshot.sessionStreams[key].state
+        );
+
+      // If nothing changed at all, return the existing state to avoid any re-render
+      if (
+        !backendsChanged
+        && !streamsChanged
+        && state.connectionState === snapshot.connectionState
+        && state.mode === snapshot.mode
+        && state.localBackendId === snapshot.localBackendId
+        && state.currentInstanceId === snapshot.currentInstanceId
+        && state.currentDeviceId === snapshot.currentDeviceId
+      ) {
+        return state;
+      }
+
+      return {
+        mode: snapshot.mode,
+        connectionState: snapshot.connectionState,
+        connectionError: snapshot.connectionState === 'connected' ? null : state.connectionError,
+        backends: backendsChanged ? snapshot.backends : state.backends,
+        sessionStreams: streamsChanged ? snapshot.sessionStreams : state.sessionStreams,
+        localBackendId: snapshot.localBackendId,
+        currentInstanceId: snapshot.currentInstanceId,
+        currentDeviceId: snapshot.currentDeviceId,
+        snapshotVersion: snapshot.snapshotVersion,
+      };
+    }),
 
   applyEvent: (event) => {
     switch (event.type) {

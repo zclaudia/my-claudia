@@ -8,7 +8,7 @@
 | 指标 | 值 |
 |------|-----|
 | 范围 | `server/src/domains/{orchestration,local-pr,notification-feed}` ~3.4k 行（不含测试） |
-| 关键模块 | local-pr/service.ts (1165行), orchestration/task-orchestrator.ts (534行), claudia-branch-service.ts (260行), notification-feed/service.ts (120行) |
+| 关键模块 | local-pr/service.ts (1165行), orchestration/task-orchestrator.ts (534行), claudia-branch-service.ts (260行), notification/service.ts (120行) |
 
 ## 发现
 
@@ -43,7 +43,7 @@
 |---|------|------|------|
 | 5 | **virtualClient 泄漏** | task-orchestrator.ts:260-265 | `catch { /* ignore parse errors */ }` 吞掉所有异常，若 `settleTask` 本身抛异常，虚拟客户端和 safetyTimer 可能泄漏 |
 | 6 | **Orchestrator 依赖 createVirtualClient 从 ws/types.ts** | task-orchestrator.ts:20 | 从 `../conversation/ws/types.js` 导入，orchestration 域对 conversation 域产生直接依赖 |
-| 7 | **NotificationFeedService `void this.notifyFn?.()`** | notification-feed/service.ts:43,64 | async 函数的错误被静默吞掉，应加 `.catch()` |
+| 7 | **NotificationFeedService `void this.notifyFn?.()`** | notification/service.ts:43,64 | async 函数的错误被静默吞掉，应加 `.catch()` |
 | 8 | **ClaudiaBranchService 与 orchestration 同域** | claudia-branch-service.ts | BranchService 管理的是会话分支分配，更贴近 conversation 的关注点而非 orchestration |
 | 9 | **Orchestrator tick() N+1 查询** | task-orchestrator.ts:478-512 | 每次 tick 对每个 waiting task 的每个 dependency 调用 `repo.findById()`，O(W×D) 次查询 |
 | 10 | **Local PR 硬编码常量** | local-pr/service.ts:30-34 | `STALE_TIMEOUT_MS`, `MAX_FINISHED_PRS_PER_PROJECT`, `INLINE_DIFF_MAX_CHARS` 不可配置 |

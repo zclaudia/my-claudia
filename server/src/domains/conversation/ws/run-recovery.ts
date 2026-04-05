@@ -3,7 +3,7 @@ import { interactionDispatcher } from '../interactions/interaction-dispatcher.js
 import type { ActiveRun } from './types.js';
 import type { ProcessMonitor } from '../../../utils/process-monitor.js';
 import type { ConnectedClient } from './types.js';
-import type { NotificationService } from '../../notification-feed/notification-service.js';
+import type { PushNotificationService } from '../../notification/notification-service.js';
 import { broadcastRunMessage, sendMessage } from './broadcast.js';
 import { MAX_SESSION_RESET_RETRIES } from './types.js';
 import { getGatewayClient } from '../../gateway/gateway-instance.js';
@@ -23,7 +23,7 @@ interface HandleRunExceptionInput {
   message: {
     sessionId: string;
   } & Record<string, unknown>;
-  notificationService: NotificationService;
+  notificationService: PushNotificationService;
   processMonitor: ProcessMonitor | null;
   recoveryState: { sessionResetRetryCount?: number };
   runId: string;

@@ -9,7 +9,7 @@ vi.mock('../../utils/cron.js', () => ({
 }));
 
 // Mock workflow step registry
-vi.mock('../../plugins/workflow-step-registry.js', () => ({
+vi.mock('../../domains/plugins/workflow-step-registry.js', () => ({
   workflowStepRegistry: {
     getAllMeta: vi.fn().mockReturnValue([
       { type: 'plugin_step', name: 'Plugin Step', description: 'From plugin', category: 'Plugin', source: 'plugin' },

@@ -10,7 +10,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { toolRegistry } from '../plugins/tool-registry.js';
+import { toolRegistry } from '../domains/plugins/tool-registry.js';
 
 const SERVER_NAME = 'claudia';
 const SERVER_VERSION = '1.0.0';

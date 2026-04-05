@@ -10,8 +10,8 @@ import type {
   SupervisorConfig,
 } from '@my-claudia/shared';
 import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
-import { ProjectRepository } from '../../repositories/project.js';
-import { SessionRepository } from '../../repositories/session.js';
+import { ProjectRepository } from '../projects/repository.js';
+import { SessionRepository } from '../sessions/repository.js';
 import { ContextManager, type ContextDocument } from './context-manager.js';
 import { TaskRunner } from './task-runner.js';
 import { ReviewEngine } from './review-engine.js';

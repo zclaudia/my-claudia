@@ -403,9 +403,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }),
 
   updateRunHealth: (runId, health) =>
-    set((state) => ({
-      runHealth: { ...state.runHealth, [runId]: health },
-    })),
+    set((state) => {
+      const existing = state.runHealth[runId];
+      if (existing
+        && existing.health === health.health
+        && existing.lastActivityAt === health.lastActivityAt
+        && existing.loopPattern === health.loopPattern
+      ) {
+        return state;
+      }
+      return { runHealth: { ...state.runHealth, [runId]: health } };
+    }),
 
   // ── Tool call actions (per run) ────────────────────────────────
 

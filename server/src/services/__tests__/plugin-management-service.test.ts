@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { PluginManagementError, PluginManagementService } from '../plugin-management-service.js';
+import { PluginManagementError, PluginManagementService } from '../../domains/plugins/management-service.js';
 
 describe('PluginManagementService', () => {
   const loader = {

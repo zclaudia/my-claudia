@@ -24,10 +24,10 @@ vi.mock('../workflow-run-repository.js', () => ({
 vi.mock('../workflow-step-run-repository.js', () => ({
   WorkflowStepRunRepository: class { constructor() { Object.assign(this, mockStepRunRepo); } },
 }));
-vi.mock('../../../repositories/project.js', () => ({
+vi.mock('../../projects/repository.js', () => ({
   ProjectRepository: class { constructor() { Object.assign(this, mockProjectRepo); } },
 }));
-vi.mock('../../../repositories/session.js', () => ({
+vi.mock('../../sessions/repository.js', () => ({
   SessionRepository: class { constructor() { Object.assign(this, mockSessionRepo); } },
 }));
 vi.mock('../../../server.js', () => ({
@@ -37,7 +37,7 @@ vi.mock('../../../server.js', () => ({
 vi.mock('../../../events/index.js', () => ({
   pluginEvents: { emit: vi.fn().mockResolvedValue(undefined), on: vi.fn() },
 }));
-vi.mock('../../../plugins/workflow-step-registry.js', () => ({
+vi.mock('../../plugins/index.js', () => ({
   workflowStepRegistry: { get: vi.fn(), has: vi.fn(), execute: vi.fn() },
 }));
 
@@ -55,7 +55,7 @@ vi.mock('util', () => ({
 
 import { WorkflowEngine, type StepResult } from '../engine.js';
 import { createVirtualClient, handleRunStart } from '../../../server.js';
-import { workflowStepRegistry } from '../../../plugins/workflow-step-registry.js';
+import { workflowStepRegistry } from '../../plugins/index.js';
 import {
   CompositeStepExecutor,
   ShellStepExecutor,
@@ -105,7 +105,7 @@ describe('WorkflowEngine', () => {
 
     mockBroadcast = vi.fn();
 
-    const mockDb = { prepare: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue([]) }) } as any;
+    const mockDb = { prepare: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue([]), get: vi.fn().mockReturnValue(undefined), run: vi.fn().mockReturnValue({ changes: 0 }) }) } as any;
     engine = createEngineWithDb(mockDb, mockBroadcast);
   });
 

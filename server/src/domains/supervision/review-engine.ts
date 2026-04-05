@@ -9,8 +9,8 @@ import type {
   Session,
 } from '@my-claudia/shared';
 import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
-import { ProjectRepository } from '../../repositories/project.js';
-import { SessionRepository } from '../../repositories/session.js';
+import { ProjectRepository } from '../projects/repository.js';
+import { SessionRepository } from '../sessions/repository.js';
 import type { ContextManager } from './context-manager.js';
 import type { WorktreePool } from './worktree-pool.js';
 import { createVirtualClient, handleRunStart } from '../../server.js';

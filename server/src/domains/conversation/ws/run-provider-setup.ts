@@ -4,7 +4,7 @@ import { runAIReviewCliJob, supportsAIReviewCliJob } from '../../../providers/cl
 import { createPermissionCallback } from './run-permissions.js';
 import type { RunStartMessage, RunSessionRecord } from './run-bootstrap.js';
 import type { ActiveRun, ConnectedClient } from './types.js';
-import type { NotificationService } from '../../notification-feed/notification-service.js';
+import type { PushNotificationService } from '../../notification/notification-service.js';
 import type { ProviderConfig } from '@my-claudia/shared';
 
 function parseProviderEnv(envJson: string | null, providerId: string): Record<string, string> {
@@ -40,7 +40,7 @@ interface PrepareProviderRunInput {
   cwd: string;
   db: ActiveRun['db'];
   message: RunStartMessage;
-  notificationService: NotificationService;
+  notificationService: PushNotificationService;
   onAIReviewResolved: (input: {
     requestId: string;
     toolName: string;

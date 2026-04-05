@@ -3,8 +3,8 @@ import type Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import type { ApiResponse } from '@my-claudia/shared';
 import { normalizeToUnifiedPolicy } from '@my-claudia/shared';
-import { toolRegistry } from '../plugins/tool-registry.js';
-import { getDiscoveredSkills } from '../plugins/skill-tools.js';
+import { toolRegistry } from '../domains/plugins/tool-registry.js';
+import { getDiscoveredSkills } from '../domains/plugins/skill-tools.js';
 import { CONTEXT_TEMPLATES } from '../domains/conversation/context/types.js';
 import { validateCliJobProviderId } from '../providers/cli-jobs/provider-validation.js';
 

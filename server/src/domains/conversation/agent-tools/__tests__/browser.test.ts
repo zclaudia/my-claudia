@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { toolRegistry } from '../../../../plugins/tool-registry.js';
+import { toolRegistry } from '../../../plugins/index.js';
 import { isBlockedHostname } from '../network-guard.js';
 
 vi.mock('../network-guard.js', () => ({

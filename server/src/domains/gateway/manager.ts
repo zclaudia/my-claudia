@@ -389,7 +389,9 @@ export class GatewayManager {
                    s.created_at as createdAt, s.updated_at as updatedAt,
                    s.archived_at as archivedAt
             FROM sessions s
+            LEFT JOIN projects p ON s.project_id = p.id
             WHERE s.archived_at IS NULL
+              AND (p.is_internal IS NULL OR p.is_internal = 0)
             ORDER BY s.updated_at DESC
           `).all() as Array<Record<string, unknown>>;
           return sessions.map((s): SessionItem => ({
@@ -410,6 +412,7 @@ export class GatewayManager {
           const projects = serverContext.db.prepare(`
             SELECT id, name, created_at as createdAt, updated_at as updatedAt
             FROM projects
+            WHERE is_internal = 0
             ORDER BY updated_at DESC
           `).all() as Array<Record<string, unknown>>;
           return projects.map((p): ProjectItem => ({

@@ -85,7 +85,7 @@
 | routes/ | ~28 | HTTP API 端点（不含各域自带的 routes.ts） |
 | router/ | 2 | 消息路由注册器（index.ts + README），与 routes/ 共存，关系待厘清 |
 | events/ | 1 | pluginEvents 事件总线（14.5KB） |
-| mcp/ | 1 | MCP server 实现（mcp-server.ts），独立于 plugins/mcp-bridge.ts |
+| mcp/ | 1 | MCP server 实现（mcp-server.ts），独立于 domains/plugins/mcp-bridge.ts |
 | handlers/ | 1 | CRUD Handler Factory，基于 Repository 接口生成标准 handler |
 | commands/ | 3 | 命令注册（init.ts + registry.ts），无对应领域 |
 | utils/ | ~27 | 工具函数，含 run-state.ts / workflow-layout.ts / git-worktrees.ts 等疑似领域逻辑 |

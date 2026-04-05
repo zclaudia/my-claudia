@@ -16,7 +16,7 @@ import type {
 import type { BranchAction } from '@my-claudia/shared';
 import type { ConnectedClient, ActiveRun } from '../types.js';
 import type { initDatabase } from '../../../../storage/db.js';
-import type { NotificationFeedService } from '../../../../domains/notification-feed/service.js';
+import type { NotificationService } from '../../../../domains/notification/service.js';
 import type { TaskOrchestrator } from '../../../orchestration/types.js';
 import type { BranchAllocatorPort } from '../../../../domains/orchestration/claudia-branch-service.js';
 import { sendMessage } from '../broadcast.js';
@@ -26,7 +26,7 @@ interface ClaudiaHandlerContext {
   connectedClients: Map<string, ConnectedClient>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- handleRunStart accepts various message shapes from different callers
   handleRunStart: (client: ConnectedClient, message: any, db: ReturnType<typeof initDatabase>, options?: Record<string, unknown>, clients?: Map<string, ConnectedClient>) => Promise<void>;
-  notificationService?: NotificationFeedService;
+  notificationService?: NotificationService;
   orchestrator?: TaskOrchestrator;
   branchAllocator?: BranchAllocatorPort;
 }

@@ -29,7 +29,7 @@ import type { PermissionDecision } from '../../../providers/types.js';
 import { PERMISSION_TIMEOUT_POLICIES, type ActiveRun } from './types.js';
 import { broadcastRunMessage } from './broadcast.js';
 import { normalizeFromAskUser } from '../interactions/interaction-normalizer.js';
-import type { NotificationService } from '../../notification-feed/notification-service.js';
+import type { PushNotificationService } from '../../notification/notification-service.js';
 
 interface SessionContext {
   project_id: string;
@@ -48,7 +48,7 @@ export interface CreatePermissionCallbackInput {
   markPendingResolutionResumed: () => void;
   message: MessageContext;
   modeValue: string;
-  notificationService: NotificationService;
+  notificationService: PushNotificationService;
   onAIReviewResolved: (input: {
     requestId: string;
     toolName: string;
