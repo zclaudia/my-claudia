@@ -15,8 +15,6 @@ const {
   mockRecoveryStoreState,
   mockUseRecoveryStore,
   mockIsBackendReady,
-  mockMobileRecoveryStoreState,
-  mockUseMobileRecoveryStore,
   mockIsAndroid,
 } = vi.hoisted(() => {
   const serverState: Record<string, any> = {
@@ -59,15 +57,6 @@ const {
   });
   recoveryHook.getState = vi.fn(() => recoveryState);
 
-  const mobileRecoveryState: Record<string, any> = {
-    phase: 'idle',
-  };
-  const mobileRecoveryHook: any = vi.fn((selector?: any) => {
-    if (selector) return selector(mobileRecoveryState);
-    return mobileRecoveryState;
-  });
-  mobileRecoveryHook.getState = vi.fn(() => mobileRecoveryState);
-
   return {
     mockServerStoreState: serverState,
     mockUseServerStore: serverHook,
@@ -78,8 +67,6 @@ const {
     mockRecoveryStoreState: recoveryState,
     mockUseRecoveryStore: recoveryHook,
     mockIsBackendReady: vi.fn(() => false),
-    mockMobileRecoveryStoreState: mobileRecoveryState,
-    mockUseMobileRecoveryStore: mobileRecoveryHook,
     mockIsAndroid: vi.fn(() => false),
   };
 });
@@ -103,10 +90,6 @@ vi.mock('../../stores/recoveryStore', () => ({
   isBackendReady: mockIsBackendReady,
 }));
 
-vi.mock('../../stores/mobileRecoveryStore', () => ({
-  useMobileRecoveryStore: mockUseMobileRecoveryStore,
-}));
-
 vi.mock('../../utils/platform', () => ({
   isAndroid: mockIsAndroid,
 }));
@@ -127,7 +110,6 @@ describe('hooks/useMultiServerSocket', () => {
     mockFacadeStoreState.backends = [];
     mockFacadeStoreState.connectionState = 'idle';
     mockRecoveryStoreState.backends = {};
-    mockMobileRecoveryStoreState.phase = 'idle';
 
     mockGatewayConnection.isBackendConnected.mockReturnValue(false);
     mockIsBackendReady.mockReturnValue(false);
@@ -356,7 +338,6 @@ describe('hooks/useMultiServerSocket', () => {
         mockFacadeStoreState.backends = [
           { backendId: 'backend-1', runtimeState: 'ready' },
         ] as any;
-        mockMobileRecoveryStoreState.phase = 'ready';
 
         const { result } = renderHook(() => useMultiServerSocket());
 
@@ -381,17 +362,15 @@ describe('hooks/useMultiServerSocket', () => {
         expect(mockIsBackendReady).not.toHaveBeenCalled();
       });
 
-      it('treats Android backend as disconnected while mobile recovery is running', () => {
-        mockIsAndroid.mockReturnValue(true);
+      it('returns true when backend is ready and connected', () => {
         mockFacadeStoreState.connectionState = 'connected';
         mockFacadeStoreState.backends = [
           { backendId: 'backend-1', runtimeState: 'ready' },
         ] as any;
-        mockMobileRecoveryStoreState.phase = 'recovering';
 
         const { result } = renderHook(() => useMultiServerSocket());
 
-        expect(result.current.isServerConnected('backend-1')).toBe(false);
+        expect(result.current.isServerConnected('backend-1')).toBe(true);
       });
 
       it('returns false when backend is found but isBackendReady returns false', () => {
@@ -476,7 +455,6 @@ describe('hooks/useMultiServerSocket', () => {
       mockFacadeStoreState.backends = [
         { backendId: 'server-1', runtimeState: 'ready' },
       ] as any;
-      mockMobileRecoveryStoreState.phase = 'ready';
       mockServerStoreState.activeServerId = 'server-1';
 
       const { result } = renderHook(() => useMultiServerSocket());
@@ -551,7 +529,6 @@ describe('hooks/useMultiServerSocket', () => {
           { backendId: 'b1', runtimeState: 'ready' },
           { backendId: 'b2', runtimeState: 'subscribing' },
         ] as any;
-        mockMobileRecoveryStoreState.phase = 'ready';
 
         const { result } = renderHook(() => useMultiServerSocket());
 
@@ -587,7 +564,6 @@ describe('hooks/useMultiServerSocket', () => {
           { backendId: 'b1', runtimeState: 'ready' },
           { backendId: 'b2', runtimeState: 'ready' },
         ] as any;
-        mockMobileRecoveryStoreState.phase = 'ready';
 
         const { result } = renderHook(() => useMultiServerSocket());
 

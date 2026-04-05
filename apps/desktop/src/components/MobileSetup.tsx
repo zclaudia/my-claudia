@@ -5,7 +5,6 @@ import { useServerStore } from '../stores/serverStore';
 import { useFacadeStore } from '../stores/facadeStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import type { BackendSnapshot } from '@my-claudia/shared';
-import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import { getVisibleMobileBackends, isMobileGatewayConnected } from '../services/mobileConnectionState';
 
 function shouldShowMobileDebug(): boolean {
@@ -57,25 +56,22 @@ export function MobileSetup() {
     setGatewaySecret(directGatewaySecret || '');
   }, [directGatewaySecret]);
 
-  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
-  const mobileRecoveryError = useMobileRecoveryStore((s) => s.lastError);
-
   useEffect(() => {
     if (!connecting) return;
 
-    if (facadeConnectionState === 'connected' && mobileRecoveryPhase !== 'recovering') {
+    if (facadeConnectionState === 'connected') {
       clearConnectTimers();
       setConnecting(false);
       setError(null);
       return;
     }
 
-    if (facadeConnectionState === 'error' || mobileRecoveryPhase === 'error') {
+    if (facadeConnectionState === 'error') {
       clearConnectTimers();
       setConnecting(false);
-      setError(mobileRecoveryError || facadeConnectionError || 'Connection failed.');
+      setError(facadeConnectionError || 'Connection failed.');
     }
-  }, [connecting, facadeConnectionState, mobileRecoveryError, mobileRecoveryPhase, facadeConnectionError]);
+  }, [connecting, facadeConnectionState, facadeConnectionError]);
 
   useEffect(() => clearConnectTimers, []);
 
@@ -98,7 +94,6 @@ export function MobileSetup() {
     connectIntervalRef.current = window.setInterval(() => {
       if (isMobileGatewayConnected(
         useFacadeStore.getState().connectionState,
-        useMobileRecoveryStore.getState().phase,
       )) {
         setConnecting(false);
         clearConnectTimers();
@@ -108,7 +103,6 @@ export function MobileSetup() {
     connectTimeoutRef.current = window.setTimeout(() => {
       if (!isMobileGatewayConnected(
         useFacadeStore.getState().connectionState,
-        useMobileRecoveryStore.getState().phase,
       )) {
         setConnecting(false);
         setError('Connection timed out. Please check the URL and secret.');
@@ -126,10 +120,9 @@ export function MobileSetup() {
   };
 
   const { showLocalBackend } = useGatewayStore();
-  const isGatewayConnected = isMobileGatewayConnected(facadeConnectionState, mobileRecoveryPhase);
+  const isGatewayConnected = isMobileGatewayConnected(facadeConnectionState);
   const onlineBackends = getVisibleMobileBackends(
     backends,
-    mobileRecoveryPhase,
     currentInstanceId,
     showLocalBackend,
   );

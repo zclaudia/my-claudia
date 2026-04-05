@@ -4,7 +4,6 @@ import { useServerLatencyMonitor } from '../useServerLatencyMonitor';
 import { useServerStore } from '../../stores/serverStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
 import { useFacadeStore } from '../../stores/facadeStore';
-import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import { probeServerLatency } from '../../services/api';
 import { isAndroid } from '../../utils/platform';
 
@@ -39,7 +38,6 @@ describe('useServerLatencyMonitor', () => {
       connectionState: 'connected',
       backends: [{ backendId: 'backend-1', runtimeState: 'ready' } as any],
     } as any);
-    useMobileRecoveryStore.getState().reset();
   });
 
   afterEach(() => {
@@ -56,9 +54,11 @@ describe('useServerLatencyMonitor', () => {
     expect(probeServerLatency).toHaveBeenCalledWith('backend-1');
   });
 
-  it('skips latency probes on Android while mobile recovery is running', async () => {
-    vi.mocked(isAndroid).mockReturnValue(true);
-    useMobileRecoveryStore.setState({ phase: 'recovering' } as any);
+  it('skips latency probes when no backends are ready', async () => {
+    useFacadeStore.setState({
+      connectionState: 'connected',
+      backends: [{ backendId: 'backend-1', runtimeState: 'visible' } as any],
+    } as any);
 
     renderHook(() => useServerLatencyMonitor());
 

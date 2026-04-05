@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useServerStore } from '../stores/serverStore';
 import { useFacadeStore } from '../stores/facadeStore';
-import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import { useGatewayStore } from '../stores/gatewayStore';
 import { useUIStore, type FontSizePreset } from '../stores/uiStore';
 import { useConnection } from '../contexts/ConnectionContext';
@@ -94,19 +93,17 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const localBackendId = useFacadeStore((s) => s.localBackendId);
   const currentInstanceId = useFacadeStore((s) => s.currentInstanceId);
-  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
   const activeServer = facadeBackends.find(b => b.backendId === activeServerId) ?? null;
   const isConnected = isMobileBackendUsable({
     backendId: activeServerId,
     connectionState: facadeConnectionState,
     backends: facadeBackends,
-    recoveryPhase: mobileRecoveryPhase,
   });
   const isActiveLocalBackend = !!activeServerId && (
     activeServerId === localBackendId || activeServer?.isThisInstance === true
   );
   const isEmbeddedLocalMode = controlPlaneMode === 'embedded-local';
-  const visibleGatewayBackends = getVisibleMobileBackends(facadeBackends, mobileRecoveryPhase, currentInstanceId, showLocalBackend);
+  const visibleGatewayBackends = getVisibleMobileBackends(facadeBackends, currentInstanceId, showLocalBackend);
 
   // SDK version check
   const localServerPort = useServerStore((s) => s.localServerPort);
@@ -251,7 +248,6 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       backend.backendId,
       facadeConnectionState,
       facadeBackends,
-      mobileRecoveryPhase,
     );
     if (viewState !== 'ready') return;
     const serverId = backend.backendId;
@@ -550,7 +546,6 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                               gwId,
                               facadeConnectionState,
                               facadeBackends,
-                              mobileRecoveryPhase,
                             );
                             const isReachable = viewState === 'ready';
                             const statusColor = viewState === 'ready'

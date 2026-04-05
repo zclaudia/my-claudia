@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import type { BackendSnapshot } from '@my-claudia/shared';
 import { useFacadeStore } from '../../stores/facadeStore';
 import { useServerStore } from '../../stores/serverStore';
-import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import { isLocalBackendId } from '../../utils/controlPlane';
 import { getMobileBackendViewState, type MobileBackendViewState } from '../../services/mobileConnectionState';
 import type { BackendRecoveryViewState } from '../../stores/recoveryStore';
@@ -41,7 +40,6 @@ export function useAutomationBackendOptions(): AutomationBackendOption[] {
   const backends = useFacadeStore((state) => state.backends);
   const facadeConnectionState = useFacadeStore((state) => state.connectionState);
   const connections = useServerStore((state) => state.connections);
-  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
 
   return useMemo(
     () =>
@@ -50,7 +48,6 @@ export function useAutomationBackendOptions(): AutomationBackendOption[] {
           backend.backendId,
           facadeConnectionState,
           backends,
-          mobileRecoveryPhase,
         );
         return {
           backendId: backend.backendId,
@@ -63,6 +60,6 @@ export function useAutomationBackendOptions(): AutomationBackendOption[] {
           backend,
         };
       }),
-    [backends, connections, facadeConnectionState, mobileRecoveryPhase],
+    [backends, connections, facadeConnectionState],
   );
 }

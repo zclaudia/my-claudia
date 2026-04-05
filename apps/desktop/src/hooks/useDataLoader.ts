@@ -2,7 +2,6 @@ import { useEffect, useCallback } from 'react';
 import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useFacadeStore } from '../stores/facadeStore';
-import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import * as api from '../services/api';
 import { isMobileBackendUsable } from '../services/mobileConnectionState';
 
@@ -10,12 +9,11 @@ export function useDataLoader() {
   const activeServerId = useServerStore((s) => s.activeServerId);
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const facadeBackends = useFacadeStore((s) => s.backends);
-  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
+  const reconnectGeneration = useFacadeStore((s) => s.reconnectGeneration);
   const isActiveConnected = isMobileBackendUsable({
     backendId: activeServerId,
     connectionState: facadeConnectionState,
     backends: facadeBackends,
-    recoveryPhase: mobileRecoveryPhase,
   });
   const setDataServerId = useProjectStore((s) => s.setDataServerId);
 
@@ -55,9 +53,9 @@ export function useDataLoader() {
       }
       console.error('[DataLoader] Error loading data:', err);
     }
-  }, [isActiveConnected, activeServerId]);
+  }, [isActiveConnected, activeServerId, reconnectGeneration]);
 
-  // Load data when connected or server changes
+  // Load data when connected, server changes, or after reconnect
   useEffect(() => {
     if (isActiveConnected) {
       const controller = new AbortController();
@@ -70,7 +68,7 @@ export function useDataLoader() {
         controller.abort();
       };
     }
-  }, [loadData, activeServerId, isActiveConnected, setDataServerId]);
+  }, [loadData, activeServerId, isActiveConnected, setDataServerId, reconnectGeneration]);
 
   // Note: Session messages are loaded by ChatInterface with pagination support
 

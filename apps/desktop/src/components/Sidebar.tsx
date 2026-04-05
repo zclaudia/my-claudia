@@ -31,7 +31,6 @@ import { useProjectStore } from '../stores/projectStore';
 import { useProviderMetaStore } from '../stores/providerMetaStore';
 import { useServerStore } from '../stores/serverStore';
 import { useFacadeStore } from '../stores/facadeStore';
-import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import { isLegacyLocalBackendId, resolveCanonicalBackendId } from '../utils/controlPlane';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import { usePermissionStore } from '../stores/permissionStore';
@@ -106,12 +105,10 @@ export function Sidebar({
   const activeServerId = useServerStore((s) => s.activeServerId);
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const facadeBackends = useFacadeStore((s) => s.backends);
-  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
   const isConnected = isMobileBackendUsable({
     backendId: activeServerId,
     connectionState: facadeConnectionState,
     backends: facadeBackends,
-    recoveryPhase: mobileRecoveryPhase,
   });
   const scopedProviders = useProviderMetaStore((s) => s.getProviders(activeServerId));
   const providers = scopedProviders.length > 0 ? scopedProviders : legacyProviders;

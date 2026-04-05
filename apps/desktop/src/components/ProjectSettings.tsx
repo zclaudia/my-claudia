@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Project, ProviderConfig, AgentPermissionPolicy } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
 import { useFacadeStore } from '../stores/facadeStore';
-import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useProviderMetaStore } from '../stores/providerMetaStore';
 import { useSupervisionStore } from '../stores/supervisionStore';
@@ -27,12 +26,10 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
   const activeServerId = useServerStore((s) => s.activeServerId);
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const facadeBackends = useFacadeStore((s) => s.backends);
-  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
   const isConnected = isMobileBackendUsable({
     backendId: activeServerId,
     connectionState: facadeConnectionState,
     backends: facadeBackends,
-    recoveryPhase: mobileRecoveryPhase,
   });
   const legacyProviders = useProjectStore((s) => s.providers);
   const { updateProject } = useProjectStore();

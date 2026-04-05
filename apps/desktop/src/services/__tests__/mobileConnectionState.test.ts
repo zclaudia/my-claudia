@@ -15,22 +15,22 @@ const readyBackend = {
 } as any;
 
 describe('mobileConnectionState', () => {
-  it('derives mobile control-plane state from facade connection and recovery phase', () => {
-    expect(getMobileControlPlaneState('connected', 'ready')).toBe('ready');
-    expect(getMobileControlPlaneState('connected', 'recovering')).toBe('connecting');
-    expect(getMobileControlPlaneState('error', 'idle')).toBe('error');
+  it('does not mark control plane ready until facade snapshots have progressed', () => {
+    expect(getMobileControlPlaneState('connected', 0)).toBe('connecting');
+    expect(getMobileControlPlaneState('connected', 1)).toBe('connecting');
+    expect(getMobileControlPlaneState('connected', 2)).toBe('ready');
+    expect(getMobileControlPlaneState('error', 2)).toBe('error');
   });
 
-  it('derives mobile backend view state without the legacy recovery type dependency', () => {
-    expect(getMobileBackendViewState('backend-1', 'connected', [readyBackend], 'ready')).toBe('ready');
-    expect(getMobileBackendViewState('backend-1', 'connected', [readyBackend], 'recovering')).toBe('backend_subscribing');
-    expect(getMobileBackendViewState('missing', 'connected', [readyBackend], 'ready')).toBe('offline');
+  it('derives backend view state from transport and backend runtime state', () => {
+    expect(getMobileBackendViewState('backend-1', 'connected', [readyBackend])).toBe('ready');
+    expect(getMobileBackendViewState('backend-1', 'reconnecting', [readyBackend])).toBe('transport_reconnecting');
+    expect(getMobileBackendViewState('missing', 'connected', [readyBackend])).toBe('offline');
   });
 
-  it('treats recovery and error phases as unavailable for gateway/backend usage', () => {
-    expect(isMobileGatewayConnected('connected', 'ready')).toBe(true);
-    expect(isMobileGatewayConnected('connected', 'recovering')).toBe(false);
-    expect(getUsableMobileBackendIds('connected', [readyBackend], 'ready')).toEqual(['backend-1']);
-    expect(getUsableMobileBackendIds('connected', [readyBackend], 'error')).toEqual([]);
+  it('treats only ready backends as usable', () => {
+    expect(isMobileGatewayConnected('connected')).toBe(true);
+    expect(getUsableMobileBackendIds('connected', [readyBackend])).toEqual(['backend-1']);
+    expect(getUsableMobileBackendIds('reconnecting', [readyBackend])).toEqual([]);
   });
 });

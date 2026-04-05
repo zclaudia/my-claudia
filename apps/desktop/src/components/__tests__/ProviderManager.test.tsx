@@ -41,10 +41,6 @@ const mockFacadeState = {
   backends: [{ backendId: 'local', runtimeState: 'ready' }],
 };
 
-const mockMobileRecoveryState = {
-  phase: 'idle',
-};
-
 const { mockProviderMetaState, useProviderMetaStoreMock } = vi.hoisted(() => {
   const state = {
     getProviders: vi.fn(() => []),
@@ -81,12 +77,6 @@ vi.mock('../../stores/recoveryStore', () => ({
 vi.mock('../../stores/facadeStore', () => ({
   useFacadeStore: vi.fn((selector?: (state: typeof mockFacadeState) => unknown) => (
     typeof selector === 'function' ? selector(mockFacadeState) : mockFacadeState
-  )),
-}));
-
-vi.mock('../../stores/mobileRecoveryStore', () => ({
-  useMobileRecoveryStore: vi.fn((selector?: (state: typeof mockMobileRecoveryState) => unknown) => (
-    typeof selector === 'function' ? selector(mockMobileRecoveryState) : mockMobileRecoveryState
   )),
 }));
 
@@ -159,7 +149,6 @@ describe('ProviderManager', () => {
     mockRecoveryState.backends.local.status = 'ready';
     mockFacadeState.connectionState = 'connected';
     mockFacadeState.backends = [{ backendId: 'local', runtimeState: 'ready' }];
-    mockMobileRecoveryState.phase = 'idle';
     vi.mocked(isAndroid).mockReturnValue(false);
   });
 
@@ -189,11 +178,9 @@ describe('ProviderManager', () => {
     expect(screen.getByText('Connect to a server first')).toBeInTheDocument();
   });
 
-  it('shows "Connect to a server first" on Android while mobile recovery is running', async () => {
-    vi.mocked(isAndroid).mockReturnValue(true);
+  it('shows "Connect to a server first" when backend is not ready', async () => {
     mockFacadeState.connectionState = 'connected';
-    mockFacadeState.backends = [{ backendId: 'local', runtimeState: 'ready' }];
-    mockMobileRecoveryState.phase = 'recovering';
+    mockFacadeState.backends = [{ backendId: 'local', runtimeState: 'visible' }];
 
     await renderProviderManager({ onClose: mockOnClose });
 

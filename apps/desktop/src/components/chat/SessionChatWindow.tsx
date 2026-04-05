@@ -4,7 +4,6 @@ import { ConnectionProvider } from '../../contexts/ConnectionContext';
 import { ChatInterface } from './ChatInterface';
 import { useServerStore } from '../../stores/serverStore';
 import { useFacadeStore } from '../../stores/facadeStore';
-import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import { useProjectStore } from '../../stores/projectStore';
 import * as api from '../../services/api';
 import { useSelectionCoordinator } from '../../hooks/useSelectionCoordinator';
@@ -155,12 +154,10 @@ function SessionChatContent({ sessionId, projectId }: SessionChatContentProps) {
   const activeServerId = useServerStore((s) => s.activeServerId);
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const facadeBackends = useFacadeStore((s) => s.backends);
-  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
   const isConnected = isMobileBackendUsable({
     backendId: activeServerId,
     connectionState: facadeConnectionState,
     backends: facadeBackends,
-    recoveryPhase: mobileRecoveryPhase,
   });
 
   // Once WebSocket is connected, load project/session data into the stores

@@ -376,6 +376,63 @@ describe('useBackendFacade run_event forwarding', () => {
     expect(backend.status).toBe('ready');
   });
 
+  it('cleans up stale runs only for the snapshot backend', () => {
+    useChatStore.getState().startRun('run-remote', 'session-1');
+    useChatStore.getState().startRun('run-local', 'session-local');
+    useProjectStore.setState({
+      ...useProjectStore.getState(),
+      sessions: [
+        { id: 'session-1', projectId: 'project-1', name: 'Session 1', isActive: true },
+        { id: 'session-local', projectId: 'project-local', name: 'Local Session', isActive: true },
+      ],
+    } as any);
+    useOwnershipStore.getState().setSessionOwner('session-1', 'remote-1');
+    useOwnershipStore.getState().setSessionOwner('session-local', 'local-standalone');
+
+    syncToGatewayStore({
+      type: 'backend_data_snapshot',
+      backendId: 'remote-1',
+      sessions: [],
+      projects: [],
+    } as any);
+
+    expect(useChatStore.getState().activeRuns['run-remote']).toBeUndefined();
+    expect(useChatStore.getState().activeRuns['run-local']).toBe('session-local');
+  });
+
+  it('snapshot stale-run cleanup clears backend activity markers', () => {
+    useChatStore.getState().startRun('run-1', 'session-1');
+    useOwnershipStore.getState().setSessionOwner('session-1', 'remote-1');
+
+    syncToGatewayStore({
+      type: 'run_event',
+      backendId: 'remote-1',
+      event: {
+        type: 'run_started',
+        runId: 'run-1',
+        sessionId: 'session-1',
+        assistantMessageId: 'assistant-1',
+      },
+    } as any);
+
+    syncToGatewayStore({
+      type: 'backend_data_snapshot',
+      backendId: 'remote-1',
+      sessions: [],
+      projects: [],
+    } as any);
+
+    syncToGatewayStore({
+      type: 'backend_state_changed',
+      backendId: 'remote-1',
+      state: 'error',
+      error: 'transport_disconnected',
+    } as any);
+
+    expect(useChatStore.getState().activeRuns['run-1']).toBeUndefined();
+    expect(useToastStore.getState().toasts).toEqual([]);
+  });
+
   it('removes archived sessions on backend data upsert events', () => {
     useSessionsStore.setState({
       ...useSessionsStore.getState(),

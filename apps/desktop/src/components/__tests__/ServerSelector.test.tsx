@@ -21,7 +21,6 @@ import { useServerStore } from '../../stores/serverStore';
 import { useGatewayStore } from '../../stores/gatewayStore';
 import { useFacadeStore } from '../../stores/facadeStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
-import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import { isAndroid } from '../../utils/platform';
 
 describe('ServerSelector', () => {
@@ -96,7 +95,6 @@ describe('ServerSelector', () => {
       nextOwnershipVersion: 2,
       backgroundAt: null,
     } as any);
-    useMobileRecoveryStore.getState().reset();
     vi.mocked(isAndroid).mockReturnValue(false);
   });
 
@@ -233,20 +231,22 @@ describe('ServerSelector', () => {
     expect(container.querySelector('[data-testid="connection-status"]')!.textContent).toBe('Connected');
   });
 
-  it('shows recovering state on Android while mobile recovery job is running', () => {
-    vi.mocked(isAndroid).mockReturnValue(true);
+  it('shows reconnecting state when transport is not connected', () => {
+    useFacadeStore.setState({
+      connectionState: 'connecting',
+      backends: [{ backendId: 'local', runtimeState: 'visible', name: 'Local Server', online: true, isThisInstance: true }],
+      localBackendId: 'local',
+    } as any);
     useGatewayStore.setState({
       gatewayUrl: 'wss://gw.example.com',
       gatewaySecret: 'sec',
-      isConnected: true,
+      isConnected: false,
     } as any);
-    useMobileRecoveryStore.setState({ phase: 'recovering' } as any);
 
     const { container } = render(<ServerSelector />);
     const button = container.querySelector('[data-testid="server-selector"]')!;
     fireEvent.click(button);
 
-    expect(container.querySelector('[data-testid="connection-status"]')!.textContent).toBe('Subscribing...');
-    expect(container.textContent).toContain('Disconnected');
+    expect(container.querySelector('[data-testid="connection-status"]')!.textContent).toBe('Reconnecting...');
   });
 });

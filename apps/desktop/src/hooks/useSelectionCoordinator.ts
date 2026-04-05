@@ -4,7 +4,6 @@ import { useOwnershipStore } from '../stores/ownershipStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
 import { useFacadeStore } from '../stores/facadeStore';
-import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import { getControlPlaneMode, resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/controlPlane';
 import { isMobileBackendUsable } from '../services/mobileConnectionState';
 
@@ -20,7 +19,6 @@ export function useSelectionCoordinator() {
   const selectSessionInStore = useProjectStore((s) => s.selectSession);
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const facadeBackends = useFacadeStore((s) => s.backends);
-  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
 
   const selectBackend = useCallback((backendId: string | null | undefined) => {
     const canonicalBackendId = resolveCanonicalBackendId(backendId, resolveLocalBackendId() ?? backendId ?? null);
@@ -30,7 +28,6 @@ export function useSelectionCoordinator() {
         backendId: canonicalBackendId,
         connectionState: facadeConnectionState,
         backends: facadeBackends,
-        recoveryPhase: mobileRecoveryPhase,
       });
       if (backendReady) {
         return;
@@ -47,7 +44,6 @@ export function useSelectionCoordinator() {
     connectServer,
     facadeBackends,
     facadeConnectionState,
-    mobileRecoveryPhase,
     selectProjectInStore,
     selectSessionInStore,
     setActiveServer,

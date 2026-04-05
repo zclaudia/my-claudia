@@ -34,7 +34,6 @@ import { useServerStore } from '../../stores/serverStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
 import { useFacadeStore } from '../../stores/facadeStore';
-import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import { isAndroid } from '../../utils/platform';
 
 vi.mock('../../utils/platform', async (importOriginal) => {
@@ -77,7 +76,6 @@ describe('useSelectionCoordinator', () => {
       connectionState: 'connected',
       backends: [{ backendId: 'backend-1', runtimeState: 'ready', name: 'Backend 1' }],
     } as any);
-    useMobileRecoveryStore.getState().reset();
     vi.mocked(isAndroid).mockReturnValue(false);
     useProjectStore.setState({
       projects: [],
@@ -238,13 +236,11 @@ describe('useSelectionCoordinator', () => {
     expect(mockConnectServer).toHaveBeenCalledWith('local-backend-1');
   });
 
-  it('reissues connect intent on Android while mobile recovery is still running', () => {
-    vi.mocked(isAndroid).mockReturnValue(true);
+  it('does not reissue connect intent when backend is already ready', () => {
     useFacadeStore.setState({
       connectionState: 'connected',
       backends: [{ backendId: 'backend-1', runtimeState: 'ready', name: 'Backend 1' }],
     } as any);
-    useMobileRecoveryStore.setState({ phase: 'recovering' } as any);
 
     const { result } = renderHook(() => useSelectionCoordinator());
 
@@ -252,6 +248,7 @@ describe('useSelectionCoordinator', () => {
       result.current.selectProject('project-1');
     });
 
-    expect(mockConnectServer).toHaveBeenCalledWith('backend-1');
+    // Backend is already ready, no need to reconnect
+    expect(mockConnectServer).not.toHaveBeenCalled();
   });
 });

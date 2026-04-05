@@ -4,7 +4,6 @@ import { useOwnershipStore } from '../../stores/ownershipStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useChatStore } from '../../stores/chatStore';
 import { getControlPlaneMode, resolveCanonicalBackendId, resolveLocalBackendId } from '../../utils/controlPlane';
-import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import { getMobileBackendViewState, isMobileBackendUsable } from '../../services/mobileConnectionState';
 
 function getStreamKey(backendId: string, sessionId: string): string {
@@ -42,15 +41,11 @@ export function useSessionRoute(
   const backends = useFacadeStore((s) => s.backends);
   const sessionStreams = useFacadeStore((s) => s.sessionStreams);
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
+  const reconnectGeneration = useFacadeStore((s) => s.reconnectGeneration);
   const activeServerId = useServerStore((s) => s.activeServerId);
   const maxOffset = useChatStore((s) =>
     sessionId ? s.pagination[sessionId]?.maxOffset ?? 0 : 0
   );
-  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
-  const mobileRecoveryStep = useMobileRecoveryStore((s) => s.step);
-  const mobileRecoverySelectedSessionId = useMobileRecoveryStore((s) => s.selectedSessionId);
-  const mobileRecoveryActiveBackendId = useMobileRecoveryStore((s) => s.activeBackendId);
-  const mobileRecoveryError = useMobileRecoveryStore((s) => s.lastError);
   const ownerBackendId = useOwnershipStore((s) => {
     if (!sessionId) return null;
     const backendId = s.sessionBackendIds[sessionId] ?? null;
@@ -59,14 +54,6 @@ export function useSessionRoute(
   });
 
   const backendId = useMemo(() => {
-    if (
-      sessionId
-      && mobileRecoveryPhase === 'recovering'
-      && mobileRecoverySelectedSessionId === sessionId
-      && mobileRecoveryActiveBackendId
-    ) {
-      return mobileRecoveryActiveBackendId;
-    }
     if (ownerBackendId) return ownerBackendId;
 
     const localBackendId = resolveLocalBackendId(activeServerId ?? null);
@@ -76,9 +63,6 @@ export function useSessionRoute(
     return activeServerId ?? localBackendId ?? null;
   }, [
     activeServerId,
-    mobileRecoveryActiveBackendId,
-    mobileRecoveryPhase,
-    mobileRecoverySelectedSessionId,
     ownerBackendId,
     sessionId,
   ]);
@@ -96,16 +80,10 @@ export function useSessionRoute(
     backendId,
     facadeConnectionState,
     backends,
-    mobileRecoveryPhase,
   );
   const catchUpSignatureRef = useRef<string | null>(null);
   const prevStreamStateRef = useRef<string | undefined>();
-  const recoveryOwnsDesiredState = !!(
-    maintainDesiredState
-    && sessionId
-    && mobileRecoveryPhase === 'recovering'
-    && mobileRecoverySelectedSessionId === sessionId
-  );
+  const lastRecoveryGenerationRef = useRef(0);
 
   useEffect(() => {
     catchUpSignatureRef.current = null;
@@ -128,10 +106,10 @@ export function useSessionRoute(
   // backend reappears as 'visible' on reconnect — we need to re-trigger openBackend.
   const backendOpenState = backend?.openState;
   useEffect(() => {
-    if (!maintainDesiredState || !facade || !backendId || recoveryOwnsDesiredState) return;
+    if (!maintainDesiredState || !facade || !backendId) return;
     if (backendOpenState === 'subscribed' || backendOpenState === 'subscribing') return;
     facade.openBackend(backendId);
-  }, [backendId, backendOpenState, facade, maintainDesiredState, recoveryOwnsDesiredState]);
+  }, [backendId, backendOpenState, facade, maintainDesiredState]);
 
   useEffect(() => {
     if (
@@ -139,7 +117,22 @@ export function useSessionRoute(
       || !facade
       || !backendId
       || !sessionId
-      || recoveryOwnsDesiredState
+      || reconnectGeneration === 0
+    ) return;
+    if (lastRecoveryGenerationRef.current === reconnectGeneration) return;
+    lastRecoveryGenerationRef.current = reconnectGeneration;
+
+    catchUpSignatureRef.current = null;
+    facade.openBackend(backendId);
+    facade.openSessionStream(backendId, sessionId);
+  }, [backendId, facade, maintainDesiredState, reconnectGeneration, sessionId]);
+
+  useEffect(() => {
+    if (
+      !maintainDesiredState
+      || !facade
+      || !backendId
+      || !sessionId
     ) return;
 
     facade.openSessionStream(backendId, sessionId);
@@ -147,7 +140,7 @@ export function useSessionRoute(
     return () => {
       facade.closeSessionStream(backendId, sessionId);
     };
-  }, [backendId, facade, maintainDesiredState, recoveryOwnsDesiredState, sessionId]);
+  }, [backendId, facade, maintainDesiredState, sessionId]);
 
   useEffect(() => {
     if (
@@ -156,7 +149,6 @@ export function useSessionRoute(
       || !backendId
       || !sessionId
       || !streamKey
-      || recoveryOwnsDesiredState
     ) return;
     if (stream?.state !== 'open') return;
 
@@ -164,27 +156,21 @@ export function useSessionRoute(
     if (catchUpSignatureRef.current === signature) return;
     catchUpSignatureRef.current = signature;
     facade.catchUpContent(backendId, sessionId, maxOffset);
-  }, [backendId, facade, maintainDesiredState, maxOffset, recoveryOwnsDesiredState, sessionId, stream?.state, streamKey]);
+  }, [backendId, facade, maintainDesiredState, maxOffset, reconnectGeneration, sessionId, stream?.state, streamKey]);
 
   const backendReady = mobileBackendViewState === 'ready';
   const backendErrored = mobileBackendViewState === 'error';
   const transportReady = facadeConnectionState === 'connected';
-  const canSend = !recoveryOwnsDesiredState && isMobileBackendUsable({
+  const canSend = isMobileBackendUsable({
     backendId,
     connectionState: facadeConnectionState,
     backends,
-    recoveryPhase: mobileRecoveryPhase,
   });
   const canLoadMessages = !!backendId;
 
   let phase: SessionRoutePhase;
   if (!backendId) {
     phase = ownerBackendId ? 'offline' : 'resolving';
-  } else if (
-    mobileRecoveryPhase === 'recovering'
-    && mobileRecoverySelectedSessionId === sessionId
-  ) {
-    phase = mobileRecoveryStep === 'session' ? 'opening_stream' : 'opening_backend';
   } else if (
     backendErrored
     || stream?.state === 'error'
@@ -208,7 +194,6 @@ export function useSessionRoute(
     canLoadMessages,
     ownerResolved: !!ownerBackendId,
     lastError: stream?.lastError
-      ?? mobileRecoveryError
       ?? backend?.lastError
       ?? null,
   };

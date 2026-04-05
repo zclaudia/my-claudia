@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useServerStore } from '../stores/serverStore';
 import { useGatewayStore, shouldShowNonCurrentInstanceBackend } from '../stores/gatewayStore';
 import { useFacadeStore } from '../stores/facadeStore';
-import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import type { BackendSnapshot } from '@my-claudia/shared';
@@ -32,7 +31,6 @@ export function ServerSelector() {
   const isMobile = useIsMobile();
 
   const [isOpen, setIsOpen] = useState(false);
-  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
 
   const backends = useFacadeStore((s) => s.backends);
   const localBackendId = useFacadeStore((s) => s.localBackendId);
@@ -47,11 +45,11 @@ export function ServerSelector() {
   const displayedBackend = activeBackend || fallbackBackend;
   const displayedBackendId = displayedBackend?.backendId ?? activeServerId ?? null;
   const getViewState = (backendId: string | null | undefined): BackendRecoveryViewState | MobileBackendViewState => (
-    getMobileBackendViewState(backendId, facadeConnectionState, backends, mobileRecoveryPhase)
+    getMobileBackendViewState(backendId, facadeConnectionState, backends)
   );
   const activeRecoveryState = getViewState(displayedBackendId);
   const activeRecoveryError: string | null = null;
-  const isGatewayReady = isMobileGatewayConnected(facadeConnectionState, mobileRecoveryPhase);
+  const isGatewayReady = isMobileGatewayConnected(facadeConnectionState);
   const isGatewayConfigured = !!gatewayUrl && !!gatewaySecret;
   // Show all backends in the dropdown. When the active server is remote,
   // the local backend must be visible so the user can switch back.

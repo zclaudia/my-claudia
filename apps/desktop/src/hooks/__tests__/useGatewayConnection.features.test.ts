@@ -12,7 +12,6 @@ const {
   mockFacadeStoreState,
   mockGatewayStoreState,
   mockSetState,
-  mockMobileRecoveryStoreState,
 } = vi.hoisted(() => {
   const mockFacade = {
     openBackend: vi.fn(),
@@ -39,11 +38,7 @@ const {
     Object.assign(mockGatewayStoreState, updates);
   });
 
-  const mockMobileRecoveryStoreState = {
-    phase: 'ready' as string,
-  };
-
-  return { mockFacade, mockFacadeStoreState, mockGatewayStoreState, mockSetState, mockMobileRecoveryStoreState };
+  return { mockFacade, mockFacadeStoreState, mockGatewayStoreState, mockSetState };
 });
 
 // ---------------------------------------------------------------------------
@@ -60,16 +55,6 @@ vi.mock('../../stores/facadeStore', () => ({
   ),
 }));
 
-vi.mock('../../stores/mobileRecoveryStore', () => ({
-  useMobileRecoveryStore: Object.assign(
-    vi.fn((selector?: any) =>
-      selector ? selector(mockMobileRecoveryStoreState) : mockMobileRecoveryStoreState,
-    ),
-    {
-      getState: () => mockMobileRecoveryStoreState,
-    },
-  ),
-}));
 
 vi.mock('../../stores/gatewayStore', () => ({
   useGatewayStore: Object.assign(
@@ -111,7 +96,6 @@ describe('useGatewayConnection facade delegation', () => {
     mockFacadeStoreState.backends = [];
     mockFacadeStoreState.connectionState = 'connected';
 
-    mockMobileRecoveryStoreState.phase = 'ready';
   });
 
   afterEach(() => {
@@ -143,7 +127,6 @@ describe('useGatewayConnection facade delegation', () => {
     mockFacadeStoreState.backends = [
       { backendId: 'b1', runtimeState: 'ready' },
     ];
-    mockMobileRecoveryStoreState.phase = 'ready';
 
     const { result } = renderHook(() => useGatewayConnection());
 

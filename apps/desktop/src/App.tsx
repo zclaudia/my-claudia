@@ -49,7 +49,6 @@ import { useAutoUpdate } from './hooks/useAutoUpdate';
 import { useServerLatencyMonitor } from './hooks/useServerLatencyMonitor';
 import { useActiveSessionStream } from './hooks/useActiveSessionStream';
 import { useRecoveryStore } from './stores/recoveryStore';
-import { useMobileRecoveryStore } from './stores/mobileRecoveryStore';
 import { UpdateBanner } from './components/UpdateBanner';
 import { BrandMark } from './components/BrandMark';
 import { useShortcutStore } from './stores/shortcutStore';
@@ -153,9 +152,9 @@ function AppContent() {
   const activeServerId = useServerStore((s) => s.activeServerId);
   const transportStatus = useRecoveryStore((s) => s.transport.status);
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
-  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
+  const facadeSnapshotVersion = useFacadeStore((s) => s.snapshotVersion);
   const controlPlaneState = isMobile
-    ? getMobileControlPlaneState(facadeConnectionState, mobileRecoveryPhase)
+    ? getMobileControlPlaneState(facadeConnectionState, facadeSnapshotVersion)
     : (transportStatus === 'connected' ? 'ready' : transportStatus === 'error' ? 'error' : 'connecting');
   const selectedSessionId = useProjectStore((s) => s.selectedSessionId);
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
@@ -469,14 +468,13 @@ function AppContent() {
   useEffect(() => {
     if (!isMobile || mobileAutoConnectDone.current) return;
     if (!lastActiveBackendId) return;
-    if (!isMobileGatewayConnected(facadeConnectionState, mobileRecoveryPhase)) return;
+    if (!isMobileGatewayConnected(facadeConnectionState)) return;
 
     const backendId = lastActiveBackendId;
     const activeBackendViewState = getMobileBackendViewState(
       backendId,
       facadeConnectionState,
       facadeBackends,
-      mobileRecoveryPhase,
     );
     const activeBackendReady = activeBackendViewState === 'ready' || activeBackendViewState === 'backend_subscribing';
     if (activeServerId === backendId && activeBackendReady) {
@@ -488,7 +486,6 @@ function AppContent() {
       backendId,
       facadeConnectionState,
       facadeBackends,
-      mobileRecoveryPhase,
     );
     if (backendViewState === 'offline') return;
 
@@ -496,7 +493,7 @@ function AppContent() {
     console.log('[App] Auto-reconnecting to last used backend:', lastActiveBackendId);
     useServerStore.getState().setActiveServer(lastActiveBackendId);
     connectServer(lastActiveBackendId);
-  }, [isMobile, lastActiveBackendId, facadeConnectionState, mobileRecoveryPhase, facadeBackends, activeServerId, connectServer]);
+  }, [isMobile, lastActiveBackendId, facadeConnectionState, facadeBackends, activeServerId, connectServer]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || new URLSearchParams(window.location.search).has('sessionWindow')) {

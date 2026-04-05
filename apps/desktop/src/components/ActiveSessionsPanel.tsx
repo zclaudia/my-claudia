@@ -10,7 +10,6 @@ import { useServerStore } from '../stores/serverStore';
 import { useProjectStore } from '../stores/projectStore';
 import { parseBackendId, shouldShowNonCurrentInstanceBackend, useGatewayStore } from '../stores/gatewayStore';
 import { useFacadeStore } from '../stores/facadeStore';
-import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import { LEGACY_LOCAL_SERVER_ID } from '../utils/controlPlane';
 import { isMobileBackendUsable } from '../services/mobileConnectionState';
 
@@ -39,12 +38,10 @@ export function ActiveSessionsPanel({ onSessionSelect }: ActiveSessionsPanelProp
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const localBackendId = useFacadeStore((s) => s.localBackendId);
   const currentInstanceId = useFacadeStore((s) => s.currentInstanceId);
-  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
   const hasDirectLocalConnection = isMobileBackendUsable({
     backendId: localBackendId ?? 'local',
     connectionState: facadeConnectionState,
     backends: facadeBackends,
-    recoveryPhase: mobileRecoveryPhase,
   });
 
   // Refresh "X ago" timestamps every 30s

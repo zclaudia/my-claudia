@@ -3,7 +3,6 @@ import { act, fireEvent, render } from '@testing-library/react';
 import { useTerminalStore } from '../../../stores/terminalStore';
 import { useServerStore } from '../../../stores/serverStore';
 import { useFacadeStore } from '../../../stores/facadeStore';
-import { useMobileRecoveryStore } from '../../../stores/mobileRecoveryStore';
 import { isAndroid } from '../../../utils/platform';
 
 const mockSendMessage = vi.fn();
@@ -121,7 +120,6 @@ describe('XTerminal', () => {
       connectionState: 'connected',
       backends: [{ backendId: 'backend-1', runtimeState: 'ready', name: 'Backend 1' }],
     } as any);
-    useMobileRecoveryStore.getState().reset();
     vi.mocked(isAndroid).mockReturnValue(false);
   });
 
@@ -257,23 +255,21 @@ describe('XTerminal', () => {
     }));
   });
 
-  it('does not send terminal_open on Android while mobile recovery is running', async () => {
-    vi.mocked(isAndroid).mockReturnValue(true);
+  it('does not send terminal_open when backend is not ready', async () => {
     useFacadeStore.setState({
       connectionState: 'connected',
-      backends: [{ backendId: 'backend-1', runtimeState: 'ready', name: 'Backend 1' }],
+      backends: [{ backendId: 'backend-1', runtimeState: 'visible', name: 'Backend 1' }],
     } as any);
-    useMobileRecoveryStore.setState({ phase: 'recovering' } as any);
 
     render(
-      <XTerminal terminalId="term-mobile-recovering" projectId="proj-1" />
+      <XTerminal terminalId="term-not-ready" projectId="proj-1" />
     );
 
     await flushTerminalMount();
 
     expect(mockSendMessage).not.toHaveBeenCalledWith(expect.objectContaining({
       type: 'terminal_open',
-      terminalId: 'term-mobile-recovering',
+      terminalId: 'term-not-ready',
     }));
   });
 

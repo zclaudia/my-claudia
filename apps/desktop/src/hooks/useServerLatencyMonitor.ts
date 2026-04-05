@@ -1,7 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useServerStore } from '../stores/serverStore';
 import { useFacadeStore } from '../stores/facadeStore';
-import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import { probeServerLatency } from '../services/api';
 import { getUsableMobileBackendIds } from '../services/mobileConnectionState';
 
@@ -11,15 +10,13 @@ export function useServerLatencyMonitor(): void {
   const setServerLatency = useServerStore((s) => s.setServerLatency);
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const facadeBackends = useFacadeStore((s) => s.backends);
-  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
 
   const readyBackendIds = useMemo(() => {
     return getUsableMobileBackendIds(
       facadeConnectionState,
       facadeBackends,
-      mobileRecoveryPhase,
     ).sort().join(',');
-  }, [facadeBackends, facadeConnectionState, mobileRecoveryPhase]);
+  }, [facadeBackends, facadeConnectionState]);
 
   useEffect(() => {
     if (!readyBackendIds) return;

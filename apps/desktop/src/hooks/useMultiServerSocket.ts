@@ -11,7 +11,6 @@ import type { ClientMessage } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
 import { useGatewayConnection } from './useGatewayConnection';
 import { useFacadeStore } from '../stores/facadeStore';
-import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import { getUsableMobileBackendIds, isMobileBackendUsable } from '../services/mobileConnectionState';
 
 export function useMultiServerSocket() {
@@ -24,7 +23,6 @@ export function useMultiServerSocket() {
       ? s.backends.find((backend) => backend.backendId === activeServerId)?.runtimeState ?? null
       : null
   );
-  useMobileRecoveryStore((s) => s.phase);
 
   const connectServer = useCallback((backendId: string) => {
     if (facade) {
@@ -62,7 +60,6 @@ export function useMultiServerSocket() {
         backendId,
         connectionState: useFacadeStore.getState().connectionState,
         backends: useFacadeStore.getState().backends,
-        recoveryPhase: useMobileRecoveryStore.getState().phase,
       });
     }
     return gatewayConnection.isBackendConnected(backendId);
@@ -74,15 +71,12 @@ export function useMultiServerSocket() {
   }, [activeServerId, isServerConnected]);
 
   // Read on-demand via getState() — no subscription needed.
-  // This prevents recovery store writes from cascading through
-  // ConnectionProvider to all useConnection() consumers.
   const getConnectedServers = useCallback(() => {
     if (!facade) return [];
     const facadeState = useFacadeStore.getState();
     return getUsableMobileBackendIds(
       facadeState.connectionState,
       facadeState.backends,
-      useMobileRecoveryStore.getState().phase,
     );
   }, [facade]);
 

@@ -4,7 +4,6 @@ import { WorkflowEditorWindow } from '../WorkflowEditorWindow';
 import { useServerStore } from '../../../../stores/serverStore';
 import { useRecoveryStore } from '../../../../stores/recoveryStore';
 import { useFacadeStore } from '../../../../stores/facadeStore';
-import { useMobileRecoveryStore } from '../../../../stores/mobileRecoveryStore';
 import { useProjectStore } from '../../../../stores/projectStore';
 import * as api from '../../../../services/api';
 import { isAndroid } from '../../../../utils/platform';
@@ -52,7 +51,6 @@ describe('WorkflowEditorWindow', () => {
       connectionState: 'connected',
       backends: [{ backendId: 'backend-1', runtimeState: 'ready', name: 'Backend 1' }],
     } as any);
-    useMobileRecoveryStore.getState().reset();
     useProjectStore.setState({
       setProjects: vi.fn(),
       setProviders: vi.fn(),
@@ -181,9 +179,11 @@ describe('WorkflowEditorWindow', () => {
     });
   });
 
-  it('does not load workflow editor context on Android while mobile recovery is running', async () => {
-    vi.mocked(isAndroid).mockReturnValue(true);
-    useMobileRecoveryStore.setState({ phase: 'recovering' } as any);
+  it('does not load workflow editor context when backend is not ready', async () => {
+    useFacadeStore.setState({
+      connectionState: 'connected',
+      backends: [{ backendId: 'local', runtimeState: 'visible', name: 'Local' }],
+    } as any);
 
     render(
       <WorkflowEditorWindow

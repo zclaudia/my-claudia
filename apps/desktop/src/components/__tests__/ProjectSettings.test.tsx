@@ -6,7 +6,6 @@ import { useProjectStore } from '../../stores/projectStore';
 import { useProviderMetaStore } from '../../stores/providerMetaStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
 import { useFacadeStore } from '../../stores/facadeStore';
-import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
 import { isAndroid } from '../../utils/platform';
 
@@ -89,7 +88,6 @@ describe('ProjectSettings', () => {
       connectionState: 'connected',
       backends: [{ backendId: 'local', runtimeState: 'ready', name: 'Local' }],
     } as any);
-    useMobileRecoveryStore.getState().reset();
     vi.mocked(isAndroid).mockReturnValue(false);
 
     useProviderMetaStore.setState({
@@ -218,9 +216,11 @@ describe('ProjectSettings', () => {
     expect(textarea.value).toBe('New prompt');
   });
 
-  it('does not load providers on Android while mobile recovery is running', async () => {
-    vi.mocked(isAndroid).mockReturnValue(true);
-    useMobileRecoveryStore.setState({ phase: 'recovering' } as any);
+  it('does not load providers when backend is not ready', async () => {
+    useFacadeStore.setState({
+      connectionState: 'connected',
+      backends: [{ backendId: 'local', runtimeState: 'visible', name: 'Local' }],
+    } as any);
     const api = await import('../../services/api');
 
     await renderProjectSettings();

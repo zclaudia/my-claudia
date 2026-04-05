@@ -28,57 +28,18 @@ describe('AppLifecycleManager', () => {
     appLifecycleManager.stop();
   });
 
-  it('calls onBackground when visibility changes to hidden', () => {
-    const onBackground = vi.fn();
-    appLifecycleManager.start(facade as any, { onBackground });
-
-    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
-    document.dispatchEvent(new Event('visibilitychange'));
-
-    expect(onBackground).toHaveBeenCalledOnce();
-  });
-
-  it('calls onResume when returning to foreground', () => {
-    const onResume = vi.fn();
-    appLifecycleManager.start(facade as any, { onResume });
-
-    // Go to background first
-    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
-    document.dispatchEvent(new Event('visibilitychange'));
-
-    // Return to foreground
-    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
-    document.dispatchEvent(new Event('visibilitychange'));
-
-    expect(onResume).toHaveBeenCalledOnce();
-  });
-
-  it('calls forceReconnect when returning from background longer than threshold', () => {
+  it('calls forceReconnect when returning from background', () => {
     appLifecycleManager.start(facade as any);
 
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
     document.dispatchEvent(new Event('visibilitychange'));
 
-    vi.advanceTimersByTime(10_000); // 10s background, past 5s threshold
+    vi.advanceTimersByTime(2_000);
 
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
     document.dispatchEvent(new Event('visibilitychange'));
 
     expect(facade.forceReconnect).toHaveBeenCalledOnce();
-  });
-
-  it('does not call forceReconnect for short background', () => {
-    appLifecycleManager.start(facade as any);
-
-    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
-    document.dispatchEvent(new Event('visibilitychange'));
-
-    vi.advanceTimersByTime(2_000); // 2s, below 5s threshold
-
-    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
-    document.dispatchEvent(new Event('visibilitychange'));
-
-    expect(facade.forceReconnect).not.toHaveBeenCalled();
   });
 
   it('calls probeHealth on foreground return', () => {
@@ -114,72 +75,53 @@ describe('AppLifecycleManager', () => {
     expect(facade.probeHealth).not.toHaveBeenCalled();
   });
 
-  it('calls onNetworkOffline when network goes offline', () => {
-    const onNetworkOffline = vi.fn();
-    appLifecycleManager.start(facade as any, { onNetworkOffline });
-
-    window.dispatchEvent(new Event('offline'));
-
-    expect(onNetworkOffline).toHaveBeenCalledOnce();
-  });
-
-  it('calls forceReconnect and onResume on network online when visible', () => {
-    const onResume = vi.fn();
-    appLifecycleManager.start(facade as any, { onResume });
+  it('calls forceReconnect on network online when visible', () => {
+    appLifecycleManager.start(facade as any);
 
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
     window.dispatchEvent(new Event('online'));
 
     expect(facade.forceReconnect).toHaveBeenCalledOnce();
-    expect(onResume).toHaveBeenCalledOnce();
-  });
-
-  it('deduplicates resume callbacks fired by foreground and online in the same second', () => {
-    const onResume = vi.fn();
-    appLifecycleManager.start(facade as any, { onResume });
-
-    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
-    document.dispatchEvent(new Event('visibilitychange'));
-
-    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
-    document.dispatchEvent(new Event('visibilitychange'));
-    window.dispatchEvent(new Event('online'));
-
-    expect(onResume).toHaveBeenCalledOnce();
   });
 
   it('does not trigger reconnect on network online when hidden', () => {
-    const onResume = vi.fn();
-    appLifecycleManager.start(facade as any, { onResume });
+    appLifecycleManager.start(facade as any);
 
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
     window.dispatchEvent(new Event('online'));
 
     expect(facade.forceReconnect).not.toHaveBeenCalled();
-    expect(onResume).not.toHaveBeenCalled();
   });
 
   it('cleans up listeners on stop', () => {
-    const onBackground = vi.fn();
-    appLifecycleManager.start(facade as any, { onBackground });
+    appLifecycleManager.start(facade as any);
     appLifecycleManager.stop();
 
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
     document.dispatchEvent(new Event('visibilitychange'));
 
-    expect(onBackground).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(10_000);
+
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(facade.forceReconnect).not.toHaveBeenCalled();
   });
 
   it('re-start replaces previous lifecycle', () => {
-    const onBg1 = vi.fn();
-    const onBg2 = vi.fn();
-    appLifecycleManager.start(facade as any, { onBackground: onBg1 });
-    appLifecycleManager.start(facade as any, { onBackground: onBg2 });
+    const facade2 = { forceReconnect: vi.fn(), probeHealth: vi.fn() };
+    appLifecycleManager.start(facade as any);
+    appLifecycleManager.start(facade2 as any);
 
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
     document.dispatchEvent(new Event('visibilitychange'));
 
-    expect(onBg1).not.toHaveBeenCalled();
-    expect(onBg2).toHaveBeenCalledOnce();
+    vi.advanceTimersByTime(10_000);
+
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(facade.forceReconnect).not.toHaveBeenCalled();
+    expect(facade2.forceReconnect).toHaveBeenCalledOnce();
   });
 });

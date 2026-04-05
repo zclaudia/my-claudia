@@ -31,6 +31,7 @@ interface FacadeState {
   currentInstanceId: string | null;
   currentDeviceId: string | null;
   snapshotVersion: number;
+  reconnectGeneration: number;
 
   // Actions
   setFacade: (facade: BackendFacade) => void;
@@ -50,6 +51,7 @@ const initialState = {
   currentInstanceId: null,
   currentDeviceId: null,
   snapshotVersion: 0,
+  reconnectGeneration: 0,
 };
 
 export const useFacadeStore = create<FacadeState>((set, get) => ({
@@ -107,16 +109,21 @@ export const useFacadeStore = create<FacadeState>((set, get) => ({
         currentInstanceId: snapshot.currentInstanceId,
         currentDeviceId: snapshot.currentDeviceId,
         snapshotVersion: snapshot.snapshotVersion,
+        reconnectGeneration: state.reconnectGeneration,
       };
     }),
 
   applyEvent: (event) => {
     switch (event.type) {
       case 'connection_state_changed':
-        set({
+        set((state) => ({
           connectionState: event.state,
           connectionError: event.state === 'error' ? (event.error ?? 'Connection failed') : null,
-        });
+          reconnectGeneration:
+            event.state === 'connected' && state.connectionState !== 'connected'
+              ? state.reconnectGeneration + 1
+              : state.reconnectGeneration,
+        }));
         break;
 
       case 'snapshot_updated':

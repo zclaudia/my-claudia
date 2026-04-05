@@ -11,7 +11,6 @@ import { MobileSetup } from '../MobileSetup';
 import { useGatewayStore } from '../../stores/gatewayStore';
 import { useFacadeStore } from '../../stores/facadeStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
-import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import { useServerStore } from '../../stores/serverStore';
 
 describe('MobileSetup', () => {
@@ -58,7 +57,6 @@ describe('MobileSetup', () => {
       backends: {},
       dataSyncs: {},
     }));
-    useMobileRecoveryStore.getState().reset();
   });
 
   it('shows the real facade connection error instead of waiting for timeout', async () => {
@@ -169,7 +167,7 @@ describe('MobileSetup', () => {
     expect(screen.getByTestId('mobile-debug-panel')).toBeInTheDocument();
   });
 
-  it('keeps setup form visible while mobile recovery is running', () => {
+  it('shows backend selection when gateway is connected and backends are available', () => {
     useFacadeStore.setState({
       connectionState: 'connected',
       connectionError: null,
@@ -190,11 +188,9 @@ describe('MobileSetup', () => {
         },
       ],
     } as any);
-    useMobileRecoveryStore.setState({ phase: 'recovering' } as any);
 
     render(<MobileSetup />);
 
-    expect(screen.getByText('MyClaudia')).toBeInTheDocument();
-    expect(screen.queryByText('Select a Server')).not.toBeInTheDocument();
+    expect(screen.getByText('Select a Server')).toBeInTheDocument();
   });
 });

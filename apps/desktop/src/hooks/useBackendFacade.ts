@@ -25,10 +25,11 @@ import { useOwnershipStore } from '../stores/ownershipStore';
 import { useProjectStore } from '../stores/projectStore';
 import { handleServerMessage, cleanupServerSyncState } from '../services/messageHandler';
 import type { ServerFeature } from '@my-claudia/shared';
-import { isLegacyLocalBackendId } from '../utils/controlPlane';
+import { isLegacyLocalBackendId, resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/controlPlane';
 import { useTerminalStore } from '../stores/terminalStore';
 import { xtermRegistry } from '../utils/xtermRegistry';
 import { useRecoveryStore } from '../stores/recoveryStore';
+import { appLifecycleManager } from '../services/appLifecycleManager';
 
 // Fix #21: use WeakRef-like pattern — clear on each facade lifecycle
 let facadeServerRuns = new Map<string, Set<string>>();
@@ -187,7 +188,11 @@ export function useBackendFacade(): void {
     // Connect
     facade.connect();
 
+    // Start lifecycle manager for mobile background/foreground handling
+    appLifecycleManager.start(facade);
+
     return () => {
+      appLifecycleManager.stop();
       if (unsubEventRef.current) {
         unsubEventRef.current();
         unsubEventRef.current = null;
@@ -356,6 +361,42 @@ export function syncToGatewayStore(
       // Only write to sessionsStore if data actually changed (avoids re-renders)
       if (sessionsChanged) {
         useSessionsStore.getState().setRemoteSessions(backendId, mappedSessions);
+      }
+
+      // Reconcile session active status from authoritative snapshot.
+      // Fixes stale run indicators after background recovery — runs that
+      // completed while in background still appear as "running" in chatStore
+      // until the first state_heartbeat arrives (up to 30s).
+      const activeSessionIds = new Set(
+        activeItems.filter(item => item.runStatus === 'running').map(item => item.sessionId)
+      );
+      useSessionsStore.getState().reconcileActiveStatus(backendId, activeSessionIds);
+
+      // Clean up stale runs: finalize pending messages + clear active run state.
+      // Same logic as state_heartbeat cleanup but driven by authoritative snapshot.
+      const ownershipState = useOwnershipStore.getState();
+      const trackedRuns = facadeServerRuns.get(backendId);
+      const knownSessionIdsForBackend = new Set([
+        ...(currentSessions?.map((session) => session.id) ?? []),
+        ...mappedSessions.map((session) => session.id),
+      ]);
+      for (const [runId, sessionId] of Object.entries(useChatStore.getState().activeRuns)) {
+        if (!sessionId) continue;
+        const ownerBackendId = resolveCanonicalBackendId(
+          ownershipState.sessionBackendIds[sessionId] ?? null,
+          resolveLocalBackendId() ?? ownershipState.sessionBackendIds[sessionId] ?? null,
+        );
+        const belongsToBackend =
+          trackedRuns?.has(runId)
+          || knownSessionIdsForBackend.has(sessionId)
+          || ownerBackendId === backendId;
+        if (!belongsToBackend) continue;
+        if (activeSessionIds.has(sessionId)) continue;
+
+        useChatStore.getState().finalizeRunToMessage(runId);
+        useChatStore.getState().endRun(runId);
+        useProjectStore.getState().setSessionActive(sessionId, false);
+        trackedRuns?.delete(runId);
       }
 
       // Sync projects from snapshot (always replace, even if empty — snapshot is the truth)

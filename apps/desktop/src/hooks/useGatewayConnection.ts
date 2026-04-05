@@ -13,7 +13,6 @@ import type { ClientMessage } from '@my-claudia/shared';
 import { useGatewayStore } from '../stores/gatewayStore';
 import { getServerGatewayStatus } from '../services/api';
 import { useFacadeStore } from '../stores/facadeStore';
-import { useMobileRecoveryStore } from '../stores/mobileRecoveryStore';
 import { isMobileBackendUsable } from '../services/mobileConnectionState';
 
 export function useGatewayConnection() {
@@ -77,7 +76,6 @@ export function useGatewayConnection() {
       backendId,
       connectionState: useFacadeStore.getState().connectionState,
       backends: useFacadeStore.getState().backends,
-      recoveryPhase: useMobileRecoveryStore.getState().phase,
     });
   }, [facade]);
 

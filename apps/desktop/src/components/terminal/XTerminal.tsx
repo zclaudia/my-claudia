@@ -9,7 +9,6 @@ import { xtermRegistry } from '../../utils/xtermRegistry';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useFacadeStore } from '../../stores/facadeStore';
-import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import { isMobileBackendUsable } from '../../services/mobileConnectionState';
 
 /** Convert CSS HSL string "H S% L%" to hex "#rrggbb" */
@@ -77,12 +76,10 @@ export function XTerminal({ terminalId, projectId, workingDirectory, mode = 'ope
   const activeServerId = useServerStore((s) => s.activeServerId);
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const facadeBackends = useFacadeStore((s) => s.backends);
-  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
   const activeServerStatus = isMobileBackendUsable({
     backendId: activeServerId,
     connectionState: facadeConnectionState,
     backends: facadeBackends,
-    recoveryPhase: mobileRecoveryPhase,
   })
     ? 'connected'
     : (facadeConnectionState === 'error' ? 'error' : 'disconnected');

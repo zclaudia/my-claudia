@@ -125,7 +125,6 @@ const mockSelectSession = vi.fn();
 const mockSetActiveServer = vi.fn();
 
 let mockRecoveryStatus = 'disconnected';
-let mockMobileRecoveryPhase = 'idle';
 let mockFacadeConnectionState = 'idle';
 let mockFacadeBackends: Array<{ backendId: string; runtimeState: string }> = [];
 
@@ -166,12 +165,6 @@ vi.mock('../../../stores/facadeStore', () => ({
   } as any),
 }));
 
-vi.mock('../../../stores/mobileRecoveryStore', () => ({
-  useMobileRecoveryStore: (selector: any) => selector({
-    phase: mockMobileRecoveryPhase,
-  } as any),
-}));
-
 vi.mock('../../../utils/platform', () => ({
   isAndroid: vi.fn(() => false),
 }));
@@ -203,7 +196,6 @@ describe('SessionChatWindow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRecoveryStatus = 'disconnected';
-    mockMobileRecoveryPhase = 'idle';
     mockFacadeConnectionState = 'idle';
     mockFacadeBackends = [];
     mockGetProjects.mockResolvedValue([]);
@@ -295,7 +287,6 @@ describe('SessionChatWindow', () => {
   it('loads data and renders ChatInterface when connected', async () => {
     mockFacadeConnectionState = 'connected';
     mockFacadeBackends = [{ backendId: 'backend-1', runtimeState: 'ready' }];
-    mockMobileRecoveryPhase = 'ready';
 
     const { container } = render(
       <SessionChatWindow
@@ -324,7 +315,6 @@ describe('SessionChatWindow', () => {
   it('passes sessionId to ChatInterface', async () => {
     mockFacadeConnectionState = 'connected';
     mockFacadeBackends = [{ backendId: 'backend-1', runtimeState: 'ready' }];
-    mockMobileRecoveryPhase = 'ready';
 
     const { container } = render(
       <SessionChatWindow
@@ -346,7 +336,6 @@ describe('SessionChatWindow', () => {
     mockFacadeBackends = [
       { backendId: 'backend-1', runtimeState: 'ready' },
     ];
-    mockMobileRecoveryPhase = 'ready';
 
     const { container } = render(
       <SessionChatWindow
@@ -362,13 +351,11 @@ describe('SessionChatWindow', () => {
     });
   });
 
-  it('keeps loading spinner on Android while mobile recovery is running', () => {
-    vi.mocked(isAndroid).mockReturnValue(true);
+  it('keeps loading spinner when backend is not ready', () => {
     mockFacadeConnectionState = 'connected';
     mockFacadeBackends = [
-      { backendId: 'backend-1', runtimeState: 'ready' },
+      { backendId: 'backend-1', runtimeState: 'visible' },
     ];
-    mockMobileRecoveryPhase = 'recovering';
 
     const { container } = render(
       <SessionChatWindow
@@ -385,7 +372,6 @@ describe('SessionChatWindow', () => {
   it('shows error state when API calls fail', async () => {
     mockFacadeConnectionState = 'connected';
     mockFacadeBackends = [{ backendId: 'backend-1', runtimeState: 'ready' }];
-    mockMobileRecoveryPhase = 'ready';
     mockGetProjects.mockRejectedValueOnce(new Error('Server unreachable'));
 
     const { container } = render(
@@ -405,7 +391,6 @@ describe('SessionChatWindow', () => {
   it('shows Close Window button on error', async () => {
     mockFacadeConnectionState = 'connected';
     mockFacadeBackends = [{ backendId: 'backend-1', runtimeState: 'ready' }];
-    mockMobileRecoveryPhase = 'ready';
     mockGetProjects.mockRejectedValueOnce(new Error('Failed'));
 
     const { container } = render(
@@ -425,7 +410,6 @@ describe('SessionChatWindow', () => {
   it('uses tauri window close for error action', async () => {
     mockFacadeConnectionState = 'connected';
     mockFacadeBackends = [{ backendId: 'backend-1', runtimeState: 'ready' }];
-    mockMobileRecoveryPhase = 'ready';
     mockGetProjects.mockRejectedValueOnce(new Error('Failed'));
 
     const { findByText } = render(

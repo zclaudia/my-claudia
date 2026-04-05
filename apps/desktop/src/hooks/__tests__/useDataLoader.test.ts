@@ -4,7 +4,6 @@ import { renderHook, act } from '@testing-library/react';
 import { useServerStore } from '../../stores/serverStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useFacadeStore } from '../../stores/facadeStore';
-import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 
 vi.mock('../../services/api', () => ({
   getServers: vi.fn().mockResolvedValue([]),
@@ -46,7 +45,6 @@ describe('useDataLoader', () => {
       connectionState: 'idle',
       backends: [],
     } as any);
-    useMobileRecoveryStore.getState().reset();
   });
 
   it('returns loadData function', () => {
@@ -69,9 +67,6 @@ describe('useDataLoader', () => {
         { backendId: 'local-standalone', runtimeState: 'ready' },
       ],
     } as any);
-    useMobileRecoveryStore.setState({
-      phase: 'ready',
-    } as any);
     const { result } = renderHook(() => useDataLoader());
     await act(async () => {
       await result.current.loadData();
@@ -81,15 +76,12 @@ describe('useDataLoader', () => {
     expect(api.getProviders).toHaveBeenCalled();
   });
 
-  it('does not load data while recovery job is running', async () => {
+  it('does not load data when backend is not ready', async () => {
     useFacadeStore.setState({
       connectionState: 'connected',
       backends: [
-        { backendId: 'local-standalone', runtimeState: 'ready' },
+        { backendId: 'local-standalone', runtimeState: 'visible' },
       ],
-    } as any);
-    useMobileRecoveryStore.setState({
-      phase: 'recovering',
     } as any);
 
     const { result } = renderHook(() => useDataLoader());

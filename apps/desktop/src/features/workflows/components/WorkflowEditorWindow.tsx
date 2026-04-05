@@ -4,7 +4,6 @@ import type { Workflow } from '@my-claudia/shared';
 import { ConnectionProvider } from '../../../contexts/ConnectionContext';
 import { useServerStore } from '../../../stores/serverStore';
 import { useFacadeStore } from '../../../stores/facadeStore';
-import { useMobileRecoveryStore } from '../../../stores/mobileRecoveryStore';
 import { useProjectStore } from '../../../stores/projectStore';
 import * as api from '../../../services/api';
 import { WorkflowEditor } from './WorkflowEditor';
@@ -60,12 +59,10 @@ function WorkflowEditorWindowContent({ projectId, workflowId, serverUrl, authTok
   const activeServerId = useServerStore((s) => s.activeServerId);
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const facadeBackends = useFacadeStore((s) => s.backends);
-  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
   const isConnected = isMobileBackendUsable({
     backendId: activeServerId,
     connectionState: facadeConnectionState,
     backends: facadeBackends,
-    recoveryPhase: mobileRecoveryPhase,
   });
 
   useEffect(() => {

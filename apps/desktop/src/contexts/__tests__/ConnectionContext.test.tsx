@@ -5,35 +5,11 @@ import type { ReactNode } from 'react';
 // Undo the global mock from setup.ts so we test the real implementation
 vi.unmock('@/contexts/ConnectionContext');
 
-const {
-  mockUseMobileRecoveryJobManager,
-  mockUseRecoveryLifecycle,
-  mockMobileRecoveryManager,
-} = vi.hoisted(() => ({
-  mockUseMobileRecoveryJobManager: vi.fn(),
-  mockUseRecoveryLifecycle: vi.fn(),
-  mockMobileRecoveryManager: {
-    start: vi.fn(),
-    retry: vi.fn(),
-    cancel: vi.fn(),
-    updateSelection: vi.fn(),
-    setDependencies: vi.fn(),
-  },
-}));
-
 import { ConnectionProvider, useConnection, ConnectionContext } from '../ConnectionContext';
 
 // Mock useBackendFacade — no-op in ConnectionContext tests
 vi.mock('../../hooks/useBackendFacade', () => ({
   useBackendFacade: vi.fn(),
-}));
-
-vi.mock('../../hooks/useMobileRecoveryJob', () => ({
-  useMobileRecoveryJobManager: mockUseMobileRecoveryJobManager,
-}));
-
-vi.mock('../../hooks/useRecoveryLifecycle', () => ({
-  useRecoveryLifecycle: mockUseRecoveryLifecycle,
 }));
 
 // Mock useWslServer
@@ -166,7 +142,6 @@ const mockGatewayStore = (useGatewayStore as any)._store as Record<string, any>;
 describe('ConnectionContext', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockUseMobileRecoveryJobManager.mockReturnValue(mockMobileRecoveryManager);
     mockFacadeStore.facade = null;
     mockPermissionStore.pendingRequests = [];
     mockAskUserStore.pendingRequests = [];
@@ -511,17 +486,13 @@ describe('ConnectionContext', () => {
     expect(result.current.getConnectedServers).toBeDefined();
   });
 
-  it('uses the unified recovery runtime and lifecycle', () => {
-    const facade = { forceReconnect: vi.fn(), probeHealth: vi.fn() } as any;
-    mockFacadeStore.facade = facade;
-
+  it('initializes useBackendFacade hook', () => {
     const wrapper = ({ children }: { children: ReactNode }) => (
       <ConnectionProvider>{children}</ConnectionProvider>
     );
 
     renderHook(() => useConnection(), { wrapper });
-
-    expect(mockUseMobileRecoveryJobManager).toHaveBeenCalledOnce();
-    expect(mockUseRecoveryLifecycle).toHaveBeenCalledWith(facade, mockMobileRecoveryManager);
+    // BackendFacade is initialized by useBackendFacade hook
+    // (mocked as no-op in these tests)
   });
 });

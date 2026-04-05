@@ -70,7 +70,6 @@ import { useProjectStore } from '../../stores/projectStore';
 import { useProviderMetaStore } from '../../stores/providerMetaStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
 import { useFacadeStore } from '../../stores/facadeStore';
-import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useOwnershipStore } from '../../stores/ownershipStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
@@ -148,11 +147,6 @@ function setupStores(overrides: Record<string, any> = {}) {
     snapshotVersion: 0,
     ...overrides.facadeStore,
   } as any);
-
-  useMobileRecoveryStore.getState().reset();
-  if (overrides.mobileRecoveryStore) {
-    useMobileRecoveryStore.setState(overrides.mobileRecoveryStore as any);
-  }
 
   useSupervisionStore.setState({ agents: {}, ...overrides.supervisionStore } as any);
   usePermissionStore.setState({ pendingRequests: [], ...overrides.permissionStore } as any);
@@ -293,16 +287,14 @@ describe('Sidebar', () => {
     expect(container.textContent).toContain('No active sessions');
   });
 
-  it('disables new project creation on Android while mobile recovery is running', () => {
-    vi.mocked(isAndroid).mockReturnValue(true);
+  it('disables new project creation when backend is not ready', () => {
     setupStores({
-      mobileRecoveryStore: { phase: 'recovering' },
       facadeStore: {
         connectionState: 'connected',
-        backends: [{ backendId: 'local', runtimeState: 'ready', name: 'Local' }],
+        backends: [{ backendId: 'local', runtimeState: 'visible', name: 'Local' }],
       },
       recoveryStore: {
-        backends: { local: { status: 'ready' } },
+        backends: { local: { status: 'subscribing' } },
       },
     });
 

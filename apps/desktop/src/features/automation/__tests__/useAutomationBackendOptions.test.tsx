@@ -4,7 +4,6 @@ import { useAutomationBackendOptions } from '../useAutomationBackendOptions';
 import { useFacadeStore } from '../../../stores/facadeStore';
 import { useServerStore } from '../../../stores/serverStore';
 import { useRecoveryStore } from '../../../stores/recoveryStore';
-import { useMobileRecoveryStore } from '../../../stores/mobileRecoveryStore';
 import { isAndroid } from '../../../utils/platform';
 
 vi.mock('../../../utils/platform', async (importOriginal) => {
@@ -37,7 +36,6 @@ describe('useAutomationBackendOptions', () => {
       },
       getBackendViewState: (backendId: string) => (backendId === 'backend-1' ? 'ready' : 'offline'),
     } as any);
-    useMobileRecoveryStore.getState().reset();
   });
 
   it('marks reachable backends from recovery store on desktop', () => {
@@ -48,13 +46,15 @@ describe('useAutomationBackendOptions', () => {
     expect(result.current[0]?.status).toBe('ready');
   });
 
-  it('marks backends as recovering on Android while mobile recovery is running', () => {
-    vi.mocked(isAndroid).mockReturnValue(true);
-    useMobileRecoveryStore.setState({ phase: 'recovering' } as any);
+  it('marks backends as not reachable when not connected', () => {
+    useFacadeStore.setState({
+      connectionState: 'connecting',
+      backends: [{ backendId: 'backend-1', runtimeState: 'visible', name: 'B1', online: true }],
+    } as any);
 
     const { result } = renderHook(() => useAutomationBackendOptions());
 
     expect(result.current[0]?.isReachable).toBe(false);
-    expect(result.current[0]?.status).toBe('backend_subscribing');
+    expect(result.current[0]?.status).toBe('transport_reconnecting');
   });
 });

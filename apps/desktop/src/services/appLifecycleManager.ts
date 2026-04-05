@@ -7,26 +7,21 @@
  * 3. Client-side health probing (25s interval)
  *
  * Only active when the facade supports forceReconnect (direct gateway mode).
+ * The facade handles all auto-recovery — this manager just ensures the WS
+ * connection stays alive by calling facade.forceReconnect() on resume/online.
  */
 
 import type { BackendFacade } from '@my-claudia/shared';
 
-const BACKGROUND_THRESHOLD_MS = 5_000;
 const HEALTH_PROBE_INTERVAL_MS = 25_000;
-
-export interface AppLifecycleManagerOptions {
-  onBackground?: () => void;
-  onResume?: () => void;
-  onNetworkOffline?: () => void;
-}
 
 class AppLifecycleManager {
   private facade: BackendFacade | null = null;
-  private options: AppLifecycleManagerOptions = {};
   private backgroundSince: number | null = null;
   private healthProbeTimer: ReturnType<typeof setInterval> | null = null;
   private started = false;
-  private lastResumeAt = 0;
+  /** Timestamp of the last health probe tick — used to detect OS freeze. */
+  private lastHealthProbeTickAt = 0;
 
   // Bound handlers for cleanup
   private handleVisibilityChange = (): void => {
@@ -41,23 +36,15 @@ class AppLifecycleManager {
     if (document.visibilityState !== 'visible') return;
     console.log('[AppLifecycleManager] Network online — triggering reconnect');
     this.facade?.forceReconnect?.();
-    this.emitResume();
   };
 
-  private handleOffline = (): void => {
-    console.log('[AppLifecycleManager] Network offline');
-    this.options.onNetworkOffline?.();
-  };
-
-  start(facade: BackendFacade, options?: AppLifecycleManagerOptions): void {
+  start(facade: BackendFacade): void {
     if (this.started) this.stop();
     this.facade = facade;
-    this.options = options ?? {};
     this.started = true;
 
     document.addEventListener('visibilitychange', this.handleVisibilityChange);
     window.addEventListener('online', this.handleOnline);
-    window.addEventListener('offline', this.handleOffline);
 
     this.startHealthProbe();
   }
@@ -66,29 +53,16 @@ class AppLifecycleManager {
     this.started = false;
     document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     window.removeEventListener('online', this.handleOnline);
-    window.removeEventListener('offline', this.handleOffline);
 
     this.stopHealthProbe();
     this.facade = null;
-    this.options = {};
     this.backgroundSince = null;
-    this.lastResumeAt = 0;
-  }
-
-  private emitResume(): void {
-    const nowTs = Date.now();
-    if (nowTs - this.lastResumeAt < 1_000) {
-      return;
-    }
-    this.lastResumeAt = nowTs;
-    this.options.onResume?.();
   }
 
   private onBackground(): void {
     this.backgroundSince = Date.now();
     this.stopHealthProbe();
     console.log('[AppLifecycleManager] App went to background');
-    this.options.onBackground?.();
   }
 
   private onForeground(): void {
@@ -99,12 +73,7 @@ class AppLifecycleManager {
 
     console.log(`[AppLifecycleManager] App returned to foreground (background for ${Math.round(wasBackgroundMs / 1000)}s)`);
 
-    if (wasBackgroundMs > BACKGROUND_THRESHOLD_MS) {
-      this.facade?.forceReconnect?.();
-    }
-
-    // Always sync on foreground return
-    this.emitResume();
+    this.facade?.forceReconnect?.();
 
     // Restart health probe and run one immediately
     this.startHealthProbe();
@@ -115,7 +84,25 @@ class AppLifecycleManager {
     this.stopHealthProbe();
     // Only probe if facade supports it (direct gateway mode)
     if (!this.facade?.probeHealth) return;
+    this.lastHealthProbeTickAt = Date.now();
     this.healthProbeTimer = setInterval(() => {
+      const now = Date.now();
+      const elapsed = now - this.lastHealthProbeTickAt;
+      this.lastHealthProbeTickAt = now;
+
+      // Freeze detection: if elapsed time is much larger than the probe interval,
+      // the app was likely frozen by the OS (background on mobile). Treat as
+      // foreground resume — this doesn't depend on visibilitychange which may
+      // not fire reliably on all Android WebView implementations.
+      if (elapsed > HEALTH_PROBE_INTERVAL_MS * 2) {
+        console.log(`[AppLifecycleManager] Freeze detected: ${Math.round(elapsed / 1000)}s since last tick (expected ${HEALTH_PROBE_INTERVAL_MS / 1000}s)`);
+        // Don't go through onForeground() — backgroundSince may be null if
+        // visibilitychange never fired. Force reconnect unconditionally.
+        this.facade?.forceReconnect?.();
+        this.facade?.probeHealth?.();
+        return;
+      }
+
       this.facade?.probeHealth?.();
     }, HEALTH_PROBE_INTERVAL_MS);
   }

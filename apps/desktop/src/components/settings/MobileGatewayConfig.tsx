@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useGatewayStore } from '../../stores/gatewayStore';
 import { useFacadeStore } from '../../stores/facadeStore';
-import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import { isMobileGatewayConnected } from '../../services/mobileConnectionState';
 
 export function MobileGatewayConfig() {
@@ -13,11 +12,9 @@ export function MobileGatewayConfig() {
   } = useGatewayStore();
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const facadeConnectionError = useFacadeStore((s) => s.connectionError);
-  const mobileRecoveryPhase = useMobileRecoveryStore((s) => s.phase);
-  const mobileRecoveryError = useMobileRecoveryStore((s) => s.lastError);
-  const isGatewayConnected = isMobileGatewayConnected(facadeConnectionState, mobileRecoveryPhase);
+  const isGatewayConnected = isMobileGatewayConnected(facadeConnectionState);
   const displayStatus = isGatewayConnected ? 'connected' : facadeConnectionState;
-  const displayError = facadeConnectionError || mobileRecoveryError;
+  const displayError = facadeConnectionError;
 
   const [url, setUrl] = useState(directGatewayUrl || '');
   const [secret, setSecret] = useState(directGatewaySecret || '');

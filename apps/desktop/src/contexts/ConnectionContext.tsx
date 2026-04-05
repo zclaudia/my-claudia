@@ -3,13 +3,10 @@ import { useMultiServerSocket } from '../hooks/useMultiServerSocket';
 import { useEmbeddedServer, type EmbeddedServerStatus } from '../hooks/useEmbeddedServer';
 import { useWslServer, type WslServerState } from '../hooks/useWslServer';
 import { useBackendFacade } from '../hooks/useBackendFacade';
-import { useMobileRecoveryJobManager } from '../hooks/useMobileRecoveryJob';
-import { useRecoveryLifecycle } from '../hooks/useRecoveryLifecycle';
 import { usePermissionStore } from '../stores/permissionStore';
 import { usePromptRequestStore } from '../stores/promptRequestStore';
 import { useServerStore } from '../stores/serverStore';
 import { useGatewayStore } from '../stores/gatewayStore';
-import { useFacadeStore } from '../stores/facadeStore';
 import { encryptCredential, isEncryptionAvailable } from '../utils/crypto';
 import type { ClientMessage } from '@my-claudia/shared';
 
@@ -63,16 +60,12 @@ export function ConnectionProvider({
   // On desktop, spawn an embedded server with a random port.
   // Skip when standaloneServerUrl is provided (standalone window connects to existing server).
   const embeddedServer = useEmbeddedServer({ disabled: !!standaloneServerUrl });
-  const facade = useFacadeStore((s) => s.facade);
-
   // WSL server hook — must live at this level (not in WindowsSetup) so the
   // spawned wsl.exe process and its event listeners survive component unmounts.
   const wslServer = useWslServer();
-  const recoveryManager = useMobileRecoveryJobManager();
 
   // Initialize BackendFacade — syncs facade state to gatewayStore for backward compat
   useBackendFacade();
-  useRecoveryLifecycle(facade, recoveryManager);
 
   // Update the local server address when the embedded server is ready
   useEffect(() => {

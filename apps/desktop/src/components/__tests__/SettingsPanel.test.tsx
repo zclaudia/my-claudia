@@ -88,7 +88,6 @@ import { useUIStore } from '../../stores/uiStore';
 import { usePluginStore } from '../../stores/pluginStore';
 import { useProcessMonitorStore } from '../../stores/processMonitorStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
-import { useMobileRecoveryStore } from '../../stores/mobileRecoveryStore';
 import * as api from '../../services/api';
 import { clearLogs, getLogCount, exportLogs } from '../../services/logger';
 import { invoke } from '@tauri-apps/api/core';
@@ -203,10 +202,6 @@ function setupStores(overrides: Record<string, any> = {}) {
       },
     },
   } as any);
-  useMobileRecoveryStore.getState().reset();
-  if (overrides.mobileRecoveryStore) {
-    useMobileRecoveryStore.setState(overrides.mobileRecoveryStore as any);
-  }
 
 }
 
@@ -555,14 +550,12 @@ describe('SettingsPanel', () => {
     expect(mockSendMessage).toHaveBeenCalledWith({ type: 'kill_leaked_processes' });
   });
 
-  it('blocks leaked process cleanup on Android while mobile recovery is running', async () => {
-    vi.mocked(isAndroid).mockReturnValue(true);
+  it('blocks leaked process cleanup when backend is not ready', async () => {
     setupStores({
-      mobileRecoveryStore: { phase: 'recovering' },
       facadeStore: {
         connectionState: 'connected',
         backends: [
-          { backendId: 'local-standalone', name: 'Local', online: true, runtimeState: 'ready', isThisInstance: true, instanceId: 'instance-local' },
+          { backendId: 'local-standalone', name: 'Local', online: true, runtimeState: 'visible', isThisInstance: true, instanceId: 'instance-local' },
         ],
       },
     });
