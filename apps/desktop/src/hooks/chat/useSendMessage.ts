@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import type { AgentPermissionPolicy, ClientMessage, MessageAttachment, MessageInput as MessageInputData } from '@my-claudia/shared';
+import type { UnifiedPermissionPolicy, ClientMessage, MessageAttachment, MessageInput as MessageInputData } from '@my-claudia/shared';
 import type { Attachment } from '../../components/chat/MessageInput';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
 import { useChatStore } from '../../stores/chatStore';
@@ -18,7 +18,7 @@ interface RunStartMessage {
   resend?: boolean;
   mode?: string;
   model?: string;
-  permissionOverride?: Partial<AgentPermissionPolicy>;
+  permissionOverride?: Partial<UnifiedPermissionPolicy>;
   workingDirectory?: string;
 }
 
@@ -31,7 +31,7 @@ interface UseSendMessageParams {
   lastSessionMessage: MessageWithToolCalls | null;
   mode: string;
   modelOverride: string;
-  permissionOverride: Partial<AgentPermissionPolicy> | null;
+  permissionOverride: Partial<UnifiedPermissionPolicy> | null;
   currentSession: { workingDirectory?: string; lastRunStatus?: string | null } | undefined;
   addMessage: (sessionId: string, message: MessageWithToolCalls) => void;
   scrollToBottom: (instant?: boolean) => void;

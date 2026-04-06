@@ -174,42 +174,6 @@ function cloneUnifiedPolicy(policy: UnifiedPermissionPolicy): UnifiedPermissionP
   };
 }
 
-/** @deprecated Use DEFAULT_UNIFIED_POLICY instead. */
-export const DEFAULT_CATEGORY_PROFILES: CategoryPermissionPolicy['profiles'] = {
-  regular: {
-    fileRead: 'auto-approve',
-    fileWrite: 'auto-approve',
-    shellSafe: 'auto-approve',
-    networkOps: 'ask',
-    destructiveOps: 'block',
-    userQuestions: 'ask',
-  },
-  background: {
-    fileRead: 'auto-approve',
-    fileWrite: 'auto-approve',
-    shellSafe: 'auto-approve',
-    networkOps: 'block',
-    destructiveOps: 'block',
-    userQuestions: 'ask',
-  },
-  agent: {
-    fileRead: 'auto-approve',
-    fileWrite: 'ask',
-    shellSafe: 'ask',
-    networkOps: 'ask',
-    destructiveOps: 'block',
-    userQuestions: 'ask',
-  },
-};
-
-/** @deprecated Use DEFAULT_UNIFIED_POLICY instead. */
-export const DEFAULT_CATEGORY_POLICY: CategoryPermissionPolicy = {
-  enabled: true,
-  profiles: DEFAULT_CATEGORY_PROFILES,
-  globalGuards: { blockSensitiveFiles: true, blockOutsideWorkspace: true },
-  customRules: [],
-  escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
-};
 
 /** Ensure AskUserQuestion and ExitPlanMode are always in the escalateAlways list */
 export function ensureEscalateAlways(list?: string[]): string[] {

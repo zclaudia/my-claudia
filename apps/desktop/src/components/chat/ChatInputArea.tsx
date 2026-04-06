@@ -16,7 +16,7 @@ import { useProjectStore } from '../../stores/projectStore';
 import { useDraftEditorStore } from '../../stores/draftEditorStore';
 import { useUIStore } from '../../stores/uiStore';
 import * as api from '../../services/api';
-import type { AgentPermissionPolicy, ProviderCapabilities, SlashCommand, Session, Project, SystemInfo } from '@my-claudia/shared';
+import type { UnifiedPermissionPolicy, ProviderCapabilities, SlashCommand, Session, Project, SystemInfo } from '@my-claudia/shared';
 import type { SessionDraft } from '../../stores/chatStore';
 
 interface ChatInputAreaProps {
@@ -29,7 +29,7 @@ interface ChatInputAreaProps {
   isForcedPlanSession: boolean;
   mode: string | null;
   modelOverride: string | null;
-  permissionOverride: Partial<AgentPermissionPolicy> | null;
+  permissionOverride: Partial<UnifiedPermissionPolicy> | null;
   capabilities: ProviderCapabilities | null;
   commands: SlashCommand[];
   fileReferenceRoot: string | undefined;
@@ -49,7 +49,7 @@ interface ChatInputAreaProps {
   draftExists: boolean;
   onSetMode: (sessionId: string, modeId: string) => void;
   onSetModelOverride: (sessionId: string, model: string) => void;
-  onSetPermissionOverride: (sessionId: string, policy: Partial<AgentPermissionPolicy> | null) => void;
+  onSetPermissionOverride: (sessionId: string, policy: Partial<UnifiedPermissionPolicy> | null) => void;
   onWorktreeChange: (path: string) => Promise<void>;
   onSendMessage: (content: string, attachments?: Attachment[]) => void;
   onCancelRun: () => void;
@@ -193,7 +193,6 @@ export function ChatInputArea({
         <PermissionSelector
           value={permissionOverride}
           onChange={(policy) => onSetPermissionOverride(sessionId, policy)}
-          projectPolicy={(currentProject?.agentPermissionOverride as AgentPermissionPolicy) ?? null}
           disabled={isLoading}
         />
         {currentProject?.id && currentProject?.rootPath && (

@@ -284,14 +284,21 @@ await esbuild.build({
 // Plugins are excluded from tsc (tsconfig "exclude"), so compile separately.
 {
   const pluginSources = [
-    { name: 'mcp-bridge', dest: path.join(outDir, 'plugins', 'mcp-bridge.js') },
-    { name: 'worker-runner', dest: path.join(outDir, 'worker-runner.js') },
+    {
+      name: 'mcp-bridge',
+      src: path.join(serverRoot, 'src', 'domains', 'plugins', 'mcp-bridge.ts'),
+      dist: path.join(serverRoot, 'dist', 'domains', 'plugins', 'mcp-bridge.js'),
+      dest: path.join(outDir, 'domains', 'plugins', 'mcp-bridge.js'),
+    },
+    {
+      name: 'worker-runner',
+      src: path.join(serverRoot, 'src', 'domains', 'plugins', 'worker-runner.ts'),
+      dist: path.join(serverRoot, 'dist', 'domains', 'plugins', 'worker-runner.js'),
+      dest: path.join(outDir, 'domains', 'plugins', 'worker-runner.js'),
+    },
   ];
 
-  for (const { name, dest } of pluginSources) {
-    const src = path.join(serverRoot, 'src', 'plugins', `${name}.ts`);
-    const dist = path.join(serverRoot, 'dist', 'plugins', `${name}.js`);
-
+  for (const { name, src, dist, dest } of pluginSources) {
     if (!fs.existsSync(src)) {
       console.log(`    ${name}: SKIP (source not found)`);
       continue;

@@ -5,7 +5,7 @@
  * @deprecated v2: evaluateDelegation() — kept for backward compat.
  */
 
-import type { DelegationConfig, DelegationDecision, PermissionCategory, CategoryPermissionPolicy, AIReviewConfig, AIReviewResult } from '@my-claudia/shared';
+import type { DelegationConfig, DelegationDecision, PermissionCategory, UnifiedPermissionPolicy, AIReviewConfig, AIReviewResult } from '@my-claudia/shared';
 import { DEFAULT_DELEGATION_CONFIG } from '@my-claudia/shared';
 import { classify } from './permission-evaluator.js';
 import {
@@ -95,7 +95,7 @@ export interface DelegationContext {
   toolInput: unknown;
   detail: string;
   sessionType: 'regular' | 'background' | 'agent';
-  policy: CategoryPermissionPolicy;
+  policy: UnifiedPermissionPolicy;
   /** @deprecated Provider to use for LLM analysis — uses legacy string-only interface */
   analysisProvider?: {
     runPrompt: (prompt: string) => Promise<string>;
@@ -1054,7 +1054,7 @@ export async function evaluateDelegation(
     return { decision: 'escalate', reasoning: 'Rate limit exceeded', confidence: 0, source: 'rule' };
   }
 
-  const profile = ctx.policy.profiles[ctx.sessionType] || ctx.policy.profiles.regular;
+  const profile = ctx.policy.profile;
   const categoryAction = profile[category];
   if (categoryAction === 'auto-approve') {
     recordApproval();

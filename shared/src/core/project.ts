@@ -1,6 +1,6 @@
 // Project Types
 
-import type { AgentPermissionPolicy } from '../interaction/permissions.js';
+import type { UnifiedPermissionPolicy } from '../interaction/permissions.js';
 import type { ProjectAgent } from '../features/supervision.js';
 
 export type ProjectType = 'chat_only' | 'code';
@@ -13,7 +13,7 @@ export interface Project {
   rootPath?: string;
   systemPrompt?: string;
   permissionPolicy?: PermissionPolicy;
-  agentPermissionOverride?: Partial<AgentPermissionPolicy>;  // Project-level override of global agent policy
+  agentPermissionOverride?: Partial<UnifiedPermissionPolicy>;  // Project-level override of global agent policy
   isInternal?: boolean;  // Internal projects (e.g. Agent Assistant) are hidden from user-facing lists
   reviewProviderId?: string;  // Provider used for Local PR reviews
   sortOrder?: number;

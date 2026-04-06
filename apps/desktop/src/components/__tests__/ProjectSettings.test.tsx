@@ -283,8 +283,8 @@ describe('ProjectSettings', () => {
     );
     if (overrideToggle) {
       await clickAsync(overrideToggle);
-      // Now trust level section should be visible
-      expect(screen.queryByText('Trust Level')).toBeTruthy();
+      // Now category permission section should be visible (e.g., File Read dropdown)
+      expect(screen.queryByText('File Read') || screen.queryByText('Agent Permission Override')).toBeTruthy();
     }
   });
 
@@ -363,12 +363,22 @@ describe('ProjectSettings', () => {
   it('renders with project having permission override', async () => {
     const projectWithOverride = {
       ...mockProject,
-      agentPermissionOverride: { trustLevel: 'aggressive' },
+      agentPermissionOverride: {
+        enabled: true,
+        profile: {
+          fileRead: 'auto-approve',
+          fileWrite: 'auto-approve',
+          shellSafe: 'auto-approve',
+          networkOps: 'ask',
+          destructiveOps: 'block',
+          userQuestions: 'ask',
+        },
+      },
     };
 
     await renderProjectSettings({ project: projectWithOverride as any });
-    // Trust level section should be visible since override is enabled
-    expect(screen.getByText('Trust Level')).toBeTruthy();
+    // Permission override section should be visible since override is enabled
+    expect(screen.getByText('Agent Permission Override')).toBeTruthy();
   });
 
   it('shows disconnected state properly', async () => {

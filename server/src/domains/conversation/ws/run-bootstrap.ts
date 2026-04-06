@@ -22,7 +22,7 @@ export interface RunStartMessage extends Record<string, unknown> {
   permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
   mode?: string;
   model?: string;
-  permissionOverride?: Partial<import('@my-claudia/shared').AgentPermissionPolicy>;
+  permissionOverride?: Partial<import('@my-claudia/shared').UnifiedPermissionPolicy>;
   systemContext?: string;
   workingDirectory?: string;
   resend?: boolean;

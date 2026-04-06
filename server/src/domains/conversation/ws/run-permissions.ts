@@ -1,6 +1,6 @@
 import type {
   AgentPermissionInterceptedMessage,
-  AgentPermissionPolicy,
+  UnifiedPermissionPolicy,
   AskUserQuestionItem,
   BackgroundPermissionPendingMessage,
   BackgroundTaskUpdateMessage,
@@ -37,7 +37,7 @@ interface SessionContext {
 
 interface MessageContext {
   sessionId: string;
-  permissionOverride?: Partial<AgentPermissionPolicy>;
+  permissionOverride?: Partial<UnifiedPermissionPolicy>;
 }
 
 export interface CreatePermissionCallbackInput {
@@ -158,10 +158,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
           : DEFAULT_UNIFIED_POLICY;
 
       if (sessionPermissionOverride) {
-        const normalizedOverride = normalizePolicy(sessionPermissionOverride);
-        effectivePolicy = effectivePolicy
-          ? mergePolicy(effectivePolicy, normalizedOverride)
-          : normalizedOverride;
+        effectivePolicy = mergePolicy(effectivePolicy, sessionPermissionOverride);
       }
 
       const commandPreview = isBashLikeTool(request.toolName)

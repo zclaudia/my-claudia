@@ -6,7 +6,7 @@
 import type { PermissionMode } from '../../core/provider.js';
 import type { SessionType } from '../../core/session.js';
 import type { UsageInfo } from '../../core/message.js';
-import type { AgentPermissionPolicy } from '../../interaction/permissions.js';
+import type { UnifiedPermissionPolicy } from '../../interaction/permissions.js';
 
 export interface RunStartMessage {
   type: 'run_start';
@@ -17,7 +17,7 @@ export interface RunStartMessage {
   permissionMode?: PermissionMode;  // Kept for backwards compat
   mode?: string;  // Generic mode/agent ID (new unified field)
   model?: string;  // Optional: override model (e.g. 'claude-sonnet-4-5-20250929')
-  permissionOverride?: Partial<AgentPermissionPolicy>;  // Optional: session-level permission override
+  permissionOverride?: Partial<UnifiedPermissionPolicy>;  // Optional: session-level permission override
   systemContext?: string;  // Dynamic context prepended to system prompt (e.g. backend list for global agent)
   workingDirectory?: string;  // Optional: override working directory (e.g., for git worktree)
   resend?: boolean;  // True when resending the last user message — server skips inserting a duplicate user message

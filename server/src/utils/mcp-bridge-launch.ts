@@ -73,11 +73,13 @@ export function resolveMcpBridgeLaunchConfig(
   //   dev source (src/utils/) → ../../dist/domains/plugins/mcp-bridge.js (preferred)
   //   dev dist   (dist/utils/) → ../domains/plugins/mcp-bridge.js
   //   bundle     (server/)     → domains/plugins/mcp-bridge.js  (import.meta.url is server.mjs)
+  //   legacy bundle fallback   → plugins/mcp-bridge.js
   //   final fallback           → source ts bridge via tsx/esm
   const candidates: Array<{ path: string; runtime: 'js' | 'ts' }> = [
     { path: path.resolve(currentDir, '..', '..', 'dist', 'domains', 'plugins', 'mcp-bridge.js'), runtime: 'js' },
     { path: path.resolve(currentDir, '..', 'domains', 'plugins', 'mcp-bridge.js'), runtime: 'js' },
     { path: path.resolve(currentDir, 'domains', 'plugins', 'mcp-bridge.js'), runtime: 'js' },
+    { path: path.resolve(currentDir, 'plugins', 'mcp-bridge.js'), runtime: 'js' },
     { path: path.resolve(currentDir, '..', 'domains', 'plugins', 'mcp-bridge.ts'), runtime: 'ts' },
     { path: path.resolve(currentDir, 'domains', 'plugins', 'mcp-bridge.ts'), runtime: 'ts' },
   ];

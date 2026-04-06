@@ -1,7 +1,6 @@
 import type {
   AgentPermissionPolicy,
   AgentPermissionRule,
-  CategoryPermissionPolicy,
   CategoryAction,
   CategoryProfile,
   PermissionCategory,
@@ -10,10 +9,9 @@ import type {
 } from '@my-claudia/shared';
 import {
   DEFAULT_SENSITIVE_PATTERNS,
-  DEFAULT_CATEGORY_POLICY,
-  DEFAULT_CATEGORY_PROFILES,
   DEFAULT_GLOBAL_GUARDS,
   DEFAULT_UNIFIED_POLICY,
+  DEFAULT_UNIFIED_PROFILE,
   normalizeToUnifiedPolicy,
   ensureEscalateAlways,
 } from '@my-claudia/shared';
@@ -1032,19 +1030,17 @@ function evaluateCustomRules(toolName: string, detail: string, rules: AgentPermi
 // Category-Based Permission Evaluator
 // ============================================
 
-/** Effective policy type used by the evaluator — supports both unified and legacy formats */
-export type EffectivePolicy = UnifiedPermissionPolicy | CategoryPermissionPolicy;
+/** @deprecated Alias — all policies are now UnifiedPermissionPolicy */
+export type EffectivePolicy = UnifiedPermissionPolicy;
 
-/** Check if a policy is the new unified format (has `profile` singular, no `profiles`) */
-export function isUnifiedPolicy(policy: EffectivePolicy): policy is UnifiedPermissionPolicy {
-  return 'profile' in policy && !('profiles' in policy);
+/** @deprecated Always true — kept for backward compat of callers */
+export function isUnifiedPolicy(_policy: EffectivePolicy): _policy is UnifiedPermissionPolicy {
+  return true;
 }
 
-/** Resolve the active CategoryProfile from a policy (unified: single profile, legacy: by session type) */
-function resolveProfile(policy: EffectivePolicy, context?: EvaluationContext): CategoryProfile {
-  return isUnifiedPolicy(policy)
-    ? policy.profile
-    : (policy.profiles[(context?.sessionType || 'regular')] || policy.profiles.regular);
+/** Resolve the active CategoryProfile from a policy */
+function resolveProfile(policy: EffectivePolicy, _context?: EvaluationContext): CategoryProfile {
+  return policy.profile;
 }
 
 /**
@@ -1107,55 +1103,44 @@ function isLegacyPolicy(raw: unknown): raw is AgentPermissionPolicy {
 }
 
 /**
- * Convert a legacy trustLevel to category profiles.
+ * Convert a legacy v1 trustLevel to a single CategoryProfile (v3).
+ *
+ * NOTE: v1/v2 had per-session-type profiles (regular/background/agent) where
+ * background and agent sessions used stricter defaults (e.g. network blocked
+ * for background, fileWrite=ask for agent). v3 intentionally unified to a
+ * single profile for simplicity. The global settings UI has been v3-only since
+ * its introduction. Legacy v1 data is converted using the `regular` profile,
+ * which means old background/agent-specific restrictions are NOT preserved.
+ * This is by design — administrators should use the unified profile to set
+ * the desired policy across all session types.
  */
-function trustLevelToProfiles(trustLevel: string): CategoryPermissionPolicy['profiles'] {
+function trustLevelToProfile(trustLevel: string): CategoryProfile {
   switch (trustLevel) {
     case 'conservative':
-      return {
-        regular:    { fileRead: 'auto-approve', fileWrite: 'ask', shellSafe: 'ask', networkOps: 'ask', destructiveOps: 'block', userQuestions: 'ask' },
-        background: { fileRead: 'auto-approve', fileWrite: 'ask', shellSafe: 'ask', networkOps: 'ask', destructiveOps: 'block', userQuestions: 'ask' },
-        agent:      { fileRead: 'ask', fileWrite: 'ask', shellSafe: 'ask', networkOps: 'ask', destructiveOps: 'block', userQuestions: 'ask' },
-      };
+      return { fileRead: 'auto-approve', fileWrite: 'ask', shellSafe: 'ask', networkOps: 'ask', destructiveOps: 'block', userQuestions: 'ask' };
     case 'moderate':
-      return {
-        regular:    { fileRead: 'auto-approve', fileWrite: 'auto-approve', shellSafe: 'ask', networkOps: 'ask', destructiveOps: 'block', userQuestions: 'ask' },
-        background: { fileRead: 'auto-approve', fileWrite: 'auto-approve', shellSafe: 'ask', networkOps: 'ask', destructiveOps: 'block', userQuestions: 'ask' },
-        agent:      { fileRead: 'auto-approve', fileWrite: 'ask', shellSafe: 'ask', networkOps: 'ask', destructiveOps: 'block', userQuestions: 'ask' },
-      };
+      return { fileRead: 'auto-approve', fileWrite: 'auto-approve', shellSafe: 'ask', networkOps: 'ask', destructiveOps: 'block', userQuestions: 'ask' };
     case 'aggressive':
-      return {
-        regular:    { fileRead: 'auto-approve', fileWrite: 'auto-approve', shellSafe: 'auto-approve', networkOps: 'ask', destructiveOps: 'block', userQuestions: 'ask' },
-        background: { fileRead: 'auto-approve', fileWrite: 'auto-approve', shellSafe: 'auto-approve', networkOps: 'block', destructiveOps: 'block', userQuestions: 'ask' },
-        agent:      { fileRead: 'auto-approve', fileWrite: 'ask', shellSafe: 'ask', networkOps: 'ask', destructiveOps: 'block', userQuestions: 'ask' },
-      };
+      return { fileRead: 'auto-approve', fileWrite: 'auto-approve', shellSafe: 'auto-approve', networkOps: 'ask', destructiveOps: 'block', userQuestions: 'ask' };
     case 'full_trust':
-      return {
-        regular:    { fileRead: 'auto-approve', fileWrite: 'auto-approve', shellSafe: 'auto-approve', networkOps: 'auto-approve', destructiveOps: 'block', userQuestions: 'ask' },
-        background: { fileRead: 'auto-approve', fileWrite: 'auto-approve', shellSafe: 'auto-approve', networkOps: 'block', destructiveOps: 'block', userQuestions: 'ask' },
-        agent:      DEFAULT_CATEGORY_PROFILES.agent,
-      };
+      return { fileRead: 'auto-approve', fileWrite: 'auto-approve', shellSafe: 'auto-approve', networkOps: 'auto-approve', destructiveOps: 'block', userQuestions: 'ask' };
     default:
-      return DEFAULT_CATEGORY_PROFILES;
+      return { ...DEFAULT_UNIFIED_PROFILE };
   }
 }
 
 /**
  * Normalize a policy from the database — handles v3 unified, v2 category, and v1 trustLevel formats.
  * Always returns UnifiedPermissionPolicy (v3).
- *
- * v2/v3 delegation is handled by shared's normalizeToUnifiedPolicy.
- * v1 (trustLevel) conversion is server-only since it references deprecated trust levels.
  */
 export function normalizePolicy(raw: unknown): UnifiedPermissionPolicy {
   if (!raw || typeof raw !== 'object') return DEFAULT_UNIFIED_POLICY;
 
-  // v1 format: trustLevel-based — convert to v3 before delegating
+  // v1 format: trustLevel-based — convert to v3
   if (isLegacyPolicy(raw)) {
-    const profiles = trustLevelToProfiles(raw.trustLevel);
     return {
       enabled: raw.enabled ?? false,
-      profile: profiles.regular,
+      profile: trustLevelToProfile(raw.trustLevel),
       globalGuards: { ...DEFAULT_UNIFIED_POLICY.globalGuards },
       customRules: raw.customRules || [],
       escalateAlways: ensureEscalateAlways(raw.escalateAlways),

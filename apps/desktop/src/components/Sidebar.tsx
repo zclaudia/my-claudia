@@ -37,6 +37,7 @@ import { usePermissionStore } from '../stores/permissionStore';
 import { usePromptRequestStore } from '../stores/promptRequestStore';
 import { useInteractionStore } from '../stores/interactionStore';
 import { useChatStore } from '../stores/chatStore';
+import { useSessionsStore } from '../stores/sessionsStore';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { useUIStore } from '../stores/uiStore';
 import { useClaudiaStore } from '../stores/claudiaStore';
@@ -145,12 +146,22 @@ export function Sidebar({
       || interactionSessionIds.has(sessionId);
   }, [permSessionIds, promptSessionIds, interactionSessionIds]);
 
-  // Active run session IDs for status indicator
-  const activeRunSessionIds = useChatStore((s) => {
+  // Active run session IDs for status indicator.
+  // Combines two sources so the sidebar stays accurate across backends:
+  //   1. chatStore.activeRuns — driven by run_started run events (per-stream)
+  //   2. sessionsStore.activeSessionIdsByBackend — driven by backend_data_event
+  //      session_upsert (gateway broadcast) — required for remote backends
+  //      when the current peer hasn't subscribed to the session stream yet.
+  const chatActiveRuns = useChatStore((s) => s.activeRuns);
+  const sessionsActiveByBackend = useSessionsStore((s) => s.activeSessionIdsByBackend);
+  const activeRunSessionIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const sid of Object.values(s.activeRuns)) ids.add(sid);
+    for (const sid of Object.values(chatActiveRuns)) ids.add(sid);
+    sessionsActiveByBackend.forEach((set) => {
+      set.forEach((sid) => ids.add(sid));
+    });
     return ids;
-  });
+  }, [chatActiveRuns, sessionsActiveByBackend]);
 
   // Helper: resolve provider display name for a session
   const getProviderName = useCallback((session: typeof sessions[0]) => {

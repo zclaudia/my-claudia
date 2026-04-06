@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Message, SystemInfo, UsageInfo, ContentBlock, RunHealthStatus, AgentPermissionPolicy } from '@my-claudia/shared';
+import type { Message, SystemInfo, UsageInfo, ContentBlock, RunHealthStatus, UnifiedPermissionPolicy } from '@my-claudia/shared';
 
 export interface PaginationInfo {
   total: number;
@@ -84,7 +84,7 @@ interface ChatState {
   // Model override per session (user-selected model, empty = use default)
   modelOverrides: Record<string, string>;
   // Permission policy override per session (user-selected policy, null = use project default)
-  permissionOverrides: Record<string, Partial<AgentPermissionPolicy> | null>;
+  permissionOverrides: Record<string, Partial<UnifiedPermissionPolicy> | null>;
   // Worktree override per session (user-selected working directory, empty = use project root)
   worktreeOverrides: Record<string, string>;
   // Input drafts per session (preserved across session switches)
@@ -139,8 +139,8 @@ interface ChatState {
   getModelOverride: (sessionId: string) => string;
 
   // Permission override (per session)
-  setPermissionOverride: (sessionId: string, policy: Partial<AgentPermissionPolicy> | null) => void;
-  getPermissionOverride: (sessionId: string) => Partial<AgentPermissionPolicy> | null;
+  setPermissionOverride: (sessionId: string, policy: Partial<UnifiedPermissionPolicy> | null) => void;
+  getPermissionOverride: (sessionId: string) => Partial<UnifiedPermissionPolicy> | null;
 
   // Worktree override (per session)
   setWorktreeOverride: (sessionId: string, path: string) => void;

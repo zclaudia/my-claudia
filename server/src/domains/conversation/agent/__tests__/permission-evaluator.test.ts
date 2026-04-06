@@ -1,12 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import type {
-  CategoryPermissionPolicy,
   CategoryProfile,
   EvaluationContext,
   PermissionCategory,
   UnifiedPermissionPolicy,
 } from '@my-claudia/shared';
-import { DEFAULT_CATEGORY_POLICY, DEFAULT_CATEGORY_PROFILES, DEFAULT_GLOBAL_GUARDS, DEFAULT_UNIFIED_POLICY, DEFAULT_UNIFIED_PROFILE, DEFAULT_AI_REVIEW_CONFIG } from '@my-claudia/shared';
+import { DEFAULT_GLOBAL_GUARDS, DEFAULT_UNIFIED_POLICY, DEFAULT_UNIFIED_PROFILE, DEFAULT_AI_REVIEW_CONFIG } from '@my-claudia/shared';
 import {
   PermissionEvaluator,
   classify,
@@ -31,17 +30,14 @@ import {
 // Test Helpers
 // ============================================
 
-function makePolicy(overrides: Partial<CategoryPermissionPolicy> = {}): CategoryPermissionPolicy {
+function makePolicy(overrides: Partial<UnifiedPermissionPolicy> = {}): UnifiedPermissionPolicy {
   return {
     enabled: true,
-    profiles: {
-      regular: { ...DEFAULT_CATEGORY_PROFILES.regular },
-      background: { ...DEFAULT_CATEGORY_PROFILES.background },
-      agent: { ...DEFAULT_CATEGORY_PROFILES.agent },
-    },
+    profile: { ...DEFAULT_UNIFIED_PROFILE },
     globalGuards: { ...DEFAULT_GLOBAL_GUARDS },
     customRules: [],
     escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
+    aiReview: { ...DEFAULT_AI_REVIEW_CONFIG },
     ...overrides,
   };
 }
@@ -231,44 +227,28 @@ describe('PermissionEvaluator', () => {
   describe('category action mapping', () => {
     it('auto-approve should return approve', () => {
       const policy = makePolicy({
-        profiles: {
-          regular: makeProfile({ fileRead: 'auto-approve' }),
-          background: makeProfile(),
-          agent: makeProfile(),
-        },
+        profile: makeProfile({ fileRead: 'auto-approve' }),
       });
       expect(evaluator.evaluate('Read', {}, '', policy, makeContext())).toBe('approve');
     });
 
     it('ask should return escalate', () => {
       const policy = makePolicy({
-        profiles: {
-          regular: makeProfile({ fileRead: 'ask' }),
-          background: makeProfile(),
-          agent: makeProfile(),
-        },
+        profile: makeProfile({ fileRead: 'ask' }),
       });
       expect(evaluator.evaluate('Read', {}, '', policy, makeContext())).toBe('escalate');
     });
 
     it('block should return deny', () => {
       const policy = makePolicy({
-        profiles: {
-          regular: makeProfile({ fileRead: 'block' }),
-          background: makeProfile(),
-          agent: makeProfile(),
-        },
+        profile: makeProfile({ fileRead: 'block' }),
       });
       expect(evaluator.evaluate('Read', {}, '', policy, makeContext())).toBe('deny');
     });
 
     it('fileWrite auto-approve returns approve', () => {
       const policy = makePolicy({
-        profiles: {
-          regular: makeProfile({ fileWrite: 'auto-approve' }),
-          background: makeProfile(),
-          agent: makeProfile(),
-        },
+        profile: makeProfile({ fileWrite: 'auto-approve' }),
         globalGuards: { blockSensitiveFiles: false, blockOutsideWorkspace: false },
       });
       expect(evaluator.evaluate('Write', { file_path: '/home/user/project/main.ts' }, '', policy, makeContext())).toBe('approve');
@@ -276,33 +256,21 @@ describe('PermissionEvaluator', () => {
 
     it('shellSafe ask returns escalate', () => {
       const policy = makePolicy({
-        profiles: {
-          regular: makeProfile({ shellSafe: 'ask' }),
-          background: makeProfile(),
-          agent: makeProfile(),
-        },
+        profile: makeProfile({ shellSafe: 'ask' }),
       });
       expect(evaluator.evaluate('Bash', { command: 'ls' }, 'ls', policy, makeContext())).toBe('escalate');
     });
 
     it('networkOps block returns deny', () => {
       const policy = makePolicy({
-        profiles: {
-          regular: makeProfile({ networkOps: 'block' }),
-          background: makeProfile(),
-          agent: makeProfile(),
-        },
+        profile: makeProfile({ networkOps: 'block' }),
       });
       expect(evaluator.evaluate('Bash', { command: 'curl https://example.com' }, '', policy, makeContext())).toBe('deny');
     });
 
     it('destructiveOps block returns deny', () => {
       const policy = makePolicy({
-        profiles: {
-          regular: makeProfile({ destructiveOps: 'block' }),
-          background: makeProfile(),
-          agent: makeProfile(),
-        },
+        profile: makeProfile({ destructiveOps: 'block' }),
         globalGuards: { blockSensitiveFiles: false, blockOutsideWorkspace: false },
       });
       expect(evaluator.evaluate('Bash', { command: 'rm -rf /' }, '', policy, makeContext())).toBe('deny');
@@ -312,11 +280,7 @@ describe('PermissionEvaluator', () => {
       // AskUserQuestion is in escalateAlways by default, so remove it to test category
       const policy = makePolicy({
         escalateAlways: ['ExitPlanMode'],
-        profiles: {
-          regular: makeProfile({ userQuestions: 'ask' }),
-          background: makeProfile(),
-          agent: makeProfile(),
-        },
+        profile: makeProfile({ userQuestions: 'ask' }),
       });
       expect(evaluator.evaluate('AskUserQuestion', {}, '', policy, makeContext())).toBe('escalate');
     });
@@ -325,47 +289,31 @@ describe('PermissionEvaluator', () => {
   // ------------------------------------------
   // Per session type profiles
   // ------------------------------------------
-  describe('per session type profiles', () => {
-    it('should use regular profile for regular sessions', () => {
+  describe('unified profile (all session types)', () => {
+    it('should use same profile for regular sessions', () => {
       const policy = makePolicy({
-        profiles: {
-          regular: makeProfile({ shellSafe: 'auto-approve' }),
-          background: makeProfile({ shellSafe: 'block' }),
-          agent: makeProfile({ shellSafe: 'ask' }),
-        },
+        profile: makeProfile({ shellSafe: 'auto-approve' }),
       });
       expect(evaluator.evaluate('Bash', { command: 'ls' }, 'ls', policy, makeContext({ sessionType: 'regular' }))).toBe('approve');
     });
 
-    it('should use background profile for background sessions', () => {
+    it('should use same profile for background sessions', () => {
       const policy = makePolicy({
-        profiles: {
-          regular: makeProfile({ shellSafe: 'auto-approve' }),
-          background: makeProfile({ shellSafe: 'block' }),
-          agent: makeProfile({ shellSafe: 'ask' }),
-        },
+        profile: makeProfile({ shellSafe: 'auto-approve' }),
       });
-      expect(evaluator.evaluate('Bash', { command: 'ls' }, 'ls', policy, makeContext({ sessionType: 'background' }))).toBe('deny');
+      expect(evaluator.evaluate('Bash', { command: 'ls' }, 'ls', policy, makeContext({ sessionType: 'background' }))).toBe('approve');
     });
 
-    it('should use agent profile for agent sessions', () => {
+    it('should use same profile for agent sessions', () => {
       const policy = makePolicy({
-        profiles: {
-          regular: makeProfile({ shellSafe: 'auto-approve' }),
-          background: makeProfile({ shellSafe: 'block' }),
-          agent: makeProfile({ shellSafe: 'ask' }),
-        },
+        profile: makeProfile({ shellSafe: 'ask' }),
       });
       expect(evaluator.evaluate('Bash', { command: 'ls' }, 'ls', policy, makeContext({ sessionType: 'agent' }))).toBe('escalate');
     });
 
-    it('should default to regular profile when no context', () => {
+    it('should use profile when no context', () => {
       const policy = makePolicy({
-        profiles: {
-          regular: makeProfile({ fileRead: 'auto-approve' }),
-          background: makeProfile({ fileRead: 'block' }),
-          agent: makeProfile({ fileRead: 'ask' }),
-        },
+        profile: makeProfile({ fileRead: 'auto-approve' }),
       });
       expect(evaluator.evaluate('Read', {}, '', policy)).toBe('approve');
     });
@@ -511,11 +459,7 @@ describe('PermissionEvaluator', () => {
     it('should apply custom rule with matching pattern', () => {
       const policy = makePolicy({
         customRules: [{ toolName: 'Bash', pattern: 'npm\\s+test', action: 'approve' }],
-        profiles: {
-          regular: makeProfile({ shellSafe: 'ask' }),
-          background: makeProfile(),
-          agent: makeProfile(),
-        },
+        profile: makeProfile({ shellSafe: 'ask' }),
       });
       expect(evaluator.evaluate('Bash', { command: 'npm test' }, 'npm test', policy, makeContext())).toBe('approve');
     });
@@ -523,11 +467,7 @@ describe('PermissionEvaluator', () => {
     it('should skip rule when pattern does not match', () => {
       const policy = makePolicy({
         customRules: [{ toolName: 'Bash', pattern: 'npm\\s+test', action: 'approve' }],
-        profiles: {
-          regular: makeProfile({ shellSafe: 'ask' }),
-          background: makeProfile(),
-          agent: makeProfile(),
-        },
+        profile: makeProfile({ shellSafe: 'ask' }),
       });
       expect(evaluator.evaluate('Bash', { command: 'ls' }, 'ls', policy, makeContext())).toBe('escalate');
     });
@@ -587,8 +527,8 @@ describe('PermissionEvaluator', () => {
 
     it('should handle non-string command', () => {
       const policy = makePolicy();
-      // Non-string command → extractBashCommand returns null → isDangerousCommand returns true → destructiveOps → block
-      expect(evaluator.evaluate('Bash', { command: 42 }, '', policy)).toBe('deny');
+      // Non-string command → extractBashCommand returns null → isDangerousCommand returns true → destructiveOps → ask → escalate
+      expect(evaluator.evaluate('Bash', { command: 42 }, '', policy)).toBe('escalate');
     });
   });
 });
@@ -904,20 +844,20 @@ describe('normalizePolicy', () => {
     expect(result.profile.shellSafe).toBe('auto-approve');
   });
 
-  it('should pass through new category format (v2 profiles → unified profile)', () => {
-    const newPolicy: CategoryPermissionPolicy = {
+  it('should pass through v3 unified format', () => {
+    const newPolicy: UnifiedPermissionPolicy = {
       enabled: true,
-      profiles: DEFAULT_CATEGORY_PROFILES,
+      profile: DEFAULT_UNIFIED_PROFILE,
       globalGuards: DEFAULT_GLOBAL_GUARDS,
       customRules: [],
       escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
+      aiReview: DEFAULT_AI_REVIEW_CONFIG,
     };
 
     const result = normalizePolicy(newPolicy);
     expect(result.enabled).toBe(true);
-    // v2 profiles.regular gets collapsed into the single profile
     expect(result.profile).toBeDefined();
-    expect(result.profile.fileRead).toBe(DEFAULT_CATEGORY_PROFILES.regular.fileRead);
+    expect(result.profile.fileRead).toBe(DEFAULT_UNIFIED_PROFILE.fileRead);
   });
 
   it('should always include ExitPlanMode in escalateAlways', () => {
@@ -932,8 +872,8 @@ describe('normalizePolicy', () => {
   });
 
   it('should not duplicate ExitPlanMode if already present', () => {
-    const policy: CategoryPermissionPolicy = {
-      ...DEFAULT_CATEGORY_POLICY,
+    const policy: UnifiedPermissionPolicy = {
+      ...DEFAULT_UNIFIED_POLICY,
       escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
     };
     const result = normalizePolicy(policy);
@@ -1108,9 +1048,9 @@ describe('getAgentPermissionPolicy', () => {
     expect((result as any).strategies).toBeUndefined();
   });
 
-  it('should return parsed and normalized policy (new format)', () => {
-    const stored: CategoryPermissionPolicy = {
-      ...DEFAULT_CATEGORY_POLICY,
+  it('should return parsed and normalized policy (v3 format)', () => {
+    const stored: UnifiedPermissionPolicy = {
+      ...DEFAULT_UNIFIED_POLICY,
       enabled: true,
     };
 
@@ -1119,8 +1059,7 @@ describe('getAgentPermissionPolicy', () => {
 
     expect(result).not.toBeNull();
     expect(result!.enabled).toBe(true);
-    // v2 profiles.regular is collapsed to single profile
-    expect(result!.profile.fileRead).toEqual(DEFAULT_CATEGORY_PROFILES.regular.fileRead);
+    expect(result!.profile.fileRead).toEqual(DEFAULT_UNIFIED_PROFILE.fileRead);
   });
 
   it('should return null when no row', () => {
@@ -1146,18 +1085,13 @@ describe('getAgentPermissionPolicy', () => {
 // ============================================
 
 describe('getProjectPermissionOverride', () => {
-  it('should return parsed override (v2 profiles → unified profile)', () => {
-    const override: Partial<CategoryPermissionPolicy> = {
-      profiles: {
-        regular: makeProfile({ shellSafe: 'block' }),
-        background: makeProfile({ shellSafe: 'block' }),
-        agent: makeProfile(),
-      },
+  it('should return parsed override (v3 unified profile)', () => {
+    const override: Partial<UnifiedPermissionPolicy> = {
+      profile: makeProfile({ shellSafe: 'block' }),
     };
     const db = makeMockDb({ projects: { agent_permission_override: JSON.stringify(override) } });
     const result = getProjectPermissionOverride(db, 'p-1');
     expect(result).not.toBeNull();
-    // v2 profiles.regular is extracted as the single profile
     expect((result as any).profile.shellSafe).toBe('block');
   });
 

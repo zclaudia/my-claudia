@@ -230,6 +230,10 @@ export class GatewayManager {
           }
         });
         this.virtualClients.set(channelId, virtualClient);
+        // Register in connectedClients so that run-event broadcasts
+        // (activeRun.broadcast → broadcastToOtherAuthenticatedClients) reach
+        // gateway-subscribed peers like mobile, not just real WS peers.
+        this.connectedClients.set(channelId, virtualClient);
 
         // Send initial state so a reconnected client learns about active runs
         // without guessing ownership of orphaned runs.

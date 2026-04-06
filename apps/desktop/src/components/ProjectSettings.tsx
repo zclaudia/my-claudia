@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import type { Project, ProviderConfig, AgentPermissionPolicy } from '@my-claudia/shared';
+import { useState, useEffect, useRef } from 'react';
+import type { Project, ProviderConfig, UnifiedPermissionPolicy, PermissionCategory, CategoryAction, CategoryProfile } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
 import { useFacadeStore } from '../stores/facadeStore';
 import { useProjectStore } from '../stores/projectStore';
@@ -9,11 +9,24 @@ import * as api from '../services/api';
 import { useAndroidBack } from '../hooks/useAndroidBack';
 import { isMobileBackendUsable } from '../services/mobileConnectionState';
 
-const TRUST_LEVELS: Array<{ id: AgentPermissionPolicy['trustLevel']; label: string; description: string }> = [
-  { id: 'conservative', label: 'Conservative', description: 'Only auto-approve read-only tools' },
-  { id: 'moderate', label: 'Moderate', description: 'Auto-approve reads + file edits' },
-  { id: 'aggressive', label: 'Aggressive', description: 'Auto-approve most ops, network commands still ask' },
-  { id: 'full_trust', label: 'Full Trust', description: 'Auto-approve everything except dangerous bash' },
+const CATEGORY_LABELS: Record<PermissionCategory, { label: string; description: string }> = {
+  fileRead: { label: 'File Read', description: 'Read, Glob, Grep, WebFetch' },
+  fileWrite: { label: 'File Write', description: 'Write, Edit, NotebookEdit' },
+  shellSafe: { label: 'Shell (safe)', description: 'Non-network, non-destructive bash' },
+  networkOps: { label: 'Network Ops', description: 'curl, ssh, git push, npm publish' },
+  destructiveOps: { label: 'Destructive', description: 'rm -rf, sudo, mkfs, dd' },
+  userQuestions: { label: 'User Questions', description: 'AskUserQuestion' },
+};
+
+const CATEGORY_ORDER: PermissionCategory[] = [
+  'fileRead', 'fileWrite', 'shellSafe', 'networkOps', 'destructiveOps', 'userQuestions',
+];
+
+const ACTION_OPTIONS: Array<{ value: CategoryAction | 'inherit'; label: string }> = [
+  { value: 'inherit', label: 'Inherit' },
+  { value: 'auto-approve', label: 'Auto-approve' },
+  { value: 'ask', label: 'Ask' },
+  { value: 'block', label: 'Block' },
 ];
 
 interface ProjectSettingsProps {
@@ -56,11 +69,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
 
   // Permission override state
   const [hasOverride, setHasOverride] = useState(false);
-  const [permOverride, setPermOverride] = useState<Partial<AgentPermissionPolicy>>({});
-
-  const updateOverride = useCallback((update: Partial<AgentPermissionPolicy>) => {
-    setPermOverride(prev => ({ ...prev, ...update }));
-  }, []);
+  const [permOverride, setPermOverride] = useState<Partial<UnifiedPermissionPolicy>>({});
 
   const effectiveAgent = v2Agent ?? project?.agent;
   const isSupervisorEnabled = Boolean(effectiveAgent && effectiveAgent.phase !== 'archived');
@@ -354,7 +363,8 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
                 onClick={() => {
                   setHasOverride(!hasOverride);
                   if (!hasOverride) {
-                    setPermOverride({ trustLevel: 'moderate' });
+                    // Start with empty override — all categories inherit from global
+                    setPermOverride({});
                   }
                 }}
                 className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${
@@ -376,39 +386,52 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
             )}
 
             {hasOverride && (
-              <div className="space-y-3 mt-3 pl-3 border-l-2 border-primary/30">
-                {/* Trust level */}
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1.5">Trust Level</p>
-                  <div className="space-y-1.5">
-                    {TRUST_LEVELS.map(level => (
-                      <button
-                        key={level.id}
-                        onClick={() => updateOverride({ trustLevel: level.id })}
-                        className={`w-full text-left p-2 rounded-lg border transition-colors ${
-                          permOverride.trustLevel === level.id
-                            ? 'border-primary bg-primary/5'
-                            : 'border-border hover:border-muted-foreground/30'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className={`w-2.5 h-2.5 rounded-full border-2 flex items-center justify-center ${
-                            permOverride.trustLevel === level.id ? 'border-primary' : 'border-muted-foreground/40'
-                          }`}>
-                            {permOverride.trustLevel === level.id && (
-                              <div className="w-1 h-1 rounded-full bg-primary" />
-                            )}
-                          </div>
-                          <span className="text-xs font-medium">{level.label}</span>
-                        </div>
-                        <p className="text-[10px] text-muted-foreground mt-0.5 ml-[18px]">
-                          {level.description}
-                        </p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
+              <div className="space-y-2 mt-3 pl-3 border-l-2 border-primary/30">
+                <p className="text-xs font-medium text-muted-foreground mb-1">Permission Categories</p>
+                <div className="border border-border rounded-lg px-3 pb-2 pt-0.5 space-y-0.5">
+                  {CATEGORY_ORDER.map((cat) => {
+                    const info = CATEGORY_LABELS[cat];
+                    const isLocked = cat === 'userQuestions';
+                    const currentValue = permOverride.profile?.[cat];
 
+                    return (
+                      <div key={cat} className="flex items-center justify-between py-1">
+                        <div className="min-w-0 mr-3">
+                          <span className="text-xs font-medium">{info.label}</span>
+                          <p className="text-[10px] text-muted-foreground truncate">{info.description}</p>
+                        </div>
+                        <select
+                          value={isLocked ? 'ask' : (currentValue ?? 'inherit')}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === 'inherit') {
+                              const newProfile = { ...permOverride.profile } as Record<string, CategoryAction>;
+                              delete newProfile[cat];
+                              setPermOverride(prev => ({
+                                ...prev,
+                                profile: Object.keys(newProfile).length > 0 ? newProfile as CategoryProfile : undefined,
+                              }));
+                            } else {
+                              setPermOverride(prev => ({
+                                ...prev,
+                                profile: { ...prev.profile, [cat]: val as CategoryAction } as CategoryProfile,
+                              }));
+                            }
+                          }}
+                          disabled={isLocked}
+                          className={`h-6 px-1.5 text-[11px] bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary flex-shrink-0 ${
+                            isLocked ? 'opacity-50 cursor-not-allowed' : ''
+                          } ${currentValue ? 'text-primary font-medium' : 'text-muted-foreground'}`}
+                          title={isLocked ? 'User questions always require approval' : undefined}
+                        >
+                          {ACTION_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>

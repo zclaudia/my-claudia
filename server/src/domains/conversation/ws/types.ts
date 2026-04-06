@@ -1,5 +1,5 @@
 import { WebSocket } from 'ws';
-import type { ToolCall, ContentBlock, AgentPermissionPolicy, ServerMessage, PCPEffectiveProfile, AskUserQuestionItem } from '@my-claudia/shared';
+import type { ToolCall, ContentBlock, ServerMessage, PCPEffectiveProfile, AskUserQuestionItem } from '@my-claudia/shared';
 import type { AIReviewQueue } from '../agent/ai-review-queue.js';
 import type { PermissionDecision, SystemInfo } from '../../../providers/types.js';
 import type { initDatabase } from '../../../storage/db.js';
@@ -82,13 +82,7 @@ export interface MessageSender {
   send: (message: ServerMessage) => void;
 }
 
-// Default permission policy base (used when only project override exists, no global policy)
-export const DEFAULT_PERMISSION_POLICY: AgentPermissionPolicy = {
-  enabled: false,
-  trustLevel: 'conservative',
-  customRules: [],
-  escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
-};
+// DEFAULT_PERMISSION_POLICY removed — use DEFAULT_UNIFIED_POLICY from '@my-claudia/shared' instead.
 
 // Permission timeout policies: keyed by tool name, applied when the request times out.
 export const PERMISSION_TIMEOUT_POLICIES: Map<string, {
