@@ -16,7 +16,7 @@ const PROVIDER_OPTIONS = [
   { value: 'kimi', label: 'Kimi' },
 ];
 
-export function McpServerSettings() {
+export function McpServerSettings({ readOnly = false }: { readOnly?: boolean }) {
   const {
     servers,
     isLoading,
@@ -325,6 +325,8 @@ export function McpServerSettings() {
             className="w-full pl-10 pr-4 py-2 bg-secondary/50 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
           />
         </div>
+        {!readOnly && (
+        <>
         <button
           type="button"
           onClick={handleImport}
@@ -340,6 +342,8 @@ export function McpServerSettings() {
         >
           + Add
         </button>
+        </>
+        )}
       </div>
 
       {/* Import result */}
@@ -372,7 +376,7 @@ export function McpServerSettings() {
       )}
 
       {/* Add form */}
-      {showAddForm && !editingId && renderForm()}
+      {!readOnly && showAddForm && !editingId && renderForm()}
 
       {/* Server list */}
       {filtered.length === 0 ? (
@@ -405,7 +409,7 @@ export function McpServerSettings() {
         <div className="space-y-2">
           {filtered.map(server => (
             <div key={server.id}>
-              {editingId === server.id ? (
+              {!readOnly && editingId === server.id ? (
                 renderForm()
               ) : (
                 <div className="p-3 bg-secondary/50 rounded-lg border border-border/50 hover:border-border transition-colors flex items-start gap-3">
@@ -444,6 +448,7 @@ export function McpServerSettings() {
                   </div>
 
                   {/* Actions */}
+                  {!readOnly && (
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       type="button"
@@ -478,6 +483,7 @@ export function McpServerSettings() {
                       </svg>
                     </button>
                   </div>
+                  )}
                 </div>
               )}
             </div>

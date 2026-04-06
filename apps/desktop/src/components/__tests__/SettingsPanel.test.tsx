@@ -642,8 +642,9 @@ describe('SettingsPanel', () => {
     const providersTab = container.querySelector('[data-testid="providers-tab"]');
     await clickAsync(providersTab!);
 
-    expect(container.textContent).toContain('Managing providers on');
+    expect(container.textContent).toContain('Viewing providers on');
     expect(container.textContent).toContain('Remote Server');
+    expect(container.textContent).toContain('(read-only)');
   });
 
   // ---- Import tab ----

@@ -26,7 +26,7 @@ import { PermissionSettings } from './settings/PermissionSettings';
 import { NotificationSettingsInline } from './settings/NotificationSettings';
 import { MobileGatewayConfig } from './settings/MobileGatewayConfig';
 import { isMacOS, isTauri } from '../utils/platform';
-import { useControlPlaneMode } from '../hooks/useControlPlaneMode';
+
 import {
   getMobileBackendViewState,
   getVisibleMobileBackends,
@@ -66,7 +66,6 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const [mobileShowContent, setMobileShowContent] = useState(false);
   const isMobile = useIsMobile();
   const pluginSettingsTabs = usePluginStore(selectPluginSettingsTabs);
-  const controlPlaneMode = useControlPlaneMode();
 
   const {
     activeServerId,
@@ -102,8 +101,11 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const isActiveLocalBackend = !!activeServerId && (
     activeServerId === localBackendId || activeServer?.isThisInstance === true
   );
-  const isEmbeddedLocalMode = controlPlaneMode === 'embedded-local';
-  const visibleGatewayBackends = getVisibleMobileBackends(facadeBackends, currentInstanceId, showLocalBackend);
+
+  // When the active server is remote, force-show the local backend so the user can switch back
+  const isActiveRemote = !!activeServerId && !!localBackendId && activeServerId !== localBackendId;
+  const effectiveShowLocal = showLocalBackend || isActiveRemote;
+  const visibleGatewayBackends = getVisibleMobileBackends(facadeBackends, currentInstanceId, effectiveShowLocal);
 
   // SDK version check
   const localServerPort = useServerStore((s) => s.localServerPort);
@@ -235,13 +237,16 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   }, [isOpen]);
 
   // Reset tab if current tab is not available for the new server type
-  // Note: 'gateway' tab is always available on mobile for editing gateway config
+  // Server-section Gateway and Import require the active server to be local.
+  // Mobile has its own App-section Gateway tab (MobileGatewayConfig) that must remain accessible.
   useEffect(() => {
-    if (isEmbeddedLocalMode) return;
-    if (activeTab === 'agent' || activeTab === 'workspace' || activeTab === 'mcp-servers' || activeTab === 'gateway' || activeTab === 'import') {
-      setActiveTab('providers');
+    if (!isActiveLocalBackend && activeTab === 'import') {
+      setActiveTab('agent');
     }
-  }, [activeTab, isEmbeddedLocalMode]);
+    if (!isActiveLocalBackend && !isMobile && activeTab === 'gateway') {
+      setActiveTab('agent');
+    }
+  }, [activeTab, isActiveLocalBackend, isMobile]);
 
   const handleBackendSwitch = (backend: GatewayBackendInfo) => {
     const viewState = getMobileBackendViewState(
@@ -249,7 +254,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       facadeConnectionState,
       facadeBackends,
     );
-    if (viewState !== 'ready') return;
+    if (viewState === 'offline') return;
     const serverId = backend.backendId;
     setActiveServer(serverId);
     connectServer(serverId);
@@ -282,7 +287,28 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         </svg>
       )
     },
-    ...(isEmbeddedLocalMode ? [{
+    ...(isMobile ? [{
+      id: 'gateway' as SettingsTab,
+      label: 'Gateway',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+        </svg>
+      )
+    }] : []),
+    {
+      id: 'debug' as SettingsTab,
+      label: 'Debug',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      )
+    },
+  ];
+
+  const serverTabs: { id: SettingsTab; label: string; icon: JSX.Element }[] = [
+    {
       id: 'agent' as SettingsTab,
       label: 'Claudia',
       icon: (
@@ -290,7 +316,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
         </svg>
       )
-    }] : []),
+    },
     {
       id: 'permissions' as SettingsTab,
       label: 'Permissions',
@@ -318,27 +344,6 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         </svg>
       )
     })),
-    ...(isMobile ? [{
-      id: 'gateway' as SettingsTab,
-      label: 'Gateway',
-      icon: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-        </svg>
-      )
-    }] : []),
-    {
-      id: 'debug' as SettingsTab,
-      label: 'Debug',
-      icon: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      )
-    },
-  ];
-
-  const serverTabs: { id: SettingsTab; label: string; icon: JSX.Element }[] = [
     {
       id: 'providers',
       label: 'Providers',
@@ -348,7 +353,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         </svg>
       )
     },
-    ...(isEmbeddedLocalMode ? [{
+    {
       id: 'mcp-servers' as SettingsTab,
       label: 'MCP Servers',
       icon: (
@@ -365,7 +370,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
         </svg>
       )
-    }] : []),
+    },
     {
       id: 'notifications' as SettingsTab,
       label: 'Notifications',
@@ -375,7 +380,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         </svg>
       )
     },
-    ...(isEmbeddedLocalMode ? [
+    ...(isActiveLocalBackend ? [
       {
         id: 'gateway' as SettingsTab,
         label: 'Gateway',
@@ -547,7 +552,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                               facadeConnectionState,
                               facadeBackends,
                             );
-                            const isReachable = viewState === 'ready';
+                            const isReachable = viewState !== 'offline';
                             const statusColor = viewState === 'ready'
                               ? 'bg-success'
                               : viewState === 'transport_reconnecting' || viewState === 'backend_subscribing'
@@ -809,20 +814,22 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     <span>
-                      Managing providers on <strong>{activeServer.name}</strong>
+                      Viewing providers on <strong>{activeServer.name}</strong> (read-only)
                     </span>
                   </div>
                 )}
                 <p className="text-sm text-muted-foreground">
-                  Manage AI providers for your projects on this server. Each provider can have different CLI paths and environment variables.
+                  {isActiveLocalBackend
+                    ? 'Manage AI providers for your projects on this server. Each provider can have different CLI paths and environment variables.'
+                    : 'AI providers configured on this server.'}
                 </p>
-                <ProviderManagerInline key={activeServerId || 'none'} />
+                <ProviderManagerInline key={activeServerId || 'none'} readOnly={!isActiveLocalBackend} />
               </div>
             )}
 
 
             {activeTab === 'notifications' && (
-              <NotificationSettingsInline key={activeServerId || 'none'} />
+              <NotificationSettingsInline key={activeServerId || 'none'} readOnly={!isActiveLocalBackend} />
             )}
 
             {activeTab === 'gateway' && (
@@ -905,20 +912,44 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
             {activeTab === 'mcp-servers' && (
               <div className="space-y-4">
                 <h3 className="text-lg font-semibold">MCP Servers</h3>
+                {!isActiveLocalBackend && activeServer && (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border border-primary/20 rounded-lg text-sm">
+                    <svg className="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>
+                      Viewing MCP servers on <strong>{activeServer.name}</strong> (read-only)
+                    </span>
+                  </div>
+                )}
                 <p className="text-sm text-muted-foreground">
-                  Manage MCP (Model Context Protocol) servers. These servers provide additional tools to AI providers.
+                  {isActiveLocalBackend
+                    ? 'Manage MCP (Model Context Protocol) servers. These servers provide additional tools to AI providers.'
+                    : 'MCP servers configured on this server.'}
                 </p>
-                <McpServerSettings />
+                <McpServerSettings readOnly={!isActiveLocalBackend} />
               </div>
             )}
 
             {activeTab === 'workspace' && (
               <div className="space-y-4">
                 <h3 className="text-lg font-semibold">Skills</h3>
+                {!isActiveLocalBackend && activeServer && (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border border-primary/20 rounded-lg text-sm">
+                    <svg className="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>
+                      Viewing skills on <strong>{activeServer.name}</strong> (read-only)
+                    </span>
+                  </div>
+                )}
                 <p className="text-sm text-muted-foreground">
-                  Manage workspace skills and external skill directories. Skills are lazy-loaded tools available to all AI providers.
+                  {isActiveLocalBackend
+                    ? 'Manage workspace skills and external skill directories. Skills are lazy-loaded tools available to all AI providers.'
+                    : 'Workspace skills configured on this server.'}
                 </p>
-                <WorkspaceSkillsSettings />
+                <WorkspaceSkillsSettings readOnly={!isActiveLocalBackend} />
               </div>
             )}
 
@@ -1211,8 +1242,8 @@ function FontSizeToggle() {
   );
 }
 
-function ProviderManagerInline() {
+function ProviderManagerInline({ readOnly }: { readOnly?: boolean }) {
   return (
-    <ProviderManager isOpen={true} onClose={() => {}} inline={true} />
+    <ProviderManager isOpen={true} onClose={() => {}} inline={true} readOnly={readOnly} />
   );
 }

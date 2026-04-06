@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback } from 'react';
 import * as api from '../services/api';
 import type { WorkspaceSkillInfo, RegisteredSkillTool } from '../services/api';
 
-export function WorkspaceSkillsSettings() {
+export function WorkspaceSkillsSettings({ readOnly = false }: { readOnly?: boolean }) {
   const [skills, setSkills] = useState<WorkspaceSkillInfo[]>([]);
   const [registeredTools, setRegisteredTools] = useState<RegisteredSkillTool[]>([]);
   const [externalDirs, setExternalDirs] = useState<string[]>([]);
@@ -139,7 +139,7 @@ export function WorkspaceSkillsSettings() {
   }
 
   // Editing a skill — full-screen editor
-  if (editingSkillId) {
+  if (editingSkillId && !readOnly) {
     return (
       <div className="space-y-4">
         <div className="bg-secondary/50 border border-border/50 rounded-lg p-4 space-y-3">
@@ -197,6 +197,7 @@ export function WorkspaceSkillsSettings() {
             disabled
           />
         </div>
+        {!readOnly && (
         <button
           type="button"
           onClick={() => { setShowNewForm(true); setEditingSkillId(null); }}
@@ -204,6 +205,7 @@ export function WorkspaceSkillsSettings() {
         >
           + Add
         </button>
+        )}
       </div>
 
       {/* Stats */}
@@ -230,7 +232,7 @@ export function WorkspaceSkillsSettings() {
       )}
 
       {/* New skill form */}
-      {showNewForm && (
+      {!readOnly && showNewForm && (
         <div className="bg-secondary/50 border border-border/50 rounded-lg p-4 space-y-3">
           <div>
             <label className="block text-xs text-muted-foreground mb-1">Skill ID *</label>
@@ -313,7 +315,7 @@ export function WorkspaceSkillsSettings() {
                   <p className="text-xs text-muted-foreground truncate mt-0.5">{displayDesc}</p>
                   <p className="text-xs text-muted-foreground/50 font-mono mt-0.5">{tool.name}</p>
                 </div>
-                {isWorkspace && (
+                {!readOnly && isWorkspace && (
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       type="button"
@@ -363,6 +365,7 @@ export function WorkspaceSkillsSettings() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                 </svg>
                 <span className="text-sm font-mono truncate flex-1 min-w-0">{dir}</span>
+                {!readOnly && (
                 <button
                   type="button"
                   onClick={() => handleRemoveDir(dir)}
@@ -373,11 +376,13 @@ export function WorkspaceSkillsSettings() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
+                )}
               </div>
             ))}
           </div>
         )}
 
+        {!readOnly && (
         <div className="flex gap-2">
           <input
             type="text"
@@ -395,6 +400,7 @@ export function WorkspaceSkillsSettings() {
             + Add
           </button>
         </div>
+        )}
       </div>
     </div>
   );

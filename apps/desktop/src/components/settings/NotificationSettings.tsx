@@ -13,7 +13,7 @@ const EVENT_LABELS: { key: keyof NotificationConfig['events']; label: string; de
   { key: 'processLeak', label: 'Process leak alerts', description: 'Orphaned child processes were detected' },
 ];
 
-export function NotificationSettingsInline() {
+export function NotificationSettingsInline({ readOnly = false }: { readOnly?: boolean }) {
   const [config, setConfig] = useState<NotificationConfig>(DEFAULT_NOTIFICATION_CONFIG);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -89,10 +89,11 @@ export function NotificationSettingsInline() {
           </p>
         </div>
         <button
-          onClick={() => update({ enabled: !config.enabled })}
+          onClick={() => !readOnly && update({ enabled: !config.enabled })}
+          disabled={readOnly}
           className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${
             config.enabled ? 'bg-primary' : 'bg-muted'
-          }`}
+          } ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
         >
           <span
             className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
@@ -115,7 +116,8 @@ export function NotificationSettingsInline() {
                   value={config.ntfyUrl}
                   onChange={(e) => update({ ntfyUrl: e.target.value })}
                   placeholder="https://ntfy.sh"
-                  className="w-full px-3 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+                  readOnly={readOnly}
+                  className={`w-full px-3 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
                 />
               </div>
               <div>
@@ -125,7 +127,8 @@ export function NotificationSettingsInline() {
                   value={config.ntfyTopic}
                   onChange={(e) => update({ ntfyTopic: e.target.value })}
                   placeholder="my-claudia-alerts"
-                  className="w-full px-3 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+                  readOnly={readOnly}
+                  className={`w-full px-3 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
                 />
                 <p className="text-xs text-muted-foreground mt-1">
                   Use a unique, hard-to-guess topic name for privacy.
@@ -145,10 +148,11 @@ export function NotificationSettingsInline() {
                     <p className="text-xs text-muted-foreground">{description}</p>
                   </div>
                   <button
-                    onClick={() => updateEvent(key, !config.events[key])}
+                    onClick={() => !readOnly && updateEvent(key, !config.events[key])}
+                    disabled={readOnly}
                     className={`relative w-8 h-4 rounded-full transition-colors flex-shrink-0 ${
                       config.events[key] ? 'bg-primary' : 'bg-muted'
-                    }`}
+                    } ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
                   >
                     <span
                       className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${
@@ -173,6 +177,7 @@ export function NotificationSettingsInline() {
           )}
 
           {/* Action buttons */}
+          {!readOnly && (
           <div className="flex gap-2">
             <button
               onClick={handleTest}
@@ -191,11 +196,12 @@ export function NotificationSettingsInline() {
               </button>
             )}
           </div>
+          )}
         </>
       )}
 
       {/* Save when only toggling enabled/disabled */}
-      {dirty && !config.enabled && (
+      {!readOnly && dirty && !config.enabled && (
         <div className="flex justify-end">
           <button
             onClick={handleSave}

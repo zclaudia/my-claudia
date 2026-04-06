@@ -59,9 +59,10 @@ interface ProviderManagerProps {
   isOpen: boolean;
   onClose: () => void;
   inline?: boolean;  // When true, renders without modal wrapper
+  readOnly?: boolean;
 }
 
-export function ProviderManager({ isOpen, onClose, inline = false }: ProviderManagerProps) {
+export function ProviderManager({ isOpen, onClose, inline = false, readOnly = false }: ProviderManagerProps) {
   const activeServerId = useServerStore((s) => s.activeServerId);
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const facadeBackends = useFacadeStore((s) => s.backends);
@@ -220,7 +221,7 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
     <p className="text-muted-foreground text-center py-8">Connect to a server first</p>
   ) : loading ? (
     <p className="text-muted-foreground text-center py-8">Loading...</p>
-  ) : showAddForm ? (
+  ) : showAddForm && !readOnly ? (
     /* Add/Edit Form */
     <div className="space-y-4">
       <div>
@@ -343,6 +344,7 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
               )}
               <CapabilityTags providerType={provider.type || 'claude'} />
             </div>
+            {!readOnly && (
             <div className="flex items-center gap-1 ml-2">
               {!provider.isDefault && (
                 <button
@@ -374,10 +376,12 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
                 </svg>
               </button>
             </div>
+            )}
           </div>
         ))
       )}
 
+      {!readOnly && (
       <button
         onClick={() => setShowAddForm(true)}
         className="w-full py-2 border-2 border-dashed border-border rounded-lg text-muted-foreground hover:border-muted-foreground hover:text-foreground flex items-center justify-center gap-2"
@@ -387,6 +391,7 @@ export function ProviderManager({ isOpen, onClose, inline = false }: ProviderMan
         </svg>
         Add Provider
       </button>
+      )}
     </div>
   );
 
