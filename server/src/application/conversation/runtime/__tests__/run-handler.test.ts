@@ -64,7 +64,7 @@ vi.mock('../../../../events/index.js', () => ({
   },
 }));
 
-vi.mock('../../../../services/workspace.js', () => ({
+vi.mock('../../../../application/services/workspace.js', () => ({
   workspaceService: {
     assembleSystemPrompt: assembleSystemPromptMock,
   },

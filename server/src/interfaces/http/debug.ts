@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import type { ApiResponse } from '@my-claudia/shared/core/api';
 import { getCrashLogFilePath, readCrashReports } from '../../utils/crash-log.js';
-import type { ProcessSupervisor, ManagedProcessRecord } from '../../services/process-supervisor.js';
+import type { ProcessSupervisor, ManagedProcessRecord } from '../../infrastructure/services/process-supervisor.js';
 
 export function createDebugRoutes(processSupervisor?: ProcessSupervisor): Router {
   const router = Router();

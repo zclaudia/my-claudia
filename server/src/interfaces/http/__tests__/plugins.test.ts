@@ -43,7 +43,7 @@ vi.mock('../../../application/plugins/tool-registry.js', () => ({
 }));
 
 // Mock commandRegistry
-vi.mock('../../../commands/registry.js', () => ({
+vi.mock('../../../application/commands/registry.js', () => ({
   commandRegistry: {
     getByPlugin: vi.fn(() => []),
   },
@@ -53,7 +53,7 @@ import * as fs from 'fs';
 import { pluginLoader } from '../../../application/plugins/loader.js';
 import { permissionManager } from '../../../application/plugins/permissions.js';
 import { toolRegistry } from '../../../application/plugins/tool-registry.js';
-import { commandRegistry } from '../../../commands/registry.js';
+import { commandRegistry } from '../../../application/commands/registry.js';
 
 function createTestApp() {
   const app = express();

@@ -30,7 +30,7 @@ import type {
 } from '@my-claudia/shared/plugin-types';
 import { checkPluginCompatibility } from '../../utils/version.js';
 import { pluginEvents } from '../../infrastructure/events/index.js';
-import { commandRegistry } from '../../commands/registry.js';
+import { commandRegistry } from '../commands/registry.js';
 import { toolRegistry } from './tool-registry.js';
 import { permissionManager } from './permissions.js';
 import type { Permission } from '@my-claudia/shared/plugin-types';

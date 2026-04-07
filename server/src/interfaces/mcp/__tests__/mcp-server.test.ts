@@ -60,7 +60,7 @@ vi.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({
   StreamableHTTPServerTransport: mocks.MockTransport,
 }));
 
-vi.mock('../../application/plugins/tool-registry.js', () => ({
+vi.mock('../../../application/plugins/tool-registry.js', () => ({
   toolRegistry: {
     getBridgeTools: vi.fn().mockReturnValue([]),
     execute: vi.fn(),

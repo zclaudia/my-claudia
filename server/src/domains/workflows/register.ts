@@ -13,7 +13,7 @@ import { WorkflowService } from './service.js';
 import { WorkflowGeneratorService } from './generator.js';
 import { createWorkflowRoutes } from './routes.js';
 import type { PushNotificationService } from '../../infrastructure/push/push-notification-service.js';
-import type { SystemTaskRegistryPort } from '../../services/system-task-registry.js';
+import type { SystemTaskRegistryPort } from '../../application/services/system-task-registry.js';
 
 import {
   CompositeStepExecutor,

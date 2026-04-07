@@ -4,7 +4,7 @@
  * Manages periodic tasks registered by plugins.
  */
 
-import { systemTaskRegistry } from '../../services/system-task-registry.js';
+import { systemTaskRegistry } from '../services/system-task-registry.js';
 
 interface ScheduledEntry {
   pluginId: string;

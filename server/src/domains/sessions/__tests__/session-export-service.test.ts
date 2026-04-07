@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { SessionExportError, SessionExportService } from '../../domains/sessions/export-service.js';
+import { SessionExportError, SessionExportService } from '../export-service.js';
 
 function createTestDb(): Database.Database {
   const db = new Database(':memory:');

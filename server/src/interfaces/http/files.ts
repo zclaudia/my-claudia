@@ -6,12 +6,12 @@ import multer from 'multer';
 import type { ApiResponse } from '@my-claudia/shared/core/api';
 import type { DirectoryListingResponse, FileContentResponse } from '@my-claudia/shared/files';
 import { fileStore } from '../../infrastructure/storage/fileStore.js';
-import { FileBrowseError, FileBrowseService } from '../../services/file-browse-service.js';
+import { FileBrowseError, FileBrowseService } from '../../infrastructure/services/file-browse-service.js';
 import {
   FileTransferError,
   FileTransferService,
   type FilesRouteBroadcastContext,
-} from '../../services/file-transfer-service.js';
+} from '../../infrastructure/services/file-transfer-service.js';
 import { sendApiError } from './response.js';
 
 // Configure multer for streaming file upload (disk storage — no memory buffering)

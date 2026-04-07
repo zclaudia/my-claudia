@@ -64,7 +64,7 @@ vi.mock('../../../infrastructure/providers/claude-sdk.js', () => ({
 }));
 
 // Mock command registry
-vi.mock('../../../commands/registry.js', () => ({
+vi.mock('../../../application/commands/registry.js', () => ({
   commandRegistry: {
     getCommandsBySource: vi.fn(() => []),
   },
@@ -718,7 +718,7 @@ describe('providers routes', () => {
     });
 
     it('includes plugin commands from command registry', async () => {
-      const { commandRegistry } = await import('../../../commands/registry.js');
+      const { commandRegistry } = await import('../../../application/commands/registry.js');
       vi.mocked(commandRegistry.getCommandsBySource).mockReturnValue([
         { command: '/plugin-cmd', description: 'Plugin command', source: 'plugin' } as any,
       ]);

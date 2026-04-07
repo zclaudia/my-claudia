@@ -10,7 +10,7 @@ import { toolRegistry } from '../../../application/plugins/index.js';
 import { MemoryStore } from '../memory/memory-store.js';
 import { isBlockedHostname } from './network-guard.js';
 import type Database from 'better-sqlite3';
-import type { ProcessSupervisor } from '../../../services/process-supervisor.js';
+import type { ProcessSupervisor } from '../../../infrastructure/services/process-supervisor.js';
 
 /** Resolve the project working directory for a session */
 function resolveProjectCwd(db: Database.Database, sessionId?: string): string | null {

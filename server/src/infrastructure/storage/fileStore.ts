@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
-import { systemTaskRegistry } from '../../services/system-task-registry.js';
+import { systemTaskRegistry } from '../../application/services/system-task-registry.js';
 
 export interface StoredFile {
   id: string;

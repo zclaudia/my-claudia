@@ -13,7 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type Database from 'better-sqlite3';
 import matter from 'gray-matter';
-import { workspaceService } from '../../services/workspace.js';
+import { workspaceService } from '../services/workspace.js';
 import { toolRegistry } from './tool-registry.js';
 
 interface SkillTriggers {

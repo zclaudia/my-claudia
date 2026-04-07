@@ -2,7 +2,7 @@ import { execFile, spawn as nodeSpawn, type ChildProcess, type ChildProcessWitho
 import { promisify } from 'util';
 import { randomUUID } from 'crypto';
 import type Database from 'better-sqlite3';
-import { isProcessAlive, listAllProcesses, listDescendantProcesses } from '../utils/process-tree.js';
+import { isProcessAlive, listAllProcesses, listDescendantProcesses } from '../../utils/process-tree.js';
 
 const execFileAsync = promisify(execFile);
 

@@ -17,7 +17,7 @@ import { spawn as nodeSpawn } from 'child_process';
 import { extractRetryDelayMsFromError } from '../../utils/retry-window.js';
 import { sanitizeInheritedProviderEnv } from '../../utils/startup-env.js';
 import { buildMcpBridgeEntry } from '../../utils/mcp-bridge-launch.js';
-import { getGlobalProcessSupervisor } from '../../services/process-supervisor.js';
+import { getGlobalProcessSupervisor } from '../services/process-supervisor.js';
 
 /** Mutable handle exposed by runClaude so the adapter can call query methods (stopTask, etc.) */
 export interface ClaudeQueryHandle {

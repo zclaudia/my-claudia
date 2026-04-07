@@ -1,9 +1,9 @@
 import type { Database } from 'better-sqlite3';
 import type { Request, Response } from '@my-claudia/shared/protocol/correlation';
-import type { ConnectedClient } from '../../middleware/base.js';
-import type { MessageContext, MessageHandler, Middleware } from '../../middleware/base.js';
+import type { ConnectedClient } from '../http/middleware/base.js';
+import type { MessageContext, MessageHandler, Middleware } from '../http/middleware/base.js';
 import type { Repository } from '../../infrastructure/repositories/base.js';
-import { composeMiddleware, errorResponse } from '../../middleware/base.js';
+import { composeMiddleware, errorResponse } from '../http/middleware/base.js';
 import { createCrudHandlers } from '../http/handlers/factory.js';
 
 /**

@@ -13,11 +13,11 @@ import { createRouter } from '../interfaces/websocket/index.js';
 import { ProjectRepository } from '../infrastructure/repositories/project.js';
 import { SessionRepository } from '../domains/sessions/repository.js';
 import { ProviderRepository } from '../domains/providers/repository.js';
-import { authMiddleware } from '../middleware/auth.js';
-import { loggingMiddleware } from '../middleware/logging.js';
-import { errorHandlingMiddleware } from '../middleware/error.js';
+import { authMiddleware } from '../interfaces/http/middleware/auth.js';
+import { loggingMiddleware } from '../interfaces/http/middleware/logging.js';
+import { errorHandlingMiddleware } from '../interfaces/http/middleware/error.js';
 import { createRequest } from '@my-claudia/shared/protocol/correlation';
-import type { MessageContext } from '../middleware/base.js';
+import type { MessageContext } from '../interfaces/http/middleware/base.js';
 
 // Test utilities
 function assert(condition: boolean, message: string) {

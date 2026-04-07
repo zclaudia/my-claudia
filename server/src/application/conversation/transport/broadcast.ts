@@ -4,7 +4,7 @@ import { resolvePluginPlatform } from '@my-claudia/shared/plugin-types';
 import { detectLoop } from '../../../loop-detection.js';
 import { pluginLoader } from '../../../application/plugins/index.js';
 import { permissionManager as pluginPermissionManager, toolRegistry as pluginToolRegistry } from '../../../application/plugins/index.js';
-import { commandRegistry as pluginCommandRegistry } from '../../../commands/registry.js';
+import { commandRegistry as pluginCommandRegistry } from '../../commands/registry.js';
 import type { ConnectedClient, ActiveRun } from './types.js';
 
 // ---------------------------------------------------------------------------

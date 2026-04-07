@@ -10,7 +10,7 @@ import type Database from 'better-sqlite3';
 import type { McpServerConfig } from '@my-claudia/shared/core/mcp';
 import type { ApiResponse } from '@my-claudia/shared/core/api';
 import { mcpClientManager } from '../../utils/mcp-client-manager.js';
-import { McpServerService, McpServerServiceError, type McpServerRow } from '../../services/mcp-server-service.js';
+import { McpServerService, McpServerServiceError, type McpServerRow } from '../../infrastructure/services/mcp-server-service.js';
 import { sendApiError } from './response.js';
 
 // ── Routes ───────────────────────────────────────────────────

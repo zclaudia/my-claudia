@@ -14,7 +14,7 @@ import type { Request as CorrelatedRequest } from '@my-claudia/shared/protocol/c
 import { ALL_SERVER_FEATURES } from '@my-claudia/shared/core/server';
 import { initDatabase } from './infrastructure/storage/db.js';
 import { initFileStore } from './infrastructure/storage/fileStore.js';
-import { initWorkspace } from './services/workspace.js';
+import { initWorkspace } from './application/services/workspace.js';
 import type { GatewayConfig, GatewayStatus } from './interfaces/http/gateway.js';
 import { TerminalManager } from './terminal-manager.js';
 import { generateKeyPair, getPublicKeyPem } from './utils/crypto.js';
@@ -30,10 +30,10 @@ import { providerRegistry } from './infrastructure/providers/registry.js';
 // WebSocket message-router architecture.
 // This router is not the HTTP REST entrypoint; REST routes are mounted in server-setup.ts.
 import { createRouter } from './interfaces/websocket/index.js';
-import { loggingMiddleware as routerLoggingMiddleware } from './middleware/logging.js';
-import { errorHandlingMiddleware as routerErrorMiddleware } from './middleware/error.js';
-import { isLocalhost } from './middleware/local-only.js';
-import { expressErrorHandler } from './middleware/express-error.js';
+import { loggingMiddleware as routerLoggingMiddleware } from './interfaces/http/middleware/logging.js';
+import { errorHandlingMiddleware as routerErrorMiddleware } from './interfaces/http/middleware/error.js';
+import { isLocalhost } from './interfaces/http/middleware/local-only.js';
+import { expressErrorHandler } from './interfaces/http/middleware/express-error.js';
 
 // Extracted modules
 import type { ConnectedClient, ActiveRun, MessageSender } from './application/conversation/transport/types.js';

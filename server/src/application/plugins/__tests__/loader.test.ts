@@ -7,7 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { PluginLoader } from '../loader';
-import { commandRegistry } from '../../../commands/registry';
+import { commandRegistry } from '../../commands/registry';
 import { toolRegistry } from '../tool-registry';
 import { pluginEvents } from '../../../infrastructure/events';
 import { permissionManager } from '../permissions';

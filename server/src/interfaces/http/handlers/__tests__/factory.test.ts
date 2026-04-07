@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createCrudHandlers, createHandler } from '../factory.js';
-import { AppError } from '../../../../middleware/error.js';
+import { AppError } from '../../middleware/error.js';
 import type { Repository } from '../../../../infrastructure/repositories/base.js';
-import type { MessageContext } from '../../../../middleware/base.js';
+import type { MessageContext } from '../../middleware/base.js';
 
 // Mock repository
 const createMockRepository = <T, TCreate, TUpdate>(): Repository<T, TCreate, TCreate> => ({

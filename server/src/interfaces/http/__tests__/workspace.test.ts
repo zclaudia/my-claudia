@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { createWorkspaceRoutes } from '../workspace.js';
-import { workspaceService } from '../../../services/workspace.js';
+import { workspaceService } from '../../../application/services/workspace.js';
 import { getExternalSkillDirs, refreshSkillTools, saveExternalSkillDirs } from '../../../application/plugins/skill-tools.js';
 
-vi.mock('../../../services/workspace.js', () => ({
+vi.mock('../../../application/services/workspace.js', () => ({
   workspaceService: {
     getConfig: vi.fn(),
     updateConfig: vi.fn(),

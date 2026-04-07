@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
 import type { McpServerConfig } from '@my-claudia/shared/core/mcp';
-import { loadMcpServers } from '../utils/claude-config.js';
+import { loadMcpServers } from '../../utils/claude-config.js';
 
 export interface McpServerRow {
   id: string;

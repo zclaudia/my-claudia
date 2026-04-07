@@ -329,7 +329,7 @@ describe('plugin command permission checks', () => {
   it('should check permissions for plugin commands during execute', async () => {
     // Mock the pluginLoader import
     const mockCheckPermissions = vi.fn().mockResolvedValue(true);
-    vi.doMock('../../application/plugins/loader.js', () => ({
+    vi.doMock('../../plugins/loader.js', () => ({
       pluginLoader: {
         checkPermissions: mockCheckPermissions,
       },

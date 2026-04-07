@@ -11,7 +11,7 @@ import { checkVersionCompatibility, cleanupOldTempFiles } from './claude-sdk.js'
 import { checkSdkVersions } from '../../utils/sdk-version-check.js';
 import { openCodeServerManager } from './opencode-sdk.js';
 import { destroyAllAppServerClients } from './codex-app-server.js';
-import { systemTaskRegistry } from '../../services/system-task-registry.js';
+import { systemTaskRegistry } from '../../application/services/system-task-registry.js';
 
 let tempFileCleanupTimer: ReturnType<typeof setInterval> | null = null;
 

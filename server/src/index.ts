@@ -4,7 +4,7 @@ import * as path from 'path';
 import { createServer, createVirtualClient, activeRuns, connectedClients, cancelRun } from './server.js';
 import { autoDetectProviders, checkProviderVersions, startTempFileCleanup, shutdownProviders } from './infrastructure/providers/initializer.js';
 import { pluginLoader } from './application/plugins/loader.js';
-import { registerBuiltinCommands } from './commands/init.js';
+import { registerBuiltinCommands } from './application/commands/init.js';
 import { sanitizeInheritedProviderEnv } from './utils/startup-env.js';
 import { isIgnorableProcessError } from './utils/process-error-filter.js';
 import { GatewayManager } from './infrastructure/gateway/manager.js';

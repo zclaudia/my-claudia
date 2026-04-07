@@ -5,8 +5,8 @@ import * as os from 'os';
 import type { ApiResponse } from '@my-claudia/shared/core/api';
 import type { CommandExecuteRequest, CommandExecuteResponse, SlashCommand } from '@my-claudia/shared/features/commands';
 import { LOCAL_COMMANDS } from '@my-claudia/shared/features/commands';
-import { commandRegistry } from '../../commands/registry.js';
-import { ensureBuiltinCommandsRegistered } from '../../commands/init.js';
+import { commandRegistry } from '../../application/commands/registry.js';
+import { ensureBuiltinCommandsRegistered } from '../../application/commands/init.js';
 
 // Ensure built-in commands are registered
 ensureBuiltinCommandsRegistered();

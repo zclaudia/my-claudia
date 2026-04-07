@@ -7,7 +7,7 @@ import type { MessageInput } from '@my-claudia/shared/core/message';
 import type { ClaudeMessage, SystemInfo, PermissionCallback } from './message-types.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 import { sanitizeInheritedProviderEnv } from '../../utils/startup-env.js';
-import { getGlobalProcessSupervisor } from '../../services/process-supervisor.js';
+import { getGlobalProcessSupervisor } from '../services/process-supervisor.js';
 import { buildMcpBridgeEntry } from '../../utils/mcp-bridge-launch.js';
 import { fileStore } from '../storage/fileStore.js';
 

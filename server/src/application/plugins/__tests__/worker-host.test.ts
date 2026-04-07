@@ -152,7 +152,7 @@ vi.mock('../tool-registry.js', () => ({
   toolRegistry: mockToolRegistry,
 }));
 
-vi.mock('../../../commands/registry.js', () => ({
+vi.mock('../../../application/commands/registry.js', () => ({
   commandRegistry: mockCommandRegistry,
 }));
 

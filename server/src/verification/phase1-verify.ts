@@ -17,10 +17,10 @@ import {
   errorResponse,
   type MessageContext,
   type Middleware
-} from '../middleware/base.js';
-import { authMiddleware } from '../middleware/auth.js';
-import { loggingMiddleware } from '../middleware/logging.js';
-import { errorHandlingMiddleware, AppError } from '../middleware/error.js';
+} from '../interfaces/http/middleware/base.js';
+import { authMiddleware } from '../interfaces/http/middleware/auth.js';
+import { loggingMiddleware } from '../interfaces/http/middleware/logging.js';
+import { errorHandlingMiddleware, AppError } from '../interfaces/http/middleware/error.js';
 
 // Test utilities
 function assert(condition: boolean, message: string) {

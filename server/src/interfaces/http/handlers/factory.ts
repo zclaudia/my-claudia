@@ -1,7 +1,7 @@
 import type { Repository } from '../../../infrastructure/repositories/base.js';
-import type { MessageContext, MessageHandler } from '../../../middleware/base.js';
-import { successResponse, errorResponse } from '../../../middleware/base.js';
-import { AppError } from '../../../middleware/error.js';
+import type { MessageContext, MessageHandler } from '../middleware/base.js';
+import { successResponse, errorResponse } from '../middleware/base.js';
+import { AppError } from '../middleware/error.js';
 
 /**
  * CRUD Handler Factory

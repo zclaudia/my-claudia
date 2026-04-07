@@ -21,7 +21,7 @@ import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 import { sanitizeInheritedProviderEnv } from '../../utils/startup-env.js';
 import { buildMcpBridgeEntry } from '../../utils/mcp-bridge-launch.js';
 import { loadMcpServersFromDb } from '../../utils/mcp-config.js';
-import { getGlobalProcessSupervisor } from '../../services/process-supervisor.js';
+import { getGlobalProcessSupervisor } from '../services/process-supervisor.js';
 
 // ── Types ─────────────────────────────────────────────────────
 

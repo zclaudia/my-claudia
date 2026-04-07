@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import { SessionLifecycleError, SessionLifecycleService } from '../../domains/sessions/lifecycle-service.js';
+import { SessionLifecycleError, SessionLifecycleService } from '../lifecycle-service.js';
 
 function createTestDb(): Database.Database {
   const db = new Database(':memory:');

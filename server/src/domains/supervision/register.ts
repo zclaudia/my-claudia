@@ -16,7 +16,7 @@ import { SupervisionTaskRepository } from '../../infrastructure/repositories/sup
 import { ProjectRepository } from '../projects/repository.js';
 import { SessionRepository } from '../sessions/repository.js';
 import { createSupervisionRoutes } from './routes.js';
-import { systemTaskRegistry } from '../../services/system-task-registry.js';
+import { systemTaskRegistry } from '../../application/services/system-task-registry.js';
 export interface SupervisionDomainDeps {
   db: ReturnType<typeof initDatabase>;
   app: Express;

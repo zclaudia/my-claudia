@@ -8,7 +8,7 @@ import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback 
 import { fileStore } from '../storage/fileStore.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 import { sanitizeInheritedProviderEnv } from '../../utils/startup-env.js';
-import { getGlobalProcessSupervisor } from '../../services/process-supervisor.js';
+import { getGlobalProcessSupervisor } from '../services/process-supervisor.js';
 import { createTraceRecorder, type TraceRecorder, summarizeProviderMessage } from '../../utils/provider-trace.js';
 import { buildMcpBridgeEntry } from '../../utils/mcp-bridge-launch.js';
 

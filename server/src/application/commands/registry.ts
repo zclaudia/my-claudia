@@ -160,7 +160,7 @@ class CommandRegistry {
     try {
       // Lazy permission check for plugin commands
       if (command.pluginId) {
-        const { pluginLoader } = await import('../application/plugins/loader.js');
+        const { pluginLoader } = await import('../plugins/loader.js');
         const permitted = await pluginLoader.checkPermissions(command.pluginId);
         if (!permitted) {
           return {

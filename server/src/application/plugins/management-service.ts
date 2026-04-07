@@ -2,7 +2,7 @@ import type { Permission } from '@my-claudia/shared/plugin-types';
 import { pluginLoader } from './loader.js';
 import { permissionManager } from './permissions.js';
 import { toolRegistry } from './tool-registry.js';
-import { commandRegistry } from '../../commands/registry.js';
+import { commandRegistry } from '../commands/registry.js';
 
 interface PluginManifestSummary {
   id: string;

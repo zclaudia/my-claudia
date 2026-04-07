@@ -27,7 +27,7 @@ import { TaskAdmin } from './task-admin.js';
 import { SupervisorAgentManager } from './supervisor-agent.js';
 import { SupervisorContextService } from './supervisor-context.js';
 import { buildTaskPrompt as buildSupervisedTaskPrompt } from './task-prompt.js';
-import type { SystemTaskRegistryPort } from '../../services/system-task-registry.js';
+import type { SystemTaskRegistryPort } from '../../application/services/system-task-registry.js';
 
 export class SupervisorService {
   private static cleanupHooksInstalled = false;

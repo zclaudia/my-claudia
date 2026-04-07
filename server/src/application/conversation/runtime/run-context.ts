@@ -16,7 +16,7 @@ import {
   buildInteractionToolPrompt,
 } from '../../../utils/server-utils.js';
 import { createContextEngine } from '../context/engine.js';
-import { workspaceService } from '../../../services/workspace.js';
+import { workspaceService } from '../../services/workspace.js';
 import { mapPermissionMode } from '../../../infrastructure/providers/pcp-permission.js';
 
 interface SessionContext {

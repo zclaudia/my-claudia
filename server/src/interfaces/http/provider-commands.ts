@@ -6,7 +6,7 @@ import { LOCAL_COMMANDS, CLI_COMMANDS, CLAUDE_FALLBACK_COMMANDS } from '@my-clau
 import { scanCustomCommands } from '../../utils/command-scanner.js';
 import { openCodeServerManager } from '../../infrastructure/providers/opencode-sdk.js';
 import { fetchClaudeCommands } from '../../infrastructure/providers/claude-sdk.js';
-import { commandRegistry } from '../../commands/registry.js';
+import { commandRegistry } from '../../application/commands/registry.js';
 
 export function mountCommandRoutes(router: Router, db: Database.Database): void {
   // Get commands for a provider
