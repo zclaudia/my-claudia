@@ -143,6 +143,13 @@ export const ChatMessagePane = memo(function ChatMessagePane({
     }
   }, [sessionToolCalls, initialLoadDone, scrollToBottomIfSticky]);
 
+  // Force scroll to bottom when permission requests arrive — these need immediate attention
+  useEffect(() => {
+    if (initialLoadDone && permissionRequests.length > 0) {
+      scrollToBottom();
+    }
+  }, [permissionRequests.length, initialLoadDone, scrollToBottom]);
+
   return (
     <div
       ref={messagesContainerRef}

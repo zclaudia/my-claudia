@@ -463,6 +463,12 @@ export function handleServerMessage(
         aiInitiated: permMsg.aiInitiated,
       });
       updateClaudiaTaskStatusBySessionId(permMsg.sessionId, 'waiting');
+      // Toast so the user notices even if they're not looking at the chat
+      useToastStore.getState().add({
+        title: 'Permission required',
+        message: `${permMsg.toolName} needs approval`,
+        type: 'info',
+      });
       break;
     }
 
