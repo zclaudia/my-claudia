@@ -7,7 +7,7 @@ import type {
   TaskResult,
   SupervisionLogEvent,
 } from '@my-claudia/shared/features/supervision';
-import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
+import { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
 import { ProjectRepository } from '../projects/repository.js';
 import type { ContextManager, WorkflowAction } from './context-manager.js';
 

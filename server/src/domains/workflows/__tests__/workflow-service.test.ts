@@ -47,7 +47,7 @@ vi.mock('../engine.js', () => ({}));
 vi.mock('../../../utils/cron.js', () => ({
   computeNextCronRun: vi.fn().mockReturnValue(99999),
 }));
-vi.mock('../../../events/index.js', () => ({
+vi.mock('../../../infrastructure/events/index.js', () => ({
   pluginEvents: { on: vi.fn().mockReturnValue(() => {}), emit: vi.fn() },
 }));
 vi.mock('../templates.js', () => ({
@@ -57,7 +57,7 @@ vi.mock('../templates.js', () => ({
 }));
 
 import { WorkflowService } from '../service.js';
-import { pluginEvents } from '../../../events/index.js';
+import { pluginEvents } from '../../../infrastructure/events/index.js';
 
 const emptyDefinition = { triggers: [], nodes: [], edges: [], entryNodeId: '' };
 

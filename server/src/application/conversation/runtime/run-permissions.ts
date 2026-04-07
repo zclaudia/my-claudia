@@ -26,7 +26,7 @@ import {
   PermissionEvaluator,
   resolveRememberedDecision,
 } from '../agent/permission-evaluator.js';
-import { isBashLikeTool, isSudoCommand } from '../../../helpers/server-utils.js';
+import { isBashLikeTool, isSudoCommand } from '../../../utils/server-utils.js';
 import type { PermissionDecision } from '../../../infrastructure/providers/types.js';
 import { PERMISSION_TIMEOUT_POLICIES, type ActiveRun } from '../transport/types.js';
 import { broadcastRunMessage } from '../transport/broadcast.js';

@@ -1,4 +1,4 @@
-import { pluginEvents } from '../../../events/index.js';
+import { pluginEvents } from '../../../infrastructure/events/index.js';
 import { negotiateProfile } from '../../../infrastructure/providers/pcp-negotiator.js';
 import type { ClaudeMessage, ProviderAdapter } from '../../../infrastructure/providers/types.js';
 import { buildRunContext } from './run-context.js';

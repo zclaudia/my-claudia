@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import type { Permission, PluginManifest } from '@my-claudia/shared/plugin-types';
-import { pluginEvents } from '../../events/index.js';
+import { pluginEvents } from '../../infrastructure/events/index.js';
 
 export interface PermissionState {
   granted: Permission[];

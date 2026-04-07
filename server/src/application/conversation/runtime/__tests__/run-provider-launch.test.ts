@@ -17,7 +17,7 @@ vi.mock('../run-lifecycle.js', () => ({
   upsertAssistantMessage: upsertAssistantMessageMock,
 }));
 
-vi.mock('../../../../events/index.js', () => ({
+vi.mock('../../../../infrastructure/events/index.js', () => ({
   pluginEvents: {
     emit: pluginEventsEmitMock,
   },

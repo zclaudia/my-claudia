@@ -20,7 +20,7 @@ import { WorkflowStepRunRepository } from './workflow-step-run-repository.js';
 import { WorkflowScheduleRepository } from './workflow-schedule-repository.js';
 import type { WorkflowEngine } from './engine.js';
 import { computeNextCronRun } from '../../utils/cron.js';
-import { pluginEvents } from '../../events/index.js';
+import { pluginEvents } from '../../infrastructure/events/index.js';
 import { BUILTIN_WORKFLOW_TEMPLATES } from './templates.js';
 
 export class WorkflowService {

@@ -52,7 +52,7 @@ import { PushNotificationService } from './infrastructure/push/push-notification
 import { registerInteractionTools } from './application/conversation/interactions/interaction-tools.js';
 import { registerAgentTools } from './application/conversation/agent-tools/index.js';
 import { registerOrchestrationDomain } from './application/orchestration/register.js';
-import { pluginEvents } from './events/index.js';
+import { pluginEvents } from './infrastructure/events/index.js';
 import { isLocalhost, localOnlyMiddleware } from './middleware/local-only.js';
 import { createExpressAuthMiddleware } from './middleware/express-auth.js';
 import { getPublicKeyPem } from './utils/crypto.js';

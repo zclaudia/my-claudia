@@ -1,4 +1,4 @@
-import { BaseRepository } from '../../repositories/base.js';
+import { BaseRepository } from '../../infrastructure/repositories/base.js';
 import type { Database } from 'better-sqlite3';
 import { normalizeWorkflowDefinition } from '@my-claudia/shared/features/workflows';
 import type { Workflow, WorkflowStatus, WorkflowDefinition } from '@my-claudia/shared/features/workflows';

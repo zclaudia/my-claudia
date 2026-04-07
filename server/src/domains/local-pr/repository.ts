@@ -1,4 +1,4 @@
-import { BaseRepository } from '../../repositories/base.js';
+import { BaseRepository } from '../../infrastructure/repositories/base.js';
 import type { Database } from 'better-sqlite3';
 import type { LocalPR, LocalPRStatus, ExecutionState, PendingAction } from '@my-claudia/shared/features/local-pr';
 import { v4 as uuidv4 } from 'uuid';

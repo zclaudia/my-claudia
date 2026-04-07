@@ -10,7 +10,7 @@
 
 import { initDatabase } from '../infrastructure/storage/db.js';
 import { createRouter } from '../interfaces/websocket/index.js';
-import { ProjectRepository } from '../repositories/project.js';
+import { ProjectRepository } from '../infrastructure/repositories/project.js';
 import { SessionRepository } from '../domains/sessions/repository.js';
 import { ProviderRepository } from '../domains/providers/repository.js';
 import { authMiddleware } from '../middleware/auth.js';

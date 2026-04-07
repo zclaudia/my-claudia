@@ -5,10 +5,10 @@ import {
   buildStatusOutput,
   formatProviderErrorMessage,
   SYSTEM_INFO_COMMANDS,
-} from '../../../helpers/server-utils.js';
+} from '../../../utils/server-utils.js';
 import { normalizeFromToolUse } from '../interactions/interaction-normalizer.js';
 import { trackAndAutoComplete, finalizeSession, clearSession } from '../interactions/todo-state-tracker.js';
-import { pluginEvents } from '../../../events/index.js';
+import { pluginEvents } from '../../../infrastructure/events/index.js';
 import { generateToolSignature } from '../../../loop-detection.js';
 import type { ProviderRegistryPort } from '../../../infrastructure/providers/registry.js';
 import type { ClaudeMessage, SystemInfo } from '../../../infrastructure/providers/types.js';

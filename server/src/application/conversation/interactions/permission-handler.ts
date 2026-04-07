@@ -1,6 +1,6 @@
 import type { PermissionDecision } from '../../../infrastructure/providers/types.js';
 import { decryptCredential } from '../../../utils/crypto.js';
-import { rewriteSudoCommand } from '../../../helpers/server-utils.js';
+import { rewriteSudoCommand } from '../../../utils/server-utils.js';
 import {
   buildRememberKey,
   classify,

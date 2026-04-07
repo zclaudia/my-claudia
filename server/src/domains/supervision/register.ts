@@ -12,7 +12,7 @@ import { SupervisorService } from './supervisor-service.js';
 import { StateRecovery } from './state-recovery.js';
 import { CheckpointEngine } from './checkpoint-engine.js';
 import { ContextManager } from './context-manager.js';
-import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
+import { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
 import { ProjectRepository } from '../projects/repository.js';
 import { SessionRepository } from '../sessions/repository.js';
 import { createSupervisionRoutes } from './routes.js';

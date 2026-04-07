@@ -23,7 +23,7 @@ const mockProviderRegistry = {
   getOrDefault: vi.fn(),
 };
 
-vi.mock('../../../../events/index.js', () => ({
+vi.mock('../../../../infrastructure/events/index.js', () => ({
   pluginEvents: {
     emit: pluginEventsEmitMock,
   },

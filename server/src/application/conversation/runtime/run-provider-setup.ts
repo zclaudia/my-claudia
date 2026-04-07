@@ -1,5 +1,5 @@
 import { AIReviewQueue } from '../agent/ai-review-queue.js';
-import { processAtMentions } from '../../../helpers/server-utils.js';
+import { processAtMentions } from '../../../utils/server-utils.js';
 import { runAIReviewCliJob, supportsAIReviewCliJob } from '../../../infrastructure/providers/cli-jobs/review-job.js';
 import { createPermissionCallback } from './run-permissions.js';
 import type { RunStartMessage, RunSessionRecord } from './run-bootstrap.js';

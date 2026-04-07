@@ -14,7 +14,7 @@ import {
   buildPlanDocumentPrompt,
   buildFilePushContext,
   buildInteractionToolPrompt,
-} from '../../../helpers/server-utils.js';
+} from '../../../utils/server-utils.js';
 import { createContextEngine } from '../context/engine.js';
 import { workspaceService } from '../../../services/workspace.js';
 import { mapPermissionMode } from '../../../infrastructure/providers/pcp-permission.js';

@@ -4,7 +4,7 @@ import type { Project } from '@my-claudia/shared/core/project';
 import type { Session } from '@my-claudia/shared/core/session';
 import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 import type { SupervisionLogEvent, SupervisionTask } from '@my-claudia/shared/features/supervision';
-import type { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
+import type { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
 import type { ProjectRepository } from '../projects/repository.js';
 import type { SessionRepository } from '../sessions/repository.js';
 import { createVirtualClient, handleRunStart } from '../../server.js';

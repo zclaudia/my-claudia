@@ -4,7 +4,7 @@ import { sendMessage, broadcastToOtherAuthenticatedClients } from '../transport/
 import type { ConnectedClient, ActiveRun } from '../transport/types.js';
 import { cleanupPendingPermissions } from './run-lifecycle.js';
 import type { SessionSyncPort } from '../../../application/conversation/session-sync-port.js';
-import { formatProviderErrorMessage, isHardQuotaExceededError } from '../../../helpers/server-utils.js';
+import { formatProviderErrorMessage, isHardQuotaExceededError } from '../../../utils/server-utils.js';
 import type { ProviderRegistryPort } from '../../../infrastructure/providers/registry.js';
 import { createTraceRecorder } from '../../../utils/provider-trace.js';
 import type { initDatabase } from '../../../infrastructure/storage/db.js';

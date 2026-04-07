@@ -7,7 +7,7 @@ import * as path from 'path';
 import { Worker } from 'worker_threads';
 import type { Permission } from '@my-claudia/shared/plugin-types';
 import { commandRegistry } from '../../commands/registry.js';
-import { pluginEvents } from '../../events/index.js';
+import { pluginEvents } from '../../infrastructure/events/index.js';
 import { permissionManager } from './permissions.js';
 import { pluginScheduler } from './scheduler.js';
 import { pluginStorageManager } from './storage.js';

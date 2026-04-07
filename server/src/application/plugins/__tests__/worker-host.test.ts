@@ -144,7 +144,7 @@ vi.mock('worker_threads', () => {
   };
 });
 
-vi.mock('../../../events/index.js', () => ({
+vi.mock('../../../infrastructure/events/index.js', () => ({
   pluginEvents: mockPluginEvents,
 }));
 

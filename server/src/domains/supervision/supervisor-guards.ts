@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { Database } from 'better-sqlite3';
 import type { ProjectAgent, SupervisionLogEvent } from '@my-claudia/shared/features/supervision';
-import type { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
+import type { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
 import type { ProjectRepository } from '../projects/repository.js';
 
 export interface SupervisorGuardsDeps {

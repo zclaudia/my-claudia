@@ -9,7 +9,7 @@ import {
   loadSessionRememberedDecisions,
 } from '../agent/permission-evaluator.js';
 import type { SessionSyncPort } from '../../../application/conversation/session-sync-port.js';
-import { normalizeSessionWorkingDirectory } from '../../../helpers/server-utils.js';
+import { normalizeSessionWorkingDirectory } from '../../../utils/server-utils.js';
 import { resolveProviderCwd } from '../../../utils/provider-cwd.js';
 import type { initDatabase } from '../../../infrastructure/storage/db.js';
 import type { TraceRecorder } from '../../../utils/provider-trace.js';

@@ -1,9 +1,8 @@
 import * as fs from 'fs';
 import type Database from 'better-sqlite3';
-import type { EventData } from '../../events/index.js';
+import type { EventData } from '../../infrastructure/events/index.js';
 import type { Session, SessionType } from '@my-claudia/shared/core/session';
-import { getGatewayClient } from '../../infrastructure/gateway/gateway-instance.js';
-import { pluginEvents } from '../../events/index.js';
+import { pluginEvents } from '../../infrastructure/events/index.js';
 import { SessionRepository } from './repository.js';
 
 type SessionEventType = 'created' | 'updated' | 'deleted';
@@ -48,9 +47,8 @@ export class SessionLifecycleService {
     this.repo = new SessionRepository(db);
     this.now = deps.now ?? (() => Date.now());
     this.pathExists = deps.pathExists ?? ((targetPath: string) => fs.existsSync(targetPath));
-    this.broadcastSessionEvent = deps.broadcastSessionEvent ?? ((type, session) => {
-      const gatewayClient = getGatewayClient();
-      gatewayClient?.commands.backendData.broadcastSessionEvent(type, session);
+    this.broadcastSessionEvent = deps.broadcastSessionEvent ?? (() => {
+      /* no-op — caller should inject a concrete broadcast function */
     });
     this.emitPluginEvent = deps.emitPluginEvent ?? ((event, payload) => pluginEvents.emit(event, payload));
   }

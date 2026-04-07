@@ -4,7 +4,7 @@ import type { LocalPR } from '@my-claudia/shared/features/local-pr';
 import type { WorktreeConfig } from '@my-claudia/shared/core/project';
 import type { LocalPRService } from './service.js';
 import { ProjectRepository } from '../projects/repository.js';
-import { WorktreeConfigRepository } from '../../repositories/worktree-config.js';
+import { WorktreeConfigRepository } from '../../infrastructure/repositories/worktree-config.js';
 import type { Database } from 'better-sqlite3';
 
 export function createLocalPRRoutes(

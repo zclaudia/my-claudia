@@ -9,7 +9,7 @@ import * as os from 'os';
 import { PluginLoader } from '../loader';
 import { commandRegistry } from '../../../commands/registry';
 import { toolRegistry } from '../tool-registry';
-import { pluginEvents } from '../../../events';
+import { pluginEvents } from '../../../infrastructure/events';
 import { permissionManager } from '../permissions';
 import { workerHost } from '../worker-host';
 import { workflowStepRegistry } from '../workflow-step-registry';

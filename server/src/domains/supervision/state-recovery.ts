@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 import type { TaskStatus } from '@my-claudia/shared/features/supervision';
-import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
+import { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
 import { SessionRepository } from '../sessions/repository.js';
 import { ProjectRepository } from '../projects/repository.js';
 import type { SupervisorService } from './supervisor-service.js';

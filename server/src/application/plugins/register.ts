@@ -6,7 +6,7 @@ import { createPluginToolsRoutes } from './tools-routes.js';
 import { pluginLoader } from './loader.js';
 import { sendMessage, bumpPluginsVersion } from '../../application/conversation/transport/broadcast.js';
 import type { ActiveRun } from '../../application/conversation/transport/types.js';
-import { pluginEvents } from '../../events/index.js';
+import { pluginEvents } from '../../infrastructure/events/index.js';
 import { permissionManager as pluginPermissionManager } from './permissions.js';
 
 type ActiveRunsMap = Map<string, ActiveRun>;

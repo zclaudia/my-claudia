@@ -6,7 +6,7 @@ import { LocalPRRepository } from './repository.js';
 import { ProjectRepository } from '../projects/repository.js';
 import { ProviderRepository } from '../providers/repository.js';
 import { SessionRepository } from '../sessions/repository.js';
-import { WorktreeConfigRepository } from '../../repositories/worktree-config.js';
+import { WorktreeConfigRepository } from '../../infrastructure/repositories/worktree-config.js';
 import { Mutex } from 'async-mutex';
 import { mkdir, rm, writeFile } from 'fs/promises';
 import path from 'path';

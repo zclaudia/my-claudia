@@ -12,7 +12,7 @@ vi.mock('../../../domains/projects/repository.js', () => {
   };
 });
 
-vi.mock('../../../repositories/worktree-config.js', () => {
+vi.mock('../../../infrastructure/repositories/worktree-config.js', () => {
   return {
     WorktreeConfigRepository: class MockWtConfigRepo {
       findByProjectId = vi.fn().mockReturnValue([]);

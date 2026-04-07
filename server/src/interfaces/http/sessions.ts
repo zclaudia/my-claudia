@@ -19,7 +19,12 @@ type ActiveRunsMap = Map<string, ActiveRun>;
 export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRunsMap): Router {
   const router = Router();
   const repo = new SessionRepository(db);
-  const lifecycleService = new SessionLifecycleService(db);
+  const lifecycleService = new SessionLifecycleService(db, {
+    broadcastSessionEvent: (type, session) => {
+      const gatewayClient = getGatewayClient();
+      gatewayClient?.commands.backendData.broadcastSessionEvent(type, session);
+    },
+  });
   const exportService = new SessionExportService(db);
   const queryService = new SessionQueryService(db, activeRuns);
 

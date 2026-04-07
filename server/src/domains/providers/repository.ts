@@ -1,4 +1,4 @@
-import { BaseRepository } from '../../repositories/base.js';
+import { BaseRepository } from '../../infrastructure/repositories/base.js';
 import type { Database } from 'better-sqlite3';
 import type { ProviderConfig } from '@my-claudia/shared/core/provider';
 import { v4 as uuidv4 } from 'uuid';

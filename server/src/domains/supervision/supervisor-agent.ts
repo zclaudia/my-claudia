@@ -5,7 +5,7 @@ import type {
   SupervisionLogEvent,
   SupervisorConfig,
 } from '@my-claudia/shared/features/supervision';
-import type { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
+import type { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
 import type { ProjectRepository } from '../projects/repository.js';
 import type { SessionRepository } from '../sessions/repository.js';
 import type { ContextManager } from './context-manager.js';

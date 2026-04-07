@@ -12,7 +12,7 @@ import type { initDatabase } from '../../infrastructure/storage/db.js';
 import { LocalPRService } from './service.js';
 import { createLocalPRRoutes } from './routes.js';
 import { systemTaskRegistry } from '../../services/system-task-registry.js';
-import { pluginEvents } from '../../events/index.js';
+import { pluginEvents } from '../../infrastructure/events/index.js';
 export interface LocalPRDomainDeps {
   db: ReturnType<typeof initDatabase>;
   app: Express;
