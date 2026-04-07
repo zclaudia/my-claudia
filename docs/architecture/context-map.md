@@ -128,11 +128,11 @@ server/src/
   infrastructure/
     gateway/          ✅ 从 domains/ 迁入
     push/             ✅ 已有
-    storage/          — 待迁移（目前在 server/src/storage/）
-    providers/        — 待迁移（目前在 server/src/providers/）
+    storage/          ✅ 从 src/storage/ 迁入
+    providers/        ✅ 从 src/providers/ 迁入（SDK 实现）
   interfaces/
-    http/             — 待迁移（目前在 server/src/routes/）
-    websocket/        — 待迁移（目前在 server/src/router/）
+    http/             ✅ 从 src/routes/ 迁入
+    websocket/        ✅ 从 src/router/ 迁入
 ```
 
 说明：
@@ -173,9 +173,12 @@ shared/
 
 ## 下一步
 
-1. 统计并削减跨上下文直接依赖（依赖审计已完成，见下方）。
-2. conversation 内部拆分：ws/ → transport/runtime/handlers inline。
-3. 长期：storage/、providers/ sdk impl、routes/、router/ 迁入 infrastructure/interfaces。
+1. ✅ 统计并削减跨上下文直接依赖（依赖审计已完成，8 处违规已修复）。
+2. ✅ conversation 内部拆分：ws/ → transport/runtime/handlers/interactions inline。
+3. ✅ storage/、providers/ sdk impl、routes/、router/ 迁入 infrastructure/interfaces。
+4. 中期：conversation → gateway 解耦（getGatewayClient 全局单例改为 adapter 注入）。
+5. 中期：shared 方向性收敛（shared-kernel / integration-protocol / ui-facade-types）。
+6. 长期：整理 server/src/ 剩余顶层目录（commands/, events/, handlers/, helpers/, middleware/, mcp/, plugins/, repositories/, services/, utils/）。
 
 ## 跨上下文依赖审计（2026-04-07）
 
