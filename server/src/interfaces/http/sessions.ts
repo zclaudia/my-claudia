@@ -3,7 +3,6 @@ import type Database from 'better-sqlite3';
 import type { ApiResponse } from '@my-claudia/shared/core/api';
 import type { Message } from '@my-claudia/shared/core/message';
 import type { Session } from '@my-claudia/shared/core/session';
-import { getGatewayClient } from '../../infrastructure/gateway/gateway-instance.js';
 import { SessionRepository } from '../../domains/sessions/repository.js';
 import { hasForegroundActiveRunForSession, findForegroundActiveRunIdForSession, hasAnyActiveRunForSession } from '../../utils/run-state.js';
 import { mountSearchRoutes } from '../../domains/sessions/search-routes.js';
@@ -11,18 +10,26 @@ import { mountMessageRoutes } from '../../domains/sessions/message-routes.js';
 import { SessionLifecycleError, SessionLifecycleService } from '../../domains/sessions/lifecycle-service.js';
 import { SessionExportError, SessionExportService } from '../../domains/sessions/export-service.js';
 import { SessionQueryError, SessionQueryService } from '../../domains/sessions/query-service.js';
+import type { SessionEventPublisherPort } from '../../domains/sessions/session-event-port.js';
+import {
+  buildSessionUpdatePatch,
+  isSessionValidationError,
+} from '../../domains/sessions/model.js';
 import { sendApiError } from './response.js';
 import type { ActiveRun } from '../../application/conversation/transport/types.js';
 
 type ActiveRunsMap = Map<string, ActiveRun>;
 
-export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRunsMap): Router {
+export function createSessionRoutes(
+  db: Database.Database,
+  activeRuns: ActiveRunsMap,
+  sessionEvents?: SessionEventPublisherPort,
+): Router {
   const router = Router();
   const repo = new SessionRepository(db);
   const lifecycleService = new SessionLifecycleService(db, {
     broadcastSessionEvent: (type, session) => {
-      const gatewayClient = getGatewayClient();
-      gatewayClient?.commands.backendData.broadcastSessionEvent(type, session);
+      sessionEvents?.publishSessionEvent(type, session);
     },
   });
   const exportService = new SessionExportService(db);
@@ -161,37 +168,18 @@ export function createSessionRoutes(db: Database.Database, activeRuns: ActiveRun
   router.put('/:id', (req: Request, res: Response) => {
     try {
       const body = req.body ?? {};
-      const patch: Partial<Session> = {};
-      if (Object.prototype.hasOwnProperty.call(body, 'name')) patch.name = body.name ?? null;
-      if (Object.prototype.hasOwnProperty.call(body, 'providerId')) patch.providerId = body.providerId ?? null;
-      if (Object.prototype.hasOwnProperty.call(body, 'sdkSessionId')) patch.sdkSessionId = body.sdkSessionId ?? null;
-
-      try {
-        repo.update(req.params.id, patch);
-      } catch (error) {
-        if (error instanceof Error && error.message.includes('not found')) {
-          res.status(404).json({
-            success: false,
-            error: { code: 'NOT_FOUND', message: 'Session not found' }
-          });
-          return;
-        }
-        throw error;
-      }
-
-      // Broadcast session updated event to subscribed clients
-      const gatewayClient = getGatewayClient();
-      if (gatewayClient) {
-        // Fetch updated session to broadcast
-        const updatedSession = repo.findById(req.params.id);
-
-        if (updatedSession) {
-          gatewayClient.commands.backendData.broadcastSessionEvent('updated', updatedSession);
-        }
-      }
+      lifecycleService.updateSessionMetadata(req.params.id, buildSessionUpdatePatch(body));
 
       res.json({ success: true } as ApiResponse<void>);
     } catch (error) {
+      if (error instanceof SessionLifecycleError) {
+        sendApiError(res, error.status, error.code, error.message);
+        return;
+      }
+      if (isSessionValidationError(error)) {
+        sendApiError(res, 400, 'VALIDATION_ERROR', error.message);
+        return;
+      }
       console.error('Error updating session:', error);
       res.status(500).json({
         success: false,

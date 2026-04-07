@@ -13,7 +13,12 @@ import { ProjectRepository } from '../projects/repository.js';
 import { SessionRepository } from '../sessions/repository.js';
 import type { ContextManager } from './context-manager.js';
 import type { WorktreePool } from './worktree-pool.js';
-import { createVirtualClient, handleRunStart } from '../../server.js';
+import type { SupervisionAiRunPort } from './ports.js';
+import { getReviewRejectionOutcome } from './model.js';
+import {
+  assertTaskStatus,
+  assertTaskTransition,
+} from './status-machine.js';
 
 const REVIEW_VERDICT_REGEX = /\[REVIEW_VERDICT\]([\s\S]*?)\[\/REVIEW_VERDICT\]/;
 const REVIEW_EVIDENCE_TIMEOUT_MS = 15_000;
@@ -37,6 +42,7 @@ export class ReviewEngine {
       taskId?: string,
     ) => void,
     private collectGitEvidence: (cwd: string, baseCommit: string) => Promise<string>,
+    private aiRunPort: SupervisionAiRunPort,
     private getWorktreePool?: (projectId: string) => WorktreePool,
   ) {}
 
@@ -87,25 +93,16 @@ export class ReviewEngine {
     const reviewPrompt = this.buildReviewPrompt(task, project.name, evidence);
 
     // 4. Create virtual client and trigger run
-    const clientId = `supervisor_review_${task.id}`;
-    const virtualClient = createVirtualClient(clientId, {
-      send: (msg: ServerMessage) => {
+    this.reviewClients.set(task.id, { clientId: `supervisor_review_${task.id}` });
+    this.aiRunPort.startVirtualRun({
+      clientId: `supervisor_review_${task.id}`,
+      sessionId: session.id,
+      input: reviewPrompt,
+      workingDirectory: project.rootPath,
+      onMessage: (msg) => {
         this.handleReviewRunMessage(task.id, task.projectId, session.id, msg);
       },
     });
-    this.reviewClients.set(task.id, virtualClient);
-
-    handleRunStart(
-      virtualClient,
-      {
-        type: 'run_start',
-        clientRequestId: `sv2_review_${task.id}_${Date.now()}`,
-        sessionId: session.id,
-        input: reviewPrompt,
-        workingDirectory: project.rootPath,
-      },
-      this.db,
-    );
 
     this.armReviewTimeout(task.id, task.projectId, session.id);
 
@@ -131,7 +128,8 @@ export class ReviewEngine {
       (async () => {
         try {
           const task = this.taskRepo.findById(taskId);
-          if (!task || task.status !== 'reviewing') return;
+          if (!task) return;
+          assertTaskStatus(task.status, 'reviewing', `complete review for ${taskId}`);
 
           const verdict = this.parseVerdict(reviewSessionId);
           await this.handleReviewComplete(task, verdict, reviewSessionId);
@@ -159,6 +157,7 @@ export class ReviewEngine {
         // Keep in reviewing for manual intervention.
         const task = this.taskRepo.findById(taskId);
         if (task) {
+          assertTaskStatus(task.status, 'reviewing', `record review failure for ${taskId}`);
           const updatedResult: TaskResult = {
             ...(task.result ?? { summary: '', filesChanged: [] }),
             reviewSessionId,
@@ -320,6 +319,7 @@ export class ReviewEngine {
 
         if (mergeResult.success) {
           pool.release(taskSession!.workingDirectory!);
+          assertTaskTransition(task.status, 'integrated');
           this.taskRepo.updateStatus(task.id, 'integrated', { result: updatedResult });
           this.broadcastTaskUpdate(task.id, task.projectId);
           this.logFn(task.projectId, 'merge_completed', { taskId: task.id }, task.id);
@@ -327,6 +327,7 @@ export class ReviewEngine {
             taskId: task.id, worktreePath: taskSession!.workingDirectory,
           }, task.id);
         } else {
+          assertTaskTransition(task.status, 'merge_conflict');
           this.taskRepo.updateStatus(task.id, 'merge_conflict', {
             result: {
               ...updatedResult,
@@ -341,6 +342,7 @@ export class ReviewEngine {
         }
       } else {
         // Serial mode: approved = integrated
+        assertTaskTransition(task.status, 'integrated');
         this.taskRepo.updateStatus(task.id, 'integrated', { result: updatedResult });
         this.broadcastTaskUpdate(task.id, task.projectId);
       }
@@ -366,15 +368,17 @@ export class ReviewEngine {
         }, task.id);
       }
 
-      if (task.attempt <= task.maxRetries) {
+      const { nextStatus, nextAttempt } = getReviewRejectionOutcome(task.attempt, task.maxRetries);
+      if (nextStatus === 'queued') {
         // Retry: increment attempt, inject reviewNotes, re-queue
         const retryResult: TaskResult = {
           ...updatedResult,
           reviewNotes: verdict.notes,
         };
+        assertTaskTransition(task.status, 'queued');
         this.taskRepo.updateStatus(task.id, 'queued', {
           result: retryResult,
-          attempt: task.attempt + 1,
+          attempt: nextAttempt,
         });
         this.broadcastTaskUpdate(task.id, task.projectId);
         this.logFn(
@@ -386,12 +390,13 @@ export class ReviewEngine {
             trustLevel,
             autoApplied: true,
             retrying: true,
-            newAttempt: task.attempt + 1,
+            newAttempt: nextAttempt,
           },
           task.id,
         );
       } else {
         // Max retries exceeded → failed
+        assertTaskTransition(task.status, 'failed');
         this.taskRepo.updateStatus(task.id, 'failed', { result: updatedResult });
         this.broadcastTaskUpdate(task.id, task.projectId);
         this.logFn(
@@ -498,9 +503,10 @@ suggested_changes:
     const timer = setTimeout(() => {
       try {
         const task = this.taskRepo.findById(taskId);
-        if (!task || task.status !== 'reviewing') {
+        if (!task) {
           return;
         }
+        assertTaskStatus(task.status, 'reviewing', `handle review timeout for ${taskId}`);
 
         const updatedResult: TaskResult = {
           ...(task.result ?? { summary: '', filesChanged: [] }),

@@ -7,10 +7,15 @@ import type { SupervisionLogEvent, SupervisionTask } from '@my-claudia/shared/fe
 import type { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
 import type { ProjectRepository } from '../projects/repository.js';
 import type { SessionRepository } from '../sessions/repository.js';
-import { createVirtualClient, handleRunStart } from '../../server.js';
 import type { ContextManager } from './context-manager.js';
 import type { WorktreeManager } from './worktree-manager.js';
 import type { TaskScheduler } from './task-scheduler.js';
+import type { SupervisionAiRunPort } from './ports.js';
+import {
+  buildTaskExecutingSessionPatch,
+  buildTaskPlanningSession,
+} from '../sessions/model.js';
+import { assertTaskTransition } from './status-machine.js';
 
 interface TaskExecutionDeps {
   db: Database;
@@ -20,6 +25,7 @@ interface TaskExecutionDeps {
   taskScheduler: TaskScheduler;
   worktreeManager: WorktreeManager;
   virtualClients: Map<string, unknown>;
+  aiRunPort: SupervisionAiRunPort;
   broadcast: (msg: ServerMessage) => void;
   handleTaskRunMessage: (taskId: string, projectId: string, msg: ServerMessage) => void;
   handleLiteTaskMessage: (taskId: string, projectId: string, msg: ServerMessage) => void;
@@ -89,6 +95,7 @@ export class TaskExecution {
         }
       }
 
+      assertTaskTransition(task.status, 'running');
       this.deps.taskRepo.updateStatus(task.id, 'running', extra);
       taskMarkedRunning = true;
       this.deps.broadcastTaskUpdate(task.id, task.projectId);
@@ -104,27 +111,19 @@ export class TaskExecution {
       const contextInjection = contextManager.getContextForTask(task.relevantDocIds);
       const systemPrompt = this.deps.buildTaskPrompt(task, project.name, contextInjection);
       const clientId = `supervisor_task_${task.id}`;
-      const virtualClient = createVirtualClient(clientId, {
-        send: (msg: ServerMessage) => {
+      this.deps.virtualClients.set(task.id, { clientId, sessionId: session.id });
+      virtualClientRegistered = true;
+
+      this.deps.aiRunPort.startVirtualRun({
+        clientId,
+        sessionId: session.id,
+        input: systemPrompt,
+        workingDirectory,
+        onMessage: (msg) => {
           this.deps.handleTaskRunMessage(task.id, task.projectId, msg);
           this.deps.broadcast(msg);
         },
       });
-
-      this.deps.virtualClients.set(task.id, virtualClient);
-      virtualClientRegistered = true;
-
-      handleRunStart(
-        virtualClient,
-        {
-          type: 'run_start',
-          clientRequestId: `sv2_${task.id}_${Date.now()}`,
-          sessionId: session.id,
-          input: systemPrompt,
-          workingDirectory,
-        },
-        this.deps.db,
-      );
     } catch (err) {
       console.error(`[Supervisor] Failed to initialize task ${task.id}:`, err);
       if (virtualClientRegistered) {
@@ -162,6 +161,7 @@ export class TaskExecution {
     try {
       const session = this.resolveLiteTaskSession(task, project);
 
+      assertTaskTransition(task.status, 'running');
       this.deps.taskRepo.updateStatus(task.id, 'running', { sessionId: session.id });
       this.deps.broadcastTaskUpdate(task.id, task.projectId);
       this.deps.log(task.projectId, 'task_status_changed', {
@@ -172,26 +172,19 @@ export class TaskExecution {
       }, task.id);
 
       const clientId = `lite_task_${task.id}`;
-      const virtualClient = createVirtualClient(clientId, {
-        send: (msg: ServerMessage) => {
+      this.deps.virtualClients.set(task.id, { clientId, sessionId: session.id });
+      virtualClientRegistered = true;
+
+      this.deps.aiRunPort.startVirtualRun({
+        clientId,
+        sessionId: session.id,
+        input: task.description,
+        workingDirectory: project.rootPath,
+        onMessage: (msg) => {
           this.deps.handleLiteTaskMessage(task.id, task.projectId, msg);
           this.deps.broadcast(msg);
         },
       });
-      this.deps.virtualClients.set(task.id, virtualClient);
-      virtualClientRegistered = true;
-
-      handleRunStart(
-        virtualClient,
-        {
-          type: 'run_start',
-          clientRequestId: `lite_${task.id}_${Date.now()}`,
-          sessionId: session.id,
-          input: task.description,
-          workingDirectory: project.rootPath,
-        },
-        this.deps.db,
-      );
     } catch (err) {
       console.error(`[Supervisor] Failed to initialize lite task ${task.id}:`, err);
       if (virtualClientRegistered) {
@@ -206,29 +199,25 @@ export class TaskExecution {
     if (task.sessionId) {
       const existing = this.deps.sessionRepo.findById(task.sessionId);
       if (existing) {
-        this.deps.sessionRepo.update(existing.id, {
-          workingDirectory,
-          planStatus: 'executing',
-          isReadOnly: true,
-        } as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>);
+        this.deps.sessionRepo.update(
+          existing.id,
+          buildTaskExecutingSessionPatch(workingDirectory) as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>,
+        );
         return {
           ...existing,
-          workingDirectory,
-          planStatus: 'executing',
-          isReadOnly: true,
+          ...buildTaskExecutingSessionPatch(workingDirectory),
         };
       }
     }
 
     return this.deps.sessionRepo.create({
-      projectId: task.projectId,
-      name: `Task: ${task.title}`,
-      type: 'regular',
-      projectRole: 'task',
-      taskId: task.id,
-      workingDirectory,
-      planStatus: 'executing',
-      isReadOnly: true,
+      ...buildTaskPlanningSession({
+        projectId: task.projectId,
+        title: task.title,
+        taskId: task.id,
+        workingDirectory,
+      }),
+      ...buildTaskExecutingSessionPatch(workingDirectory),
     } as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>);
   }
 
@@ -240,16 +229,16 @@ export class TaskExecution {
       }
     }
 
-    return this.deps.sessionRepo.create({
-      projectId: task.projectId,
-      name: `Task: ${task.title}`,
-      type: 'regular',
-      projectRole: 'task',
-      taskId: task.id,
-      parentSessionId: project.agent?.mainSessionId,
-      providerId: project.providerId,
-      workingDirectory: project.rootPath,
-    } as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>);
+    return this.deps.sessionRepo.create(
+      buildTaskPlanningSession({
+        projectId: task.projectId,
+        title: task.title,
+        taskId: task.id,
+        parentSessionId: project.agent?.mainSessionId,
+        providerId: project.providerId,
+        workingDirectory: project.rootPath,
+      }) as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>,
+    );
   }
 
   private markTaskStartFailed(
@@ -259,8 +248,9 @@ export class TaskExecution {
     err: unknown,
   ): void {
     const currentTask = this.deps.taskRepo.findById(task.id);
-    const effectiveFrom = currentTask?.status ?? fallbackCurrentStatus;
+    const effectiveFrom = (currentTask?.status ?? fallbackCurrentStatus) as SupervisionTask['status'];
 
+    assertTaskTransition(effectiveFrom, 'failed');
     this.deps.taskRepo.updateStatus(task.id, 'failed', {
       result: {
         summary: `Task failed to start: ${err instanceof Error ? err.message : String(err)}`,

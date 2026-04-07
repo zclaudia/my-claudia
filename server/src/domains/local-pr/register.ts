@@ -11,7 +11,7 @@ import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 import type { initDatabase } from '../../infrastructure/storage/db.js';
 import { LocalPRService } from './service.js';
 import { createLocalPRRoutes } from './routes.js';
-import { systemTaskRegistry } from '../../application/services/system-task-registry.js';
+import type { LocalPRAiSessionPort, LocalPRSchedulingPort } from './ports.js';
 import { pluginEvents } from '../../infrastructure/events/index.js';
 export interface LocalPRDomainDeps {
   db: ReturnType<typeof initDatabase>;
@@ -21,15 +21,8 @@ export interface LocalPRDomainDeps {
   onProjectChanged?: () => void;
   /** Check if a worktree slot is available for a project */
   isWorktreeAvailable: (projectId: string) => boolean;
-  /** Start an AI session (virtual client + handleRunStart) — injected from server layer */
-  startAISession: (opts: {
-    clientId: string;
-    sessionId: string;
-    input: string;
-    workingDirectory?: string;
-    providerId?: string;
-    onMessage: (msg: ServerMessage) => void;
-  }) => void;
+  startAISession: LocalPRAiSessionPort['startAISession'];
+  scheduling: LocalPRSchedulingPort;
 }
 
 export interface LocalPRDomainResult {
@@ -37,7 +30,7 @@ export interface LocalPRDomainResult {
 }
 
 export function registerLocalPRDomain(deps: LocalPRDomainDeps): LocalPRDomainResult {
-  const { db, app, authMiddleware, broadcast, isWorktreeAvailable, startAISession, onProjectChanged } = deps;
+  const { db, app, authMiddleware, broadcast, isWorktreeAvailable, startAISession, onProjectChanged, scheduling } = deps;
 
   const localPRService = new LocalPRService(db, broadcast, {
     startAISession,
@@ -63,7 +56,7 @@ export function registerLocalPRDomain(deps: LocalPRDomainDeps): LocalPRDomainRes
   });
 
   // Register and start scheduler
-  systemTaskRegistry.register({
+  scheduling.register({
     id: 'system:local_pr_scheduler',
     name: 'Local PR Scheduler',
     description: 'Processes pending local PR reviews and merges',
@@ -71,13 +64,13 @@ export function registerLocalPRDomain(deps: LocalPRDomainDeps): LocalPRDomainRes
     intervalMs: 10000,
   });
   setInterval(async () => {
-    systemTaskRegistry.markRunStart('system:local_pr_scheduler');
+    scheduling.markRunStart('system:local_pr_scheduler');
     const start = Date.now();
     try {
       await localPRService.tick();
-      systemTaskRegistry.markRunComplete('system:local_pr_scheduler', Date.now() - start);
+      scheduling.markRunComplete('system:local_pr_scheduler', Date.now() - start);
     } catch (err) {
-      systemTaskRegistry.markRunComplete('system:local_pr_scheduler', Date.now() - start, String(err));
+      scheduling.markRunComplete('system:local_pr_scheduler', Date.now() - start, String(err));
       console.error('[LocalPR] Tick error:', err);
     }
   }, 10000);

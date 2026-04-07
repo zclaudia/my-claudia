@@ -10,6 +10,12 @@ import type { ProjectRepository } from '../projects/repository.js';
 import type { SessionRepository } from '../sessions/repository.js';
 import type { ContextManager } from './context-manager.js';
 import type { WorktreeManager } from './worktree-manager.js';
+import {
+  canApproveSetupPhase,
+  canPauseAgentPhase,
+  canResumeAgentPhase,
+  resolvePhaseAfterSetupApproval,
+} from './model.js';
 
 interface SupervisorAgentDeps {
   taskRepo: SupervisionTaskRepository;
@@ -105,7 +111,7 @@ export class SupervisorAgentManager {
 
     switch (action) {
       case 'pause': {
-        if (agent.phase !== 'active' && agent.phase !== 'idle') {
+        if (!canPauseAgentPhase(agent.phase)) {
           throw new Error(
             `Cannot pause agent in phase '${agent.phase}'; must be 'active' or 'idle'`,
           );
@@ -116,7 +122,7 @@ export class SupervisorAgentManager {
         break;
       }
       case 'resume': {
-        if (agent.phase !== 'paused') {
+        if (!canResumeAgentPhase(agent.phase)) {
           throw new Error(`Cannot resume agent in phase '${agent.phase}'; must be 'paused'`);
         }
         agent.phase = 'active';
@@ -134,13 +140,13 @@ export class SupervisorAgentManager {
         break;
       }
       case 'approve_setup': {
-        if (agent.phase !== 'setup' && agent.phase !== 'initializing') {
+        if (!canApproveSetupPhase(agent.phase)) {
           throw new Error(
             `Cannot approve setup for agent in phase '${agent.phase}'; must be 'setup' or 'initializing'`,
           );
         }
         const tasks = this.deps.taskRepo.findByStatus(projectId, 'pending', 'queued', 'running');
-        agent.phase = tasks.length > 0 ? 'active' : 'idle';
+        agent.phase = resolvePhaseAfterSetupApproval(tasks.length > 0);
         break;
       }
     }

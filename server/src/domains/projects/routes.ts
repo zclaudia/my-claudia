@@ -1,11 +1,17 @@
 import { Router, Request, Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
 import type Database from 'better-sqlite3';
 import type { Project } from '@my-claudia/shared/core/project';
 import type { ApiResponse } from '@my-claudia/shared/core/api';
 import { ProjectRepository } from './repository.js';
+import {
+  applyProjectPatch,
+  assertValidProjectState,
+  buildProjectCreateState,
+  buildProjectPatch,
+  isProjectValidationError,
+} from './model.js';
 import { listGitWorktrees, createGitWorktree } from '../../utils/git-worktrees.js';
 
 export type ProjectChangeEvent =
@@ -74,35 +80,19 @@ export function createProjectRoutes(
 
   router.post('/', (req: Request, res: Response) => {
     try {
-      const { name, type = 'code', providerId, rootPath, systemPrompt, permissionPolicy, agentPermissionOverride } = req.body;
-
-      if (!name) {
-        res.status(400).json({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: 'Name is required' },
-        });
-        return;
-      }
-
       const sortOrder = repo.findNextSortOrder();
-      const project = repo.create({
-        name,
-        type,
-        providerId,
-        rootPath,
-        systemPrompt,
-        permissionPolicy,
-        agentPermissionOverride,
-        sortOrder,
-      });
+      const project = repo.create(buildProjectCreateState(req.body ?? {}, sortOrder));
 
       onProjectChanged?.({ type: 'project_upsert', project });
       res.status(201).json({ success: true, data: project } as ApiResponse<Project>);
     } catch (error) {
       console.error('Error creating project:', error);
-      res.status(500).json({
+      res.status(isProjectValidationError(error) ? 400 : 500).json({
         success: false,
-        error: { code: 'DB_ERROR', message: 'Failed to create project' },
+        error: {
+          code: isProjectValidationError(error) ? 'VALIDATION_ERROR' : 'DB_ERROR',
+          message: isProjectValidationError(error) ? error.message : 'Failed to create project',
+        },
       });
     }
   });
@@ -110,18 +100,30 @@ export function createProjectRoutes(
   router.put('/:id', (req: Request, res: Response) => {
     try {
       const body = req.body ?? {};
-      const patch: Partial<Project> = {};
-      if (Object.prototype.hasOwnProperty.call(body, 'name')) patch.name = body.name ?? null;
-      if (Object.prototype.hasOwnProperty.call(body, 'type')) patch.type = body.type ?? null;
-      if (Object.prototype.hasOwnProperty.call(body, 'providerId')) patch.providerId = body.providerId ?? null;
-      if (Object.prototype.hasOwnProperty.call(body, 'rootPath')) patch.rootPath = body.rootPath ?? null;
-      if (Object.prototype.hasOwnProperty.call(body, 'systemPrompt')) patch.systemPrompt = body.systemPrompt ?? null;
-      if (Object.prototype.hasOwnProperty.call(body, 'permissionPolicy')) patch.permissionPolicy = body.permissionPolicy ?? null;
-      if (Object.prototype.hasOwnProperty.call(body, 'agentPermissionOverride')) patch.agentPermissionOverride = body.agentPermissionOverride ?? null;
-      if (Object.prototype.hasOwnProperty.call(body, 'reviewProviderId')) patch.reviewProviderId = body.reviewProviderId ?? null;
+      const patch = buildProjectPatch(body);
+      const existing = repo.findById(req.params.id);
+      if (!existing) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Project not found' },
+        });
+        return;
+      }
+
+      const nextState = applyProjectPatch(existing, patch);
+      const updatedProjectState = {
+        ...existing,
+        ...nextState,
+      };
+      const validatedPatch = {
+        ...patch,
+        name: patch.name === undefined ? undefined : updatedProjectState.name,
+        type: patch.type === undefined ? undefined : updatedProjectState.type,
+      } as Partial<Project>;
+      assertValidProjectState(updatedProjectState);
 
       try {
-        const project = repo.update(req.params.id, patch);
+        const project = repo.update(req.params.id, validatedPatch);
         onProjectChanged?.({ type: 'project_upsert', project });
       } catch (error) {
         if (error instanceof Error && error.message.includes('not found')) {
@@ -137,9 +139,12 @@ export function createProjectRoutes(
       res.json({ success: true } as ApiResponse<void>);
     } catch (error) {
       console.error('Error updating project:', error);
-      res.status(500).json({
+      res.status(isProjectValidationError(error) ? 400 : 500).json({
         success: false,
-        error: { code: 'DB_ERROR', message: 'Failed to update project' },
+        error: {
+          code: isProjectValidationError(error) ? 'VALIDATION_ERROR' : 'DB_ERROR',
+          message: isProjectValidationError(error) ? error.message : 'Failed to update project',
+        },
       });
     }
   });

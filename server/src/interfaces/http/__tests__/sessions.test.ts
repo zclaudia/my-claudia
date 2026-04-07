@@ -4,16 +4,6 @@ import request from 'supertest';
 import Database from 'better-sqlite3';
 import { createSessionRoutes } from '../sessions.js';
 
-vi.mock('../../../infrastructure/gateway/gateway-instance.js', () => ({
-  getGatewayClient: vi.fn(() => ({
-    commands: {
-      backendData: {
-        broadcastSessionEvent: vi.fn(),
-      },
-    },
-  })),
-}));
-
 vi.mock('../../../events/index.js', () => ({
   pluginEvents: { emit: vi.fn().mockReturnValue(Promise.resolve()) },
 }));
@@ -23,6 +13,7 @@ vi.mock('../../../infrastructure/storage/metadata-extractor.js', () => ({
 }));
 
 let activeRuns: Map<string, any>;
+let mockBroadcastSessionEvent: ReturnType<typeof vi.fn>;
 
 // Create in-memory database for testing
 function createTestDb(): Database.Database {
@@ -93,7 +84,10 @@ function createTestApp(db: Database.Database) {
   const app = express();
   app.use(express.json());
   activeRuns = new Map<string, any>();
-  app.use('/api/sessions', createSessionRoutes(db, activeRuns));
+  mockBroadcastSessionEvent = vi.fn();
+  app.use('/api/sessions', createSessionRoutes(db, activeRuns, {
+    publishSessionEvent: mockBroadcastSessionEvent,
+  }));
   return app;
 }
 
@@ -310,6 +304,16 @@ describe('sessions routes', () => {
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
 
+    it('returns 400 when projectId is blank after trimming', async () => {
+      const res = await request(app)
+        .post('/api/sessions')
+        .send({ projectId: '   ', name: 'New Session' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.body.error.message).toBe('Project ID is required');
+    });
+
     it('returns 400 when project does not exist', async () => {
       const res = await request(app)
         .post('/api/sessions')
@@ -408,6 +412,24 @@ describe('sessions routes', () => {
       const row = db.prepare('SELECT provider_id, sdk_session_id FROM sessions WHERE id = ?').get('s1') as any;
       expect(row.provider_id).toBeNull();
       expect(row.sdk_session_id).toBeNull();
+    });
+
+    it('trims updated string fields', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, provider_id, sdk_session_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run('s1', 'project-1', 'Original', 'provider-1', 'sdk-123', now, now);
+
+      const res = await request(app)
+        .put('/api/sessions/s1')
+        .send({ name: '  Updated  ', sdkSessionId: '  sdk-456  ' });
+
+      expect(res.status).toBe(200);
+
+      const row = db.prepare('SELECT name, sdk_session_id FROM sessions WHERE id = ?').get('s1') as any;
+      expect(row.name).toBe('Updated');
+      expect(row.sdk_session_id).toBe('sdk-456');
     });
   });
 
@@ -1194,7 +1216,7 @@ internal reasoning cursor plan
 
       const res = await request(app)
         .post('/api/sessions')
-        .send({ projectId: 'project-1', name: 'Child', parentSessionId: 'parent-1' });
+        .send({ projectId: 'project-1', name: 'Child', parentSessionId: 'parent-1', type: 'background' });
 
       expect(res.status).toBe(201);
       expect(res.body.data.parentSessionId).toBe('parent-1');
@@ -1444,19 +1466,8 @@ internal reasoning cursor plan
   });
 
   describe('gateway broadcast paths', () => {
-    let mockBroadcastSessionEvent: ReturnType<typeof vi.fn>;
-    let mockGatewayClient: { commands: { backendData: { broadcastSessionEvent: ReturnType<typeof vi.fn> } } };
-
-    beforeEach(async () => {
-      mockBroadcastSessionEvent = vi.fn();
-      mockGatewayClient = { commands: { backendData: { broadcastSessionEvent: mockBroadcastSessionEvent } } };
-      const { getGatewayClient } = await import('../../../infrastructure/gateway/gateway-instance.js');
-      (getGatewayClient as ReturnType<typeof vi.fn>).mockReturnValue(mockGatewayClient);
-    });
-
-    afterEach(async () => {
-      const { getGatewayClient } = await import('../../../infrastructure/gateway/gateway-instance.js');
-      (getGatewayClient as ReturnType<typeof vi.fn>).mockReturnValue(null);
+    beforeEach(() => {
+      mockBroadcastSessionEvent.mockClear();
     });
 
     it('broadcasts session created on POST', async () => {
@@ -1536,6 +1547,18 @@ internal reasoning cursor plan
       `).run('s1', 'project-1', 'Test', 'sdk-123', now, now);
 
       await request(app).post('/api/sessions/s1/reset-sdk-session');
+
+      expect(mockBroadcastSessionEvent).toHaveBeenCalledWith('updated', expect.objectContaining({ id: 's1' }));
+    });
+
+    it('broadcasts on dismiss-interrupted', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO sessions (id, project_id, name, last_run_status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('s1', 'project-1', 'Interrupted', 'interrupted', now, now);
+
+      await request(app).patch('/api/sessions/s1/dismiss-interrupted');
 
       expect(mockBroadcastSessionEvent).toHaveBeenCalledWith('updated', expect.objectContaining({ id: 's1' }));
     });

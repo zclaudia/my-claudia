@@ -62,6 +62,10 @@ import { ProcessMonitor } from './utils/process-monitor.js';
 import { sendMessage, buildPluginStateMessage, bumpProjectsVersion } from './application/conversation/transport/broadcast.js';
 import { getNextOffset } from './application/conversation/runtime/run-lifecycle.js';
 import { createVirtualClient, type ConnectedClient, type ActiveRun } from './application/conversation/transport/types.js';
+import type { SessionEventPublisherPort } from './domains/sessions/session-event-port.js';
+import type { LocalPRAiSessionPort, LocalPRSchedulingPort } from './domains/local-pr/ports.js';
+import type { SupervisionAiRunPort } from './domains/supervision/ports.js';
+import type { WorkflowAiRunPort, WorkflowSchedulingPort } from './domains/workflows/ports/runtime.js';
 import type { createRouter } from './interfaces/websocket/index.js';
 import { registerNotificationDomain } from './domains/notification-feed/register.js';
 import { registerInteractionDomain } from './application/conversation/interactions/register.js';
@@ -221,10 +225,63 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     }
   };
 
+  const sessionEvents: SessionEventPublisherPort = {
+    publishSessionEvent: (type, session) => {
+      const gatewayClient = getGatewayClient();
+      gatewayClient?.commands.backendData.broadcastSessionEvent(type, session);
+    },
+  };
+
+  const supervisionAiRunPort: SupervisionAiRunPort = {
+    startVirtualRun: async ({ clientId, sessionId, input, workingDirectory, onMessage }) => {
+      const virtualClient = createVirtualClient(clientId, { send: onMessage });
+      await handleRunStart(virtualClient, {
+        type: 'run_start',
+        clientRequestId: `${clientId}_${Date.now()}`,
+        sessionId,
+        input,
+        workingDirectory,
+      }, db);
+    },
+  };
+
+  const localPrAiSessionPort: LocalPRAiSessionPort = {
+    startAISession: async ({ clientId, sessionId, input, workingDirectory, providerId, onMessage }) => {
+      const virtualClient = createVirtualClient(clientId, { send: onMessage });
+      await handleRunStart(virtualClient, {
+        type: 'run_start',
+        clientRequestId: `${clientId}_${Date.now()}`,
+        sessionId,
+        input,
+        workingDirectory,
+        providerId,
+      }, db);
+    },
+  };
+
+  const localPrScheduling: LocalPRSchedulingPort = systemTaskRegistry;
+
+  const workflowAiRunPort: WorkflowAiRunPort = {
+    startVirtualRun: async ({ clientId, sessionId, input, workingDirectory, providerId, systemContext, onMessage }) => {
+      const virtualClient = createVirtualClient(clientId, { send: onMessage });
+      await handleRunStart(virtualClient, {
+        type: 'run_start',
+        clientRequestId: clientId,
+        sessionId,
+        input,
+        workingDirectory,
+        providerId,
+        systemContext,
+      }, db);
+    },
+  };
+
+  const workflowScheduling: WorkflowSchedulingPort = systemTaskRegistry;
+
   // HTTP API surface (protected by auth middleware).
   // This is the canonical REST mounting point; do not confuse it with server/src/router.
   registerProjectsDomain({ db, app, authMiddleware, onProjectChanged: handleProjectChanged });
-  registerSessionsDomain({ app, authMiddleware, db, activeRuns });
+  registerSessionsDomain({ app, authMiddleware, db, activeRuns, sessionEvents });
   registerProvidersDomain({ app, authMiddleware, db, toolRegistry });
   app.use('/api/files', authMiddleware, createFilesRoutes({
     sendMessage,
@@ -269,8 +326,8 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
       clients.forEach((client) => { if (client.authenticated) sendMessage(client.ws, msg); });
     },
     activeRuns,
-    createVirtualClient,
-    handleRunStart,
+    aiRunPort: supervisionAiRunPort,
+    systemTaskRegistry,
   });
 
   // Local PR domain
@@ -285,17 +342,8 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
       if (!pool) return true;
       return pool.getStatus().available > 0;
     },
-    startAISession: (opts) => {
-      const virtualClient = createVirtualClient(opts.clientId, { send: opts.onMessage });
-      handleRunStart(virtualClient, {
-        type: 'run_start',
-        clientRequestId: `${opts.clientId}_${Date.now()}`,
-        sessionId: opts.sessionId,
-        input: opts.input,
-        workingDirectory: opts.workingDirectory,
-        providerId: opts.providerId,
-      }, db);
-    },
+    startAISession: localPrAiSessionPort.startAISession,
+    scheduling: localPrScheduling,
   });
 
   // Workflow domain
@@ -307,7 +355,8 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     notificationService: pushNotificationService,
     workflowStepRegistry,
     workflowTriggerRegistry,
-    systemTaskRegistry,
+    systemTaskRegistry: workflowScheduling,
+    aiRunPort: workflowAiRunPort,
   });
   app.use('/api/automations', authMiddleware, createAutomationRoutes(workflowService));
 

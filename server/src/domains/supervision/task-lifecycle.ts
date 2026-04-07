@@ -7,6 +7,18 @@ import { SessionRepository } from '../sessions/repository.js';
 import { TaskRunner } from './task-runner.js';
 import { WorktreeManager } from './worktree-manager.js';
 import type { CheckpointEngine } from './checkpoint-engine.js';
+import { getReviewRejectionOutcome } from './model.js';
+import {
+  buildTaskPlannedSessionPatch,
+  buildTaskUnlockedSessionPatch,
+} from '../sessions/model.js';
+import { shouldTransitionAgentToActive } from './model.js';
+import {
+  assertTaskStatus,
+  assertTaskStatusIn,
+  assertTaskTransition,
+  getLiteFailureTransition,
+} from './status-machine.js';
 
 interface TaskLifecycleDeps {
   taskRepo: SupervisionTaskRepository;
@@ -45,6 +57,7 @@ export class TaskLifecycle {
 
       this.deps.taskRunner.onTaskComplete(taskId, projectId).catch((err) => {
         console.error(`[Supervisor] TaskRunner.onTaskComplete failed for ${taskId}:`, err);
+        assertTaskTransition('running', 'reviewing');
         this.deps.taskRepo.updateStatus(taskId, 'reviewing', {
           result: { summary: 'Task completed but review pipeline failed', filesChanged: [] },
         });
@@ -67,6 +80,7 @@ export class TaskLifecycle {
 
     try {
       const errorMsg = 'error' in msg ? (msg as RunFailedMessage).error : 'Run failed';
+      assertTaskTransition('running', 'failed');
       this.deps.taskRepo.updateStatus(taskId, 'failed', {
         result: { summary: `Run failed: ${errorMsg}`, filesChanged: [] },
       });
@@ -95,6 +109,7 @@ export class TaskLifecycle {
     msg: ServerMessage,
   ): void {
     if (msg.type === 'run_completed') {
+      assertTaskTransition('running', 'completed');
       this.deps.taskRepo.updateStatus(taskId, 'completed', {
         result: { summary: 'Task completed', filesChanged: [] },
       });
@@ -118,12 +133,13 @@ export class TaskLifecycle {
       }
 
       const errorMsg = 'error' in msg ? (msg as RunFailedMessage).error : 'Run failed';
-      const newAttempt = task.attempt + 1;
+      const { nextStatus, nextAttempt } = getLiteFailureTransition(task.attempt, task.maxRetries);
 
-      if (newAttempt > task.maxRetries + 1) {
+      if (nextStatus === 'failed') {
+        assertTaskTransition('running', 'failed');
         this.deps.taskRepo.updateStatus(taskId, 'failed', {
           result: { summary: `Failed after ${task.maxRetries} retries: ${errorMsg}`, filesChanged: [] },
-          attempt: newAttempt,
+          attempt: nextAttempt,
         });
         this.deps.log(projectId, 'task_status_changed', {
           taskId,
@@ -132,13 +148,14 @@ export class TaskLifecycle {
           error: errorMsg,
         }, taskId);
       } else {
-        this.deps.taskRepo.updateStatus(taskId, 'pending', { attempt: newAttempt });
+        assertTaskTransition('running', 'pending');
+        this.deps.taskRepo.updateStatus(taskId, 'pending', { attempt: nextAttempt });
         this.deps.log(projectId, 'task_status_changed', {
           taskId,
           from: 'running',
           to: 'pending',
           reason: 'retry',
-          attempt: newAttempt,
+          attempt: nextAttempt,
         }, taskId);
       }
 
@@ -154,10 +171,10 @@ export class TaskLifecycle {
     try {
       const task = this.deps.taskRepo.findById(taskId);
       if (task?.sessionId) {
-        this.deps.sessionRepo.update(task.sessionId, {
-          isReadOnly: false,
-          planStatus: null,
-        } as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>);
+        this.deps.sessionRepo.update(
+          task.sessionId,
+          buildTaskUnlockedSessionPatch() as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>,
+        );
       }
     } catch (err) {
       console.error(`[Supervisor] Failed to clear read-only for task ${taskId}:`, err);
@@ -169,9 +186,7 @@ export class TaskLifecycle {
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
     }
-    if (task.status !== 'planning') {
-      throw new Error(`Task ${taskId} is not in planning status`);
-    }
+    assertTaskStatus(task.status, 'planning', 'submit plan for');
     if (!task.sessionId) {
       throw new Error(`Task ${taskId} has no planning session`);
     }
@@ -186,11 +201,12 @@ export class TaskLifecycle {
       throw new Error(`Plan is incomplete: missing ${planStatus.missing.join(', ')}`);
     }
 
-    this.deps.sessionRepo.update(session.id, {
-      planStatus: 'planned',
-      isReadOnly: true,
-    } as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>);
+    this.deps.sessionRepo.update(
+      session.id,
+      buildTaskPlannedSessionPatch() as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>,
+    );
 
+    assertTaskTransition('planning', 'queued');
     this.deps.taskRepo.updateStatus(task.id, 'queued');
     this.deps.broadcastTaskUpdate(task.id, task.projectId);
     this.deps.log(task.projectId, 'task_plan_submitted', {
@@ -208,10 +224,9 @@ export class TaskLifecycle {
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
     }
-    if (!['failed', 'cancelled', 'completed', 'blocked'].includes(task.status)) {
-      throw new Error(`Cannot retry task in status '${task.status}'`);
-    }
+    assertTaskStatusIn(task.status, ['failed', 'cancelled', 'completed', 'blocked'], 'retry');
 
+    assertTaskTransition(task.status, 'pending');
     this.deps.taskRepo.updateStatus(taskId, 'pending', { attempt: 1 });
     this.deps.broadcastTaskUpdate(taskId, task.projectId);
     this.deps.log(task.projectId, 'task_status_changed', {
@@ -235,6 +250,7 @@ export class TaskLifecycle {
       this.deps.virtualClients.delete(taskId);
     }
 
+    assertTaskTransition(task.status, 'cancelled');
     this.deps.taskRepo.updateStatus(taskId, 'cancelled');
     this.deps.broadcastTaskUpdate(taskId, task.projectId);
     this.deps.log(task.projectId, 'task_status_changed', {
@@ -252,10 +268,9 @@ export class TaskLifecycle {
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
     }
-    if (!['completed', 'failed', 'cancelled'].includes(task.status)) {
-      throw new Error(`Cannot run-now task in status '${task.status}'; must be terminal`);
-    }
+    assertTaskStatusIn(task.status, ['completed', 'failed', 'cancelled'], 'run-now');
 
+    assertTaskTransition(task.status, 'pending');
     this.deps.taskRepo.updateStatus(taskId, 'pending', { attempt: 1 });
     this.deps.broadcastTaskUpdate(taskId, task.projectId);
     this.deps.log(task.projectId, 'task_status_changed', {
@@ -274,11 +289,7 @@ export class TaskLifecycle {
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
     }
-    if (task.status !== 'reviewing') {
-      throw new Error(
-        `Cannot approve result for task in status '${task.status}'; must be 'reviewing'`,
-      );
-    }
+    assertTaskStatus(task.status, 'reviewing', 'approve result for');
 
     const project = this.deps.projectRepo.findById(task.projectId);
     const session = task.sessionId ? this.deps.sessionRepo.findById(task.sessionId) : undefined;
@@ -294,6 +305,7 @@ export class TaskLifecycle {
 
       if (result.success) {
         pool.release(session!.workingDirectory!);
+        assertTaskTransition('reviewing', 'integrated');
         this.deps.taskRepo.updateStatus(taskId, 'integrated');
         this.deps.broadcastTaskUpdate(taskId, task.projectId);
         this.deps.log(task.projectId, 'merge_completed', { taskId }, taskId);
@@ -302,6 +314,7 @@ export class TaskLifecycle {
           worktreePath: session!.workingDirectory,
         }, taskId);
       } else {
+        assertTaskTransition('reviewing', 'merge_conflict');
         this.deps.taskRepo.updateStatus(taskId, 'merge_conflict', {
           result: {
             ...(task.result ?? { summary: '', filesChanged: [] }),
@@ -315,6 +328,7 @@ export class TaskLifecycle {
         }, taskId);
       }
     } else {
+      assertTaskTransition('reviewing', 'integrated');
       this.deps.taskRepo.updateStatus(taskId, 'integrated');
       this.deps.broadcastTaskUpdate(taskId, task.projectId);
       this.deps.log(task.projectId, 'task_status_changed', {
@@ -333,19 +347,16 @@ export class TaskLifecycle {
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
     }
-    if (task.status !== 'reviewing') {
-      throw new Error(
-        `Cannot reject result for task in status '${task.status}'; must be 'reviewing'`,
-      );
-    }
+    assertTaskStatus(task.status, 'reviewing', 'reject result for');
 
     this.deps.worktreeManager.releaseTaskWorktree(task);
 
-    const newAttempt = task.attempt + 1;
-    if (newAttempt > task.maxRetries + 1) {
+    const { nextStatus, nextAttempt } = getReviewRejectionOutcome(task.attempt, task.maxRetries);
+    if (nextStatus === 'failed') {
+      assertTaskTransition('reviewing', 'failed');
       this.deps.taskRepo.updateStatus(taskId, 'failed', {
         result: { ...(task.result ?? { summary: '', filesChanged: [] }), reviewNotes },
-        attempt: newAttempt,
+        attempt: nextAttempt,
       });
       this.deps.broadcastTaskUpdate(taskId, task.projectId);
       this.deps.log(task.projectId, 'task_status_changed', {
@@ -355,16 +366,17 @@ export class TaskLifecycle {
         reason: 'max_retries_exceeded',
       }, taskId);
     } else {
+      assertTaskTransition('reviewing', 'queued');
       this.deps.taskRepo.updateStatus(taskId, 'queued', {
         result: { ...(task.result ?? { summary: '', filesChanged: [] }), reviewNotes },
-        attempt: newAttempt,
+        attempt: nextAttempt,
       });
       this.deps.broadcastTaskUpdate(taskId, task.projectId);
       this.deps.log(task.projectId, 'task_status_changed', {
         taskId,
         from: 'reviewing',
         to: 'queued',
-        attempt: newAttempt,
+        attempt: nextAttempt,
         reviewNotes,
       }, taskId);
     }
@@ -374,9 +386,10 @@ export class TaskLifecycle {
 
   async resolveConflict(taskId: string): Promise<import('@my-claudia/shared').SupervisionTask> {
     const task = this.deps.taskRepo.findById(taskId);
-    if (!task || task.status !== 'merge_conflict') {
-      throw new Error('Task not in merge_conflict state');
+    if (!task) {
+      throw new Error('Task not found');
     }
+    assertTaskStatus(task.status, 'merge_conflict', 'resolve conflict for');
 
     const session = task.sessionId ? this.deps.sessionRepo.findById(task.sessionId) : undefined;
     if (!session?.workingDirectory) {
@@ -391,6 +404,7 @@ export class TaskLifecycle {
       throw new Error(`Still has conflicts: ${result.conflicts?.join(', ')}`);
     }
 
+    assertTaskTransition('merge_conflict', 'integrated');
     this.deps.taskRepo.updateStatus(taskId, 'integrated');
     pool.release(session.workingDirectory);
     this.deps.broadcastTaskUpdate(taskId, task.projectId);
@@ -406,7 +420,7 @@ export class TaskLifecycle {
 
   private transitionAgentToActive(projectId: string, reason: 'manual_retry' | 'run_now'): void {
     const project = this.deps.projectRepo.findById(projectId);
-    if (project?.agent?.phase !== 'idle') {
+    if (!project?.agent || !shouldTransitionAgentToActive(project.agent.phase)) {
       return;
     }
 

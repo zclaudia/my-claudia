@@ -2,32 +2,15 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 
-// Hoist mocks so they are available before module imports
-const { mockActiveRuns, mockExecSync, mockContextManagerLoadAll, mockValidatePlanFile, mockComputeNextCronRun, mockHandleRunStart } = vi.hoisted(() => ({
-  mockActiveRuns: new Map(),
+const { mockExecSync, mockContextManagerLoadAll, mockValidatePlanFile, mockComputeNextCronRun } = vi.hoisted(() => ({
   mockExecSync: vi.fn(),
   mockContextManagerLoadAll: vi.fn().mockReturnValue({ documents: [], workflow: { onTaskComplete: [], onCheckpoint: [], checkpointTrigger: { type: 'on_task_complete' } } }),
   mockValidatePlanFile: vi.fn().mockReturnValue({ exists: true, ready: true, score: 100, missing: [], path: '/tmp/test-project/.supervision/plans/task-xxx.plan.md' }),
   mockComputeNextCronRun: vi.fn().mockReturnValue(Date.now() + 3600000),
-  mockHandleRunStart: vi.fn(),
 }));
 
 vi.mock('child_process', () => ({
   execSync: mockExecSync,
-}));
-
-vi.mock('../../../server.js', () => ({
-  createVirtualClient: vi.fn((clientId: string, opts: any) => ({
-    id: clientId,
-    ws: { send: vi.fn() },
-    isAlive: true,
-    isLocal: true,
-    authenticated: true,
-    ...opts,
-  })),
-  handleRunStart: mockHandleRunStart,
-  activeRuns: mockActiveRuns,
-  sendMessage: vi.fn(),
 }));
 
 vi.mock('../context-manager.js', () => {
@@ -109,6 +92,10 @@ import { SupervisionTaskRepository } from '../../../infrastructure/repositories/
 import { ProjectRepository } from '../../../infrastructure/repositories/project.js';
 import { SessionRepository } from '../../sessions/repository.js';
 import type { ProjectAgent, SupervisorConfig } from '@my-claudia/shared/features/supervision';
+
+const mockSupervisionAiRunPort = {
+  startVirtualRun: vi.fn(),
+};
 
 function createTestDb(): Database.Database {
   const db = new Database(':memory:');
@@ -264,7 +251,7 @@ describe('SupervisorService', () => {
     projectRepo = new ProjectRepository(db);
     sessionRepo = new SessionRepository(db);
     broadcastFn = vi.fn();
-    service = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, broadcastFn);
+    service = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, broadcastFn, mockSupervisionAiRunPort as any);
   });
 
   afterAll(() => {
@@ -279,7 +266,7 @@ describe('SupervisorService', () => {
     db.exec('DELETE FROM sessions');
     db.exec('DELETE FROM projects');
     broadcastFn.mockClear();
-    mockActiveRuns.clear();
+    mockSupervisionAiRunPort.startVirtualRun.mockReset();
     mockExecSync.mockReset();
     mockContextManagerLoadAll.mockReset().mockReturnValue({ documents: [], workflow: { onTaskComplete: [], onCheckpoint: [], checkpointTrigger: { type: 'on_task_complete' } } });
     mockWorktreePoolInstance.init.mockClear();
@@ -1374,7 +1361,7 @@ describe('SupervisorService', () => {
       });
 
       await expect(service.resolveConflict(task.id)).rejects.toThrow(
-        'Task not in merge_conflict state',
+        /must be 'merge_conflict'/,
       );
     });
   });
@@ -2370,7 +2357,7 @@ describe('SupervisorService', () => {
         status: 'pending',
       });
 
-      expect(() => service.submitTaskPlan(task.id)).toThrow('not in planning status');
+      expect(() => service.submitTaskPlan(task.id)).toThrow(/must be 'planning'/);
     });
 
     it('throws when plan is incomplete', () => {
@@ -2976,7 +2963,7 @@ describe('SupervisorService', () => {
     });
 
     it('marks lite task as failed when startup throws synchronously', async () => {
-      mockHandleRunStart.mockImplementationOnce(() => {
+      mockSupervisionAiRunPort.startVirtualRun.mockImplementationOnce(() => {
         throw new Error('provider launch failed');
       });
 
@@ -3200,14 +3187,14 @@ describe('SupervisorService', () => {
   describe('lifecycle start/stop', () => {
     it('start() is idempotent — calling twice does not create duplicate intervals', () => {
       // Use a separate service to avoid interfering with the shared one
-      const svc = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, vi.fn());
+      const svc = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, vi.fn(), mockSupervisionAiRunPort as any);
       svc.start(60000); // Long interval to avoid actual ticks
       svc.start(60000); // Should be no-op
       svc.stop();
     });
 
     it('stop() clears interval and destroys worktree pools', () => {
-      const svc = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, vi.fn());
+      const svc = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, vi.fn(), mockSupervisionAiRunPort as any);
       svc.start(60000);
 
       // Force a pool creation
@@ -3221,7 +3208,7 @@ describe('SupervisorService', () => {
     });
 
     it('stop() without start() does not throw', () => {
-      const svc = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, vi.fn());
+      const svc = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, vi.fn(), mockSupervisionAiRunPort as any);
       svc.stop(); // Should not throw
     });
   });

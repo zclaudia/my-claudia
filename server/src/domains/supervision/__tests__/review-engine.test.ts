@@ -2,26 +2,9 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } 
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 
-// Hoist mocks so they are available before module imports
-const { mockActiveRuns, mockCreateVirtualClient, mockHandleRunStart } = vi.hoisted(() => ({
-  mockActiveRuns: new Map(),
-  mockCreateVirtualClient: vi.fn((clientId: string, opts: any) => ({
-    id: clientId,
-    ws: { send: vi.fn() },
-    isAlive: true,
-    isLocal: true,
-    authenticated: true,
-    ...opts,
-  })),
-  mockHandleRunStart: vi.fn(),
-}));
-
-vi.mock('../../../server.js', () => ({
-  createVirtualClient: mockCreateVirtualClient,
-  handleRunStart: mockHandleRunStart,
-  activeRuns: mockActiveRuns,
-  sendMessage: vi.fn(),
-}));
+const mockSupervisionAiRunPort = {
+  startVirtualRun: vi.fn(),
+};
 
 const mockWriteReviewResult = vi.fn();
 
@@ -294,9 +277,7 @@ describe('ReviewEngine', () => {
     collectGitEvidenceFn = vi.fn().mockResolvedValue('diff --git a/file.ts\n+new line');
     contextManagers = new Map();
     mockWriteReviewResult.mockClear();
-    mockCreateVirtualClient.mockClear();
-    mockHandleRunStart.mockClear();
-    mockActiveRuns.clear();
+    mockSupervisionAiRunPort.startVirtualRun.mockClear();
 
     engine = new ReviewEngine(
       db,
@@ -312,6 +293,7 @@ describe('ReviewEngine', () => {
       broadcastFn,
       logFn,
       collectGitEvidenceFn,
+      mockSupervisionAiRunPort as any,
     );
   });
 
@@ -878,7 +860,7 @@ Suggested_Changes:
       expect(sessions[0].name).toContain('Review:');
     });
 
-    it('creates virtual client with correct ID pattern', async () => {
+    it('starts review run with correct ID pattern', async () => {
       const projectId = seedProject(db, {
         agent: makeAgent(),
       });
@@ -889,15 +871,15 @@ Suggested_Changes:
 
       await engine.createReview(task);
 
-      expect(mockCreateVirtualClient).toHaveBeenCalledWith(
-        `supervisor_review_${task.id}`,
+      expect(mockSupervisionAiRunPort.startVirtualRun).toHaveBeenCalledWith(
         expect.objectContaining({
-          send: expect.any(Function),
+          clientId: `supervisor_review_${task.id}`,
+          onMessage: expect.any(Function),
         }),
       );
     });
 
-    it('calls handleRunStart with review prompt', async () => {
+    it('starts AI review run with review prompt', async () => {
       const projectId = seedProject(db, {
         agent: makeAgent(),
       });
@@ -909,13 +891,10 @@ Suggested_Changes:
 
       await engine.createReview(task);
 
-      expect(mockHandleRunStart).toHaveBeenCalledWith(
-        expect.anything(),
+      expect(mockSupervisionAiRunPort.startVirtualRun).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'run_start',
           input: expect.stringContaining('[INDEPENDENT CODE REVIEW]'),
         }),
-        expect.anything(),
       );
     });
 
@@ -956,8 +935,7 @@ Suggested_Changes:
 
       await engine.createReview(task);
 
-      expect(mockCreateVirtualClient).not.toHaveBeenCalled();
-      expect(mockHandleRunStart).not.toHaveBeenCalled();
+      expect(mockSupervisionAiRunPort.startVirtualRun).not.toHaveBeenCalled();
     });
 
     it('collects git evidence when baseCommit is present', async () => {
@@ -991,8 +969,8 @@ Suggested_Changes:
       expect(collectGitEvidenceFn).not.toHaveBeenCalled();
 
       // The review prompt should contain the fallback evidence text
-      const runStartCall = mockHandleRunStart.mock.calls[0];
-      expect(runStartCall[1].input).toContain('(no git evidence available)');
+      const runStartCall = mockSupervisionAiRunPort.startVirtualRun.mock.calls[0][0];
+      expect(runStartCall.input).toContain('(no git evidence available)');
     });
 
     it('marks review as timed out when provider never completes', async () => {
@@ -1159,22 +1137,8 @@ Suggested_Changes:
         result: { summary: 'Done', filesChanged: [] },
       });
 
-      // Use createReview to set up the virtual client callback
-      // We need to capture the send callback that createReview passes to createVirtualClient
-      let capturedSendFn: ((msg: any) => void) | undefined;
-      mockCreateVirtualClient.mockImplementationOnce((clientId: string, opts: any) => {
-        capturedSendFn = opts.send;
-        return {
-          id: clientId,
-          ws: { send: vi.fn() },
-          isAlive: true,
-          isLocal: true,
-          authenticated: true,
-          ...opts,
-        };
-      });
-
       await engine.createReview(task);
+      const capturedSendFn = mockSupervisionAiRunPort.startVirtualRun.mock.calls[0]?.[0]?.onMessage;
 
       // Get the review session that was created
       const sessions = sessionRepo.findByProjectId(projectId);
@@ -1419,6 +1383,7 @@ Suggested_Changes:
         broadcastFn,
         logFn,
         collectGitEvidenceFn,
+        mockSupervisionAiRunPort as any,
         (_pid: string) => mockPool as any,
       );
 

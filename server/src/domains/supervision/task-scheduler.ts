@@ -14,6 +14,13 @@ import type { ProjectRepository } from '../projects/repository.js';
 import type { SessionRepository } from '../sessions/repository.js';
 import type { CheckpointEngine } from './checkpoint-engine.js';
 import { computeNextCronRun } from '../../utils/cron.js';
+import { assertTaskTransition } from './status-machine.js';
+import {
+  canTickAgentPhase,
+  getActiveTaskStatuses,
+  shouldTransitionAgentToActive,
+  shouldTransitionAgentToIdle,
+} from './model.js';
 
 export interface TaskSchedulerDeps {
   db: Database;
@@ -47,7 +54,7 @@ export class TaskScheduler {
       const projects = this.deps.projectRepo.findAll();
       for (const project of projects) {
         if (!project.agent) continue;
-        if (project.agent.phase !== 'active' && project.agent.phase !== 'idle') continue;
+        if (!canTickAgentPhase(project.agent.phase)) continue;
 
         try {
           this.tickProject(project.id);
@@ -94,6 +101,7 @@ export class TaskScheduler {
     const pendingTasks = this.deps.taskRepo.findByStatus(projectId, 'pending');
     for (const task of pendingTasks) {
       if (this.areDependenciesMet(task, isLite)) {
+        assertTaskTransition(task.status, 'queued');
         this.deps.taskRepo.updateStatus(task.id, 'queued');
         this.deps.broadcastTaskUpdate(task.id, projectId);
         this.deps.log(projectId, 'task_status_changed', {
@@ -144,11 +152,9 @@ export class TaskScheduler {
     }
 
     // 6. If no active tasks, transition to idle
-    const activeStatuses: TaskStatus[] = isLite
-      ? ['pending', 'queued', 'running']
-      : ['pending', 'queued', 'running', 'reviewing'];
+    const activeStatuses: TaskStatus[] = getActiveTaskStatuses(isLite);
     const activeTasks = this.deps.taskRepo.findByStatus(projectId, ...activeStatuses);
-    if (activeTasks.length === 0 && project.agent.phase === 'active') {
+    if (shouldTransitionAgentToIdle(project.agent.phase, activeTasks.length)) {
       const agent = { ...project.agent, phase: 'idle' as const, updatedAt: Date.now() };
       this.deps.projectRepo.update(projectId, { agent });
       this.deps.broadcastAgentUpdate(projectId, agent);
@@ -184,6 +190,7 @@ export class TaskScheduler {
         (d) => d && terminalStatuses.includes(d.status),
       );
       if (allTerminal) {
+        assertTaskTransition(task.status, 'blocked');
         this.deps.taskRepo.updateStatus(task.id, 'blocked');
         this.deps.broadcastTaskUpdate(task.id, task.projectId);
         this.deps.log(task.projectId, 'task_status_changed', {
@@ -206,6 +213,7 @@ export class TaskScheduler {
       (d) => d && (d.status === 'failed' || d.status === 'cancelled'),
     );
     if (anyFailed) {
+      assertTaskTransition(task.status, 'blocked');
       this.deps.taskRepo.updateStatus(task.id, 'blocked');
       this.deps.broadcastTaskUpdate(task.id, task.projectId);
       this.deps.log(task.projectId, 'task_status_changed', {
@@ -229,6 +237,7 @@ export class TaskScheduler {
       return;
     }
 
+    assertTaskTransition(currentTask.status, 'failed');
     this.deps.taskRepo.updateStatus(task.id, 'failed', {
       result: {
         summary: `Task failed to start: ${reason}`,
@@ -257,6 +266,7 @@ export class TaskScheduler {
       const task = this.deps.taskRepo.mapRow(row);
 
       // Reset task for re-execution
+      assertTaskTransition(task.status, 'pending');
       this.deps.taskRepo.updateStatus(task.id, 'pending', { attempt: 1 });
 
       // Compute next run time
@@ -273,7 +283,7 @@ export class TaskScheduler {
 
       // Transition agent to active if idle
       const project = this.deps.projectRepo.findById(projectId);
-      if (project?.agent?.phase === 'idle') {
+      if (project?.agent && shouldTransitionAgentToActive(project.agent.phase)) {
         const agent = { ...project.agent, phase: 'active' as const, updatedAt: Date.now() };
         this.deps.projectRepo.update(projectId, { agent });
         this.deps.broadcastAgentUpdate(projectId, agent);

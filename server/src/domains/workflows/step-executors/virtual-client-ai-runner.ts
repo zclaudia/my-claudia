@@ -8,14 +8,20 @@ import type { Database } from 'better-sqlite3';
 import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 import type { Session } from '@my-claudia/shared/core/session';
 import type { AIRunnerPort } from '../ports/step-executor.js';
+import type { WorkflowAiRunPort } from '../ports/runtime.js';
 import { SessionRepository } from '../../sessions/repository.js';
-import { createVirtualClient, handleRunStart } from '../../../server.js';
 
 export class VirtualClientAIRunner implements AIRunnerPort {
   private sessionRepo: SessionRepository;
+  private aiRunPort: WorkflowAiRunPort;
 
-  constructor(private db: Database) {
+  constructor(private db: Database, aiRunPort?: WorkflowAiRunPort) {
     this.sessionRepo = new SessionRepository(db);
+    this.aiRunPort = aiRunPort ?? {
+      startVirtualRun: () => {
+        throw new Error('Workflow AI run port not configured');
+      },
+    };
   }
 
   async runPrompt(opts: {
@@ -49,8 +55,13 @@ export class VirtualClientAIRunner implements AIRunnerPort {
         reject(new Error(`AI prompt timed out after ${timeoutMs}ms`));
       }, timeoutMs);
 
-      const virtualClient = createVirtualClient(clientId, {
-        send: (msg: ServerMessage) => {
+      this.aiRunPort.startVirtualRun({
+        clientId,
+        sessionId: session.id,
+        input: opts.prompt,
+        workingDirectory: opts.workingDirectory,
+        providerId: opts.providerId,
+        onMessage: (msg: ServerMessage) => {
           if (settled) return;
           if (msg.type === 'run_completed') {
             settled = true;
@@ -68,19 +79,6 @@ export class VirtualClientAIRunner implements AIRunnerPort {
           }
         },
       });
-
-      handleRunStart(
-        virtualClient,
-        {
-          type: 'run_start',
-          clientRequestId: clientId,
-          sessionId: session.id,
-          input: opts.prompt,
-          workingDirectory: opts.workingDirectory,
-          providerId: opts.providerId,
-        },
-        this.db,
-      );
     });
   }
 }

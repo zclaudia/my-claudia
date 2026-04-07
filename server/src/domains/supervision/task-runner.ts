@@ -10,6 +10,10 @@ import type {
 import { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
 import { ProjectRepository } from '../projects/repository.js';
 import type { ContextManager, WorkflowAction } from './context-manager.js';
+import {
+  assertTaskStatus,
+  assertTaskTransition,
+} from './status-machine.js';
 
 const execAsync = promisify(exec);
 const TASK_RESULT_REGEX = /\[TASK_RESULT\]([\s\S]*?)\[\/TASK_RESULT\]/;
@@ -36,7 +40,8 @@ export class TaskRunner {
    */
   async onTaskComplete(taskId: string, projectId: string): Promise<void> {
     const task = this.taskRepo.findById(taskId);
-    if (!task || task.status !== 'running') return;
+    if (!task) return;
+    assertTaskStatus(task.status, 'running', `complete task ${taskId}`);
 
     const project = this.projectRepo.findById(projectId);
     if (!project?.rootPath) {
@@ -79,6 +84,7 @@ export class TaskRunner {
     cm.writeTaskResult(taskId, resultContent);
 
     // 5. Update task status → reviewing
+    assertTaskTransition(task.status, 'reviewing');
     this.taskRepo.updateStatus(taskId, 'reviewing', { result: taskResult });
     this.broadcastTaskUpdate(taskId, projectId);
     this.logFn(

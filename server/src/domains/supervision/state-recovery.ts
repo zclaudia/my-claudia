@@ -4,6 +4,15 @@ import { SupervisionTaskRepository } from '../../infrastructure/repositories/sup
 import { SessionRepository } from '../sessions/repository.js';
 import { ProjectRepository } from '../projects/repository.js';
 import type { SupervisorService } from './supervisor-service.js';
+import {
+  assertTaskTransition,
+  TERMINAL_TASK_STATUSES,
+} from './status-machine.js';
+import {
+  getActiveTaskStatuses,
+  holdsTaskWorktree,
+} from './model.js';
+import { shouldTransitionAgentToIdle } from './model.js';
 
 export interface RecoveryAction {
   type: 'task_requeued' | 'task_failed' | 'worktree_released' | 'session_archived' | 'agent_idle' | 'run_interrupted' | 'recovery_error';
@@ -87,6 +96,7 @@ export class StateRecovery {
           const maxRetries = task.maxRetries;
 
           if (newAttempt > maxRetries + 1) {
+            assertTaskTransition(task.status, 'failed');
             this.taskRepo.updateStatus(task.id, 'failed', {
               result: {
                 summary: 'Task was stuck in running state and exceeded max retries',
@@ -100,13 +110,14 @@ export class StateRecovery {
               detail: 'Exceeded max retries after stuck recovery',
             });
           } else {
-            this.taskRepo.updateStatus(task.id, 'queued', {
+            assertTaskTransition(task.status, 'pending');
+            this.taskRepo.updateStatus(task.id, 'pending', {
               attempt: newAttempt,
             });
             actions.push({
               type: 'task_requeued',
               id: task.id,
-              detail: `Re-queued (attempt ${newAttempt})`,
+              detail: `Returned to pending for retry (attempt ${newAttempt})`,
             });
           }
         }
@@ -132,7 +143,7 @@ export class StateRecovery {
           const task = this.taskRepo.findById(slot.taskId);
           // Only running/reviewing tasks should hold a worktree slot.
           // Queued/pending/proposed/terminal tasks must not occupy slots.
-          const shouldHoldSlot = task && (task.status === 'running' || task.status === 'reviewing');
+          const shouldHoldSlot = task && holdsTaskWorktree(task.status);
           if (!shouldHoldSlot) {
             pool.release(slot.path);
             actions.push({
@@ -176,7 +187,7 @@ export class StateRecovery {
           // Check if the associated task is in a terminal state
           if (session.taskId) {
             const task = this.taskRepo.findById(session.taskId);
-            if (task && ['integrated', 'failed', 'cancelled'].includes(task.status)) {
+            if (task && TERMINAL_TASK_STATUSES.includes(task.status)) {
               this.sessionRepo.update(session.id, { archivedAt: now });
               actions.push({
                 type: 'session_archived',
@@ -197,13 +208,11 @@ export class StateRecovery {
 
     const projects = this.projectRepo.findAll();
     for (const project of projects) {
-      if (!project.agent || project.agent.phase !== 'active') continue;
+      if (!project.agent) continue;
 
-      const activeTasks = this.taskRepo.findByStatus(
-        project.id, 'pending', 'queued', 'running', 'reviewing',
-      );
+      const activeTasks = this.taskRepo.findByStatus(project.id, ...getActiveTaskStatuses(false));
 
-      if (activeTasks.length === 0) {
+      if (shouldTransitionAgentToIdle(project.agent.phase, activeTasks.length)) {
         const agent = {
           ...project.agent,
           phase: 'idle' as const,

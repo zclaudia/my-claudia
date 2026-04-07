@@ -30,16 +30,19 @@ vi.mock('../../projects/repository.js', () => ({
 vi.mock('../../sessions/repository.js', () => ({
   SessionRepository: class { constructor() { Object.assign(this, mockSessionRepo); } },
 }));
-vi.mock('../../../server.js', () => ({
-  createVirtualClient: vi.fn().mockReturnValue({ id: 'vc1' }),
-  handleRunStart: vi.fn(),
-}));
 vi.mock('../../../events/index.js', () => ({
   pluginEvents: { emit: vi.fn().mockResolvedValue(undefined), on: vi.fn() },
 }));
-vi.mock('../../../application/plugins/index.js', () => ({
-  workflowStepRegistry: { get: vi.fn(), has: vi.fn(), execute: vi.fn() },
-}));
+
+const mockWorkflowStepRegistry = {
+  get: vi.fn(),
+  has: vi.fn(),
+  execute: vi.fn(),
+};
+
+const mockWorkflowAiRunPort = {
+  startVirtualRun: vi.fn(),
+};
 
 // Use vi.hoisted to make mockExecFileAsync available in the hoisted vi.mock
 const { mockExecFileAsync } = vi.hoisted(() => ({
@@ -54,8 +57,6 @@ vi.mock('util', () => ({
 }));
 
 import { WorkflowEngine, type StepResult } from '../engine.js';
-import { createVirtualClient, handleRunStart } from '../../../server.js';
-import { workflowStepRegistry } from '../../../application/plugins/index.js';
 import {
   CompositeStepExecutor,
   ShellStepExecutor,
@@ -71,7 +72,7 @@ import {
 import { VirtualClientAIRunner } from '../step-executors/virtual-client-ai-runner.js';
 
 function createEngineWithDb(mockDb: any, mockBroadcast: ReturnType<typeof vi.fn>): WorkflowEngine {
-  const aiRunner = new VirtualClientAIRunner(mockDb);
+  const aiRunner = new VirtualClientAIRunner(mockDb, mockWorkflowAiRunPort as any);
   const composite = new CompositeStepExecutor();
   composite.register(new ShellStepExecutor());
   composite.register(new WebhookStepExecutor());
@@ -80,7 +81,7 @@ function createEngineWithDb(mockDb: any, mockBroadcast: ReturnType<typeof vi.fn>
   composite.register(new AIPromptStepExecutor(aiRunner));
   composite.register(new AIReviewStepExecutor(aiRunner));
   composite.register(new GitStepExecutor());
-  composite.registerPlugin(new PluginStepExecutor(workflowStepRegistry as any));
+  composite.registerPlugin(new PluginStepExecutor(mockWorkflowStepRegistry as any));
 
   const workflowEngine = new WorkflowEngine(mockDb, mockBroadcast, composite);
   composite.register(new WaitStepExecutor(workflowEngine));
@@ -102,6 +103,10 @@ describe('WorkflowEngine', () => {
     mockStepRunRepo.findByRun.mockReturnValue([]);
     mockProjectRepo.findById.mockReturnValue({ id: 'p1', providerId: 'prov1', rootPath: '/test' });
     mockSessionRepo.create.mockReturnValue({ id: 'sess1' });
+    mockWorkflowAiRunPort.startVirtualRun.mockReset();
+    mockWorkflowStepRegistry.get.mockReset();
+    mockWorkflowStepRegistry.has.mockReset();
+    mockWorkflowStepRegistry.execute.mockReset();
 
     mockBroadcast = vi.fn();
 
@@ -462,7 +467,7 @@ describe('WorkflowEngine', () => {
       };
       mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
-      (workflowStepRegistry as any).has.mockReturnValue(false);
+      (mockWorkflowStepRegistry as any).has.mockReturnValue(false);
 
       await engine.startRun('wf-fail', 'p1', def as any, 'manual');
       await vi.advanceTimersByTimeAsync(100);
@@ -508,7 +513,7 @@ describe('WorkflowEngine', () => {
         return { id: `sr-${stepId}`, status: 'pending' };
       });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
-      (workflowStepRegistry as any).has.mockReturnValue(false);
+      (mockWorkflowStepRegistry as any).has.mockReturnValue(false);
 
       await engine.startRun('wf-skip-err', 'p1', def as any, 'manual');
       await vi.advanceTimersByTimeAsync(100);
@@ -536,7 +541,7 @@ describe('WorkflowEngine', () => {
         return { id: `sr-${stepId}`, status: 'pending' };
       });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
-      (workflowStepRegistry as any).has.mockReturnValue(false);
+      (mockWorkflowStepRegistry as any).has.mockReturnValue(false);
 
       await engine.startRun('wf-route', 'p1', def as any, 'manual');
       await vi.advanceTimersByTimeAsync(100);
@@ -626,13 +631,13 @@ describe('WorkflowEngine', () => {
       };
       mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
-      (workflowStepRegistry as any).has.mockReturnValue(true);
-      (workflowStepRegistry as any).execute.mockResolvedValue({ status: 'completed', output: { pluginResult: true } });
+      (mockWorkflowStepRegistry as any).has.mockReturnValue(true);
+      (mockWorkflowStepRegistry as any).execute.mockResolvedValue({ status: 'completed', output: { pluginResult: true } });
 
       await engine.startRun('wf-plugin', 'p1', def as any, 'manual');
       await vi.advanceTimersByTimeAsync(100);
 
-      expect((workflowStepRegistry as any).execute).toHaveBeenCalledWith(
+      expect((mockWorkflowStepRegistry as any).execute).toHaveBeenCalledWith(
         'custom_plugin_step',
         expect.objectContaining({ key: 'val' }),
         expect.objectContaining({ projectId: 'p1' })
@@ -1189,11 +1194,8 @@ describe('WorkflowEngine', () => {
       mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
-      // Mock createVirtualClient to capture the send callback and call it with run_completed
-      const { createVirtualClient: mockCreateVirtualClient } = await import('../../../server.js');
-      (mockCreateVirtualClient as any).mockImplementation((_clientId: string, handlers: any) => {
-        setTimeout(() => handlers.send({ type: 'run_completed' }), 20);
-        return { id: _clientId };
+      mockWorkflowAiRunPort.startVirtualRun.mockImplementation(({ onMessage }: any) => {
+        setTimeout(() => onMessage({ type: 'run_completed' }), 20);
       });
 
       await engine.startRun('wf-ai-complete', 'p1', def as any, 'manual');
@@ -1206,12 +1208,10 @@ describe('WorkflowEngine', () => {
         status: 'completed',
         output: expect.objectContaining({ sessionId: 'sess1' }),
       }));
-      expect(handleRunStart).toHaveBeenCalledWith(
-        expect.objectContaining({ id: expect.stringContaining('workflow_ai_sess1_') }),
-        expect.any(Object),
-        expect.anything(),
-      );
-      expect(createVirtualClient).toHaveBeenCalledTimes(1);
+      expect(mockWorkflowAiRunPort.startVirtualRun).toHaveBeenCalledWith(expect.objectContaining({
+        clientId: expect.stringContaining('workflow_ai_sess1_'),
+        sessionId: 'sess1',
+      }));
     });
 
     it('fails when run_failed message received', async () => {
@@ -1224,10 +1224,8 @@ describe('WorkflowEngine', () => {
       mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
-      const { createVirtualClient: mockCreateVirtualClient } = await import('../../../server.js');
-      (mockCreateVirtualClient as any).mockImplementation((_clientId: string, handlers: any) => {
-        setTimeout(() => handlers.send({ type: 'run_failed', error: 'AI failed' }), 20);
-        return { id: _clientId };
+      mockWorkflowAiRunPort.startVirtualRun.mockImplementation(({ onMessage }: any) => {
+        setTimeout(() => onMessage({ type: 'run_failed', error: 'AI failed' }), 20);
       });
 
       await engine.startRun('wf-ai-fail', 'p1', def as any, 'manual');
@@ -1274,10 +1272,8 @@ describe('WorkflowEngine', () => {
       // Re-create engine with mockDb
       const engineWithDb = createEngineWithDb(mockDb as any, mockBroadcast);
 
-      const { createVirtualClient: mockCreateVirtualClient } = await import('../../../server.js');
-      (mockCreateVirtualClient as any).mockImplementation((_clientId: string, handlers: any) => {
-        setTimeout(() => handlers.send({ type: 'run_completed' }), 20);
-        return { id: _clientId };
+      mockWorkflowAiRunPort.startVirtualRun.mockImplementation(({ onMessage }: any) => {
+        setTimeout(() => onMessage({ type: 'run_completed' }), 20);
       });
 
       await engineWithDb.startRun('wf-review-pass', 'p1', def as any, 'manual');

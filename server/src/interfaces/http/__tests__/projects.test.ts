@@ -112,7 +112,7 @@ describe('projects routes', () => {
     });
 
     it('creates project with all fields', async () => {
-      const permissionPolicy = { defaultDecision: 'allow', rules: [] };
+      const permissionPolicy = { allowedTools: ['Read'], disallowedTools: [], autoApprove: true, timeoutSeconds: 30 };
       const agentPermissionOverride = { defaultDecision: 'deny', rules: [{ tool: 'Read', decision: 'allow' }] };
 
       const res = await request(app)
@@ -145,6 +145,16 @@ describe('projects routes', () => {
       expect(res.body.success).toBe(false);
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
       expect(res.body.error.message).toBe('Name is required');
+    });
+
+    it('returns 400 when reviewProviderId is used on chat_only project', async () => {
+      const res = await request(app)
+        .post('/api/projects')
+        .send({ name: 'Bad Project', type: 'chat_only', reviewProviderId: 'provider-1' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.body.error.message).toContain('reviewProviderId');
     });
 
     it('stores project in database', async () => {
@@ -192,7 +202,7 @@ describe('projects routes', () => {
     });
 
     it('stores permissionPolicy as JSON in database', async () => {
-      const permissionPolicy = { defaultDecision: 'allow', rules: [] };
+      const permissionPolicy = { allowedTools: [], disallowedTools: [], autoApprove: false, timeoutSeconds: 60 };
 
       const res = await request(app)
         .post('/api/projects')
@@ -416,7 +426,7 @@ describe('projects routes', () => {
         VALUES (?, ?, ?, ?, ?)
       `).run('p1', 'Original', 'code', now, now);
 
-      const permissionPolicy = { defaultDecision: 'deny', rules: [] };
+      const permissionPolicy = { allowedTools: ['Write'], disallowedTools: ['Delete'], autoApprove: false, timeoutSeconds: 30 };
       const agentPermissionOverride = { defaultDecision: 'allow', rules: [] };
 
       const res = await request(app)
@@ -526,6 +536,38 @@ describe('projects routes', () => {
       expect(row.root_path).toBeNull();
       expect(row.system_prompt).toBeNull();
       expect(row.permission_policy).toBeNull();
+    });
+
+    it('rejects clearing name with null', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO projects (id, name, type, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('p1', 'Original', 'code', now, now);
+
+      const res = await request(app)
+        .put('/api/projects/p1')
+        .send({ name: null });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.body.error.message).toBe('Name is required');
+    });
+
+    it('rejects clearing type with null', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO projects (id, name, type, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('p1', 'Original', 'code', now, now);
+
+      const res = await request(app)
+        .put('/api/projects/p1')
+        .send({ type: null });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.body.error.message).toBe('Type is required');
     });
 
     it('emits project_upsert callback with updated project', async () => {
@@ -842,6 +884,21 @@ describe('projects routes', () => {
       expect(res.status).toBe(200);
       const row = db.prepare('SELECT review_provider_id FROM projects WHERE id = ?').get('p1') as any;
       expect(row.review_provider_id).toBe('provider-1');
+    });
+
+    it('rejects reviewProviderId for chat_only project', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO projects (id, name, type, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('p1', 'Project', 'chat_only', now, now);
+
+      const res = await request(app)
+        .put('/api/projects/p1')
+        .send({ reviewProviderId: 'provider-1' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('clears reviewProviderId when set to null', async () => {

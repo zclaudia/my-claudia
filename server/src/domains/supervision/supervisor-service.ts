@@ -27,7 +27,7 @@ import { TaskAdmin } from './task-admin.js';
 import { SupervisorAgentManager } from './supervisor-agent.js';
 import { SupervisorContextService } from './supervisor-context.js';
 import { buildTaskPrompt as buildSupervisedTaskPrompt } from './task-prompt.js';
-import type { SystemTaskRegistryPort } from '../../application/services/system-task-registry.js';
+import type { SupervisionAiRunPort, SupervisionSchedulingPort } from './ports.js';
 
 export class SupervisorService {
   private static cleanupHooksInstalled = false;
@@ -52,6 +52,7 @@ export class SupervisorService {
     private projectRepo: ProjectRepository,
     private sessionRepo: SessionRepository,
     private broadcastFn: (msg: ServerMessage) => void,
+    private aiRunPort: SupervisionAiRunPort,
   ) {
     SupervisorService.installCleanupHooks();
 
@@ -90,6 +91,7 @@ export class SupervisorService {
       broadcastTaskUpdateFn,
       logFn,
       (cwd, baseCommit) => this.taskRunner.collectGitEvidence(cwd, baseCommit),
+      this.aiRunPort,
       (projectId) => this.worktreeManager.getWorktreePool(projectId),
     );
 
@@ -173,6 +175,7 @@ export class SupervisorService {
       taskScheduler: this.taskScheduler,
       worktreeManager: this.worktreeManager,
       virtualClients: this.virtualClients,
+      aiRunPort: this.aiRunPort,
       broadcast: this.broadcastFn,
       handleTaskRunMessage: (taskId, projectId, msg) =>
         this.handleTaskRunMessage(taskId, projectId, msg),
@@ -190,7 +193,7 @@ export class SupervisorService {
   // Lifecycle
   // ========================================
 
-  start(intervalMs = 5000, registry?: SystemTaskRegistryPort): void {
+  start(intervalMs = 5000, registry?: SupervisionSchedulingPort): void {
     if (this.pollInterval) return;
     SupervisorService.activeServices.add(this);
     registry?.register({

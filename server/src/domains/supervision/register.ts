@@ -16,16 +16,15 @@ import { SupervisionTaskRepository } from '../../infrastructure/repositories/sup
 import { ProjectRepository } from '../projects/repository.js';
 import { SessionRepository } from '../sessions/repository.js';
 import { createSupervisionRoutes } from './routes.js';
-import { systemTaskRegistry } from '../../application/services/system-task-registry.js';
+import type { SupervisionAiRunPort, SupervisionSchedulingPort } from './ports.js';
 export interface SupervisionDomainDeps {
   db: ReturnType<typeof initDatabase>;
   app: Express;
   authMiddleware: RequestHandler;
   broadcast: (msg: ServerMessage) => void;
   activeRuns: Map<string, { runId: string; clientId: string }>;
-  createVirtualClient: (clientId: string, sender: { send: (msg: ServerMessage) => void }) => unknown;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- handleRunStart accepts various message shapes from different callers
-  handleRunStart: (client: unknown, message: any, db: ReturnType<typeof initDatabase>, options?: Record<string, unknown>, clients?: Map<string, unknown>) => Promise<void>;
+  aiRunPort: SupervisionAiRunPort;
+  systemTaskRegistry: SupervisionSchedulingPort;
 }
 
 export interface SupervisionDomainResult {
@@ -33,7 +32,7 @@ export interface SupervisionDomainResult {
 }
 
 export function registerSupervisionDomain(deps: SupervisionDomainDeps): SupervisionDomainResult {
-  const { db, app, authMiddleware, broadcast, activeRuns, createVirtualClient, handleRunStart } = deps;
+  const { db, app, authMiddleware, broadcast, activeRuns, aiRunPort, systemTaskRegistry } = deps;
 
   // Repositories
   const taskRepo = new SupervisionTaskRepository(db);
@@ -42,7 +41,7 @@ export function registerSupervisionDomain(deps: SupervisionDomainDeps): Supervis
 
   // SupervisorService
   const supervisorService = new SupervisorService(
-    db, taskRepo, projectRepo, sessionRepo, broadcast,
+    db, taskRepo, projectRepo, sessionRepo, broadcast, aiRunPort,
   );
 
   // Mount routes on both prefixes
@@ -76,9 +75,7 @@ export function registerSupervisionDomain(deps: SupervisionDomainDeps): Supervis
       } catch { /* best effort */ }
     },
     (projectId, data) => supervisorService.createTask(projectId, data),
-    createVirtualClient,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CheckpointEngine expects (client: unknown, ...) but handleRunStart requires ConnectedClient
-    handleRunStart as any,
+    aiRunPort,
   );
   supervisorService.setCheckpointEngine(checkpointEngine);
 

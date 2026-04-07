@@ -14,7 +14,7 @@ import type {
 import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 import type { Session } from '@my-claudia/shared/core/session';
 import { SessionRepository } from '../sessions/repository.js';
-import { createVirtualClient, handleRunStart } from '../../server.js';
+import type { WorkflowAiRunPort } from './ports/runtime.js';
 import { isValidCron } from '../../utils/cron.js';
 import { autoLayoutGraph } from '../../utils/workflow-layout.js';
 interface StepRegistryPort {
@@ -70,10 +70,16 @@ export class WorkflowGeneratorService {
   private sessions = new Map<string, GenerationSession>();
   private sessionRepo: SessionRepository;
   private workflowStepRegistry?: StepRegistryPort;
+  private aiRunPort: WorkflowAiRunPort;
 
-  constructor(private db: Database, workflowStepRegistry?: StepRegistryPort) {
+  constructor(private db: Database, workflowStepRegistry?: StepRegistryPort, aiRunPort?: WorkflowAiRunPort) {
     this.sessionRepo = new SessionRepository(db);
     this.workflowStepRegistry = workflowStepRegistry;
+    this.aiRunPort = aiRunPort ?? {
+      startVirtualRun: () => {
+        throw new Error('Workflow AI run port not configured');
+      },
+    };
   }
 
   /**
@@ -295,8 +301,14 @@ Generate a workflow definition based on the user's natural language description.
       }, GENERATE_TIMEOUT_MS);
 
       const clientId = `wf_gen_${session.id}_${Date.now()}`;
-      createVirtualClient(clientId, {
-        send: (msg: ServerMessage) => {
+      this.aiRunPort.startVirtualRun({
+        clientId,
+        sessionId: session.id,
+        input: userPrompt,
+        workingDirectory: undefined,
+        providerId,
+        systemContext: systemPrompt,
+        onMessage: (msg: ServerMessage) => {
           if (msg.type === 'run_completed') {
             clearTimeout(timeout);
             // Read assistant messages from DB
@@ -312,20 +324,6 @@ Generate a workflow definition based on the user's natural language description.
           }
         },
       });
-
-      handleRunStart(
-        createVirtualClient(clientId, { send: () => {} }),
-        {
-          type: 'run_start',
-          clientRequestId: clientId,
-          sessionId: session.id,
-          input: userPrompt,
-          workingDirectory: undefined,
-          providerId,
-          systemContext: systemPrompt,
-        },
-        this.db,
-      );
     });
   }
 

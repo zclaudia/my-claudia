@@ -4,6 +4,15 @@ import type { EventData } from '../../infrastructure/events/index.js';
 import type { Session, SessionType } from '@my-claudia/shared/core/session';
 import { pluginEvents } from '../../infrastructure/events/index.js';
 import { SessionRepository } from './repository.js';
+import {
+  assertValidSessionState,
+  buildUnlockedSessionState,
+  isPlanningTaskSession,
+  normalizeSessionCreateInput,
+  normalizeSessionType,
+  type SessionCreateInput,
+  type SessionUpdatePatch,
+} from './model.js';
 
 type SessionEventType = 'created' | 'updated' | 'deleted';
 
@@ -12,15 +21,6 @@ interface SessionLifecycleDependencies {
   pathExists?: (path: string) => boolean;
   broadcastSessionEvent?: (type: SessionEventType, session: Session) => void;
   emitPluginEvent?: (event: string, payload?: EventData) => Promise<unknown>;
-}
-
-interface CreateSessionInput {
-  projectId?: string;
-  name?: string;
-  providerId?: string | null;
-  type?: SessionType;
-  parentSessionId?: string | null;
-  workingDirectory?: string | null;
 }
 
 export class SessionLifecycleError extends Error {
@@ -53,33 +53,37 @@ export class SessionLifecycleService {
     this.emitPluginEvent = deps.emitPluginEvent ?? ((event, payload) => pluginEvents.emit(event, payload));
   }
 
-  createSession(input: CreateSessionInput): Session {
-    if (!input.projectId) {
+  createSession(input: SessionCreateInput): Session {
+    const normalizedInput = normalizeSessionCreateInput(input);
+    if (!normalizedInput.projectId) {
       throw new SessionLifecycleError(400, 'VALIDATION_ERROR', 'Project ID is required');
     }
 
-    const project = this.db.prepare('SELECT id FROM projects WHERE id = ?').get(input.projectId);
+    const project = this.db.prepare('SELECT id FROM projects WHERE id = ?').get(normalizedInput.projectId);
     if (!project) {
       throw new SessionLifecycleError(400, 'VALIDATION_ERROR', 'Project not found');
     }
 
-    if (input.workingDirectory && !this.pathExists(input.workingDirectory)) {
+    if (normalizedInput.workingDirectory && !this.pathExists(normalizedInput.workingDirectory)) {
       throw new SessionLifecycleError(400, 'VALIDATION_ERROR', 'Working directory does not exist');
     }
 
-    const validTypes = ['regular', 'background', 'agent'] as const;
-    const sessionType: SessionType = input.type && validTypes.includes(input.type)
-      ? input.type
-      : 'regular';
-
-    const sortOrder = this.repo.findNextSortOrder(input.projectId);
-    const session = this.repo.create({
-      projectId: input.projectId,
-      name: input.name,
-      providerId: input.providerId ?? undefined,
+    const sessionType: SessionType = normalizeSessionType(normalizedInput.type);
+    assertValidSessionState({
       type: sessionType,
-      parentSessionId: input.parentSessionId ?? undefined,
-      workingDirectory: input.workingDirectory ?? undefined,
+      parentSessionId: normalizedInput.parentSessionId ?? undefined,
+      projectRole: undefined,
+      planStatus: undefined,
+    });
+
+    const sortOrder = this.repo.findNextSortOrder(normalizedInput.projectId);
+    const session = this.repo.create({
+      projectId: normalizedInput.projectId,
+      name: normalizedInput.name,
+      providerId: normalizedInput.providerId ?? undefined,
+      type: sessionType,
+      parentSessionId: normalizedInput.parentSessionId ?? undefined,
+      workingDirectory: normalizedInput.workingDirectory ?? undefined,
       sortOrder,
     });
 
@@ -132,19 +136,32 @@ export class SessionLifecycleService {
     return { restored: sessionIds.length };
   }
 
-  updateWorkingDirectory(sessionId: string, workingDirectory: string | null | undefined): Session {
-    const lockRow = this.db.prepare(`
-      SELECT project_role, plan_status
-      FROM sessions
-      WHERE id = ?
-    `).get(sessionId) as { project_role: string | null; plan_status: string | null } | undefined;
-
-    if (!lockRow) {
+  updateSessionMetadata(sessionId: string, patch: SessionUpdatePatch): Session {
+    const existing = this.repo.findById(sessionId);
+    if (!existing) {
       throw new SessionLifecycleError(404, 'NOT_FOUND', 'Session not found');
     }
 
-    const isPlanningTaskSession = lockRow.project_role === 'task' && lockRow.plan_status === 'planning';
-    if (isPlanningTaskSession) {
+    const repoPatch = Object.fromEntries(
+      Object.entries(patch).filter(([, v]) => v !== undefined),
+    ) as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>;
+    this.repo.update(sessionId, repoPatch);
+    const updatedSession = this.repo.findById(sessionId);
+    if (!updatedSession) {
+      throw new SessionLifecycleError(404, 'NOT_FOUND', 'Session not found');
+    }
+
+    this.publishUpdatedSession(updatedSession);
+    return updatedSession;
+  }
+
+  updateWorkingDirectory(sessionId: string, workingDirectory: string | null | undefined): Session {
+    const existing = this.repo.findById(sessionId);
+    if (!existing) {
+      throw new SessionLifecycleError(404, 'NOT_FOUND', 'Session not found');
+    }
+
+    if (isPlanningTaskSession(existing)) {
       throw new SessionLifecycleError(409, 'LOCKED', 'Worktree is locked during Supervisor planning mode');
     }
 
@@ -161,7 +178,7 @@ export class SessionLifecycleService {
       throw new SessionLifecycleError(404, 'NOT_FOUND', 'Session not found');
     }
 
-    this.broadcastSessionEvent('updated', updatedSession);
+    this.publishUpdatedSession(updatedSession);
     return updatedSession;
   }
 
@@ -171,9 +188,12 @@ export class SessionLifecycleService {
       throw new SessionLifecycleError(404, 'NOT_FOUND', 'Session not found');
     }
 
+    const unlockedState = buildUnlockedSessionState(existing);
+    assertValidSessionState(unlockedState);
+
     this.repo.update(sessionId, {
       isReadOnly: false,
-      planStatus: existing.projectRole === 'task' ? 'planning' : null,
+      planStatus: unlockedState.planStatus,
     });
 
     const updatedSession = this.repo.findById(sessionId);
@@ -181,7 +201,7 @@ export class SessionLifecycleService {
       throw new SessionLifecycleError(404, 'NOT_FOUND', 'Session not found');
     }
 
-    this.broadcastSessionEvent('updated', updatedSession);
+    this.publishUpdatedSession(updatedSession);
     return updatedSession;
   }
 
@@ -197,9 +217,8 @@ export class SessionLifecycleService {
     );
     const updatedSession = this.repo.findById(sessionId);
     if (updatedSession) {
-      this.broadcastSessionEvent('updated', updatedSession);
+      this.publishUpdatedSession(updatedSession);
     }
-    this.emitPluginEvent('session.updated', { sessionId, session: updatedSession }).catch(() => {});
 
     return { sessionId, reset: true };
   }
@@ -211,6 +230,10 @@ export class SessionLifecycleService {
     }
 
     this.repo.update(sessionId, { lastRunStatus: null });
+    const updatedSession = this.repo.findById(sessionId);
+    if (updatedSession) {
+      this.publishUpdatedSession(updatedSession);
+    }
   }
 
   deleteSession(sessionId: string): void {
@@ -245,5 +268,13 @@ export class SessionLifecycleService {
     if (!Array.isArray(sessionIds) || sessionIds.length === 0) {
       throw new SessionLifecycleError(400, 'VALIDATION_ERROR', 'sessionIds array is required');
     }
+  }
+
+  private publishUpdatedSession(session: Session): void {
+    this.broadcastSessionEvent('updated', session);
+    this.emitPluginEvent('session.updated', {
+      sessionId: session.id,
+      session,
+    }).catch(() => {});
   }
 }

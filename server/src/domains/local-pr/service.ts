@@ -6,6 +6,7 @@ import { LocalPRRepository } from './repository.js';
 import { ProjectRepository } from '../projects/repository.js';
 import { ProviderRepository } from '../providers/repository.js';
 import { SessionRepository } from '../sessions/repository.js';
+import type { LocalPRAiSessionPort } from './ports.js';
 import { WorktreeConfigRepository } from '../../infrastructure/repositories/worktree-config.js';
 import { Mutex } from 'async-mutex';
 import { mkdir, rm, writeFile } from 'fs/promises';
@@ -47,15 +48,7 @@ const LOCAL_PR_SESSION_STREAM_MESSAGE_TYPES = new Set<ServerMessage['type']>([
 ]);
 
 export interface LocalPRAIDeps {
-  /** Start an AI session: creates a virtual client internally and calls handleRunStart. */
-  startAISession: (opts: {
-    clientId: string;
-    sessionId: string;
-    input: string;
-    workingDirectory?: string;
-    providerId?: string;
-    onMessage: (msg: ServerMessage) => void;
-  }) => void;
+  startAISession: LocalPRAiSessionPort['startAISession'];
   isProjectSlotAvailable?: (projectId: string) => boolean;
 }
 

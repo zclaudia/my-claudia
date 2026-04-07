@@ -104,7 +104,7 @@ describe('SessionRepository', () => {
         name: 'New Session',
         providerId: 'prov-456',
         sdkSessionId: 'sdk-789',
-        type: 'sdk',
+        type: 'agent',
         parentSessionId: 'parent-123',
         workingDirectory: '/work/path'
       };
@@ -116,7 +116,7 @@ describe('SessionRepository', () => {
       expect(params[2]).toBe('New Session');
       expect(params[3]).toBe('prov-456');
       expect(params[4]).toBe('sdk-789');
-      expect(params[5]).toBe('sdk');
+      expect(params[5]).toBe('agent');
       expect(params[6]).toBe('parent-123');
       expect(params[7]).toBe('/work/path');
     });
@@ -206,7 +206,7 @@ describe('SessionRepository', () => {
     });
 
     it('handles type update', () => {
-      const { sql } = repository.updateQuery('sess-123', { type: 'task' });
+      const { sql } = repository.updateQuery('sess-123', { type: 'background' });
       expect(sql).toContain('type = ?');
     });
 
@@ -219,7 +219,7 @@ describe('SessionRepository', () => {
       const { sql } = repository.updateQuery('sess-123', {
         projectRole: 'review',
         taskId: 'task-1',
-        planStatus: 'active',
+        planStatus: 'planned',
         isReadOnly: true,
       });
       expect(sql).toContain('project_role = ?');

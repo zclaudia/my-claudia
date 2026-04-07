@@ -161,7 +161,7 @@ describe('StateRecovery', () => {
       const report = recovery.recover();
 
       const updated = taskRepo.findById(task.id)!;
-      expect(updated.status).toBe('queued');
+      expect(updated.status).toBe('pending');
       expect(updated.attempt).toBe(2);
 
       const requeued = report.actions.filter(a => a.type === 'task_requeued');
@@ -229,7 +229,7 @@ describe('StateRecovery', () => {
       const report = recovery.recover();
 
       expect(report.actions.some((action: any) => action.type === 'recovery_error')).toBe(true);
-      expect(taskRepo.findById(task.id)!.status).toBe('queued');
+      expect(taskRepo.findById(task.id)!.status).toBe('pending');
     });
   });
 

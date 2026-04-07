@@ -10,6 +10,7 @@ import { SupervisionTaskRepository } from '../../infrastructure/repositories/sup
 import { ProjectRepository } from '../projects/repository.js';
 import { SessionRepository } from '../sessions/repository.js';
 import type { ContextManager, CheckpointTrigger } from './context-manager.js';
+import type { SupervisionAiRunPort } from './ports.js';
 
 export interface CheckpointResult {
   projectSummaryUpdate?: string;
@@ -40,21 +41,7 @@ export class CheckpointEngine {
       projectId: string,
       data: { title: string; description: string; source: 'agent_discovered' },
     ) => SupervisionTask,
-    private createVirtualClientFn: (
-      clientId: string,
-      options: { send: (msg: ServerMessage) => void },
-    ) => unknown,
-    private handleRunStartFn: (
-      client: unknown,
-      msg: {
-        type: string;
-        clientRequestId: string;
-        sessionId: string;
-        input: string;
-        workingDirectory: string;
-      },
-      db: Database,
-    ) => void,
+    private aiRunPort: SupervisionAiRunPort,
   ) {}
 
   shouldTrigger(projectId: string, event: 'task_complete' | 'idle'): boolean {
@@ -119,24 +106,15 @@ export class CheckpointEngine {
       const cm = this.getContextManager(projectId);
       const prompt = this.buildCheckpointPrompt(project.name, cm);
 
-      const clientId = `checkpoint_${projectId}_${Date.now()}`;
-      const virtualClient = this.createVirtualClientFn(clientId, {
-        send: (msg: ServerMessage) => {
+      this.aiRunPort.startVirtualRun({
+        clientId: `checkpoint_${projectId}_${Date.now()}`,
+        sessionId: session.id,
+        input: prompt,
+        workingDirectory: project.rootPath,
+        onMessage: (msg) => {
           this.handleCheckpointRunMessage(projectId, session.id, msg);
         },
       });
-
-      this.handleRunStartFn(
-        virtualClient,
-        {
-          type: 'run_start',
-          clientRequestId: `ckpt_${projectId}_${Date.now()}`,
-          sessionId: session.id,
-          input: prompt,
-          workingDirectory: project.rootPath,
-        },
-        this.db,
-      );
     } catch (err) {
       this.runningCheckpoints.delete(projectId);
       this.logFn(projectId, 'checkpoint_completed', {

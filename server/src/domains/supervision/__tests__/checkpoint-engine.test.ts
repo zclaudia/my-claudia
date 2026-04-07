@@ -132,8 +132,7 @@ describe('CheckpointEngine', () => {
   let broadcastFn: ReturnType<typeof vi.fn>;
   let logFn: ReturnType<typeof vi.fn>;
   let createTaskFn: ReturnType<typeof vi.fn>;
-  let createVirtualClientFn: ReturnType<typeof vi.fn>;
-  let handleRunStartFn: ReturnType<typeof vi.fn>;
+  let mockAiRunPort: { startVirtualRun: ReturnType<typeof vi.fn> };
   let mockContextManager: any;
   let getContextManagerFn: ReturnType<typeof vi.fn>;
 
@@ -158,8 +157,7 @@ describe('CheckpointEngine', () => {
     createTaskFn = vi.fn().mockImplementation(
       (_pid: string, data: any) => ({ id: uuidv4(), ...data, status: 'proposed', createdAt: Date.now() }),
     );
-    createVirtualClientFn = vi.fn().mockReturnValue({ id: 'vc' });
-    handleRunStartFn = vi.fn();
+    mockAiRunPort = { startVirtualRun: vi.fn() };
 
     mockContextManager = {
       isInitialized: vi.fn().mockReturnValue(true),
@@ -192,8 +190,7 @@ describe('CheckpointEngine', () => {
       broadcastFn,
       logFn,
       createTaskFn,
-      createVirtualClientFn,
-      handleRunStartFn,
+      mockAiRunPort,
     );
   }
 
@@ -404,13 +401,11 @@ discovered_tasks:
 
       await engine.runCheckpoint(projectId);
 
-      expect(createVirtualClientFn).toHaveBeenCalled();
-      expect(handleRunStartFn).toHaveBeenCalled();
+      expect(mockAiRunPort.startVirtualRun).toHaveBeenCalled();
 
-      const startArgs = handleRunStartFn.mock.calls[0][1];
-      expect(startArgs.type).toBe('run_start');
-      expect(startArgs.input).toContain('[PROJECT CHECKPOINT]');
-      expect(startArgs.workingDirectory).toBe('/tmp/proj');
+      const runArgs = mockAiRunPort.startVirtualRun.mock.calls[0][0];
+      expect(runArgs.input).toContain('[PROJECT CHECKPOINT]');
+      expect(runArgs.workingDirectory).toBe('/tmp/proj');
 
       expect(logFn).toHaveBeenCalledWith(
         projectId, 'checkpoint_started', expect.any(Object),
@@ -425,12 +420,12 @@ discovered_tasks:
       const engine = createEngine();
       await engine.runCheckpoint(projectId);
 
-      expect(handleRunStartFn).not.toHaveBeenCalled();
+      expect(mockAiRunPort.startVirtualRun).not.toHaveBeenCalled();
     });
 
     it('handles errors gracefully', async () => {
       const projectId = seedProject(db, { agent: makeAgent(), rootPath: '/tmp/proj' });
-      createVirtualClientFn.mockImplementation(() => { throw new Error('mock error'); });
+      mockAiRunPort.startVirtualRun.mockImplementation(() => { throw new Error('mock error'); });
 
       const engine = createEngine();
       await engine.runCheckpoint(projectId);
@@ -455,9 +450,8 @@ discovered_tasks:
       });
 
       let capturedCallback: ((msg: ServerMessage) => void) | undefined;
-      createVirtualClientFn.mockImplementation((_id: string, opts: any) => {
-        capturedCallback = opts.send;
-        return { id: _id };
+      mockAiRunPort.startVirtualRun.mockImplementation((args: any) => {
+        capturedCallback = args.onMessage;
       });
 
       const engine = createEngine();
@@ -516,9 +510,8 @@ discovered_tasks:
       const projectId = seedProject(db, { agent: makeAgent(), rootPath: '/tmp/proj' });
 
       let capturedCallback: ((msg: ServerMessage) => void) | undefined;
-      createVirtualClientFn.mockImplementation((_id: string, opts: any) => {
-        capturedCallback = opts.send;
-        return { id: _id };
+      mockAiRunPort.startVirtualRun.mockImplementation((args: any) => {
+        capturedCallback = args.onMessage;
       });
 
       const engine = createEngine();
@@ -547,9 +540,8 @@ discovered_tasks:
       });
 
       let capturedCallback: ((msg: ServerMessage) => void) | undefined;
-      createVirtualClientFn.mockImplementation((_id: string, opts: any) => {
-        capturedCallback = opts.send;
-        return { id: _id };
+      mockAiRunPort.startVirtualRun.mockImplementation((args: any) => {
+        capturedCallback = args.onMessage;
       });
 
       const engine = createEngine();
@@ -583,9 +575,8 @@ discovered_tasks:
       });
 
       let capturedCallback: ((msg: ServerMessage) => void) | undefined;
-      createVirtualClientFn.mockImplementation((_id: string, opts: any) => {
-        capturedCallback = opts.send;
-        return { id: _id };
+      mockAiRunPort.startVirtualRun.mockImplementation((args: any) => {
+        capturedCallback = args.onMessage;
       });
 
       const engine = createEngine();
@@ -625,9 +616,8 @@ knowledge_updates:
       });
 
       let capturedCallback: ((msg: ServerMessage) => void) | undefined;
-      createVirtualClientFn.mockImplementation((_id: string, opts: any) => {
-        capturedCallback = opts.send;
-        return { id: _id };
+      mockAiRunPort.startVirtualRun.mockImplementation((args: any) => {
+        capturedCallback = args.onMessage;
       });
 
       createTaskFn.mockImplementation(() => {
@@ -671,9 +661,8 @@ discovered_tasks:
       });
 
       let capturedCallback: ((msg: ServerMessage) => void) | undefined;
-      createVirtualClientFn.mockImplementation((_id: string, opts: any) => {
-        capturedCallback = opts.send;
-        return { id: _id };
+      mockAiRunPort.startVirtualRun.mockImplementation((args: any) => {
+        capturedCallback = args.onMessage;
       });
 
       const engine = createEngine();
@@ -720,7 +709,7 @@ discovered_tasks:
       const engine = createEngine();
       await engine.runCheckpoint(projectId);
 
-      const startArgs = handleRunStartFn.mock.calls[0][1];
+      const startArgs = mockAiRunPort.startVirtualRun.mock.calls[0][0];
       expect(startArgs.input).toContain('DocProject');
       expect(startArgs.input).toContain('doc1');
       expect(startArgs.input).toContain('Document content here');
@@ -737,7 +726,7 @@ discovered_tasks:
       const engine = createEngine();
       await engine.runCheckpoint(projectId);
 
-      const startArgs = handleRunStartFn.mock.calls[0][1];
+      const startArgs = mockAiRunPort.startVirtualRun.mock.calls[0][0];
       expect(startArgs.input).toContain('(no project summary yet)');
     });
   });

@@ -9,6 +9,12 @@ import type { SupervisionTaskRepository } from '../../infrastructure/repositorie
 import type { ProjectRepository } from '../projects/repository.js';
 import type { SessionRepository } from '../sessions/repository.js';
 import { computeNextCronRun } from '../../utils/cron.js';
+import { buildTaskPlanningSession } from '../sessions/model.js';
+import { assertTaskStatus, assertTaskTransition } from './status-machine.js';
+import {
+  resolveCreatedTaskStatus,
+  shouldActivateAgentForTaskStatus,
+} from './model.js';
 
 interface CreateTaskInput {
   title: string;
@@ -54,14 +60,7 @@ export class TaskAdmin {
     const source = data.source ?? 'user';
     const trustLevel = project.agent.config.trustLevel;
 
-    let status: TaskStatus;
-    if (source === 'user') {
-      status = 'pending';
-    } else if (source === 'agent_discovered' && trustLevel === 'high') {
-      status = 'pending';
-    } else {
-      status = 'proposed';
-    }
+    const status: TaskStatus = resolveCreatedTaskStatus(source, trustLevel);
 
     if (project.agent.config.maxTotalTasks !== undefined) {
       const currentCount = this.deps.taskRepo.countByProject(projectId);
@@ -105,7 +104,7 @@ export class TaskAdmin {
       status,
     }, task.id);
 
-    if (project.agent.phase === 'idle' && status === 'pending') {
+    if (shouldActivateAgentForTaskStatus(project.agent.phase, status)) {
       const agent = { ...project.agent, phase: 'active' as const, updatedAt: Date.now() };
       this.deps.projectRepo.update(projectId, { agent });
       this.deps.broadcastAgentUpdate(projectId, agent);
@@ -133,18 +132,18 @@ export class TaskAdmin {
     }
 
     const project = this.deps.projectRepo.findById(task.projectId);
-    const taskSession = this.deps.sessionRepo.create({
-      projectId: task.projectId,
-      name: `Task: ${task.title}`,
-      type: 'regular',
-      projectRole: 'task',
-      taskId: task.id,
-      parentSessionId: project?.agent?.mainSessionId,
-      providerId: project?.providerId,
-      workingDirectory: project?.rootPath,
-      planStatus: 'planning',
-    } as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>);
+    const taskSession = this.deps.sessionRepo.create(
+      buildTaskPlanningSession({
+        projectId: task.projectId,
+        title: task.title,
+        taskId: task.id,
+        parentSessionId: project?.agent?.mainSessionId,
+        providerId: project?.providerId,
+        workingDirectory: project?.rootPath,
+      }) as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>,
+    );
 
+    assertTaskTransition(task.status, 'planning');
     this.deps.taskRepo.updateStatus(task.id, 'planning', { sessionId: taskSession.id });
     this.deps.log(task.projectId, 'task_session_opened', {
       taskId: task.id,
@@ -159,10 +158,9 @@ export class TaskAdmin {
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
     }
-    if (task.status !== 'proposed') {
-      throw new Error(`Cannot approve task in status '${task.status}'; must be 'proposed'`);
-    }
+    assertTaskStatus(task.status, 'proposed', 'approve');
 
+    assertTaskTransition('proposed', 'pending');
     this.deps.taskRepo.updateStatus(taskId, 'pending');
     this.deps.broadcastTaskUpdate(taskId, task.projectId);
     this.deps.log(task.projectId, 'task_status_changed', {
@@ -179,10 +177,9 @@ export class TaskAdmin {
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
     }
-    if (task.status !== 'proposed') {
-      throw new Error(`Cannot reject task in status '${task.status}'; must be 'proposed'`);
-    }
+    assertTaskStatus(task.status, 'proposed', 'reject');
 
+    assertTaskTransition('proposed', 'cancelled');
     this.deps.taskRepo.updateStatus(taskId, 'cancelled');
     this.deps.broadcastTaskUpdate(taskId, task.projectId);
     this.deps.log(task.projectId, 'task_status_changed', {

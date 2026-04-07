@@ -13,13 +13,6 @@ vi.mock('child_process', () => ({
   execSync: mockExecSync,
 }));
 
-vi.mock('../../../server.js', () => ({
-  createVirtualClient: vi.fn(),
-  handleRunStart: vi.fn(),
-  activeRuns: new Map(),
-  sendMessage: vi.fn(),
-}));
-
 import { TaskRunner } from '../task-runner.js';
 import { SupervisionTaskRepository } from '../../../infrastructure/repositories/supervision-task.js';
 import { ProjectRepository } from '../../../infrastructure/repositories/project.js';
@@ -737,7 +730,7 @@ describe('TaskRunner', () => {
       expect(onReadyForReview).not.toHaveBeenCalled();
     });
 
-    it('returns early when task status is not running', async () => {
+    it('throws when task status is not running', async () => {
       const projectId = seedProject(db, '/tmp/test-project');
 
       const task = taskRepo.create({
@@ -748,7 +741,9 @@ describe('TaskRunner', () => {
         status: 'pending',
       });
 
-      await runner.onTaskComplete(task.id, projectId);
+      await expect(runner.onTaskComplete(task.id, projectId)).rejects.toThrow(
+        /must be 'running'/,
+      );
 
       expect(broadcastFn).not.toHaveBeenCalled();
       expect(onReadyForReview).not.toHaveBeenCalled();

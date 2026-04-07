@@ -13,7 +13,7 @@ import { WorkflowService } from './service.js';
 import { WorkflowGeneratorService } from './generator.js';
 import { createWorkflowRoutes } from './routes.js';
 import type { PushNotificationService } from '../../infrastructure/push/push-notification-service.js';
-import type { SystemTaskRegistryPort } from '../../application/services/system-task-registry.js';
+import type { WorkflowAiRunPort, WorkflowSchedulingPort } from './ports/runtime.js';
 
 import {
   CompositeStepExecutor,
@@ -47,7 +47,8 @@ export interface WorkflowDomainDeps {
   notificationService: PushNotificationService;
   workflowStepRegistry: WorkflowStepRegistryPort;
   workflowTriggerRegistry?: WorkflowTriggerRegistryPort;
-  systemTaskRegistry: SystemTaskRegistryPort;
+  systemTaskRegistry: WorkflowSchedulingPort;
+  aiRunPort: WorkflowAiRunPort;
 }
 
 export interface WorkflowDomainResult {
@@ -56,10 +57,10 @@ export interface WorkflowDomainResult {
 }
 
 export function registerWorkflowDomain(deps: WorkflowDomainDeps): WorkflowDomainResult {
-  const { db, app, authMiddleware, broadcast, notificationService, workflowStepRegistry, workflowTriggerRegistry, systemTaskRegistry } = deps;
+  const { db, app, authMiddleware, broadcast, notificationService, workflowStepRegistry, workflowTriggerRegistry, systemTaskRegistry, aiRunPort } = deps;
 
   // -- Assemble step executors --
-  const aiRunner = new VirtualClientAIRunner(db);
+  const aiRunner = new VirtualClientAIRunner(db, aiRunPort);
   const composite = new CompositeStepExecutor();
 
   composite.register(new ShellStepExecutor());
@@ -81,7 +82,7 @@ export function registerWorkflowDomain(deps: WorkflowDomainDeps): WorkflowDomain
   const workflowService = new WorkflowService(db, broadcast, engine);
   workflowService.initialize();
 
-  const workflowGeneratorService = new WorkflowGeneratorService(db, workflowStepRegistry);
+  const workflowGeneratorService = new WorkflowGeneratorService(db, workflowStepRegistry, aiRunPort);
 
   // -- Mount routes --
   app.use('/api', authMiddleware, createWorkflowRoutes(workflowService, workflowGeneratorService, {
