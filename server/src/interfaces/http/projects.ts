@@ -1,4 +1,4 @@
 export {
   createProjectRoutes,
   type ProjectChangeEvent,
-} from '../../domains/projects/routes.js';
+} from '../../domains/projects/index.js';

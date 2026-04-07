@@ -9,8 +9,7 @@ import type {
   TrustLevel,
 } from '@my-claudia/shared/features/supervision';
 import { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
-import { ProjectRepository } from '../projects/repository.js';
-import { SessionRepository } from '../sessions/repository.js';
+import type { SupervisionProjectPort, SupervisionSessionPort } from './ports.js';
 import type { ContextManager } from './context-manager.js';
 import type { WorktreePool } from './worktree-pool.js';
 import type { SupervisionAiRunPort } from './ports.js';
@@ -31,8 +30,8 @@ export class ReviewEngine {
   constructor(
     private db: Database,
     private taskRepo: SupervisionTaskRepository,
-    private projectRepo: ProjectRepository,
-    private sessionRepo: SessionRepository,
+    private projectRepo: SupervisionProjectPort,
+    private sessionRepo: SupervisionSessionPort,
     private getContextManager: (projectId: string) => ContextManager,
     private broadcastTaskUpdate: (taskId: string, projectId: string) => void,
     private logFn: (

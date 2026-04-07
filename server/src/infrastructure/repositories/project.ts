@@ -1,1 +1,1 @@
-export { ProjectRepository } from '../../domains/projects/repository.js';
+export { ProjectRepository } from '../../domains/projects/index.js';

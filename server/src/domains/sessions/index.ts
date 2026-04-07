@@ -28,3 +28,17 @@ export {
   SessionExportService,
   type SessionExportResult,
 } from './export-service.js';
+export type { SessionEventPublisherPort } from './session-event-port.js';
+export {
+  buildTaskPlanningSession,
+  buildTaskExecutingSessionPatch,
+  buildTaskPlannedSessionPatch,
+  buildTaskUnlockedSessionPatch,
+  normalizeSessionType,
+  normalizeSessionCreateInput,
+  buildSessionUpdatePatch,
+  isSessionValidationError,
+  type SessionCreateInput,
+  type SessionUpdatePatch,
+  type TaskSessionSeed,
+} from './model.js';

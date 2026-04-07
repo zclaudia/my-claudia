@@ -1,13 +1,16 @@
 import { useEffect, type RefObject } from 'react';
+import { isAndroid } from '../../utils/platform';
 
 /**
  * Mobile: keep chat pinned to the visible viewport when soft keyboard opens.
- * Android Tauri WebView uses adjustResize, so window.innerHeight already shrinks.
- * We only constrain height here.
+ * Android Tauri WebView already uses adjustResize, so the layout shrinks with
+ * the keyboard automatically. Applying visualViewport-based fixed positioning on
+ * top of that causes the composer to float above the keyboard.
  */
 export function useMobileViewport(chatRootRef: RefObject<HTMLDivElement | null>, isMobile: boolean) {
   useEffect(() => {
     if (!isMobile) return;
+    if (isAndroid()) return;
     const vv = window.visualViewport;
     if (!vv) return;
 

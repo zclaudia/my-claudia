@@ -8,7 +8,7 @@ import type {
   SupervisionLogEvent,
 } from '@my-claudia/shared/features/supervision';
 import { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
-import { ProjectRepository } from '../projects/repository.js';
+import type { SupervisionProjectPort } from './ports.js';
 import type { ContextManager, WorkflowAction } from './context-manager.js';
 import {
   assertTaskStatus,
@@ -23,7 +23,7 @@ export class TaskRunner {
   constructor(
     private db: Database,
     private taskRepo: SupervisionTaskRepository,
-    private projectRepo: ProjectRepository,
+    private projectRepo: SupervisionProjectPort,
     private getContextManager: (projectId: string) => ContextManager,
     private broadcastTaskUpdate: (taskId: string, projectId: string) => void,
     private logFn: (

@@ -19,7 +19,7 @@ import type {
 import type { Request as CorrelatedRequest } from '@my-claudia/shared/protocol/correlation';
 import { ALL_SERVER_FEATURES } from '@my-claudia/shared/core/server';
 import type { initDatabase } from './infrastructure/storage/db.js';
-import type { ProjectChangeEvent } from './domains/projects/routes.js';
+import type { ProjectChangeEvent } from './domains/projects/index.js';
 import { createFilesRoutes } from './interfaces/http/files.js';
 import { createCommandsRoutes } from './interfaces/http/commands.js';
 import { createGatewayRouter, type GatewayConfig, type GatewayStatus } from './interfaces/http/gateway.js';
@@ -29,25 +29,33 @@ import { createAgentRoutes } from './interfaces/http/agent.js';
 import { createClaudiaRoutes } from './interfaces/http/claudia.js';
 import { handleMcpRequest, handleMcpSse, handleMcpSessionClose, getMcpServerInfo } from './interfaces/mcp/mcp-server.js';
 import { createDelegationRoutes } from './interfaces/http/delegation.js';
-import type { NotificationService } from './domains/notification-feed/service.js';
+import type { NotificationService } from './domains/notification-feed/index.js';
 import { createMcpServerRoutes } from './interfaces/http/mcp-servers.js';
 import { createSystemStatsRoutes } from './interfaces/http/system-stats.js';
 import { createDebugRoutes } from './interfaces/http/debug.js';
 import { ProcessSupervisor, setGlobalProcessSupervisor } from './infrastructure/services/process-supervisor.js';
 import { createSystemTaskRoutes } from './interfaces/http/system-tasks.js';
-import { registerLocalPRDomain } from './domains/local-pr/register.js';
-import { registerSupervisionDomain } from './domains/supervision/register.js';
+import { registerLocalPRDomain } from './domains/local-pr/index.js';
+import { registerSupervisionDomain, type SupervisionProjectPort, type SupervisionSessionPort, type SupervisionSessionModelPort } from './domains/supervision/index.js';
+import { ProjectRepository } from './domains/projects/index.js';
+import {
+  SessionRepository,
+  buildTaskPlanningSession,
+  buildTaskExecutingSessionPatch,
+  buildTaskPlannedSessionPatch,
+  buildTaskUnlockedSessionPatch,
+} from './domains/sessions/index.js';
 import { createWorkspaceRoutes } from './interfaces/http/workspace.js';
-import type { LocalPRService } from './domains/local-pr/service.js';
-import { registerWorkflowDomain } from './domains/workflows/register.js';
-import { registerSessionsDomain } from './domains/sessions/register.js';
-import { registerProvidersDomain } from './domains/providers/register.js';
+import type { LocalPRService } from './domains/local-pr/index.js';
+import { registerWorkflowDomain } from './domains/workflows/index.js';
+import { registerSessionsDomain } from './domains/sessions/index.js';
+import { registerProvidersDomain } from './domains/providers/index.js';
 import { registerPluginsDomain } from './application/plugins/register.js';
 import { workflowStepRegistry, toolRegistry, workflowTriggerRegistry } from './application/plugins/index.js';
-import { registerProjectsDomain } from './domains/projects/register.js';
+import { registerProjectsDomain } from './domains/projects/index.js';
 import { createAutomationRoutes } from './interfaces/http/automations.js';
 import { systemTaskRegistry } from './application/services/system-task-registry.js';
-import type { SupervisorService } from './domains/supervision/supervisor-service.js';
+import type { SupervisorService } from './domains/supervision/index.js';
 import { PushNotificationService } from './infrastructure/push/push-notification-service.js';
 import { registerInteractionTools } from './application/conversation/interactions/interaction-tools.js';
 import { registerAgentTools } from './application/conversation/agent-tools/index.js';
@@ -62,12 +70,12 @@ import { ProcessMonitor } from './utils/process-monitor.js';
 import { sendMessage, buildPluginStateMessage, bumpProjectsVersion } from './application/conversation/transport/broadcast.js';
 import { getNextOffset } from './application/conversation/runtime/run-lifecycle.js';
 import { createVirtualClient, type ConnectedClient, type ActiveRun } from './application/conversation/transport/types.js';
-import type { SessionEventPublisherPort } from './domains/sessions/session-event-port.js';
-import type { LocalPRAiSessionPort, LocalPRSchedulingPort } from './domains/local-pr/ports.js';
-import type { SupervisionAiRunPort } from './domains/supervision/ports.js';
-import type { WorkflowAiRunPort, WorkflowSchedulingPort } from './domains/workflows/ports/runtime.js';
+import type { SessionEventPublisherPort } from './domains/sessions/index.js';
+import type { LocalPRAiSessionPort, LocalPRSchedulingPort } from './domains/local-pr/index.js';
+import type { SupervisionAiRunPort } from './domains/supervision/index.js';
+import type { WorkflowAiRunPort, WorkflowSchedulingPort } from './domains/workflows/index.js';
 import type { createRouter } from './interfaces/websocket/index.js';
-import { registerNotificationDomain } from './domains/notification-feed/register.js';
+import { registerNotificationDomain } from './domains/notification-feed/index.js';
 import { registerInteractionDomain } from './application/conversation/interactions/register.js';
 
 export interface SetupDependencies {
@@ -319,7 +327,31 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   app.use('/api/import', localOnlyMiddleware, createImportRoutes(db));
   app.use('/api/import', localOnlyMiddleware, createOpenCodeImportRoutes(db));
 
-  // Supervision domain
+  // Supervision domain — construct cross-domain port adapters
+  const svProjectRepo = new ProjectRepository(db);
+  const svSessionRepo = new SessionRepository(db);
+
+  const supervisionProjectPort: SupervisionProjectPort = {
+    findById: (id) => svProjectRepo.findById(id) ?? undefined,
+    findAll: () => svProjectRepo.findAll(),
+    update: (id, data) => svProjectRepo.update(id, {
+      ...data,
+      agent: data.agent === null ? undefined : data.agent,
+    }),
+  };
+  const supervisionSessionPort: SupervisionSessionPort = {
+    findById: (id) => svSessionRepo.findById(id) ?? undefined,
+    create: (data) => svSessionRepo.create(data),
+    update: (id, data) => svSessionRepo.update(id, data),
+    findByProjectRole: (projectId, role) => svSessionRepo.findByProjectRole(projectId, role),
+  };
+  const supervisionSessionModel: SupervisionSessionModelPort = {
+    buildTaskPlanningSession,
+    buildTaskExecutingSessionPatch,
+    buildTaskPlannedSessionPatch,
+    buildTaskUnlockedSessionPatch,
+  };
+
   const { supervisorService } = registerSupervisionDomain({
     db, app, authMiddleware,
     broadcast: (msg) => {
@@ -328,6 +360,9 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     activeRuns,
     aiRunPort: supervisionAiRunPort,
     systemTaskRegistry,
+    projectPort: supervisionProjectPort,
+    sessionPort: supervisionSessionPort,
+    sessionModel: supervisionSessionModel,
   });
 
   // Local PR domain

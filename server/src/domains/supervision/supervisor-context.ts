@@ -1,9 +1,9 @@
 import type { SupervisionLogEvent } from '@my-claudia/shared/features/supervision';
-import type { ProjectRepository } from '../projects/repository.js';
+import type { SupervisionProjectPort } from './ports.js';
 import { ContextManager, type ContextDocument } from './context-manager.js';
 
 interface SupervisorContextDeps {
-  projectRepo: ProjectRepository;
+  projectRepo: SupervisionProjectPort;
   pauseAgent: (projectId: string, reason: 'sync_error') => void;
   log: (
     projectId: string,

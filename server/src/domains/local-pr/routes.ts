@@ -3,7 +3,7 @@ import type { ApiResponse } from '@my-claudia/shared/core/api';
 import type { LocalPR } from '@my-claudia/shared/features/local-pr';
 import type { WorktreeConfig } from '@my-claudia/shared/core/project';
 import type { LocalPRService } from './service.js';
-import { ProjectRepository } from '../projects/repository.js';
+import { ProjectRepository } from '../projects/index.js';
 import { WorktreeConfigRepository } from '../../infrastructure/repositories/worktree-config.js';
 import type { Database } from 'better-sqlite3';
 

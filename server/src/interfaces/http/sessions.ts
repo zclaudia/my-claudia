@@ -3,18 +3,21 @@ import type Database from 'better-sqlite3';
 import type { ApiResponse } from '@my-claudia/shared/core/api';
 import type { Message } from '@my-claudia/shared/core/message';
 import type { Session } from '@my-claudia/shared/core/session';
-import { SessionRepository } from '../../domains/sessions/repository.js';
-import { hasForegroundActiveRunForSession, findForegroundActiveRunIdForSession, hasAnyActiveRunForSession } from '../../utils/run-state.js';
-import { mountSearchRoutes } from '../../domains/sessions/search-routes.js';
-import { mountMessageRoutes } from '../../domains/sessions/message-routes.js';
-import { SessionLifecycleError, SessionLifecycleService } from '../../domains/sessions/lifecycle-service.js';
-import { SessionExportError, SessionExportService } from '../../domains/sessions/export-service.js';
-import { SessionQueryError, SessionQueryService } from '../../domains/sessions/query-service.js';
-import type { SessionEventPublisherPort } from '../../domains/sessions/session-event-port.js';
 import {
+  SessionRepository,
+  mountSearchRoutes,
+  mountMessageRoutes,
+  SessionLifecycleError,
+  SessionLifecycleService,
+  SessionExportError,
+  SessionExportService,
+  SessionQueryError,
+  SessionQueryService,
   buildSessionUpdatePatch,
   isSessionValidationError,
-} from '../../domains/sessions/model.js';
+  type SessionEventPublisherPort,
+} from '../../domains/sessions/index.js';
+import { hasForegroundActiveRunForSession, findForegroundActiveRunIdForSession, hasAnyActiveRunForSession } from '../../utils/run-state.js';
 import { sendApiError } from './response.js';
 import type { ActiveRun } from '../../application/conversation/transport/types.js';
 

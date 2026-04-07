@@ -195,7 +195,7 @@ export function ChatInputArea({
           onChange={(policy) => onSetPermissionOverride(sessionId, policy)}
           disabled={isLoading}
         />
-        {currentProject?.id && currentProject?.rootPath && (
+        {!isMobile && currentProject?.id && currentProject?.rootPath && (
           <WorktreeSelector
             projectId={currentProject.id}
             projectRootPath={currentProject.rootPath}
@@ -393,40 +393,56 @@ export function ChatInputArea({
             });
           }
 
-          if (toolItems.length === 0) return undefined;
+          const hasWorktreeSelector = Boolean(currentProject?.id && currentProject?.rootPath);
+          if (!hasWorktreeSelector && toolItems.length === 0) return undefined;
 
           const hasActiveItem = toolItems.some(t => t.isActive);
           const hasBadge = toolItems.some(t => t.hasBadge);
 
           return (
-            <div className="relative" ref={mobileToolsRef}>
-              <button
-                onClick={() => setMobileToolsOpen(v => !v)}
-                className={`h-10 w-10 flex-shrink-0 flex items-center justify-center rounded-full transition-colors relative ${hasActiveItem ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                title="More tools"
-              >
-                <Plus size={20} strokeWidth={1.75} className={`transition-transform duration-200 ${mobileToolsOpen ? 'rotate-45' : ''}`} />
-                {hasBadge && (
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />
-                )}
-              </button>
-              {mobileToolsOpen && (
-                <div className="absolute bottom-full left-0 mb-2 py-1 bg-popover border border-border rounded-lg shadow-lg min-w-[160px] z-50">
-                  {toolItems.map((item) => (
-                    <button
-                      key={item.key}
-                      onClick={item.onClick}
-                      className={`w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors ${item.isActive ? 'text-primary bg-primary/5' : 'text-foreground hover:bg-muted'}`}
-                    >
-                      <span className="relative flex-shrink-0">
-                        {item.icon}
-                        {item.hasBadge && (
-                          <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
-                        )}
-                      </span>
-                      {item.label}
-                    </button>
-                  ))}
+            <div className="flex items-center gap-1.5">
+              {hasWorktreeSelector && currentProject && (
+                <WorktreeSelector
+                  projectId={currentProject.id}
+                  projectRootPath={currentProject.rootPath}
+                  currentWorktree={currentSession?.workingDirectory || ''}
+                  onChange={onWorktreeChange}
+                  disabled={isLoading}
+                  locked={isForcedPlanSession}
+                  lockReason={isForcedPlanSession ? 'Locked by Supervisor planning mode' : undefined}
+                />
+              )}
+              {toolItems.length > 0 && (
+                <div className="relative" ref={mobileToolsRef}>
+                  <button
+                    onClick={() => setMobileToolsOpen(v => !v)}
+                    className={`h-10 w-10 flex-shrink-0 flex items-center justify-center rounded-full transition-colors relative ${hasActiveItem ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                    title="More tools"
+                  >
+                    <Plus size={20} strokeWidth={1.75} className={`transition-transform duration-200 ${mobileToolsOpen ? 'rotate-45' : ''}`} />
+                    {hasBadge && (
+                      <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />
+                    )}
+                  </button>
+                  {mobileToolsOpen && (
+                    <div className="absolute bottom-full left-0 mb-2 py-1 bg-popover border border-border rounded-lg shadow-lg min-w-[160px] z-50">
+                      {toolItems.map((item) => (
+                        <button
+                          key={item.key}
+                          onClick={item.onClick}
+                          className={`w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors ${item.isActive ? 'text-primary bg-primary/5' : 'text-foreground hover:bg-muted'}`}
+                        >
+                          <span className="relative flex-shrink-0">
+                            {item.icon}
+                            {item.hasBadge && (
+                              <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
+                            )}
+                          </span>
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

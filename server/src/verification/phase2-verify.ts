@@ -11,8 +11,8 @@
 import { initDatabase } from '../infrastructure/storage/db.js';
 import { createRouter } from '../interfaces/websocket/index.js';
 import { ProjectRepository } from '../infrastructure/repositories/project.js';
-import { SessionRepository } from '../domains/sessions/repository.js';
-import { ProviderRepository } from '../domains/providers/repository.js';
+import { SessionRepository } from '../domains/sessions/index.js';
+import { ProviderRepository } from '../domains/providers/index.js';
 import { authMiddleware } from '../interfaces/http/middleware/auth.js';
 import { loggingMiddleware } from '../interfaces/http/middleware/logging.js';
 import { errorHandlingMiddleware } from '../interfaces/http/middleware/error.js';

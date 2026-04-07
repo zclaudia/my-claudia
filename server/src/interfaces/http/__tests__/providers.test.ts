@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
-import { createProviderRoutes } from '../../../domains/providers/routes.js';
+import { createProviderRoutes } from '../../../domains/providers/index.js';
 
 // Mock child_process for CLI model fetching
 const mockExecFile = vi.fn();

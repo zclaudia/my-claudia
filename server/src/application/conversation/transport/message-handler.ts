@@ -11,7 +11,7 @@ import type { TerminalManager } from '../../../terminal-manager.js';
 import type { ProcessMonitor } from '../../../utils/process-monitor.js';
 import type { initDatabase } from '../../../infrastructure/storage/db.js';
 import type { ConnectedClient, ActiveRun } from './types.js';
-import type { NotificationService } from '../../../domains/notification-feed/service.js';
+import type { NotificationService } from '../../../domains/notification-feed/index.js';
 import type { TaskCoordinationPort } from '../../../application/conversation/task-coordination-port.js';
 import type { ProviderRegistryPort } from '../../../infrastructure/providers/registry.js';
 import { sendMessage } from './broadcast.js';

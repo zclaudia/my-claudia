@@ -10,8 +10,7 @@ import type {
   SupervisorConfig,
 } from '@my-claudia/shared/features/supervision';
 import { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
-import { ProjectRepository } from '../projects/repository.js';
-import { SessionRepository } from '../sessions/repository.js';
+import type { SupervisionProjectPort, SupervisionSessionPort, SupervisionSessionModelPort } from './ports.js';
 import { ContextManager, type ContextDocument } from './context-manager.js';
 import { TaskRunner } from './task-runner.js';
 import { ReviewEngine } from './review-engine.js';
@@ -49,8 +48,9 @@ export class SupervisorService {
   constructor(
     private db: Database,
     private taskRepo: SupervisionTaskRepository,
-    private projectRepo: ProjectRepository,
-    private sessionRepo: SessionRepository,
+    private projectRepo: SupervisionProjectPort,
+    private sessionRepo: SupervisionSessionPort,
+    private sessionModel: SupervisionSessionModelPort,
     private broadcastFn: (msg: ServerMessage) => void,
     private aiRunPort: SupervisionAiRunPort,
   ) {
@@ -114,6 +114,7 @@ export class SupervisorService {
       taskRepo,
       projectRepo,
       sessionRepo,
+      sessionModel: this.sessionModel,
       taskRunner: this.taskRunner,
       worktreeManager: this.worktreeManager,
       virtualClients: this.virtualClients,
@@ -144,6 +145,7 @@ export class SupervisorService {
       taskRepo,
       projectRepo,
       sessionRepo,
+      sessionModel: this.sessionModel,
       pauseAgent: (projectId, reason) => this.guards.pauseAgent(projectId, reason),
       broadcastTaskUpdate: broadcastTaskUpdateFn,
       broadcastAgentUpdate: (projectId, agent) => this.broadcastAgentUpdate(projectId, agent),
@@ -172,6 +174,7 @@ export class SupervisorService {
       taskRepo,
       projectRepo,
       sessionRepo,
+      sessionModel: this.sessionModel,
       taskScheduler: this.taskScheduler,
       worktreeManager: this.worktreeManager,
       virtualClients: this.virtualClients,

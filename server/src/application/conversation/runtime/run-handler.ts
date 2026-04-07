@@ -9,7 +9,7 @@ import type { ProviderRegistryPort } from '../../../infrastructure/providers/reg
 import { createTraceRecorder } from '../../../utils/provider-trace.js';
 import type { initDatabase } from '../../../infrastructure/storage/db.js';
 import { PushNotificationService } from '../../../infrastructure/push/push-notification-service.js';
-import type { NotificationService } from '../../../domains/notification-feed/service.js';
+import type { NotificationService } from '../../../domains/notification-feed/index.js';
 import { ProcessMonitor } from '../../../utils/process-monitor.js';
 import { consumeProviderStream } from './consume-provider-stream.js';
 import { initializeRunBootstrap, type RunStartMessage } from './run-bootstrap.js';

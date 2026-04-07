@@ -97,6 +97,38 @@ const mockSupervisionAiRunPort = {
   startVirtualRun: vi.fn(),
 };
 
+const mockSessionModel = {
+  buildTaskPlanningSession: vi.fn((seed: any) => ({
+    projectId: seed.projectId,
+    name: seed.title,
+    type: 'background' as const,
+    parentSessionId: seed.parentSessionId ?? null,
+    providerId: seed.providerId ?? null,
+    workingDirectory: seed.workingDirectory ?? null,
+    projectRole: 'task_planning',
+    planStatus: 'drafting',
+    taskId: seed.taskId,
+    isReadOnly: true,
+    systemPrompt: null,
+    sdkSessionId: null,
+    lastRunStatus: null,
+    archivedAt: null,
+  })),
+  buildTaskExecutingSessionPatch: vi.fn((wd: string) => ({
+    workingDirectory: wd,
+    planStatus: null,
+    isReadOnly: false,
+  })),
+  buildTaskPlannedSessionPatch: vi.fn(() => ({
+    planStatus: 'approved',
+    isReadOnly: false,
+  })),
+  buildTaskUnlockedSessionPatch: vi.fn(() => ({
+    planStatus: null,
+    isReadOnly: false,
+  })),
+};
+
 function createTestDb(): Database.Database {
   const db = new Database(':memory:');
   db.pragma('journal_mode = WAL');
@@ -251,7 +283,7 @@ describe('SupervisorService', () => {
     projectRepo = new ProjectRepository(db);
     sessionRepo = new SessionRepository(db);
     broadcastFn = vi.fn();
-    service = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, broadcastFn, mockSupervisionAiRunPort as any);
+    service = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, mockSessionModel, broadcastFn, mockSupervisionAiRunPort as any);
   });
 
   afterAll(() => {
@@ -2209,7 +2241,7 @@ describe('SupervisorService', () => {
       // Session should exist
       const session = sessionRepo.findById(result.sessionId);
       expect(session).toBeDefined();
-      expect(session!.projectRole).toBe('task');
+      expect(session!.projectRole).toBe('task_planning');
     });
 
     it('returns existing session if task already has one', () => {
@@ -2340,7 +2372,7 @@ describe('SupervisorService', () => {
 
       // Session should be planned
       const session = sessionRepo.findById(sessionId);
-      expect(session!.planStatus).toBe('planned');
+      expect(session!.planStatus).toBe('approved');
     });
 
     it('throws when task not found', () => {
@@ -3187,14 +3219,14 @@ describe('SupervisorService', () => {
   describe('lifecycle start/stop', () => {
     it('start() is idempotent — calling twice does not create duplicate intervals', () => {
       // Use a separate service to avoid interfering with the shared one
-      const svc = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, vi.fn(), mockSupervisionAiRunPort as any);
+      const svc = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, mockSessionModel, vi.fn(), mockSupervisionAiRunPort as any);
       svc.start(60000); // Long interval to avoid actual ticks
       svc.start(60000); // Should be no-op
       svc.stop();
     });
 
     it('stop() clears interval and destroys worktree pools', () => {
-      const svc = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, vi.fn(), mockSupervisionAiRunPort as any);
+      const svc = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, mockSessionModel, vi.fn(), mockSupervisionAiRunPort as any);
       svc.start(60000);
 
       // Force a pool creation
@@ -3208,7 +3240,7 @@ describe('SupervisorService', () => {
     });
 
     it('stop() without start() does not throw', () => {
-      const svc = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, vi.fn(), mockSupervisionAiRunPort as any);
+      const svc = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, mockSessionModel, vi.fn(), mockSupervisionAiRunPort as any);
       svc.stop(); // Should not throw
     });
   });

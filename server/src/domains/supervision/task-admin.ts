@@ -6,10 +6,8 @@ import type {
   TaskStatus,
 } from '@my-claudia/shared/features/supervision';
 import type { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
-import type { ProjectRepository } from '../projects/repository.js';
-import type { SessionRepository } from '../sessions/repository.js';
+import type { SupervisionProjectPort, SupervisionSessionPort, SupervisionSessionModelPort } from './ports.js';
 import { computeNextCronRun } from '../../utils/cron.js';
-import { buildTaskPlanningSession } from '../sessions/model.js';
 import { assertTaskStatus, assertTaskTransition } from './status-machine.js';
 import {
   resolveCreatedTaskStatus,
@@ -35,8 +33,9 @@ interface CreateTaskInput {
 
 interface TaskAdminDeps {
   taskRepo: SupervisionTaskRepository;
-  projectRepo: ProjectRepository;
-  sessionRepo: SessionRepository;
+  projectRepo: SupervisionProjectPort;
+  sessionRepo: SupervisionSessionPort;
+  sessionModel: SupervisionSessionModelPort;
   pauseAgent: (projectId: string, reason: 'budget') => void;
   broadcastTaskUpdate: (taskId: string, projectId: string) => void;
   broadcastAgentUpdate: (projectId: string, agent: ProjectAgent) => void;
@@ -133,14 +132,14 @@ export class TaskAdmin {
 
     const project = this.deps.projectRepo.findById(task.projectId);
     const taskSession = this.deps.sessionRepo.create(
-      buildTaskPlanningSession({
+      this.deps.sessionModel.buildTaskPlanningSession({
         projectId: task.projectId,
         title: task.title,
         taskId: task.id,
         parentSessionId: project?.agent?.mainSessionId,
         providerId: project?.providerId,
         workingDirectory: project?.rootPath,
-      }) as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>,
+      }),
     );
 
     assertTaskTransition(task.status, 'planning');

@@ -1,13 +1,13 @@
 import type { Database } from 'better-sqlite3';
 import type { ProjectAgent, SupervisionLogEvent } from '@my-claudia/shared/features/supervision';
 import type { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
-import type { ProjectRepository } from '../projects/repository.js';
+import type { SupervisionProjectPort } from './ports.js';
 import { canPauseAgentPhase } from './model.js';
 
 export interface SupervisorGuardsDeps {
   db: Database;
   taskRepo: SupervisionTaskRepository;
-  projectRepo: ProjectRepository;
+  projectRepo: SupervisionProjectPort;
   broadcastAgentUpdate: (projectId: string, agent: ProjectAgent) => void;
   log: (projectId: string, event: SupervisionLogEvent, detail?: Record<string, unknown>, taskId?: string) => void;
 }

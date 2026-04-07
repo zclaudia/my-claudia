@@ -1,11 +1,11 @@
 import type { initDatabase } from '../../infrastructure/storage/db.js';
 import type { ConnectedClient, ActiveRun } from '../conversation/transport/types.js';
 import { sendMessage } from '../conversation/transport/broadcast.js';
-import { SessionRepository } from '../../domains/sessions/repository.js';
+import { SessionRepository } from '../../domains/sessions/index.js';
 import { registerTaskTools } from '../conversation/agent-tools/task-tools.js';
 import { createTaskOrchestrator } from './task-orchestrator.js';
 import type { TaskOrchestrator } from './types.js';
-import type { NotificationService } from '../../domains/notification-feed/service.js';
+import type { NotificationService } from '../../domains/notification-feed/index.js';
 
 export interface OrchestrationDomainDeps {
   db: ReturnType<typeof initDatabase>;

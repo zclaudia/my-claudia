@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ProviderRepository } from '../../../domains/providers/repository.js';
+import { ProviderRepository } from '../../../domains/providers/index.js';
 import type { Database } from 'better-sqlite3';
 
 describe('ProviderRepository', () => {

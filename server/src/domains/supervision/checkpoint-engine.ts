@@ -7,8 +7,7 @@ import type {
   SupervisionLogEvent,
 } from '@my-claudia/shared/features/supervision';
 import { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
-import { ProjectRepository } from '../projects/repository.js';
-import { SessionRepository } from '../sessions/repository.js';
+import type { SupervisionProjectPort, SupervisionSessionPort } from './ports.js';
 import type { ContextManager, CheckpointTrigger } from './context-manager.js';
 import type { SupervisionAiRunPort } from './ports.js';
 
@@ -27,8 +26,8 @@ export class CheckpointEngine {
   constructor(
     private db: Database,
     private taskRepo: SupervisionTaskRepository,
-    private projectRepo: ProjectRepository,
-    private sessionRepo: SessionRepository,
+    private projectRepo: SupervisionProjectPort,
+    private sessionRepo: SupervisionSessionPort,
     private getContextManager: (projectId: string) => ContextManager,
     private broadcastFn: (msg: ServerMessage) => void,
     private logFn: (

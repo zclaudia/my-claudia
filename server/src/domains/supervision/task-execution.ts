@@ -5,23 +5,19 @@ import type { Session } from '@my-claudia/shared/core/session';
 import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 import type { SupervisionLogEvent, SupervisionTask } from '@my-claudia/shared/features/supervision';
 import type { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
-import type { ProjectRepository } from '../projects/repository.js';
-import type { SessionRepository } from '../sessions/repository.js';
+import type { SupervisionProjectPort, SupervisionSessionPort, SupervisionSessionModelPort } from './ports.js';
 import type { ContextManager } from './context-manager.js';
 import type { WorktreeManager } from './worktree-manager.js';
 import type { TaskScheduler } from './task-scheduler.js';
 import type { SupervisionAiRunPort } from './ports.js';
-import {
-  buildTaskExecutingSessionPatch,
-  buildTaskPlanningSession,
-} from '../sessions/model.js';
 import { assertTaskTransition } from './status-machine.js';
 
 interface TaskExecutionDeps {
   db: Database;
   taskRepo: SupervisionTaskRepository;
-  projectRepo: ProjectRepository;
-  sessionRepo: SessionRepository;
+  projectRepo: SupervisionProjectPort;
+  sessionRepo: SupervisionSessionPort;
+  sessionModel: SupervisionSessionModelPort;
   taskScheduler: TaskScheduler;
   worktreeManager: WorktreeManager;
   virtualClients: Map<string, unknown>;
@@ -199,25 +195,26 @@ export class TaskExecution {
     if (task.sessionId) {
       const existing = this.deps.sessionRepo.findById(task.sessionId);
       if (existing) {
+        const patch = this.deps.sessionModel.buildTaskExecutingSessionPatch(workingDirectory);
         this.deps.sessionRepo.update(
           existing.id,
-          buildTaskExecutingSessionPatch(workingDirectory) as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>,
+          patch as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>,
         );
         return {
           ...existing,
-          ...buildTaskExecutingSessionPatch(workingDirectory),
+          ...patch,
         };
       }
     }
 
     return this.deps.sessionRepo.create({
-      ...buildTaskPlanningSession({
+      ...this.deps.sessionModel.buildTaskPlanningSession({
         projectId: task.projectId,
         title: task.title,
         taskId: task.id,
         workingDirectory,
       }),
-      ...buildTaskExecutingSessionPatch(workingDirectory),
+      ...this.deps.sessionModel.buildTaskExecutingSessionPatch(workingDirectory),
     } as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>);
   }
 
@@ -230,14 +227,14 @@ export class TaskExecution {
     }
 
     return this.deps.sessionRepo.create(
-      buildTaskPlanningSession({
+      this.deps.sessionModel.buildTaskPlanningSession({
         projectId: task.projectId,
         title: task.title,
         taskId: task.id,
         parentSessionId: project.agent?.mainSessionId,
         providerId: project.providerId,
         workingDirectory: project.rootPath,
-      }) as Omit<Session, 'id' | 'createdAt' | 'updatedAt'>,
+      }),
     );
   }
 

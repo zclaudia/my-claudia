@@ -4,7 +4,7 @@ import request from 'supertest';
 import { createLocalPRRoutes } from '../local-prs.js';
 
 // Mock repositories as classes
-vi.mock('../../../domains/projects/repository.js', () => {
+vi.mock('../../../domains/projects/index.js', () => {
   return {
     ProjectRepository: class MockProjectRepo {
       update = vi.fn().mockReturnValue({ id: 'proj-1', reviewProviderId: 'provider-1' });

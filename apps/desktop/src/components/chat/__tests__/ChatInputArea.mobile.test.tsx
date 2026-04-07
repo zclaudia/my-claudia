@@ -208,6 +208,7 @@ describe('ChatInputArea mobile selectors', () => {
 
     expect(screen.getByLabelText('Mode: Agent')).toBeTruthy();
     expect(screen.getByTitle('Claude Sonnet')).toBeTruthy();
+    expect(screen.getByTestId('worktree-selector')).toBeTruthy();
 
     fireEvent.click(screen.getByTitle('More tools'));
     expect(screen.getByText('Terminal')).toBeTruthy();

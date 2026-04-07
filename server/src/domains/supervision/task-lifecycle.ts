@@ -2,17 +2,11 @@ import type { Session } from '@my-claudia/shared/core/session';
 import type { RunFailedMessage, ServerMessage } from '@my-claudia/shared/protocol/messages';
 import type { ProjectAgent, SupervisionLogEvent } from '@my-claudia/shared/features/supervision';
 import { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
-import { ProjectRepository } from '../projects/repository.js';
-import { SessionRepository } from '../sessions/repository.js';
+import type { SupervisionProjectPort, SupervisionSessionPort, SupervisionSessionModelPort } from './ports.js';
 import { TaskRunner } from './task-runner.js';
 import { WorktreeManager } from './worktree-manager.js';
 import type { CheckpointEngine } from './checkpoint-engine.js';
-import { getReviewRejectionOutcome } from './model.js';
-import {
-  buildTaskPlannedSessionPatch,
-  buildTaskUnlockedSessionPatch,
-} from '../sessions/model.js';
-import { shouldTransitionAgentToActive } from './model.js';
+import { getReviewRejectionOutcome, shouldTransitionAgentToActive } from './model.js';
 import {
   assertTaskStatus,
   assertTaskStatusIn,
@@ -22,8 +16,9 @@ import {
 
 interface TaskLifecycleDeps {
   taskRepo: SupervisionTaskRepository;
-  projectRepo: ProjectRepository;
-  sessionRepo: SessionRepository;
+  projectRepo: SupervisionProjectPort;
+  sessionRepo: SupervisionSessionPort;
+  sessionModel: SupervisionSessionModelPort;
   taskRunner: TaskRunner;
   worktreeManager: WorktreeManager;
   virtualClients: Map<string, unknown>;
@@ -173,7 +168,7 @@ export class TaskLifecycle {
       if (task?.sessionId) {
         this.deps.sessionRepo.update(
           task.sessionId,
-          buildTaskUnlockedSessionPatch() as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>,
+          this.deps.sessionModel.buildTaskUnlockedSessionPatch() as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>,
         );
       }
     } catch (err) {
@@ -203,7 +198,7 @@ export class TaskLifecycle {
 
     this.deps.sessionRepo.update(
       session.id,
-      buildTaskPlannedSessionPatch() as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>,
+      this.deps.sessionModel.buildTaskPlannedSessionPatch() as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>,
     );
 
     assertTaskTransition('planning', 'queued');

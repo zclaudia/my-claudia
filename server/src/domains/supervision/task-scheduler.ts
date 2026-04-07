@@ -10,8 +10,7 @@ import type {
   SupervisionLogEvent,
 } from '@my-claudia/shared/features/supervision';
 import type { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
-import type { ProjectRepository } from '../projects/repository.js';
-import type { SessionRepository } from '../sessions/repository.js';
+import type { SupervisionProjectPort, SupervisionSessionPort } from './ports.js';
 import type { CheckpointEngine } from './checkpoint-engine.js';
 import { computeNextCronRun } from '../../utils/cron.js';
 import { assertTaskTransition } from './status-machine.js';
@@ -25,8 +24,8 @@ import {
 export interface TaskSchedulerDeps {
   db: Database;
   taskRepo: SupervisionTaskRepository;
-  projectRepo: ProjectRepository;
-  sessionRepo: SessionRepository;
+  projectRepo: SupervisionProjectPort;
+  sessionRepo: SupervisionSessionPort;
   broadcastTaskUpdate: (taskId: string, projectId: string) => void;
   broadcastAgentUpdate: (projectId: string, agent: ProjectAgent) => void;
   broadcastSessionCreated: (session: Session) => void;

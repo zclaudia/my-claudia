@@ -16,7 +16,7 @@ import type {
 } from '@my-claudia/shared/protocol/messages';
 import type { ConnectedClient, ActiveRun } from '../transport/types.js';
 import type { initDatabase } from '../../../infrastructure/storage/db.js';
-import type { NotificationService } from '../../../domains/notification-feed/service.js';
+import type { NotificationService } from '../../../domains/notification-feed/index.js';
 import type { TaskCoordinationPort } from '../../../application/conversation/task-coordination-port.js';
 import { sendMessage } from '../transport/broadcast.js';
 

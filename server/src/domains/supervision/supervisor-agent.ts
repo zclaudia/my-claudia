@@ -6,8 +6,7 @@ import type {
   SupervisorConfig,
 } from '@my-claudia/shared/features/supervision';
 import type { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
-import type { ProjectRepository } from '../projects/repository.js';
-import type { SessionRepository } from '../sessions/repository.js';
+import type { SupervisionProjectPort, SupervisionSessionPort } from './ports.js';
 import type { ContextManager } from './context-manager.js';
 import type { WorktreeManager } from './worktree-manager.js';
 import {
@@ -19,8 +18,8 @@ import {
 
 interface SupervisorAgentDeps {
   taskRepo: SupervisionTaskRepository;
-  projectRepo: ProjectRepository;
-  sessionRepo: SessionRepository;
+  projectRepo: SupervisionProjectPort;
+  sessionRepo: SupervisionSessionPort;
   worktreeManager: WorktreeManager;
   getContextManager: (projectId: string, rootPath: string) => ContextManager;
   broadcastSessionCreated: (session: Session) => void;

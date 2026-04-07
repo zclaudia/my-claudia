@@ -13,10 +13,14 @@ import { StateRecovery } from './state-recovery.js';
 import { CheckpointEngine } from './checkpoint-engine.js';
 import { ContextManager } from './context-manager.js';
 import { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
-import { ProjectRepository } from '../projects/repository.js';
-import { SessionRepository } from '../sessions/repository.js';
 import { createSupervisionRoutes } from './routes.js';
-import type { SupervisionAiRunPort, SupervisionSchedulingPort } from './ports.js';
+import type {
+  SupervisionAiRunPort,
+  SupervisionSchedulingPort,
+  SupervisionProjectPort,
+  SupervisionSessionPort,
+  SupervisionSessionModelPort,
+} from './ports.js';
 export interface SupervisionDomainDeps {
   db: ReturnType<typeof initDatabase>;
   app: Express;
@@ -25,6 +29,9 @@ export interface SupervisionDomainDeps {
   activeRuns: Map<string, { runId: string; clientId: string }>;
   aiRunPort: SupervisionAiRunPort;
   systemTaskRegistry: SupervisionSchedulingPort;
+  projectPort: SupervisionProjectPort;
+  sessionPort: SupervisionSessionPort;
+  sessionModel: SupervisionSessionModelPort;
 }
 
 export interface SupervisionDomainResult {
@@ -32,16 +39,17 @@ export interface SupervisionDomainResult {
 }
 
 export function registerSupervisionDomain(deps: SupervisionDomainDeps): SupervisionDomainResult {
-  const { db, app, authMiddleware, broadcast, activeRuns, aiRunPort, systemTaskRegistry } = deps;
+  const {
+    db, app, authMiddleware, broadcast, activeRuns, aiRunPort, systemTaskRegistry,
+    projectPort, sessionPort, sessionModel,
+  } = deps;
 
-  // Repositories
+  // Repositories (supervision's own)
   const taskRepo = new SupervisionTaskRepository(db);
-  const projectRepo = new ProjectRepository(db);
-  const sessionRepo = new SessionRepository(db);
 
   // SupervisorService
   const supervisorService = new SupervisorService(
-    db, taskRepo, projectRepo, sessionRepo, broadcast, aiRunPort,
+    db, taskRepo, projectPort, sessionPort, sessionModel, broadcast, aiRunPort,
   );
 
   // Mount routes on both prefixes
@@ -50,7 +58,7 @@ export function registerSupervisionDomain(deps: SupervisionDomainDeps): Supervis
 
   // State recovery — re-hydrate stuck tasks before starting polling
   const stateRecovery = new StateRecovery(
-    db, taskRepo, sessionRepo, projectRepo, supervisorService, activeRuns,
+    db, taskRepo, sessionPort, projectPort, supervisorService, activeRuns,
   );
   const recoveryReport = stateRecovery.recover();
   if (recoveryReport.actions.length > 0) {
@@ -59,9 +67,9 @@ export function registerSupervisionDomain(deps: SupervisionDomainDeps): Supervis
 
   // CheckpointEngine
   const checkpointEngine = new CheckpointEngine(
-    db, taskRepo, projectRepo, sessionRepo,
+    db, taskRepo, projectPort, sessionPort,
     (projectId: string) => {
-      const project = projectRepo.findById(projectId);
+      const project = projectPort.findById(projectId);
       if (!project?.rootPath) throw new Error(`Project ${projectId} has no rootPath`);
       return new ContextManager(project.rootPath);
     },

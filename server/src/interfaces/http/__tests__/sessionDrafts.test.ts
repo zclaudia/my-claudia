@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
-import { createSessionDraftRoutes } from '../../../domains/sessions/drafts-routes.js';
+import { createSessionDraftRoutes } from '../../../domains/sessions/index.js';
 
 function createTestDb(): Database.Database {
   const db = new Database(':memory:');

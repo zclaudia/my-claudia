@@ -1,4 +1,10 @@
 export { createSupervisionRoutes } from './routes.js';
-export { registerSupervisionDomain } from './register.js';
-// Re-export key types from services
+export { registerSupervisionDomain, type SupervisionDomainDeps, type SupervisionDomainResult } from './register.js';
 export { SupervisorService } from './supervisor-service.js';
+export type {
+  SupervisionAiRunPort,
+  SupervisionSchedulingPort,
+  SupervisionProjectPort,
+  SupervisionSessionPort,
+  SupervisionSessionModelPort,
+} from './ports.js';

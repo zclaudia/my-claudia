@@ -1,8 +1,7 @@
 import type { Database } from 'better-sqlite3';
 import type { TaskStatus } from '@my-claudia/shared/features/supervision';
 import { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
-import { SessionRepository } from '../sessions/repository.js';
-import { ProjectRepository } from '../projects/repository.js';
+import type { SupervisionProjectPort, SupervisionSessionPort } from './ports.js';
 import type { SupervisorService } from './supervisor-service.js';
 import {
   assertTaskTransition,
@@ -29,8 +28,8 @@ export class StateRecovery {
   constructor(
     private db: Database,
     private taskRepo: SupervisionTaskRepository,
-    private sessionRepo: SessionRepository,
-    private projectRepo: ProjectRepository,
+    private sessionRepo: SupervisionSessionPort,
+    private projectRepo: SupervisionProjectPort,
     private supervisorService: SupervisorService,
     private activeRuns: Map<string, unknown>,
   ) {}

@@ -143,7 +143,7 @@ let processMonitor: ProcessMonitor | null = null;
 let connectedClients = new Map<string, ConnectedClient>();
 let pushNotificationService: PushNotificationService;
 let serverPort: number | null = null;
-let notificationsService: import('./domains/notification-feed/service.js').NotificationService | undefined;
+let notificationsService: import('./domains/notification-feed/index.js').NotificationService | undefined;
 let taskOrchestrator: import('./application/orchestration/types.js').TaskOrchestrator | undefined;
 let branchAllocator: ClaudiaBranchService | undefined;
 let facadeHubRef: import('./infrastructure/gateway/ws-hub.js').FacadeWsHub | null = null;
