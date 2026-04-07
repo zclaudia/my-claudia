@@ -1,6 +1,8 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { ModelInfo } from '@anthropic-ai/claude-agent-sdk';
-import type { ProviderConfig, PermissionRequest, PermissionMode, MessageInput, MessageAttachment } from '@my-claudia/shared';
+import type { ProviderConfig, PermissionMode } from '@my-claudia/shared/core/provider';
+import type { PermissionRequest } from '@my-claudia/shared/interaction/permissions';
+import type { MessageInput, MessageAttachment } from '@my-claudia/shared/core/message';
 import type { PermissionDecision, PermissionCallback, SystemInfo, ClaudeMessage } from './message-types.js';
 export type { PermissionDecision, PermissionCallback, SystemInfo, ClaudeMessage };
 import { fileStore } from '../storage/fileStore.js';

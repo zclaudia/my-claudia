@@ -1,14 +1,16 @@
 import type {
   AgentPermissionInterceptedMessage,
-  UnifiedPermissionPolicy,
-  AskUserQuestionItem,
   BackgroundPermissionPendingMessage,
   BackgroundTaskUpdateMessage,
   PermissionAutoResolvedMessage,
-  PermissionRequest,
   PromptRequestMessage,
-} from '@my-claudia/shared';
-import { DEFAULT_UNIFIED_POLICY } from '@my-claudia/shared';
+} from '@my-claudia/shared/protocol/messages';
+import type {
+  UnifiedPermissionPolicy,
+  PermissionRequest,
+} from '@my-claudia/shared/interaction/permissions';
+import { DEFAULT_UNIFIED_POLICY } from '@my-claudia/shared/interaction/permissions';
+import type { AskUserQuestionItem } from '@my-claudia/shared/interaction/forms';
 import {
   buildRememberKey,
   classify,
@@ -29,7 +31,7 @@ import type { PermissionDecision } from '../../../providers/types.js';
 import { PERMISSION_TIMEOUT_POLICIES, type ActiveRun } from './types.js';
 import { broadcastRunMessage } from './broadcast.js';
 import { normalizeFromAskUser } from '../interactions/interaction-normalizer.js';
-import type { PushNotificationService } from '../../notification/notification-service.js';
+import type { PushNotificationService } from '../../../infrastructure/push/push-notification-service.js';
 
 interface SessionContext {
   project_id: string;
@@ -53,11 +55,11 @@ export interface CreatePermissionCallbackInput {
     requestId: string;
     toolName: string;
     detail: string;
-    result: import('@my-claudia/shared').AIReviewResult;
+    result: import('@my-claudia/shared/interaction/permissions').AIReviewResult;
   }) => void;
   providerType: string;
   runId: string;
-  sendRunEvent: (event: import('@my-claudia/shared').ServerMessage) => void;
+  sendRunEvent: (event: import('@my-claudia/shared/protocol/messages').ServerMessage) => void;
   session: SessionContext;
   sessionType: 'regular' | 'background' | 'agent';
 }
@@ -351,14 +353,14 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
                     reasoning: aiResult.reasoning,
                     confidence: aiResult.confidence,
                     metadata: aiResult.metadata,
-                  } as import('@my-claudia/shared').AIReviewCompletedMessage;
+                  } as import('@my-claudia/shared/protocol/messages').AIReviewCompletedMessage;
                   broadcastRunMessage(activeRun, reviewEvent);
                   console.log(`[AI Review] ${aiResult.decision} ${request.requestId} (${request.toolName}): ${aiResult.reasoning} — keeping pending for user`);
                 }
               } catch (err) {
                 console.error('[AI Review] Failed:', err);
                 if (activeRun.pendingPermissions.has(request.requestId)) {
-                  const failEvent: import('@my-claudia/shared').AIReviewCompletedMessage = {
+                  const failEvent: import('@my-claudia/shared/protocol/messages').AIReviewCompletedMessage = {
                     type: 'ai_review_completed',
                     requestId: request.requestId,
                     sessionId: message.sessionId,
@@ -457,7 +459,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
                 credentialHint: 'sudo_password',
               }),
               ...(aiInitiated && { aiInitiated: true }),
-            } as import('@my-claudia/shared').PermissionRequestMessage);
+            } as import('@my-claudia/shared/protocol/messages').PermissionRequestMessage);
             console.log(`[Permission] Sent permission request ${request.requestId} to client${requestRequiresCredential ? ' (requires sudo credential)' : ''}${aiInitiated ? ' (ai-initiated, auto-approve on timeout)' : ''}`);
             notificationService.notify({
               type: 'permission_request',

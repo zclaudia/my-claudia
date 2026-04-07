@@ -3,8 +3,8 @@ import type {
   MarkNotificationsReadMessage,
   DismissNotificationsMessage,
   NotificationListMessage,
-} from '@my-claudia/shared';
-import type { NotificationService } from '../../../../domains/notification/service.js';
+} from '@my-claudia/shared/protocol/messages';
+import type { NotificationService } from '../../../../domains/notification-feed/service.js';
 import type { ConnectedClient } from '../types.js';
 import { sendMessage } from '../broadcast.js';
 

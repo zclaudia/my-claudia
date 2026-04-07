@@ -9,8 +9,8 @@
 
 import { initDatabase } from '../storage/db.js';
 import { ProjectRepository } from '../repositories/project.js';
-import type { Request, Response } from '@my-claudia/shared';
-import { isRequest, isResponse, createRequest, createResponse } from '@my-claudia/shared';
+import type { Request, Response } from '@my-claudia/shared/protocol/correlation';
+import { isRequest, isResponse, createRequest, createResponse } from '@my-claudia/shared/protocol/correlation';
 import {
   composeMiddleware,
   successResponse,

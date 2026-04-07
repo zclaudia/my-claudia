@@ -55,7 +55,7 @@ import { SupervisionTaskRepository } from '../../../repositories/supervision-tas
 import { ProjectRepository } from '../../../repositories/project.js';
 import { SessionRepository } from '../../sessions/repository.js';
 import { ContextManager } from '../context-manager.js';
-import type { ProjectAgent, SupervisionTask, TaskResult, ReviewVerdict, MergeResult } from '@my-claudia/shared';
+import type { ProjectAgent, SupervisionTask, TaskResult, ReviewVerdict, MergeResult } from '@my-claudia/shared/features/supervision';
 
 // ========================================
 // Test DB setup

@@ -4,10 +4,10 @@
  */
 
 import type Database from 'better-sqlite3';
-import { toolRegistry } from '../../plugins/index.js';
-import type { TaskOrchestrator } from '../../orchestration/types.js';
+import { toolRegistry } from '../../../application/plugins/index.js';
+import type { AgentTaskPort } from '../../../application/conversation/agent-task-port.js';
 
-export function registerTaskTools(orchestrator: TaskOrchestrator, getDb: () => Database.Database): void {
+export function registerTaskTools(agentTasks: AgentTaskPort, getDb: () => Database.Database): void {
   // ============================================
   // spawn_task — create a sub-task
   // ============================================
@@ -40,7 +40,7 @@ export function registerTaskTools(orchestrator: TaskOrchestrator, getDb: () => D
         projectId = row?.project_id;
       }
 
-      const taskId = await orchestrator.spawnTask(null, {
+      const taskId = await agentTasks.spawnTask(null, {
         task: args.task as string,
         projectId,
         contextTemplate: 'agent',
@@ -48,7 +48,7 @@ export function registerTaskTools(orchestrator: TaskOrchestrator, getDb: () => D
       });
 
       if (args.wait) {
-        const result = await orchestrator.waitForTask(taskId, 10 * 60 * 1000);
+        const result = await agentTasks.waitForTask(taskId, 10 * 60 * 1000);
         return JSON.stringify(result);
       }
 
@@ -80,7 +80,7 @@ export function registerTaskTools(orchestrator: TaskOrchestrator, getDb: () => D
     },
     handler: async (args) => {
       try {
-        await orchestrator.steerTask(args.task_id as string, args.instruction as string);
+        await agentTasks.steerTask(args.task_id as string, args.instruction as string);
         return JSON.stringify({ success: true });
       } catch (err: unknown) {
         return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
@@ -111,7 +111,7 @@ export function registerTaskTools(orchestrator: TaskOrchestrator, getDb: () => D
     },
     handler: async (args) => {
       try {
-        await orchestrator.killTask(args.task_id as string);
+        await agentTasks.killTask(args.task_id as string);
         return JSON.stringify({ success: true, killed: args.task_id });
       } catch (err: unknown) {
         return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
@@ -140,7 +140,7 @@ export function registerTaskTools(orchestrator: TaskOrchestrator, getDb: () => D
       },
     },
     handler: async (args) => {
-      const tasks = orchestrator.listTasks(args.parent_id as string | undefined);
+      const tasks = agentTasks.listTasks(args.parent_id as string | undefined);
       return JSON.stringify(tasks.map(t => ({
         id: t.id,
         kind: t.kind,
@@ -178,10 +178,10 @@ export function registerTaskTools(orchestrator: TaskOrchestrator, getDb: () => D
     handler: async (args) => {
       try {
         if (args.wait) {
-          const result = await orchestrator.waitForTask(args.task_id as string, 10 * 60 * 1000);
+          const result = await agentTasks.waitForTask(args.task_id as string, 10 * 60 * 1000);
           return JSON.stringify(result);
         }
-        const result = await orchestrator.getTaskResult(args.task_id as string);
+        const result = await agentTasks.getTaskResult(args.task_id as string);
         return JSON.stringify(result);
       } catch (err: unknown) {
         return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });

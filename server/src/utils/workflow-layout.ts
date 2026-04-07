@@ -5,7 +5,7 @@
  * Nodes are arranged vertically (top-to-bottom) with horizontal spreading for branches.
  */
 
-import type { WorkflowNodeDef, WorkflowEdgeDef } from '@my-claudia/shared';
+import type { WorkflowNodeDef, WorkflowEdgeDef } from '@my-claudia/shared/features/workflows';
 
 const LAYER_GAP_Y = 150;
 const NODE_GAP_X = 250;

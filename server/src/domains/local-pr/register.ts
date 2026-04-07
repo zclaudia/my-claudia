@@ -7,20 +7,17 @@
 
 import type { Express } from 'express';
 import type { RequestHandler } from 'express';
-import type { ServerMessage } from '@my-claudia/shared';
+import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 import type { initDatabase } from '../../storage/db.js';
 import { LocalPRService } from './service.js';
 import { createLocalPRRoutes } from './routes.js';
 import { systemTaskRegistry } from '../../services/system-task-registry.js';
 import { pluginEvents } from '../../events/index.js';
-import { sendMessage } from '../conversation/ws/broadcast.js';
-import type { ConnectedClient } from '../conversation/ws/types.js';
-
 export interface LocalPRDomainDeps {
   db: ReturnType<typeof initDatabase>;
   app: Express;
   authMiddleware: RequestHandler;
-  clients: Map<string, ConnectedClient>;
+  broadcast: (projectId: string, msg: ServerMessage) => void;
   onProjectChanged?: () => void;
   /** Check if a worktree slot is available for a project */
   isWorktreeAvailable: (projectId: string) => boolean;
@@ -40,13 +37,7 @@ export interface LocalPRDomainResult {
 }
 
 export function registerLocalPRDomain(deps: LocalPRDomainDeps): LocalPRDomainResult {
-  const { db, app, authMiddleware, clients, isWorktreeAvailable, startAISession, onProjectChanged } = deps;
-
-  const broadcast = (projectId: string, message: ServerMessage) => {
-    clients.forEach((client) => {
-      if (client.authenticated) sendMessage(client.ws, message);
-    });
-  };
+  const { db, app, authMiddleware, broadcast, isWorktreeAvailable, startAISession, onProjectChanged } = deps;
 
   const localPRService = new LocalPRService(db, broadcast, {
     startAISession,

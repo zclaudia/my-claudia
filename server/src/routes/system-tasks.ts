@@ -3,7 +3,8 @@
  */
 
 import { Router, Request, Response } from 'express';
-import type { ApiResponse, SystemTaskInfo } from '@my-claudia/shared';
+import type { ApiResponse } from '@my-claudia/shared/core/api';
+import type { SystemTaskInfo } from '@my-claudia/shared/features/system-tasks';
 import { systemTaskRegistry } from '../services/system-task-registry.js';
 
 export function createSystemTaskRoutes(): Router {

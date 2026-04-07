@@ -1,9 +1,9 @@
 import { WebSocket } from 'ws';
-import type { ServerMessage, StateHeartbeatMessage, RunHealthStatus } from '@my-claudia/shared';
-import { resolvePluginPlatform } from '@my-claudia/shared';
+import type { ServerMessage, StateHeartbeatMessage, RunHealthStatus } from '@my-claudia/shared/protocol/messages';
+import { resolvePluginPlatform } from '@my-claudia/shared/plugin-types';
 import { detectLoop } from '../../../loop-detection.js';
-import { pluginLoader } from '../../plugins/index.js';
-import { permissionManager as pluginPermissionManager, toolRegistry as pluginToolRegistry } from '../../plugins/index.js';
+import { pluginLoader } from '../../../application/plugins/index.js';
+import { permissionManager as pluginPermissionManager, toolRegistry as pluginToolRegistry } from '../../../application/plugins/index.js';
 import { commandRegistry as pluginCommandRegistry } from '../../../commands/registry.js';
 import type { ConnectedClient, ActiveRun } from './types.js';
 
@@ -135,7 +135,7 @@ export function broadcastHeartbeat(
 }
 
 /** Build a PluginStateMessage with current plugin states. */
-export function buildPluginStateMessage(): import('@my-claudia/shared').PluginStateMessage {
+export function buildPluginStateMessage(): import('@my-claudia/shared/protocol/messages').PluginStateMessage {
   const plugins = pluginLoader.getPlugins().map(p => {
     const contributes = p.manifest.contributes || {};
     const panels = (contributes.panels || []).map((panel: { id: string; label: string; icon?: string; order?: number; frontend?: string }) => ({

@@ -3,7 +3,7 @@ import { promisify } from 'util';
 import { mkdir } from 'fs/promises';
 import path from 'path';
 import { Mutex } from 'async-mutex';
-import type { MergeResult } from '@my-claudia/shared';
+import type { MergeResult } from '@my-claudia/shared/features/supervision';
 
 const execFileAsync = promisify(execFileCb);
 

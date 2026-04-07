@@ -6,10 +6,11 @@ export interface ProvidersDomainDeps {
   app: Express;
   authMiddleware: RequestHandler;
   db: Database.Database;
+  toolRegistry?: { getDefinitionsBySource(source: string): unknown[] };
 }
 
 export function registerProvidersDomain(deps: ProvidersDomainDeps): void {
-  const { app, authMiddleware, db } = deps;
+  const { app, authMiddleware, db, toolRegistry } = deps;
 
-  app.use('/api/providers', authMiddleware, createProviderRoutes(db));
+  app.use('/api/providers', authMiddleware, createProviderRoutes(db, toolRegistry));
 }

@@ -1,5 +1,5 @@
 import type { Database } from 'better-sqlite3';
-import type { SessionDraft } from '@my-claudia/shared';
+import type { SessionDraft } from '@my-claudia/shared/core/session';
 import { v4 as uuidv4 } from 'uuid';
 
 const LOCK_EXPIRY_MS = 60_000;

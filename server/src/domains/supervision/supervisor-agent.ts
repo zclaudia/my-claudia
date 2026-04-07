@@ -1,10 +1,10 @@
+import type { Session } from '@my-claudia/shared/core/session';
 import type {
   AgentMode,
   ProjectAgent,
-  Session,
   SupervisionLogEvent,
   SupervisorConfig,
-} from '@my-claudia/shared';
+} from '@my-claudia/shared/features/supervision';
 import type { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
 import type { ProjectRepository } from '../projects/repository.js';
 import type { SessionRepository } from '../sessions/repository.js';

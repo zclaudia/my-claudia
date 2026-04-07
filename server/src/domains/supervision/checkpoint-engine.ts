@@ -1,11 +1,11 @@
 import type { Database } from 'better-sqlite3';
+import type { Session } from '@my-claudia/shared/core/session';
+import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 import type {
-  Session,
   ProjectAgent,
   SupervisionTask,
   SupervisionLogEvent,
-  ServerMessage,
-} from '@my-claudia/shared';
+} from '@my-claudia/shared/features/supervision';
 import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
 import { ProjectRepository } from '../projects/repository.js';
 import { SessionRepository } from '../sessions/repository.js';

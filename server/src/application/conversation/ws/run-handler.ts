@@ -3,12 +3,13 @@ import * as fs from 'fs';
 import { sendMessage, broadcastToOtherAuthenticatedClients } from './broadcast.js';
 import type { ConnectedClient, ActiveRun } from './types.js';
 import { cleanupPendingPermissions } from './run-lifecycle.js';
+import type { SessionSyncPort } from '../../../application/conversation/session-sync-port.js';
 import { formatProviderErrorMessage, isHardQuotaExceededError } from '../../../helpers/server-utils.js';
 import type { ProviderRegistryPort } from '../../../providers/registry.js';
 import { createTraceRecorder } from '../../../utils/provider-trace.js';
 import type { initDatabase } from '../../../storage/db.js';
-import { PushNotificationService } from '../../notification/notification-service.js';
-import type { NotificationService } from '../../notification/service.js';
+import { PushNotificationService } from '../../../infrastructure/push/push-notification-service.js';
+import type { NotificationService } from '../../../domains/notification-feed/service.js';
 import { ProcessMonitor } from '../../../utils/process-monitor.js';
 import { consumeProviderStream } from './consume-provider-stream.js';
 import { initializeRunBootstrap, type RunStartMessage } from './run-bootstrap.js';
@@ -30,6 +31,7 @@ export interface RunHandlerContext {
   notificationsService?: NotificationService;
   serverPort: number | null;
   broadcastHeartbeat: () => void;
+  sessionSync?: SessionSyncPort;
   providerRegistry: ProviderRegistryPort;
 }
 
@@ -135,11 +137,12 @@ export async function handleRunStart(
     activeRuns,
     client,
     clients,
-    db,
-    message,
-    runId,
-    trace,
-  });
+      db,
+      message,
+      runId,
+      sessionSync: ctx!.sessionSync,
+      trace,
+    });
   if (!bootstrap) return;
 
   const {
@@ -319,6 +322,7 @@ export async function handleRunStart(
       handedOffToRetry,
       message,
       processMonitor,
+      sessionSync: ctx!.sessionSync,
       trace,
       runId,
     });

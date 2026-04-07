@@ -2,8 +2,9 @@ import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import type { ApiResponse, CommandExecuteRequest, CommandExecuteResponse, SlashCommand } from '@my-claudia/shared';
-import { LOCAL_COMMANDS } from '@my-claudia/shared';
+import type { ApiResponse } from '@my-claudia/shared/core/api';
+import type { CommandExecuteRequest, CommandExecuteResponse, SlashCommand } from '@my-claudia/shared/features/commands';
+import { LOCAL_COMMANDS } from '@my-claudia/shared/features/commands';
 import { commandRegistry } from '../commands/registry.js';
 import { ensureBuiltinCommandsRegistered } from '../commands/init.js';
 

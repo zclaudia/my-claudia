@@ -9,7 +9,7 @@ import type {
   AskUserQuestionItem,
   InteractionPromptMessage,
   TodoUpdateInteractionMessage,
-} from '@my-claudia/shared';
+} from '@my-claudia/shared/interaction/forms';
 import { normalizeTodoItems } from './todo-normalizer.js';
 
 // ============================================

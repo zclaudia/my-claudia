@@ -8,7 +8,7 @@
  * Uses a pending-promise pattern similar to pendingPermissions in server.ts.
  */
 
-import type { ServerMessage } from '@my-claudia/shared';
+import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 
 interface PendingInteraction {
   resolve: (response: Record<string, unknown>) => void;

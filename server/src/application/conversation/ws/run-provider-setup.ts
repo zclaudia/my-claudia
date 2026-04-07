@@ -4,8 +4,8 @@ import { runAIReviewCliJob, supportsAIReviewCliJob } from '../../../providers/cl
 import { createPermissionCallback } from './run-permissions.js';
 import type { RunStartMessage, RunSessionRecord } from './run-bootstrap.js';
 import type { ActiveRun, ConnectedClient } from './types.js';
-import type { PushNotificationService } from '../../notification/notification-service.js';
-import type { ProviderConfig } from '@my-claudia/shared';
+import type { PushNotificationService } from '../../../infrastructure/push/push-notification-service.js';
+import type { ProviderConfig } from '@my-claudia/shared/core/provider';
 
 function parseProviderEnv(envJson: string | null, providerId: string): Record<string, string> {
   if (!envJson) return {};
@@ -34,7 +34,7 @@ interface PrepareProviderRunInput {
   broadcastToOtherAuthenticatedClients: (
     clients: Map<string, ConnectedClient>,
     originClientId: string,
-    message: import('@my-claudia/shared').ServerMessage,
+    message: import('@my-claudia/shared/protocol/messages').ServerMessage,
   ) => void;
   connectedClients: Map<string, ConnectedClient>;
   cwd: string;
@@ -45,14 +45,14 @@ interface PrepareProviderRunInput {
     requestId: string;
     toolName: string;
     detail: string;
-    result: import('@my-claudia/shared').AIReviewResult;
+    result: import('@my-claudia/shared/interaction/permissions').AIReviewResult;
   }) => void;
   providerConfig?: ProviderConfig;
   providerId: string | null;
   providerType: string;
   runId: string;
-  sendMessage: (ws: ConnectedClient['ws'], message: import('@my-claudia/shared').ServerMessage) => void;
-  sendRunEvent: (event: import('@my-claudia/shared').ServerMessage) => void;
+  sendMessage: (ws: ConnectedClient['ws'], message: import('@my-claudia/shared/protocol/messages').ServerMessage) => void;
+  sendRunEvent: (event: import('@my-claudia/shared/protocol/messages').ServerMessage) => void;
   session: RunSessionRecord;
   sessionType: 'regular' | 'background' | 'agent';
   markPendingResolutionResumed: () => void;

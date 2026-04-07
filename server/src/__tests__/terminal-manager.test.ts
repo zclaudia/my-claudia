@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { ServerMessage } from '@my-claudia/shared';
+import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 
 // Mock node-pty
 const mockPtyKill = vi.fn();

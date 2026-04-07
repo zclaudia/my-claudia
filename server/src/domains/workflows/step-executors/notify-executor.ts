@@ -1,5 +1,5 @@
 import type { StepExecutorPort, StepResult, StepContext, NotificationPort } from '../ports/step-executor.js';
-import type { WorkflowNodeDef } from '@my-claudia/shared';
+import type { WorkflowNodeDef } from '@my-claudia/shared/features/workflows';
 
 export class NotifyStepExecutor implements StepExecutorPort {
   readonly supportedTypes = ['notify'] as const;

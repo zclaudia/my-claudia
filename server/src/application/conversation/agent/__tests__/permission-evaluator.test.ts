@@ -4,8 +4,8 @@ import type {
   EvaluationContext,
   PermissionCategory,
   UnifiedPermissionPolicy,
-} from '@my-claudia/shared';
-import { DEFAULT_GLOBAL_GUARDS, DEFAULT_UNIFIED_POLICY, DEFAULT_UNIFIED_PROFILE, DEFAULT_AI_REVIEW_CONFIG } from '@my-claudia/shared';
+} from '@my-claudia/shared/interaction/permissions';
+import { DEFAULT_GLOBAL_GUARDS, DEFAULT_UNIFIED_POLICY, DEFAULT_UNIFIED_PROFILE, DEFAULT_AI_REVIEW_CONFIG } from '@my-claudia/shared/interaction/permissions';
 import {
   PermissionEvaluator,
   classify,

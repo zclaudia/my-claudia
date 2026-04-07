@@ -12,8 +12,8 @@ import type {
   WorkflowStepRun,
   WorkflowDefinition,
   WorkflowTrigger,
-  ServerMessage,
-} from '@my-claudia/shared';
+} from '@my-claudia/shared/features/workflows';
+import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 import { WorkflowRepository } from './repository.js';
 import { WorkflowRunRepository } from './workflow-run-repository.js';
 import { WorkflowStepRunRepository } from './workflow-step-run-repository.js';

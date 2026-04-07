@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import type { Database } from 'better-sqlite3';
-import type { GatewayBackendInfo } from '@my-claudia/shared';
+import type { GatewayBackendInfo } from '@my-claudia/shared/core/server';
 
 export interface GatewayConfig {
   id: number;

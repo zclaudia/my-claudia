@@ -1,5 +1,5 @@
-import type { PCPEffectiveProfile, PCPCapabilityId, ReliabilityTier } from '@my-claudia/shared';
-import { hasCapability } from '@my-claudia/shared';
+import type { PCPEffectiveProfile, PCPCapabilityId, ReliabilityTier } from '@my-claudia/shared/core/pcp';
+import { hasCapability } from '@my-claudia/shared/core/pcp';
 
 /** Mapping from interaction tool name to PCP capability ID */
 const INTERACTION_TOOL_CAPABILITY_MAP: Record<string, PCPCapabilityId> = {

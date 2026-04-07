@@ -5,8 +5,9 @@
  * @deprecated v2: evaluateDelegation() — kept for backward compat.
  */
 
-import type { DelegationConfig, DelegationDecision, PermissionCategory, UnifiedPermissionPolicy, AIReviewConfig, AIReviewResult } from '@my-claudia/shared';
-import { DEFAULT_DELEGATION_CONFIG } from '@my-claudia/shared';
+import type { PermissionCategory, UnifiedPermissionPolicy, AIReviewConfig, AIReviewResult } from '@my-claudia/shared/interaction/permissions';
+import type { DelegationConfig, DelegationDecision } from '@my-claudia/shared/features/delegation';
+import { DEFAULT_DELEGATION_CONFIG } from '@my-claudia/shared/features/delegation';
 import { classify } from './permission-evaluator.js';
 import {
   guardReviewFileContent,
@@ -134,7 +135,7 @@ export interface AIReviewContext {
 }
 
 // AIReviewResult is re-exported from @my-claudia/shared
-export type { AIReviewResult } from '@my-claudia/shared';
+export type { AIReviewResult } from '@my-claudia/shared/interaction/permissions';
 
 /**
  * AI review for escalated permission requests — triggered after user timeout.

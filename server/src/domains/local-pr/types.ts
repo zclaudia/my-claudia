@@ -8,4 +8,4 @@ export type {
   LocalPRStatus,
   ExecutionState,
   PendingAction,
-} from '@my-claudia/shared';
+} from '@my-claudia/shared/features/local-pr';

@@ -5,7 +5,7 @@ import type {
   TerminalCloseMessage,
   TerminalDetachMessage,
   TerminalAttachMessage,
-} from '@my-claudia/shared';
+} from '@my-claudia/shared/protocol/messages';
 import type { TerminalManager } from '../../../../terminal-manager.js';
 import type { ConnectedClient } from '../types.js';
 import { sendMessage } from '../broadcast.js';

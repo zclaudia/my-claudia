@@ -1,5 +1,5 @@
 import type { Database } from 'better-sqlite3';
-import type { MessageRole } from '@my-claudia/shared';
+import type { MessageRole } from '@my-claudia/shared/core/message';
 
 export interface StoredSessionMessage {
   id: string;

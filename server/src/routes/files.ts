@@ -3,7 +3,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 import multer from 'multer';
-import type { ApiResponse, DirectoryListingResponse, FileContentResponse } from '@my-claudia/shared';
+import type { ApiResponse } from '@my-claudia/shared/core/api';
+import type { DirectoryListingResponse, FileContentResponse } from '@my-claudia/shared/files';
 import { fileStore } from '../storage/fileStore.js';
 import { FileBrowseError, FileBrowseService } from '../services/file-browse-service.js';
 import {

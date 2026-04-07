@@ -1,4 +1,5 @@
-import type { PermissionRequest, PCPProviderManifest } from '@my-claudia/shared';
+import type { PermissionRequest } from '@my-claudia/shared/interaction/permissions';
+import type { PCPProviderManifest } from '@my-claudia/shared/core/pcp';
 import type Database from 'better-sqlite3';
 
 // Re-export core provider message types (shared across all providers)

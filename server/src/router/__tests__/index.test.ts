@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MessageRouter, createRouter } from '../index.js';
 import type { MessageContext, MessageHandler, Middleware } from '../../middleware/base.js';
-import type { Request } from '@my-claudia/shared';
+import type { Request } from '@my-claudia/shared/protocol/correlation';
 import type { Repository } from '../../repositories/base.js';
 
 // Helper to create a mock request

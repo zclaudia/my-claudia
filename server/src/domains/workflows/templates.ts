@@ -1,4 +1,4 @@
-import type { WorkflowTemplate } from '@my-claudia/shared';
+import type { WorkflowTemplate } from '@my-claudia/shared/features/workflows';
 
 export const BUILTIN_WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
   {

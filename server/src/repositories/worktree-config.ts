@@ -1,5 +1,5 @@
 import type { Database } from 'better-sqlite3';
-import type { WorktreeConfig } from '@my-claudia/shared';
+import type { WorktreeConfig } from '@my-claudia/shared/core/project';
 
 export class WorktreeConfigRepository {
   constructor(private db: Database) {}

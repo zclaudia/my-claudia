@@ -1,15 +1,19 @@
 import { Router, Request, Response } from 'express';
 import type Database from 'better-sqlite3';
-import { PROVIDER_TYPES } from '@my-claudia/shared';
-import type { ProviderConfig, ApiResponse } from '@my-claudia/shared';
-import { toolRegistry } from '../plugins/index.js';
+import { PROVIDER_TYPES } from '@my-claudia/shared/core/provider';
+import type { ProviderConfig } from '@my-claudia/shared/core/provider';
+import type { ApiResponse } from '@my-claudia/shared/core/api';
 import { ProviderRepository } from './repository.js';
 import { mountCapabilityRoutes } from '../../routes/provider-capabilities.js';
 import { mountCommandRoutes } from '../../routes/provider-commands.js';
 
 const VALID_PROVIDER_TYPES = [...PROVIDER_TYPES] as ProviderConfig['type'][];
 
-export function createProviderRoutes(db: Database.Database): Router {
+interface ToolRegistryPort {
+  getDefinitionsBySource(source: string): unknown[];
+}
+
+export function createProviderRoutes(db: Database.Database, toolRegistry?: ToolRegistryPort): Router {
   const router = Router();
   const repo = new ProviderRepository(db);
 
@@ -222,7 +226,7 @@ export function createProviderRoutes(db: Database.Database): Router {
 
   router.get('/plugin-tools', (_req: Request, res: Response) => {
     try {
-      const pluginTools = toolRegistry.getDefinitionsBySource('plugin');
+      const pluginTools = toolRegistry?.getDefinitionsBySource('plugin') ?? [];
       res.json({ success: true, data: pluginTools });
     } catch (error) {
       console.error('Error fetching plugin tools:', error);

@@ -3,7 +3,7 @@
  * Phase 3: fetch + text extraction only (no Playwright).
  */
 
-import { toolRegistry } from '../../plugins/index.js';
+import { toolRegistry } from '../../../application/plugins/index.js';
 import { isBlockedHostname } from './network-guard.js';
 
 /** Simple HTML to text conversion (strip tags, decode entities) */

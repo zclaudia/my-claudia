@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import type Database from 'better-sqlite3';
-import type { ApiResponse, SessionDraft } from '@my-claudia/shared';
+import type { ApiResponse } from '@my-claudia/shared/core/api';
+import type { SessionDraft } from '@my-claudia/shared/core/session';
 import { SessionDraftRepository } from './draft-repository.js';
 import { sendApiError } from '../../routes/response.js';
 

@@ -10,7 +10,7 @@ import {
 } from '../agent/permission-evaluator.js';
 import { broadcastRunMessage } from './broadcast.js';
 import type { ConnectedClient, ActiveRun } from './types.js';
-import type { ServerMessage } from '@my-claudia/shared';
+import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 
 function broadcastPermissionResolved(
   run: ActiveRun,
@@ -173,7 +173,7 @@ export function handlePromptAnswer(
         type: 'interaction_resolved' as const,
         interactionId: message.requestId,
         sessionId: run.sessionId,
-      } as import('@my-claudia/shared').InteractionResolvedMessage;
+      } as import('@my-claudia/shared/interaction/forms').InteractionResolvedMessage;
 
       const promptResolvedEvent = {
         type: 'prompt_request_resolved',
@@ -200,7 +200,7 @@ export function handlePromptAnswer(
     broadcastRunMessage(run, {
       type: 'interaction_resolved',
       interactionId: message.requestId,
-    } as import('@my-claudia/shared').InteractionResolvedMessage);
+    } as import('@my-claudia/shared/interaction/forms').InteractionResolvedMessage);
     break;
   }
 }

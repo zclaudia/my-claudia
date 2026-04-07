@@ -11,7 +11,7 @@
  *  - MCP bridge path (interaction-tools.ts → update_todo_list handler)
  */
 
-import type { NormalizedTodoItem } from '@my-claudia/shared';
+import type { NormalizedTodoItem } from '@my-claudia/shared/interaction/forms';
 
 interface TrackedTodo {
   interactionId: string;

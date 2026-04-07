@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import type { Session } from '@my-claudia/shared';
+import type { Session } from '@my-claudia/shared/core/session';
 import { hasForegroundActiveRunForSession } from '../../utils/run-state.js';
 
 type ActiveRunsMap = Map<string, unknown>;

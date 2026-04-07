@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import type Database from 'better-sqlite3';
-import type { BranchAction, ClaudiaTaskStatus } from '@my-claudia/shared';
+import type { BranchAction, ClaudiaTaskStatus } from '@my-claudia/shared/protocol/messages';
 
 interface TaskRow {
   id: string;

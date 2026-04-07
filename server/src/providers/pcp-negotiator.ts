@@ -4,7 +4,7 @@ import type {
   PCPEffectiveCapability,
   PCPCapabilityId,
   DegradationPolicy,
-} from '@my-claudia/shared';
+} from '@my-claudia/shared/core/pcp';
 import { normalizePermissionMode } from './pcp-permission.js';
 
 /** Default degradation policies per capability */

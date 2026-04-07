@@ -1,6 +1,6 @@
 import { BaseRepository } from '../../repositories/base.js';
 import type { Database } from 'better-sqlite3';
-import type { WorkflowRun, WorkflowRunStatus, WorkflowRunTriggerSource } from '@my-claudia/shared';
+import type { WorkflowRun, WorkflowRunStatus, WorkflowRunTriggerSource } from '@my-claudia/shared/features/workflows';
 import { v4 as uuidv4 } from 'uuid';
 
 type WorkflowRunCreate = Omit<WorkflowRun, 'id' | 'completedAt' | 'error'>;

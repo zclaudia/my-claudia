@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import type { SlashCommand } from '@my-claudia/shared';
+import type { SlashCommand } from '@my-claudia/shared/features/commands';
 
 /**
  * Scans for custom slash commands in .claude/commands directories

@@ -3,7 +3,7 @@ import { createInterface } from 'readline';
 import path from 'path';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
-import type { MessageInput } from '@my-claudia/shared';
+import type { MessageInput } from '@my-claudia/shared/core/message';
 import type { ClaudeMessage, SystemInfo, PermissionCallback } from './message-types.js';
 import { buildNonImageAttachmentNotes } from './attachment-utils.js';
 import { sanitizeInheritedProviderEnv } from '../utils/startup-env.js';

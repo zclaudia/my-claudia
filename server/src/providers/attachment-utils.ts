@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import type { MessageAttachment } from '@my-claudia/shared';
+import type { MessageAttachment } from '@my-claudia/shared/core/message';
 import { fileStore } from '../storage/fileStore.js';
 
 type FileKind = 'text' | 'binary';

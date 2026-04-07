@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { Response } from '@my-claudia/shared';
+import type { Response } from '@my-claudia/shared/protocol/correlation';
 import {
   AppError,
   errorHandlingMiddleware,

@@ -5,7 +5,8 @@ import { CheckpointEngine, type CheckpointResult } from '../checkpoint-engine.js
 import { SupervisionTaskRepository } from '../../../repositories/supervision-task.js';
 import { ProjectRepository } from '../../../repositories/project.js';
 import { SessionRepository } from '../../sessions/repository.js';
-import type { ProjectAgent, ServerMessage, SupervisionLogEvent, SupervisionTask } from '@my-claudia/shared';
+import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
+import type { ProjectAgent, SupervisionLogEvent, SupervisionTask } from '@my-claudia/shared/features/supervision';
 
 function createTestDb(): Database.Database {
   const db = new Database(':memory:');

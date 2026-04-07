@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express';
 import type Database from 'better-sqlite3';
-import type { Session, Message, ApiResponse } from '@my-claudia/shared';
-import { getGatewayClient } from '../domains/gateway/gateway-instance.js';
+import type { ApiResponse } from '@my-claudia/shared/core/api';
+import type { Message } from '@my-claudia/shared/core/message';
+import type { Session } from '@my-claudia/shared/core/session';
+import { getGatewayClient } from '../infrastructure/gateway/gateway-instance.js';
 import { SessionRepository } from '../domains/sessions/repository.js';
 import { hasForegroundActiveRunForSession, findForegroundActiveRunIdForSession, hasAnyActiveRunForSession } from '../utils/run-state.js';
 import { mountSearchRoutes } from '../domains/sessions/search-routes.js';
@@ -10,7 +12,7 @@ import { SessionLifecycleError, SessionLifecycleService } from '../domains/sessi
 import { SessionExportError, SessionExportService } from '../domains/sessions/export-service.js';
 import { SessionQueryError, SessionQueryService } from '../domains/sessions/query-service.js';
 import { sendApiError } from './response.js';
-import type { ActiveRun } from '../domains/conversation/ws/types.js';
+import type { ActiveRun } from '../application/conversation/transport/types.js';
 
 type ActiveRunsMap = Map<string, ActiveRun>;
 

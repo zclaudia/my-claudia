@@ -1,12 +1,12 @@
 import { cleanupPendingPermissions, upsertAssistantMessage } from './run-lifecycle.js';
 import { interactionDispatcher } from '../interactions/interaction-dispatcher.js';
 import type { ActiveRun } from './types.js';
+import type { SessionSyncPort } from '../../../application/conversation/session-sync-port.js';
 import type { ProcessMonitor } from '../../../utils/process-monitor.js';
 import type { ConnectedClient } from './types.js';
-import type { PushNotificationService } from '../../notification/notification-service.js';
+import type { PushNotificationService } from '../../../infrastructure/push/push-notification-service.js';
 import { broadcastRunMessage, sendMessage } from './broadcast.js';
 import { MAX_SESSION_RESET_RETRIES } from './types.js';
-import { getGatewayClient } from '../../gateway/gateway-instance.js';
 import type { TraceRecorder } from '../../../utils/provider-trace.js';
 
 interface HandleRunExceptionInput {
@@ -134,6 +134,7 @@ interface FinalizeRunInput {
   handedOffToRetry: boolean;
   message: { sessionId: string };
   processMonitor: ProcessMonitor | null;
+  sessionSync?: SessionSyncPort;
   trace: TraceRecorder;
   runId: string;
 }
@@ -146,6 +147,7 @@ export function finalizeRun(input: FinalizeRunInput): void {
     handedOffToRetry,
     message,
     processMonitor,
+    sessionSync,
     runId,
     trace,
   } = input;
@@ -173,23 +175,7 @@ export function finalizeRun(input: FinalizeRunInput): void {
   activeRuns.delete(runId);
   broadcastHeartbeat();
 
-  const gatewayClient = getGatewayClient();
-  if (gatewayClient) {
-    const updatedSession = activeRun.db.prepare(`
-      SELECT s.id, s.name, s.updated_at as updatedAt, s.archived_at as archivedAt
-      FROM sessions s
-      WHERE s.id = ?
-    `).get(message.sessionId) as {
-      id: string;
-      name?: string;
-      updatedAt?: number;
-      archivedAt?: number | null;
-    } | undefined;
-
-    if (updatedSession) {
-      gatewayClient.commands.backendData.broadcastSessionEvent('updated', updatedSession);
-    }
-  }
+  sessionSync?.broadcastSessionUpdated(message.sessionId, activeRun.db);
 
   if (processMonitor && activeRuns.size === 0) {
     setTimeout(() => processMonitor?.check(), 5_000);

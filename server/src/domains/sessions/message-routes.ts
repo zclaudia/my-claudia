@@ -1,14 +1,14 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
-import type { Message, ApiResponse, MessageRole, MessageMetadata } from '@my-claudia/shared';
+import type { ApiResponse } from '@my-claudia/shared/core/api';
+import type { Message, MessageMetadata, MessageRole } from '@my-claudia/shared/core/message';
 import { extractAndIndexMetadata } from '../../storage/metadata-extractor.js';
 import { findForegroundActiveRunIdForSession } from '../../utils/run-state.js';
 import { parsePersistedMessageMetadata } from '../../utils/persisted-message.js';
 import { SessionMessageRepository } from './message-repository.js';
-import type { ActiveRun } from '../conversation/ws/types.js';
-
-type ActiveRunsMap = Map<string, ActiveRun>;
+/** Minimal shape — avoids depending on application/conversation types */
+type ActiveRunsMap = Map<string, { sessionId?: string; completed?: boolean; sessionType?: string }>;
 
 export function mountMessageRoutes(router: Router, db: Database.Database, activeRuns: ActiveRunsMap): void {
   const repo = new SessionMessageRepository(db);

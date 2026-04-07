@@ -1,4 +1,4 @@
-import type { PCPProviderManifest } from '@my-claudia/shared';
+import type { PCPProviderManifest } from '@my-claudia/shared/core/pcp';
 
 export const CLAUDE_MANIFEST: PCPProviderManifest = {
   id: 'claude',

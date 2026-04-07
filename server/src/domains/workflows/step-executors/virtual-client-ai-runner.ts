@@ -5,7 +5,8 @@
  */
 
 import type { Database } from 'better-sqlite3';
-import type { ServerMessage, Session } from '@my-claudia/shared';
+import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
+import type { Session } from '@my-claudia/shared/core/session';
 import type { AIRunnerPort } from '../ports/step-executor.js';
 import { SessionRepository } from '../../sessions/repository.js';
 import { createVirtualClient, handleRunStart } from '../../../server.js';

@@ -1,4 +1,5 @@
-import type { PCPProviderManifest, PCPPermissionMode, PermissionMode } from '@my-claudia/shared';
+import type { PCPProviderManifest, PCPPermissionMode } from '@my-claudia/shared/core/pcp';
+import type { PermissionMode } from '@my-claudia/shared/core/provider';
 
 const LEGACY_TO_PCP_MODE: Record<PermissionMode, PCPPermissionMode> = {
   default: 'supervised',

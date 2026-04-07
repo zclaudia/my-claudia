@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { loggingMiddleware, detailedLoggingMiddleware } from '../logging.js';
 import type { MessageContext, MessageHandler } from '../base.js';
-import type { Response } from '@my-claudia/shared';
+import type { Response } from '@my-claudia/shared/protocol/correlation';
 
 describe('middleware/logging', () => {
   let mockCtx: MessageContext;

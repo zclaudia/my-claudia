@@ -6,7 +6,7 @@
  */
 
 import * as path from 'path';
-import { toolRegistry } from '../../plugins/index.js';
+import { toolRegistry } from '../../../application/plugins/index.js';
 import { MemoryStore } from '../memory/memory-store.js';
 import { isBlockedHostname } from './network-guard.js';
 import type Database from 'better-sqlite3';

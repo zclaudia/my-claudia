@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import type Database from 'better-sqlite3';
-import type { ApiResponse } from '@my-claudia/shared';
+import type { ApiResponse } from '@my-claudia/shared/core/api';
 import { expandTilde, convertOpenCodeMessage, type ImportResult, type ScanResult, type OpenCodePartRow, type OpenCodeMessageData, type ConvertedMessage } from './import-shared.js';
 import { ImportService } from '../services/import-service.js';
 

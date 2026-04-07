@@ -3,7 +3,8 @@ import { createInterface, type Interface as ReadlineInterface } from 'readline';
 import { EventEmitter } from 'events';
 import { appendFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync, readFileSync, realpathSync } from 'fs';
 import { join, extname } from 'path';
-import type { MessageInput, PermissionRequest } from '@my-claudia/shared';
+import type { MessageInput } from '@my-claudia/shared/core/message';
+import type { PermissionRequest } from '@my-claudia/shared/interaction/permissions';
 
 // File-based debug log (stdout is captured by Tauri)
 const DEBUG_LOG = '/tmp/codex-app-server-debug.log';

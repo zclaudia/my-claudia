@@ -1,6 +1,7 @@
 import { BaseRepository } from '../../repositories/base.js';
 import type { Database } from 'better-sqlite3';
-import { normalizeWorkflowDefinition, type Workflow, type WorkflowStatus, type WorkflowDefinition } from '@my-claudia/shared';
+import { normalizeWorkflowDefinition } from '@my-claudia/shared/features/workflows';
+import type { Workflow, WorkflowStatus, WorkflowDefinition } from '@my-claudia/shared/features/workflows';
 import { v4 as uuidv4 } from 'uuid';
 
 type WorkflowCreate = Omit<Workflow, 'id' | 'createdAt' | 'updatedAt'>;

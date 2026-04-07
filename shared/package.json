@@ -9,6 +9,34 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./core/*": {
+      "import": "./dist/core/*.js",
+      "types": "./dist/core/*.d.ts"
+    },
+    "./features/*": {
+      "import": "./dist/features/*.js",
+      "types": "./dist/features/*.d.ts"
+    },
+    "./interaction/*": {
+      "import": "./dist/interaction/*.js",
+      "types": "./dist/interaction/*.d.ts"
+    },
+    "./protocol/*": {
+      "import": "./dist/protocol/*.js",
+      "types": "./dist/protocol/*.d.ts"
+    },
+    "./facade/*": {
+      "import": "./dist/facade/*.js",
+      "types": "./dist/facade/*.d.ts"
+    },
+    "./files": {
+      "import": "./dist/files.js",
+      "types": "./dist/files.d.ts"
+    },
+    "./plugin-types": {
+      "import": "./dist/plugin-types.js",
+      "types": "./dist/plugin-types.d.ts"
     }
   },
   "scripts": {

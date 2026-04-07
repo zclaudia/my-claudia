@@ -1,7 +1,4 @@
-import type {
-  SupervisionTask,
-  SupervisionLogEvent,
-} from '@my-claudia/shared';
+import type { SupervisionTask, SupervisionLogEvent } from '@my-claudia/shared/features/supervision';
 import type { ProjectRepository } from '../projects/repository.js';
 import type { SessionRepository } from '../sessions/repository.js';
 import { WorktreePool } from './worktree-pool.js';

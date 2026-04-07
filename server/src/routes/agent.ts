@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
 import type Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
-import type { ApiResponse } from '@my-claudia/shared';
-import { normalizeToUnifiedPolicy } from '@my-claudia/shared';
-import { toolRegistry } from '../domains/plugins/tool-registry.js';
-import { getDiscoveredSkills } from '../domains/plugins/skill-tools.js';
-import { CONTEXT_TEMPLATES } from '../domains/conversation/context/types.js';
+import type { ApiResponse } from '@my-claudia/shared/core/api';
+import { normalizeToUnifiedPolicy } from '@my-claudia/shared/interaction/permissions';
+import { toolRegistry } from '../application/plugins/tool-registry.js';
+import { getDiscoveredSkills } from '../application/plugins/skill-tools.js';
+import { CONTEXT_TEMPLATES } from '../application/conversation/context/types.js';
 import { validateCliJobProviderId } from '../providers/cli-jobs/provider-validation.js';
 
 interface AgentConfig {

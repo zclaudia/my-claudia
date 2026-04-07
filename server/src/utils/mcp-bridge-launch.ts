@@ -1,7 +1,7 @@
 import { existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { toolRegistry } from '../domains/plugins/tool-registry.js';
+import { toolRegistry } from '../application/plugins/tool-registry.js';
 
 export interface McpBridgeLaunchConfig {
   command: string;
@@ -70,18 +70,18 @@ export function resolveMcpBridgeLaunchConfig(
   const currentDir = path.dirname(fileURLToPath(currentModuleUrl));
 
   // Search candidates:
-  //   dev source (src/utils/) → ../../dist/domains/plugins/mcp-bridge.js (preferred)
-  //   dev dist   (dist/utils/) → ../domains/plugins/mcp-bridge.js
-  //   bundle     (server/)     → domains/plugins/mcp-bridge.js  (import.meta.url is server.mjs)
-  //   legacy bundle fallback   → plugins/mcp-bridge.js
-  //   final fallback           → source ts bridge via tsx/esm
+  //   dev source  (src/utils/) → ../../dist/application/plugins/mcp-bridge.js (preferred)
+  //   dev dist    (dist/utils/) → ../application/plugins/mcp-bridge.js
+  //   bundle      (server/)     → application/plugins/mcp-bridge.js
+  //   bundle alt  (server/)     → plugins/mcp-bridge.js
+  //   final fallback            → source ts bridge via tsx/esm
   const candidates: Array<{ path: string; runtime: 'js' | 'ts' }> = [
-    { path: path.resolve(currentDir, '..', '..', 'dist', 'domains', 'plugins', 'mcp-bridge.js'), runtime: 'js' },
-    { path: path.resolve(currentDir, '..', 'domains', 'plugins', 'mcp-bridge.js'), runtime: 'js' },
-    { path: path.resolve(currentDir, 'domains', 'plugins', 'mcp-bridge.js'), runtime: 'js' },
+    { path: path.resolve(currentDir, '..', '..', 'dist', 'application', 'plugins', 'mcp-bridge.js'), runtime: 'js' },
+    { path: path.resolve(currentDir, '..', 'application', 'plugins', 'mcp-bridge.js'), runtime: 'js' },
+    { path: path.resolve(currentDir, 'application', 'plugins', 'mcp-bridge.js'), runtime: 'js' },
     { path: path.resolve(currentDir, 'plugins', 'mcp-bridge.js'), runtime: 'js' },
-    { path: path.resolve(currentDir, '..', 'domains', 'plugins', 'mcp-bridge.ts'), runtime: 'ts' },
-    { path: path.resolve(currentDir, 'domains', 'plugins', 'mcp-bridge.ts'), runtime: 'ts' },
+    { path: path.resolve(currentDir, '..', 'application', 'plugins', 'mcp-bridge.ts'), runtime: 'ts' },
+    { path: path.resolve(currentDir, 'application', 'plugins', 'mcp-bridge.ts'), runtime: 'ts' },
   ];
 
   for (const candidate of candidates) {

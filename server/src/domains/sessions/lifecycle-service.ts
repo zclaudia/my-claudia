@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import type Database from 'better-sqlite3';
 import type { EventData } from '../../events/index.js';
-import type { Session, SessionType } from '@my-claudia/shared';
-import { getGatewayClient } from '../gateway/gateway-instance.js';
+import type { Session, SessionType } from '@my-claudia/shared/core/session';
+import { getGatewayClient } from '../../infrastructure/gateway/gateway-instance.js';
 import { pluginEvents } from '../../events/index.js';
 import { SessionRepository } from './repository.js';
 

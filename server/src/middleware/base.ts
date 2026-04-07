@@ -1,5 +1,5 @@
 import type { Database } from 'better-sqlite3';
-import type { Request, Response } from '@my-claudia/shared';
+import type { Request, Response } from '@my-claudia/shared/protocol/correlation';
 
 /**
  * Connected client representation

@@ -6,8 +6,8 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
-import type { CommandExecuteResponse, CommandExecuteRequest } from '@my-claudia/shared';
-import { LOCAL_COMMANDS } from '@my-claudia/shared';
+import type { CommandExecuteResponse, CommandExecuteRequest } from '@my-claudia/shared/features/commands';
+import { LOCAL_COMMANDS } from '@my-claudia/shared/features/commands';
 import { commandRegistry } from './registry.js';
 import { clearCommandCache } from '../providers/claude-sdk.js';
 

@@ -1,4 +1,4 @@
-import type { SupervisionTask } from '@my-claudia/shared';
+import type { SupervisionTask } from '@my-claudia/shared/features/supervision';
 
 export function buildTaskPrompt(
   task: SupervisionTask,

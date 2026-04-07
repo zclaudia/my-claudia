@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 
-vi.mock('../../domains/plugins/tool-registry.js', () => ({
+vi.mock('../../application/plugins/tool-registry.js', () => ({
   toolRegistry: {
     getBridgeTools: vi.fn().mockReturnValue([]),
     execute: vi.fn(),
@@ -10,9 +10,9 @@ vi.mock('../../domains/plugins/tool-registry.js', () => ({
   },
 }));
 
-import { createPluginToolsRoutes } from '../../domains/plugins/tools-routes.js';
-import { toolRegistry } from '../../domains/plugins/tool-registry.js';
-import type { PCPEffectiveProfile } from '@my-claudia/shared';
+import { createPluginToolsRoutes } from '../../application/plugins/tools-routes.js';
+import { toolRegistry } from '../../application/plugins/tool-registry.js';
+import type { PCPEffectiveProfile } from '@my-claudia/shared/core/pcp';
 
 describe('plugin-tools routes', () => {
   let app: express.Express;

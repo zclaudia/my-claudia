@@ -1,4 +1,4 @@
-import type { SupervisionLogEvent } from '@my-claudia/shared';
+import type { SupervisionLogEvent } from '@my-claudia/shared/features/supervision';
 import type { ProjectRepository } from '../projects/repository.js';
 import { ContextManager, type ContextDocument } from './context-manager.js';
 

@@ -14,7 +14,7 @@
  * - cancelAll(): cancels all pending reviews (run ended).
  */
 
-import type { AIReviewConfig, AIReviewResult } from '@my-claudia/shared';
+import type { AIReviewConfig, AIReviewResult } from '@my-claudia/shared/interaction/permissions';
 import { evaluateAIReview, type AIReviewContext, type AIReviewProvider } from './delegation-evaluator.js';
 
 export interface AIReviewQueueOptions {

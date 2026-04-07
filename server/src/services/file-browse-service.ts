@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import type { DirectoryListingResponse, FileContentResponse, FileEntry } from '@my-claudia/shared';
+import type { DirectoryListingResponse, FileContentResponse, FileEntry } from '@my-claudia/shared/files';
 
 const IGNORED_DIRS = new Set([
   'node_modules',

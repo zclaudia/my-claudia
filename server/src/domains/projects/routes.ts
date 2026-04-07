@@ -3,7 +3,8 @@ import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
 import type Database from 'better-sqlite3';
-import type { Project, ApiResponse } from '@my-claudia/shared';
+import type { Project } from '@my-claudia/shared/core/project';
+import type { ApiResponse } from '@my-claudia/shared/core/api';
 import { ProjectRepository } from './repository.js';
 import { listGitWorktrees, createGitWorktree } from '../../utils/git-worktrees.js';
 

@@ -1,15 +1,17 @@
 import type {
   PermissionDecisionMessage,
   PromptAnswerMessage,
-  InteractionResponseMessage,
-  InteractionResolvedMessage,
   PluginPermissionResponseMessage,
   ServerMessage,
-} from '@my-claudia/shared';
+} from '@my-claudia/shared/protocol/messages';
+import type {
+  InteractionResponseMessage,
+  InteractionResolvedMessage,
+} from '@my-claudia/shared/interaction/forms';
 import type { ConnectedClient, ActiveRun } from '../types.js';
-import { handlePermissionDecision, handlePromptAnswer } from '../permission-handler.js';
+import { handlePermissionDecision, handlePromptAnswer } from '../../../../application/conversation/interactions/permission-handler.js';
 import { interactionDispatcher } from '../../interactions/interaction-dispatcher.js';
-import { permissionManager as pluginPermissionManager } from '../../../plugins/index.js';
+import { permissionManager as pluginPermissionManager } from '../../../../application/plugins/index.js';
 import { broadcastRunMessage } from '../broadcast.js';
 
 export function handlePermission(

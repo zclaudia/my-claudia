@@ -33,13 +33,13 @@ vi.mock('../run-lifecycle.js', () => ({
   cleanupPendingPermissions: cleanupPendingPermissionsMock,
 }));
 
-vi.mock('../../../../domains/plugins/skill-tools.js', () => ({
+vi.mock('../../../../application/plugins/skill-tools.js', () => ({
   getDiscoveredSkills: getDiscoveredSkillsMock,
   loadSkillContent: loadSkillContentMock,
   buildSkillDirectoryHint: buildSkillDirectoryHintMock,
 }));
 
-vi.mock('../../../../domains/plugins/skill-selector.js', () => ({
+vi.mock('../../../../application/plugins/skill-selector.js', () => ({
   selectSkills: selectSkillsMock,
 }));
 
@@ -70,13 +70,13 @@ vi.mock('../../../../services/workspace.js', () => ({
   },
 }));
 
-vi.mock('../../../../domains/plugins/tool-registry.js', () => ({
+vi.mock('../../../../application/plugins/tool-registry.js', () => ({
   toolRegistry: {
     getAll: toolRegistryGetAllMock,
   },
 }));
 
-vi.mock('../../../../domains/gateway/gateway-instance.js', () => ({
+vi.mock('../../../../infrastructure/gateway/gateway-instance.js', () => ({
   getGatewayClient: getGatewayClientMock,
 }));
 
@@ -380,6 +380,16 @@ describe('ws/run-handler', () => {
         serverPort: null,
         broadcastHeartbeat: vi.fn(),
         providerRegistry: mockProviderRegistry,
+        sessionSync: {
+          broadcastSessionUpdated: (sessionId: string, dbArg: any) => {
+            const gw = getGatewayClientMock();
+            if (!gw) return;
+            const row = dbArg.prepare(
+              'SELECT id, name, updated_at as updatedAt, archived_at as archivedAt FROM sessions WHERE id = ?'
+            ).get(sessionId);
+            if (row) gw.commands.backendData.broadcastSessionEvent('updated', row);
+          },
+        },
       },
     );
 

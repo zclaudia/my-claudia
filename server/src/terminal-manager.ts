@@ -1,6 +1,6 @@
 import * as pty from 'node-pty';
 import { execSync } from 'child_process';
-import type { TerminalOutputMessage, TerminalExitedMessage, ServerMessage } from '@my-claudia/shared';
+import type { TerminalOutputMessage, TerminalExitedMessage, ServerMessage } from '@my-claudia/shared/protocol/messages';
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 const SCROLLBACK_MAX_BYTES = 64 * 1024; // 64KB scrollback buffer

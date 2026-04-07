@@ -6,14 +6,13 @@ import type {
   ClientMessage,
   PongMessage,
   ErrorMessage,
-} from '@my-claudia/shared';
+} from '@my-claudia/shared/protocol/messages';
 import type { TerminalManager } from '../../../terminal-manager.js';
 import type { ProcessMonitor } from '../../../utils/process-monitor.js';
 import type { initDatabase } from '../../../storage/db.js';
 import type { ConnectedClient, ActiveRun } from './types.js';
-import type { NotificationService } from '../../../domains/notification/service.js';
-import type { TaskOrchestrator } from '../../orchestration/types.js';
-import type { BranchAllocatorPort } from '../../orchestration/claudia-branch-service.js';
+import type { NotificationService } from '../../../domains/notification-feed/service.js';
+import type { TaskCoordinationPort } from '../../../application/conversation/task-coordination-port.js';
 import type { ProviderRegistryPort } from '../../../providers/registry.js';
 import { sendMessage } from './broadcast.js';
 
@@ -27,7 +26,7 @@ import {
 } from './handlers/notification-feed.js';
 import {
   handlePermission, handlePromptAnswerMessage, handleInteractionResponse, handlePluginPermissionResponse,
-} from './handlers/permissions.js';
+} from '../../../application/conversation/interactions/ws-handlers.js';
 import {
   handleKillLeakedProcesses, handleStopBackgroundTask, handleAgentCancel,
 } from './handlers/run.js';
@@ -46,8 +45,7 @@ export interface MessageHandlerContext {
   broadcastPluginState: () => void;
   findProcessPidsByTaskCommand: (taskCommand?: string, excludedPids?: number[]) => Promise<number[]>;
   notificationService?: NotificationService;
-  orchestrator?: TaskOrchestrator;
-  branchAllocator?: BranchAllocatorPort;
+  taskCoordination?: TaskCoordinationPort;
   providerRegistry?: ProviderRegistryPort;
 }
 
@@ -89,7 +87,7 @@ export async function handleClientMessage(
       break;
 
     case 'agent_cancel':
-      await handleAgentCancel(client, message.sessionId, ctx.activeRuns, ctx.cancelRun, db, ctx.orchestrator);
+      await handleAgentCancel(client, message.sessionId, ctx.activeRuns, ctx.cancelRun, db, ctx.taskCoordination);
       break;
 
     case 'kill_leaked_processes':
@@ -127,27 +125,27 @@ export async function handleClientMessage(
       break;
 
     case 'claudia_task_submit':
-      if (!ctx.orchestrator || !ctx.branchAllocator) {
-        sendMessage(client.ws, { type: 'error', code: 'NO_ORCHESTRATOR', message: 'Task orchestrator or branch allocator not available' } as ErrorMessage);
+      if (!ctx.taskCoordination) {
+        sendMessage(client.ws, { type: 'error', code: 'NO_ORCHESTRATOR', message: 'Task coordination not available' } as ErrorMessage);
         break;
       }
-      await handleClaudiaTaskSubmit(client, message, db, ctx.orchestrator, ctx.branchAllocator);
+      await handleClaudiaTaskSubmit(client, message, db, ctx.taskCoordination);
       break;
 
     case 'claudia_task_continue':
-      if (!ctx.orchestrator || !ctx.branchAllocator) {
-        sendMessage(client.ws, { type: 'error', code: 'NO_ORCHESTRATOR', message: 'Task orchestrator or branch allocator not available' } as ErrorMessage);
+      if (!ctx.taskCoordination) {
+        sendMessage(client.ws, { type: 'error', code: 'NO_ORCHESTRATOR', message: 'Task coordination not available' } as ErrorMessage);
         break;
       }
-      await handleClaudiaTaskContinue(client, message, db, ctx.orchestrator, ctx.branchAllocator);
+      await handleClaudiaTaskContinue(client, message, db, ctx.taskCoordination);
       break;
 
     case 'claudia_task_cancel':
-      if (!ctx.orchestrator) {
-        sendMessage(client.ws, { type: 'error', code: 'NO_ORCHESTRATOR', message: 'Task orchestrator not available' } as ErrorMessage);
+      if (!ctx.taskCoordination) {
+        sendMessage(client.ws, { type: 'error', code: 'NO_ORCHESTRATOR', message: 'Task coordination not available' } as ErrorMessage);
         break;
       }
-      await handleClaudiaTaskCancel(client, message, ctx.orchestrator);
+      await handleClaudiaTaskCancel(client, message, ctx.taskCoordination);
       break;
 
     // ── Permissions ──

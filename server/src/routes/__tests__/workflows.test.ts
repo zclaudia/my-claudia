@@ -8,14 +8,14 @@ vi.mock('../../utils/cron.js', () => ({
   isValidCron: vi.fn().mockReturnValue(true),
 }));
 
-// Mock workflow step registry
-vi.mock('../../domains/plugins/workflow-step-registry.js', () => ({
-  workflowStepRegistry: {
-    getAllMeta: vi.fn().mockReturnValue([
-      { type: 'plugin_step', name: 'Plugin Step', description: 'From plugin', category: 'Plugin', source: 'plugin' },
-    ]),
-  },
-}));
+const mockStepRegistry = {
+  getAllMeta: vi.fn().mockReturnValue([
+    { type: 'plugin_step', name: 'Plugin Step', description: 'From plugin', category: 'Plugin', source: 'plugin' },
+  ]),
+};
+const mockTriggerRegistry = {
+  getAll: vi.fn().mockReturnValue([]),
+};
 
 import { isValidCron } from '../../utils/cron.js';
 
@@ -76,7 +76,10 @@ describe('workflow routes', () => {
     service = createMockService();
     app = express();
     app.use(express.json());
-    app.use('/api', createWorkflowRoutes(service as any));
+    app.use('/api', createWorkflowRoutes(service as any, undefined, {
+      stepRegistry: mockStepRegistry as any,
+      triggerRegistry: mockTriggerRegistry as any,
+    }));
   });
 
   // ── GET /api/projects/:projectId/workflows ──

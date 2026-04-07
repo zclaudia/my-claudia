@@ -37,7 +37,7 @@ vi.mock('../../../server.js', () => ({
 vi.mock('../../../events/index.js', () => ({
   pluginEvents: { emit: vi.fn().mockResolvedValue(undefined), on: vi.fn() },
 }));
-vi.mock('../../plugins/index.js', () => ({
+vi.mock('../../../application/plugins/index.js', () => ({
   workflowStepRegistry: { get: vi.fn(), has: vi.fn(), execute: vi.fn() },
 }));
 
@@ -55,7 +55,7 @@ vi.mock('util', () => ({
 
 import { WorkflowEngine, type StepResult } from '../engine.js';
 import { createVirtualClient, handleRunStart } from '../../../server.js';
-import { workflowStepRegistry } from '../../plugins/index.js';
+import { workflowStepRegistry } from '../../../application/plugins/index.js';
 import {
   CompositeStepExecutor,
   ShellStepExecutor,

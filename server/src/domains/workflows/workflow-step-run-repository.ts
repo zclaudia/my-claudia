@@ -1,6 +1,6 @@
 import { BaseRepository } from '../../repositories/base.js';
 import type { Database } from 'better-sqlite3';
-import type { WorkflowStepRun, WorkflowStepRunStatus, WorkflowStepType } from '@my-claudia/shared';
+import type { WorkflowStepRun, WorkflowStepRunStatus, WorkflowStepType } from '@my-claudia/shared/features/workflows';
 import { v4 as uuidv4 } from 'uuid';
 
 type StepRunCreate = Omit<WorkflowStepRun, 'id' | 'input' | 'output' | 'error' | 'startedAt' | 'completedAt'>;

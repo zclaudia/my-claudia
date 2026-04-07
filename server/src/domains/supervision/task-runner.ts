@@ -1,12 +1,12 @@
 import { exec, execSync } from 'child_process';
 import { promisify } from 'util';
 import type { Database } from 'better-sqlite3';
+import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 import type {
   SupervisionTask,
   TaskResult,
-  ServerMessage,
   SupervisionLogEvent,
-} from '@my-claudia/shared';
+} from '@my-claudia/shared/features/supervision';
 import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
 import { ProjectRepository } from '../projects/repository.js';
 import type { ContextManager, WorkflowAction } from './context-manager.js';

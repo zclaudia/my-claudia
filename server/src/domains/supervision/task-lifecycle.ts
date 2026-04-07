@@ -1,10 +1,6 @@
-import type {
-  ProjectAgent,
-  RunFailedMessage,
-  ServerMessage,
-  Session,
-  SupervisionLogEvent,
-} from '@my-claudia/shared';
+import type { Session } from '@my-claudia/shared/core/session';
+import type { RunFailedMessage, ServerMessage } from '@my-claudia/shared/protocol/messages';
+import type { ProjectAgent, SupervisionLogEvent } from '@my-claudia/shared/features/supervision';
 import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
 import { ProjectRepository } from '../projects/repository.js';
 import { SessionRepository } from '../sessions/repository.js';

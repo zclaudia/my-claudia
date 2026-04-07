@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { ErrorMessage, ProviderConfig, ServerMessage } from '@my-claudia/shared';
+import type { ErrorMessage, ServerMessage } from '@my-claudia/shared/protocol/messages';
+import type { ProviderConfig } from '@my-claudia/shared/core/provider';
 import { sendMessage, broadcastToOtherAuthenticatedClients } from './broadcast.js';
 import type { ActiveRun, ConnectedClient } from './types.js';
 import { getNextOffset } from './run-lifecycle.js';
@@ -7,9 +8,9 @@ import {
   loadProjectAllowedOutsideWorkspaceRoots,
   loadSessionRememberedDecisions,
 } from '../agent/permission-evaluator.js';
+import type { SessionSyncPort } from '../../../application/conversation/session-sync-port.js';
 import { normalizeSessionWorkingDirectory } from '../../../helpers/server-utils.js';
 import { resolveProviderCwd } from '../../../utils/provider-cwd.js';
-import { getGatewayClient } from '../../../domains/gateway/gateway-instance.js';
 import type { initDatabase } from '../../../storage/db.js';
 import type { TraceRecorder } from '../../../utils/provider-trace.js';
 
@@ -22,7 +23,7 @@ export interface RunStartMessage extends Record<string, unknown> {
   permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
   mode?: string;
   model?: string;
-  permissionOverride?: Partial<import('@my-claudia/shared').UnifiedPermissionPolicy>;
+  permissionOverride?: Partial<import('@my-claudia/shared/interaction/permissions').UnifiedPermissionPolicy>;
   systemContext?: string;
   workingDirectory?: string;
   resend?: boolean;
@@ -54,6 +55,7 @@ interface InitializeRunBootstrapInput {
   db: ReturnType<typeof initDatabase>;
   message: RunStartMessage;
   runId: string;
+  sessionSync?: SessionSyncPort;
   trace: TraceRecorder;
 }
 
@@ -76,7 +78,7 @@ export interface RunBootstrapResult {
 }
 
 export function initializeRunBootstrap(input: InitializeRunBootstrapInput): RunBootstrapResult | null {
-  const { activeRuns, client, clients, db, message, runId, trace } = input;
+  const { activeRuns, client, clients, db, message, runId, sessionSync, trace } = input;
   const connectedClients = clients ?? new Map<string, ConnectedClient>();
 
   const session = db.prepare(`
@@ -243,46 +245,11 @@ export function initializeRunBootstrap(input: InitializeRunBootstrapInput): RunB
 
     persistedWorkingDirectory = normalizedNext;
 
-    const gatewayClient = getGatewayClient();
-    if (!gatewayClient) return;
-
-    const updatedSession = db.prepare(`
-      SELECT s.id, s.project_id as projectId, s.name, s.provider_id as providerId,
-             s.sdk_session_id as sdkSessionId, s.type, s.parent_session_id as parentSessionId,
-             s.working_directory as workingDirectory,
-             s.archived_at as archivedAt,
-             s.project_role as projectRole, s.task_id as taskId,
-             s.plan_status as planStatus,
-             s.last_run_status as lastRunStatus,
-             CASE WHEN s.is_read_only = 1 THEN 1 ELSE NULL END as isReadOnly,
-             s.created_at as createdAt, s.updated_at as updatedAt
-      FROM sessions s
-      WHERE s.id = ?
-    `).get(message.sessionId) as { id: string; name?: string; createdAt?: number; updatedAt?: number } | undefined;
-
-    if (updatedSession) {
-      gatewayClient.commands.backendData.broadcastSessionEvent('updated', updatedSession);
-    }
+    sessionSync?.broadcastSessionUpdated(message.sessionId, db);
   };
 
   const broadcastSessionCatalogUpdate = () => {
-    const gatewayClient = getGatewayClient();
-    if (!gatewayClient) return;
-
-    const updatedSession = db.prepare(`
-      SELECT s.id, s.name, s.updated_at as updatedAt, s.archived_at as archivedAt
-      FROM sessions s
-      WHERE s.id = ?
-    `).get(message.sessionId) as {
-      id: string;
-      name?: string;
-      updatedAt?: number;
-      archivedAt?: number | null;
-    } | undefined;
-
-    if (updatedSession) {
-      gatewayClient.commands.backendData.broadcastSessionEvent('updated', updatedSession);
-    }
+    sessionSync?.broadcastSessionUpdated(message.sessionId, db);
   };
 
   const markPendingResolutionResumed = () => {
@@ -294,7 +261,7 @@ export function initializeRunBootstrap(input: InitializeRunBootstrapInput): RunB
         type: 'background_task_update',
         sessionId: message.sessionId,
         status: 'running',
-      } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
+      } as import('@my-claudia/shared/protocol/messages').BackgroundTaskUpdateMessage);
     }
   };
 

@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
-import type { ApiResponse, LocalPR, WorktreeConfig } from '@my-claudia/shared';
+import type { ApiResponse } from '@my-claudia/shared/core/api';
+import type { LocalPR } from '@my-claudia/shared/features/local-pr';
+import type { WorktreeConfig } from '@my-claudia/shared/core/project';
 import type { LocalPRService } from './service.js';
 import { ProjectRepository } from '../projects/repository.js';
 import { WorktreeConfigRepository } from '../../repositories/worktree-config.js';

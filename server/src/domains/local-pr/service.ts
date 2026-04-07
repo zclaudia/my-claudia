@@ -1,5 +1,7 @@
 import type { Database } from 'better-sqlite3';
-import type { LocalPR, LocalPRStatus, ServerMessage, Session } from '@my-claudia/shared';
+import type { LocalPR, LocalPRStatus } from '@my-claudia/shared/features/local-pr';
+import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
+import type { Session } from '@my-claudia/shared/core/session';
 import { LocalPRRepository } from './repository.js';
 import { ProjectRepository } from '../projects/repository.js';
 import { ProviderRepository } from '../providers/repository.js';

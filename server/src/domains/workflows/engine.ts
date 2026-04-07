@@ -10,8 +10,8 @@ import type {
   WorkflowEdgeDef,
   WorkflowRun,
   WorkflowDefinition,
-  ServerMessage,
-} from '@my-claudia/shared';
+} from '@my-claudia/shared/features/workflows';
+import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 import { WorkflowRunRepository } from './workflow-run-repository.js';
 import { WorkflowStepRunRepository } from './workflow-step-run-repository.js';
 import { ProjectRepository } from '../projects/repository.js';

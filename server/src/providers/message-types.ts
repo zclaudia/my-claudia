@@ -5,7 +5,7 @@
  * (types.ts) on a concrete Adapter implementation (claude-sdk.ts).
  */
 
-import type { PermissionRequest } from '@my-claudia/shared';
+import type { PermissionRequest } from '@my-claudia/shared/interaction/permissions';
 
 export interface PermissionDecision {
   behavior: 'allow' | 'deny';

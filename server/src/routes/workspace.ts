@@ -10,7 +10,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import { workspaceService } from '../services/workspace.js';
-import { refreshSkillTools, getExternalSkillDirs, saveExternalSkillDirs } from '../domains/plugins/skill-tools.js';
+import { refreshSkillTools, getExternalSkillDirs, saveExternalSkillDirs } from '../application/plugins/skill-tools.js';
 import path from 'path';
 import fs from 'fs/promises';
 import { sendApiError } from './response.js';

@@ -2,8 +2,9 @@ import type {
   ErrorMessage,
   StopBackgroundTaskMessage,
   TaskNotificationMessage,
-} from '@my-claudia/shared';
+} from '@my-claudia/shared/protocol/messages';
 import type { ConnectedClient, ActiveRun } from '../types.js';
+import type { TaskCoordinationPort } from '../../../../application/conversation/task-coordination-port.js';
 import type { ProcessMonitor } from '../../../../utils/process-monitor.js';
 import type { initDatabase } from '../../../../storage/db.js';
 import { isProcessAlive, killProcessTree } from '../../../../utils/process-tree.js';
@@ -153,7 +154,7 @@ export async function handleAgentCancel(
   activeRuns: Map<string, ActiveRun>,
   cancelRun: (runId: string) => void,
   db: ReturnType<typeof initDatabase>,
-  orchestrator?: { killTask: (taskId: string) => Promise<void>; },
+  taskCoordination?: Pick<TaskCoordinationPort, 'killTask'>,
 ): Promise<void> {
   let cancelled = false;
 
@@ -165,7 +166,7 @@ export async function handleAgentCancel(
     }
   }
 
-  if (!cancelled && orchestrator) {
+  if (!cancelled && taskCoordination) {
     const taskRow = db.prepare(
       `SELECT id
        FROM orchestrator_tasks
@@ -176,7 +177,7 @@ export async function handleAgentCancel(
 
     if (taskRow) {
       try {
-        await orchestrator.killTask(taskRow.id);
+        await taskCoordination.killTask(taskRow.id);
       } catch (err) {
         sendMessage(client.ws, {
           type: 'error',

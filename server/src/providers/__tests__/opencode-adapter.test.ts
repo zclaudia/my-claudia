@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OpenCodeAdapter } from '../opencode-adapter.js';
 import * as opencodeSdk from '../opencode-sdk.js';
-import type { PermissionRequest } from '@my-claudia/shared';
+import type { PermissionRequest } from '@my-claudia/shared/interaction/permissions';
 
 // Mock the opencode-sdk module
 vi.mock('../opencode-sdk.js', () => ({

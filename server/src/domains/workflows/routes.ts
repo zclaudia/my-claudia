@@ -7,9 +7,15 @@
 import { Router, Request, Response } from 'express';
 import type { WorkflowService } from './service.js';
 import type { WorkflowGeneratorService } from './generator.js';
-import { normalizeWorkflowDefinition, type WorkflowStepTypeMeta, type WorkflowDefinition, type WorkflowNodeDef } from '@my-claudia/shared';
+import { normalizeWorkflowDefinition } from '@my-claudia/shared/features/workflows';
+import type { WorkflowStepTypeMeta, WorkflowDefinition, WorkflowNodeDef } from '@my-claudia/shared/features/workflows';
 import { isValidCron } from '../../utils/cron.js';
-import { workflowStepRegistry, workflowTriggerRegistry } from '../plugins/index.js';
+interface StepRegistryPort {
+  getAllMeta(): Array<{ type: string; name: string; description: string; category: string; icon?: string; configSchema?: unknown }>;
+}
+interface TriggerRegistryPort {
+  getAll(): Array<unknown>;
+}
 
 function validateWorkflowDefinition(res: Response, definition: unknown): definition is WorkflowDefinition {
   const workflowDefinition = normalizeWorkflowDefinition(definition);
@@ -51,7 +57,13 @@ function validateWorkflowDefinition(res: Response, definition: unknown): definit
   return true;
 }
 
-export function createWorkflowRoutes(service: WorkflowService, generatorService?: WorkflowGeneratorService): Router {
+export function createWorkflowRoutes(
+  service: WorkflowService,
+  generatorService?: WorkflowGeneratorService,
+  registries?: { stepRegistry?: StepRegistryPort; triggerRegistry?: TriggerRegistryPort },
+): Router {
+  const workflowStepRegistry = registries?.stepRegistry;
+  const workflowTriggerRegistry = registries?.triggerRegistry;
   const router = Router();
 
   // GET /api/projects/:projectId/workflows
@@ -404,7 +416,7 @@ export function createWorkflowRoutes(service: WorkflowService, generatorService?
 
   // GET /api/workflow-trigger-sources
   router.get('/workflow-trigger-sources', (_req: Request, res: Response) => {
-    res.json({ success: true, data: workflowTriggerRegistry.getAll() });
+    res.json({ success: true, data: workflowTriggerRegistry?.getAll() ?? [] });
   });
 
   // GET /api/workflow-step-types
@@ -422,7 +434,7 @@ export function createWorkflowRoutes(service: WorkflowService, generatorService?
       { type: 'condition', name: 'Condition', description: 'Conditional branching', category: 'Flow Control', source: 'builtin' },
       { type: 'wait', name: 'Wait / Approval', description: 'Wait or require approval', category: 'Flow Control', source: 'builtin' },
     ];
-    const pluginMeta = workflowStepRegistry.getAllMeta();
+    const pluginMeta = workflowStepRegistry?.getAllMeta() ?? [];
     res.json({ success: true, data: [...builtinMeta, ...pluginMeta] });
   });
 

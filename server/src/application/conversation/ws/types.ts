@@ -1,10 +1,13 @@
 import { WebSocket } from 'ws';
-import type { ToolCall, ContentBlock, ServerMessage, PCPEffectiveProfile, AskUserQuestionItem } from '@my-claudia/shared';
+import type { ToolCall, ContentBlock } from '@my-claudia/shared/core/message';
+import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
+import type { PCPEffectiveProfile } from '@my-claudia/shared/core/pcp';
+import type { AskUserQuestionItem } from '@my-claudia/shared/interaction/forms';
 import type { AIReviewQueue } from '../agent/ai-review-queue.js';
 import type { PermissionDecision, SystemInfo } from '../../../providers/types.js';
 import type { initDatabase } from '../../../storage/db.js';
 import type { ProcessMonitor } from '../../../utils/process-monitor.js';
-import type { PushNotificationService } from '../../notification/notification-service.js';
+import type { PushNotificationService } from '../../../infrastructure/push/push-notification-service.js';
 
 export interface ConnectedClient {
   id: string;

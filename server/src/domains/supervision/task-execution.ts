@@ -1,12 +1,9 @@
 import { execSync } from 'child_process';
 import type { Database } from 'better-sqlite3';
-import type {
-  Project,
-  ServerMessage,
-  Session,
-  SupervisionLogEvent,
-  SupervisionTask,
-} from '@my-claudia/shared';
+import type { Project } from '@my-claudia/shared/core/project';
+import type { Session } from '@my-claudia/shared/core/session';
+import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
+import type { SupervisionLogEvent, SupervisionTask } from '@my-claudia/shared/features/supervision';
 import type { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
 import type { ProjectRepository } from '../projects/repository.js';
 import type { SessionRepository } from '../sessions/repository.js';

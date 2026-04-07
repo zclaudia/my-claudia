@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import type Database from 'better-sqlite3';
-import type { ApiResponse } from '@my-claudia/shared';
+import type { ApiResponse } from '@my-claudia/shared/core/api';
 import { expandTilde, type ImportResult, type ScanResult } from './import-shared.js';
 import { ImportService } from '../services/import-service.js';
 

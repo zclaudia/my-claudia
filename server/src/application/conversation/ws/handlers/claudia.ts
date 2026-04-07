@@ -11,14 +11,13 @@ import type {
   ClaudiaTaskCreatedMessage,
   ClaudiaTaskDeltaMessage,
   ClaudiaTaskUpdateMessage,
+  BranchAction,
   ErrorMessage,
-} from '@my-claudia/shared';
-import type { BranchAction } from '@my-claudia/shared';
+} from '@my-claudia/shared/protocol/messages';
 import type { ConnectedClient, ActiveRun } from '../types.js';
 import type { initDatabase } from '../../../../storage/db.js';
-import type { NotificationService } from '../../../../domains/notification/service.js';
-import type { TaskOrchestrator } from '../../../orchestration/types.js';
-import type { BranchAllocatorPort } from '../../../../domains/orchestration/claudia-branch-service.js';
+import type { NotificationService } from '../../../../domains/notification-feed/service.js';
+import type { TaskCoordinationPort } from '../../../../application/conversation/task-coordination-port.js';
 import { sendMessage } from '../broadcast.js';
 
 interface ClaudiaHandlerContext {
@@ -27,8 +26,7 @@ interface ClaudiaHandlerContext {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- handleRunStart accepts various message shapes from different callers
   handleRunStart: (client: ConnectedClient, message: any, db: ReturnType<typeof initDatabase>, options?: Record<string, unknown>, clients?: Map<string, ConnectedClient>) => Promise<void>;
   notificationService?: NotificationService;
-  orchestrator?: TaskOrchestrator;
-  branchAllocator?: BranchAllocatorPort;
+  taskCoordination?: TaskCoordinationPort;
 }
 
 export async function handleClaudiaMessage(
@@ -42,11 +40,11 @@ export async function handleClaudiaMessage(
   const inlineInput = message.input?.trim();
   if (!inlineInput) return;
 
-  if (!ctx.orchestrator) {
+  if (!ctx.taskCoordination) {
     sendMessage(client.ws, {
       type: 'claudia_message_failed',
       clientRequestId: clientReqId,
-      error: 'Task orchestrator not available',
+      error: 'Task coordination not available',
     } as ClaudiaMessageFailedMessage);
     return;
   }
@@ -113,11 +111,7 @@ export async function handleClaudiaMessage(
   const inlineTitle = inlineInput.replace(/\s+/g, ' ').slice(0, 80);
 
   // Branch allocation
-  if (!ctx.branchAllocator) {
-    sendMessage(client.ws, { type: 'error', code: 'NOT_READY', message: 'Branch allocator not available' });
-    return;
-  }
-  const branchService = ctx.branchAllocator;
+  const branchService = ctx.taskCoordination;
   const freshSessionId = uuidv4();
   const allocation = branchService.allocateBranch({
     hostProjectId: inlineProjectId,
@@ -356,8 +350,7 @@ export async function handleClaudiaTaskSubmit(
   client: ConnectedClient,
   message: ClaudiaTaskSubmitMessage,
   db: ReturnType<typeof initDatabase>,
-  orchestrator: TaskOrchestrator,
-  branchAllocator: BranchAllocatorPort,
+  taskCoordination: TaskCoordinationPort,
 ): Promise<void> {
   const taskInput = message.input?.trim();
   if (!taskInput) return;
@@ -377,7 +370,7 @@ export async function handleClaudiaTaskSubmit(
 
   const title = taskInput.replace(/\s+/g, ' ').slice(0, 80);
   try {
-    const submitBranchService = branchAllocator;
+    const submitBranchService = taskCoordination;
     const submitSessionId = uuidv4();
     const submitAllocation = submitBranchService.allocateBranch({
       hostProjectId: message.projectId,
@@ -390,7 +383,7 @@ export async function handleClaudiaTaskSubmit(
       submitBranchService.setActiveBranchId(message.projectId, submitAllocation.branchId);
     }
 
-    const taskId = await orchestrator.spawnTask(null, {
+    const taskId = await taskCoordination.spawnTask(null, {
       task: taskInput,
       projectId: message.projectId,
       providerId: message.providerId,
@@ -402,7 +395,7 @@ export async function handleClaudiaTaskSubmit(
     });
     submitBranchService.updateBranchTask(submitAllocation.branchId, taskId);
 
-    const spawnedTask = orchestrator.getTask(taskId);
+    const spawnedTask = taskCoordination.getTask(taskId);
     sendMessage(client.ws, {
       type: 'claudia_task_created',
       clientRequestId: message.clientRequestId,
@@ -427,13 +420,12 @@ export async function handleClaudiaTaskContinue(
   client: ConnectedClient,
   message: ClaudiaTaskContinueMessage,
   db: ReturnType<typeof initDatabase>,
-  orchestrator: TaskOrchestrator,
-  branchAllocator: BranchAllocatorPort,
+  taskCoordination: TaskCoordinationPort,
 ): Promise<void> {
   const continueInput = message.input?.trim();
   if (!continueInput) return;
 
-  const parentTask = orchestrator.getTask(message.taskId);
+  const parentTask = taskCoordination.getTask(message.taskId);
   if (!parentTask) {
     sendMessage(client.ws, {
       type: 'error',
@@ -445,7 +437,7 @@ export async function handleClaudiaTaskContinue(
 
   const title = continueInput.replace(/\s+/g, ' ').slice(0, 80);
   try {
-    const continueBranchService = branchAllocator;
+    const continueBranchService = taskCoordination;
     const continueSessionId = uuidv4();
     const continueAllocation = continueBranchService.allocateForContinue({
       taskBranchId: parentTask.branchId,
@@ -457,7 +449,7 @@ export async function handleClaudiaTaskContinue(
       continueBranchService.setActiveBranchId(parentTask.projectId, continueAllocation.branchId);
     }
 
-    const taskId = await orchestrator.spawnTask(message.taskId, {
+    const taskId = await taskCoordination.spawnTask(message.taskId, {
       task: continueInput,
       projectId: parentTask.projectId ?? undefined,
       providerId: parentTask.providerId,
@@ -469,7 +461,7 @@ export async function handleClaudiaTaskContinue(
     });
     continueBranchService.updateBranchTask(continueAllocation.branchId, taskId);
 
-    const spawnedTask = orchestrator.getTask(taskId);
+    const spawnedTask = taskCoordination.getTask(taskId);
     sendMessage(client.ws, {
       type: 'claudia_task_created',
       clientRequestId: message.clientRequestId,
@@ -494,9 +486,9 @@ export async function handleClaudiaTaskContinue(
 export async function handleClaudiaTaskCancel(
   client: ConnectedClient,
   message: ClaudiaTaskCancelMessage,
-  orchestrator: TaskOrchestrator,
+  taskCoordination: TaskCoordinationPort,
 ): Promise<void> {
-  const task = orchestrator.getTask(message.taskId);
+  const task = taskCoordination.getTask(message.taskId);
   if (!task) {
     sendMessage(client.ws, {
       type: 'error',
@@ -507,7 +499,7 @@ export async function handleClaudiaTaskCancel(
   }
 
   try {
-    await orchestrator.killTask(message.taskId);
+    await taskCoordination.killTask(message.taskId);
   } catch (err) {
     sendMessage(client.ws, {
       type: 'error',

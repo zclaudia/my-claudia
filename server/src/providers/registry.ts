@@ -1,4 +1,4 @@
-import type { PCPProviderManifest } from '@my-claudia/shared';
+import type { PCPProviderManifest } from '@my-claudia/shared/core/pcp';
 import type { ProviderAdapter } from './types.js';
 import { ClaudeAdapter } from './claude-adapter.js';
 import { OpenCodeAdapter } from './opencode-adapter.js';

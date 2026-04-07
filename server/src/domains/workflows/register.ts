@@ -6,16 +6,13 @@
 
 import type { Express } from 'express';
 import type { RequestHandler } from 'express';
-import type { ServerMessage } from '@my-claudia/shared';
+import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 import type { initDatabase } from '../../storage/db.js';
 import { WorkflowEngine } from './engine.js';
 import { WorkflowService } from './service.js';
 import { WorkflowGeneratorService } from './generator.js';
 import { createWorkflowRoutes } from './routes.js';
-import { sendMessage } from '../conversation/ws/broadcast.js';
-import type { ConnectedClient } from '../conversation/ws/types.js';
-import type { PushNotificationService } from '../notification/notification-service.js';
-import { workflowStepRegistry } from '../plugins/index.js';
+import type { PushNotificationService } from '../../infrastructure/push/push-notification-service.js';
 import type { SystemTaskRegistryPort } from '../../services/system-task-registry.js';
 
 import {
@@ -32,12 +29,24 @@ import {
 } from './step-executors/index.js';
 import { VirtualClientAIRunner } from './step-executors/virtual-client-ai-runner.js';
 
+/** Minimal port for plugin step registry — avoids direct application/ import */
+type WorkflowStepRegistryPort = import('./step-executors/plugin-executor.js').PluginStepRegistry & {
+  getAllMeta(): Array<{ type: string; name: string; description: string; category: string; icon?: string; configSchema?: unknown }>;
+};
+
+/** Minimal port for plugin trigger registry */
+interface WorkflowTriggerRegistryPort {
+  getAll(): Array<unknown>;
+}
+
 export interface WorkflowDomainDeps {
   db: ReturnType<typeof initDatabase>;
   app: Express;
   authMiddleware: RequestHandler;
-  clients: Map<string, ConnectedClient>;
+  broadcast: (projectId: string | undefined, msg: ServerMessage | { type: string; [key: string]: unknown }) => void;
   notificationService: PushNotificationService;
+  workflowStepRegistry: WorkflowStepRegistryPort;
+  workflowTriggerRegistry?: WorkflowTriggerRegistryPort;
   systemTaskRegistry: SystemTaskRegistryPort;
 }
 
@@ -47,13 +56,7 @@ export interface WorkflowDomainResult {
 }
 
 export function registerWorkflowDomain(deps: WorkflowDomainDeps): WorkflowDomainResult {
-  const { db, app, authMiddleware, clients, notificationService, systemTaskRegistry } = deps;
-
-  const broadcast = (projectId: string | undefined, message: ServerMessage | { type: string; [key: string]: unknown }) => {
-    clients.forEach((client) => {
-      if (client.authenticated) sendMessage(client.ws, message as ServerMessage);
-    });
-  };
+  const { db, app, authMiddleware, broadcast, notificationService, workflowStepRegistry, workflowTriggerRegistry, systemTaskRegistry } = deps;
 
   // -- Assemble step executors --
   const aiRunner = new VirtualClientAIRunner(db);
@@ -78,10 +81,13 @@ export function registerWorkflowDomain(deps: WorkflowDomainDeps): WorkflowDomain
   const workflowService = new WorkflowService(db, broadcast, engine);
   workflowService.initialize();
 
-  const workflowGeneratorService = new WorkflowGeneratorService(db);
+  const workflowGeneratorService = new WorkflowGeneratorService(db, workflowStepRegistry);
 
   // -- Mount routes --
-  app.use('/api', authMiddleware, createWorkflowRoutes(workflowService, workflowGeneratorService));
+  app.use('/api', authMiddleware, createWorkflowRoutes(workflowService, workflowGeneratorService, {
+    stepRegistry: workflowStepRegistry,
+    triggerRegistry: workflowTriggerRegistry,
+  }));
 
   // -- Scheduler --
   systemTaskRegistry.register({

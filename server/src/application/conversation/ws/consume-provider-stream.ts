@@ -1,6 +1,6 @@
 import type { ClaudeMessage } from '../../../providers/types.js';
 import type { ProviderRegistryPort } from '../../../providers/registry.js';
-import type { PushNotificationService } from '../../notification/notification-service.js';
+import type { PushNotificationService } from '../../../infrastructure/push/push-notification-service.js';
 import { summarizeProviderMessage, type TraceRecorder } from '../../../utils/provider-trace.js';
 import type { ActiveRun } from './types.js';
 import { handleProviderEvent, type ProviderEventState } from './run-events.js';

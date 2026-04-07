@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
 import type Database from 'better-sqlite3';
-import type { ApiResponse, SlashCommand } from '@my-claudia/shared';
-import { LOCAL_COMMANDS, CLI_COMMANDS, CLAUDE_FALLBACK_COMMANDS } from '@my-claudia/shared';
+import type { ApiResponse } from '@my-claudia/shared/core/api';
+import type { SlashCommand } from '@my-claudia/shared/features/commands';
+import { LOCAL_COMMANDS, CLI_COMMANDS, CLAUDE_FALLBACK_COMMANDS } from '@my-claudia/shared/features/commands';
 import { scanCustomCommands } from '../utils/command-scanner.js';
 import { openCodeServerManager } from '../providers/opencode-sdk.js';
 import { fetchClaudeCommands } from '../providers/claude-sdk.js';

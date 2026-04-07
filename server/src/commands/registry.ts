@@ -21,7 +21,7 @@
  *   const result = await commandRegistry.execute(commandName, args, context);
  */
 
-import type { SlashCommand, CommandExecuteResponse } from '@my-claudia/shared';
+import type { SlashCommand, CommandExecuteResponse } from '@my-claudia/shared/features/commands';
 
 // ============================================
 // Types
@@ -160,7 +160,7 @@ class CommandRegistry {
     try {
       // Lazy permission check for plugin commands
       if (command.pluginId) {
-        const { pluginLoader } = await import('../domains/plugins/loader.js');
+        const { pluginLoader } = await import('../application/plugins/loader.js');
         const permitted = await pluginLoader.checkPermissions(command.pluginId);
         if (!permitted) {
           return {

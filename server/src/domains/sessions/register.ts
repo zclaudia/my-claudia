@@ -2,9 +2,8 @@ import type { Express, RequestHandler } from 'express';
 import type Database from 'better-sqlite3';
 import { createSessionRoutes } from './routes.js';
 import { createSessionDraftRoutes } from './drafts-routes.js';
-import type { ActiveRun } from '../conversation/ws/types.js';
-
-type ActiveRunsMap = Map<string, ActiveRun>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- sessions domain treats this as opaque; concrete type lives in application/conversation
+type ActiveRunsMap = Map<string, any>;
 
 export interface SessionsDomainDeps {
   app: Express;

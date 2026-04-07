@@ -16,7 +16,7 @@ import { ProviderRepository } from '../domains/providers/repository.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { loggingMiddleware } from '../middleware/logging.js';
 import { errorHandlingMiddleware } from '../middleware/error.js';
-import { createRequest } from '@my-claudia/shared';
+import { createRequest } from '@my-claudia/shared/protocol/correlation';
 import type { MessageContext } from '../middleware/base.js';
 
 // Test utilities

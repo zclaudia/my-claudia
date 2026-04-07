@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
-import type { ApiResponse, SupervisionTask, ProjectAgent } from '@my-claudia/shared';
+import type { ApiResponse } from '@my-claudia/shared/core/api';
+import type { SupervisionTask, ProjectAgent } from '@my-claudia/shared/features/supervision';
 import type { SupervisorService } from './supervisor-service.js';
 import type { ContextDocument } from './context-manager.js';
 

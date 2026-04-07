@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import BetterSqlite3 from 'better-sqlite3';
 import type Database from 'better-sqlite3';
-import type { Message } from '@my-claudia/shared';
+import type { Message } from '@my-claudia/shared/core/message';
 import { checkDuplicateSession, convertOpenCodeMessage, type ImportResult, type ScanResult } from '../routes/import-shared.js';
 
 interface ClaudeSessionEntry {

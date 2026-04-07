@@ -10,14 +10,16 @@ import type {
   WorkflowDefinition,
   WorkflowNodeDef,
   WorkflowEdgeDef,
-  ServerMessage,
-  Session,
-} from '@my-claudia/shared';
+} from '@my-claudia/shared/features/workflows';
+import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
+import type { Session } from '@my-claudia/shared/core/session';
 import { SessionRepository } from '../sessions/repository.js';
 import { createVirtualClient, handleRunStart } from '../../server.js';
 import { isValidCron } from '../../utils/cron.js';
 import { autoLayoutGraph } from '../../utils/workflow-layout.js';
-import { workflowStepRegistry } from '../plugins/index.js';
+interface StepRegistryPort {
+  getAllMeta(): Array<{ type: string; name: string; description: string; category: string }>;
+}
 import { BUILTIN_WORKFLOW_TEMPLATES } from './templates.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -67,9 +69,11 @@ const BUILTIN_STEP_TYPES = [
 export class WorkflowGeneratorService {
   private sessions = new Map<string, GenerationSession>();
   private sessionRepo: SessionRepository;
+  private workflowStepRegistry?: StepRegistryPort;
 
-  constructor(private db: Database) {
+  constructor(private db: Database, workflowStepRegistry?: StepRegistryPort) {
     this.sessionRepo = new SessionRepository(db);
+    this.workflowStepRegistry = workflowStepRegistry;
   }
 
   /**
@@ -158,7 +162,7 @@ export class WorkflowGeneratorService {
 
   private buildSystemPrompt(): string {
     // Get plugin step types
-    const pluginSteps = workflowStepRegistry.getAllMeta();
+    const pluginSteps = (this.workflowStepRegistry?.getAllMeta() ?? []);
     const pluginStepDocs = pluginSteps.map(s =>
       `  { type: '${s.type}', description: '${s.description}', category: '${s.category}' }`
     ).join('\n');
@@ -396,7 +400,7 @@ Generate a workflow definition based on the user's natural language description.
       'ai_prompt', 'ai_review', 'git_commit', 'git_merge',
       'create_worktree', 'create_pr',
     ]);
-    for (const meta of workflowStepRegistry.getAllMeta()) {
+    for (const meta of (this.workflowStepRegistry?.getAllMeta() ?? [])) {
       validTypes.add(meta.type);
     }
     for (const node of def.nodes) {

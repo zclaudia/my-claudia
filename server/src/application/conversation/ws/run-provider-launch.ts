@@ -7,7 +7,7 @@ import { PERIODIC_SAVE_INTERVAL_MS, type ActiveRun, type ConnectedClient } from 
 import { sendMessage } from './broadcast.js';
 import type { RunStartMessage, RunSessionRecord } from './run-bootstrap.js';
 import type { TraceRecorder } from '../../../utils/provider-trace.js';
-import type { ProviderConfig } from '@my-claudia/shared';
+import type { ProviderConfig } from '@my-claudia/shared/core/provider';
 
 interface LaunchProviderRunInput {
   activeRun: ActiveRun;
@@ -19,14 +19,14 @@ interface LaunchProviderRunInput {
   forcedPlanBySession: boolean;
   message: RunStartMessage;
   modeValue: string;
-  permissionCallback: (request: import('@my-claudia/shared').PermissionRequest) => Promise<import('../../../providers/claude-sdk.js').PermissionDecision>;
+  permissionCallback: (request: import('@my-claudia/shared/interaction/permissions').PermissionRequest) => Promise<import('../../../providers/claude-sdk.js').PermissionDecision>;
   processedInput: string;
   providerConfig?: ProviderConfig;
   providerId: string | null;
   providerType: string;
   runId: string;
   sdkSessionId?: string;
-  sendRunEvent: (event: import('@my-claudia/shared').ServerMessage) => void;
+  sendRunEvent: (event: import('@my-claudia/shared/protocol/messages').ServerMessage) => void;
   serverPort: number | null;
   session: RunSessionRecord;
   sessionType: 'regular' | 'background' | 'agent';
@@ -105,7 +105,7 @@ export async function launchProviderRun(input: LaunchProviderRunInput): Promise<
       type: 'background_task_update',
       sessionId: message.sessionId,
       status: 'running',
-    } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
+    } as import('@my-claudia/shared/protocol/messages').BackgroundTaskUpdateMessage);
   }
 
   const { runOptions } = await buildRunContext({

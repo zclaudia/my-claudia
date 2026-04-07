@@ -15,9 +15,9 @@ import type {
   ClientMessage,
   ErrorMessage,
   AuthResultMessage,
-  Request as CorrelatedRequest,
-} from '@my-claudia/shared';
-import { ALL_SERVER_FEATURES } from '@my-claudia/shared';
+} from '@my-claudia/shared/protocol/messages';
+import type { Request as CorrelatedRequest } from '@my-claudia/shared/protocol/correlation';
+import { ALL_SERVER_FEATURES } from '@my-claudia/shared/core/server';
 import type { initDatabase } from './storage/db.js';
 import type { ProjectChangeEvent } from './domains/projects/routes.js';
 import { createFilesRoutes } from './routes/files.js';
@@ -29,7 +29,7 @@ import { createAgentRoutes } from './routes/agent.js';
 import { createClaudiaRoutes } from './routes/claudia.js';
 import { handleMcpRequest, handleMcpSse, handleMcpSessionClose, getMcpServerInfo } from './mcp/mcp-server.js';
 import { createDelegationRoutes } from './routes/delegation.js';
-import type { NotificationService } from './domains/notification/service.js';
+import type { NotificationService } from './domains/notification-feed/service.js';
 import { createMcpServerRoutes } from './routes/mcp-servers.js';
 import { createSystemStatsRoutes } from './routes/system-stats.js';
 import { createDebugRoutes } from './routes/debug.js';
@@ -42,28 +42,29 @@ import type { LocalPRService } from './domains/local-pr/service.js';
 import { registerWorkflowDomain } from './domains/workflows/register.js';
 import { registerSessionsDomain } from './domains/sessions/register.js';
 import { registerProvidersDomain } from './domains/providers/register.js';
-import { registerPluginsDomain } from './domains/plugins/register.js';
+import { registerPluginsDomain } from './application/plugins/register.js';
+import { workflowStepRegistry, toolRegistry, workflowTriggerRegistry } from './application/plugins/index.js';
 import { registerProjectsDomain } from './domains/projects/register.js';
 import { createAutomationRoutes } from './routes/automations.js';
 import { systemTaskRegistry } from './services/system-task-registry.js';
 import type { SupervisorService } from './domains/supervision/supervisor-service.js';
-import { PushNotificationService } from './domains/notification/notification-service.js';
-import { registerInteractionTools } from './domains/conversation/interactions/interaction-tools.js';
-import { registerAgentTools } from './domains/conversation/agent-tools/index.js';
-import { registerOrchestrationDomain } from './domains/orchestration/register.js';
+import { PushNotificationService } from './infrastructure/push/push-notification-service.js';
+import { registerInteractionTools } from './application/conversation/interactions/interaction-tools.js';
+import { registerAgentTools } from './application/conversation/agent-tools/index.js';
+import { registerOrchestrationDomain } from './application/orchestration/register.js';
 import { pluginEvents } from './events/index.js';
 import { isLocalhost, localOnlyMiddleware } from './middleware/local-only.js';
 import { createExpressAuthMiddleware } from './middleware/express-auth.js';
 import { getPublicKeyPem } from './utils/crypto.js';
 import { getSdkVersionReport } from './utils/sdk-version-check.js';
-import { getGatewayClient } from './domains/gateway/gateway-instance.js';
+import { getGatewayClient } from './infrastructure/gateway/gateway-instance.js';
 import { ProcessMonitor } from './utils/process-monitor.js';
-import { sendMessage, buildPluginStateMessage, bumpProjectsVersion } from './domains/conversation/ws/broadcast.js';
-import { getNextOffset } from './domains/conversation/ws/run-lifecycle.js';
-import { createVirtualClient, type ConnectedClient, type ActiveRun } from './domains/conversation/ws/types.js';
+import { sendMessage, buildPluginStateMessage, bumpProjectsVersion } from './application/conversation/transport/broadcast.js';
+import { getNextOffset } from './application/conversation/runtime/run-lifecycle.js';
+import { createVirtualClient, type ConnectedClient, type ActiveRun } from './application/conversation/transport/types.js';
 import type { createRouter } from './router/index.js';
-import { registerNotificationDomain } from './domains/notification/register.js';
-import { registerInteractionDomain } from './domains/conversation/interactions/register.js';
+import { registerNotificationDomain } from './domains/notification-feed/register.js';
+import { registerInteractionDomain } from './application/conversation/interactions/register.js';
 
 export interface SetupDependencies {
   db: ReturnType<typeof initDatabase>;
@@ -94,7 +95,7 @@ export interface SetupResult {
   notificationService: PushNotificationService;
   supervisorService: SupervisorService;
   notificationsService: NotificationService;
-  orchestrator: import('./domains/orchestration/types.js').TaskOrchestrator;
+  orchestrator: import('./application/orchestration/types.js').TaskOrchestrator;
   /** Cleanup function: call when WebSocket server closes */
   onWssClose: () => void;
 }
@@ -224,7 +225,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   // This is the canonical REST mounting point; do not confuse it with server/src/router.
   registerProjectsDomain({ db, app, authMiddleware, onProjectChanged: handleProjectChanged });
   registerSessionsDomain({ app, authMiddleware, db, activeRuns });
-  registerProvidersDomain({ app, authMiddleware, db });
+  registerProvidersDomain({ app, authMiddleware, db, toolRegistry });
   app.use('/api/files', authMiddleware, createFilesRoutes({
     sendMessage,
     getAuthenticatedClients: () => {
@@ -263,12 +264,21 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
 
   // Supervision domain
   const { supervisorService } = registerSupervisionDomain({
-    db, app, authMiddleware, clients, activeRuns, handleRunStart,
+    db, app, authMiddleware,
+    broadcast: (msg) => {
+      clients.forEach((client) => { if (client.authenticated) sendMessage(client.ws, msg); });
+    },
+    activeRuns,
+    createVirtualClient,
+    handleRunStart,
   });
 
   // Local PR domain
   const { localPRService } = registerLocalPRDomain({
-    db, app, authMiddleware, clients,
+    db, app, authMiddleware,
+    broadcast: (projectId, msg) => {
+      clients.forEach((client) => { if (client.authenticated) sendMessage(client.ws, msg); });
+    },
     onProjectChanged: handleProjectChanged,
     isWorktreeAvailable: (projectId) => {
       const pool = supervisorService.getWorktreePoolIfExists(projectId);
@@ -290,7 +300,14 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
 
   // Workflow domain
   const { workflowService } = registerWorkflowDomain({
-    db, app, authMiddleware, clients, notificationService: pushNotificationService, systemTaskRegistry,
+    db, app, authMiddleware,
+    broadcast: (projectId, msg) => {
+      clients.forEach((client) => { if (client.authenticated) sendMessage(client.ws, msg as any); });
+    },
+    notificationService: pushNotificationService,
+    workflowStepRegistry,
+    workflowTriggerRegistry,
+    systemTaskRegistry,
   });
   app.use('/api/automations', authMiddleware, createAutomationRoutes(workflowService));
 
@@ -479,7 +496,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   });
 
   // Register browser tool (lightweight URL fetcher)
-  import('./domains/conversation/agent-tools/browser.js').then(m => m.registerBrowserTool());
+  import('./application/conversation/agent-tools/browser.js').then(m => m.registerBrowserTool());
 
   const { orchestrator } = registerOrchestrationDomain({
     db,

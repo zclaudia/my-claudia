@@ -9,7 +9,8 @@ import {
   type UserInput,
   type Usage as CodexUsage,
 } from '@openai/codex-sdk';
-import type { MessageInput, PermissionRequest } from '@my-claudia/shared';
+import type { MessageInput } from '@my-claudia/shared/core/message';
+import type { PermissionRequest } from '@my-claudia/shared/interaction/permissions';
 import type Database from 'better-sqlite3';
 import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
 import { fileStore } from '../storage/fileStore.js';

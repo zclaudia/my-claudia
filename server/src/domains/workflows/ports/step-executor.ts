@@ -5,7 +5,7 @@
  * The engine depends only on this interface, never on concrete executors.
  */
 
-import type { WorkflowNodeDef } from '@my-claudia/shared';
+import type { WorkflowNodeDef } from '@my-claudia/shared/features/workflows';
 
 export interface StepResult {
   status: 'completed' | 'failed' | 'skipped';

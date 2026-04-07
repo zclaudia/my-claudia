@@ -8,20 +8,23 @@ import type {
   ServerMessage,
   ErrorMessage,
   AuthResultMessage,
-  Request as CorrelatedRequest,
   StateHeartbeatMessage,
-} from '@my-claudia/shared';
-import { ALL_SERVER_FEATURES } from '@my-claudia/shared';
+} from '@my-claudia/shared/protocol/messages';
+import type { Request as CorrelatedRequest } from '@my-claudia/shared/protocol/correlation';
+import { ALL_SERVER_FEATURES } from '@my-claudia/shared/core/server';
 import { initDatabase } from './storage/db.js';
 import { initFileStore } from './storage/fileStore.js';
 import { initWorkspace } from './services/workspace.js';
 import type { GatewayConfig, GatewayStatus } from './routes/gateway.js';
 import { TerminalManager } from './terminal-manager.js';
 import { generateKeyPair, getPublicKeyPem } from './utils/crypto.js';
-import { pluginLoader } from './domains/plugins/loader.js';
+import { pluginLoader } from './application/plugins/loader.js';
 import type { ProcessMonitor } from './utils/process-monitor.js';
-import type { PushNotificationService } from './domains/notification/notification-service.js';
-import { ClaudiaBranchService } from './domains/orchestration/claudia-branch-service.js';
+import type { PushNotificationService } from './infrastructure/push/push-notification-service.js';
+import { ClaudiaBranchService } from './application/orchestration/claudia-branch-service.js';
+import type { TaskCoordinationPort } from './application/conversation/task-coordination-port.js';
+import type { SessionSyncPort } from './application/conversation/session-sync-port.js';
+import { getGatewayClient } from './infrastructure/gateway/gateway-instance.js';
 import { providerRegistry } from './providers/registry.js';
 
 // WebSocket message-router architecture.
@@ -33,8 +36,8 @@ import { isLocalhost } from './middleware/local-only.js';
 import { expressErrorHandler } from './middleware/express-error.js';
 
 // Extracted modules
-import type { ConnectedClient, ActiveRun, MessageSender } from './domains/conversation/ws/types.js';
-import { createVirtualClient } from './domains/conversation/ws/types.js';
+import type { ConnectedClient, ActiveRun, MessageSender } from './application/conversation/transport/types.js';
+import { createVirtualClient } from './application/conversation/transport/types.js';
 import {
   sendMessage,
   broadcastToOtherAuthenticatedClients,
@@ -42,21 +45,21 @@ import {
   broadcastHeartbeat as _broadcastHeartbeat,
   buildPluginStateMessage,
   broadcastPluginState as _broadcastPluginState,
-} from './domains/conversation/ws/broadcast.js';
+} from './application/conversation/transport/broadcast.js';
 import {
   handleClientMessage as _handleClientMessage,
   type MessageHandlerContext,
-} from './domains/conversation/ws/message-handler.js';
+} from './application/conversation/transport/message-handler.js';
 import {
   cancelRun as _cancelRun,
   findProcessPidsByTaskCommand,
   parseMessage,
   type CancelRunOptions,
-} from './domains/conversation/ws/run-lifecycle.js';
+} from './application/conversation/runtime/run-lifecycle.js';
 import {
   handleRunStart as _handleRunStart,
   type RunHandlerContext,
-} from './domains/conversation/ws/run-handler.js';
+} from './application/conversation/runtime/run-handler.js';
 import { setupRoutesAndServices } from './server-setup.js';
 
 let database: ReturnType<typeof initDatabase> | null = null;
@@ -89,7 +92,7 @@ function buildClaudiaTaskSnapshot(): import('@my-claudia/shared').ClaudiaTaskSna
      WHERE session_id = ?`
   );
 
-  const collectTasks = (parentId?: string): import('./domains/orchestration/types.js').OrchestratorTask[] => {
+  const collectTasks = (parentId?: string): import('./application/orchestration/types.js').OrchestratorTask[] => {
     const direct = orch.listTasks(parentId);
     return direct.flatMap((task) => [task, ...collectTasks(task.id)]);
   };
@@ -140,10 +143,45 @@ let processMonitor: ProcessMonitor | null = null;
 let connectedClients = new Map<string, ConnectedClient>();
 let pushNotificationService: PushNotificationService;
 let serverPort: number | null = null;
-let notificationsService: import('./domains/notification/service.js').NotificationService | undefined;
-let taskOrchestrator: import('./domains/orchestration/types.js').TaskOrchestrator | undefined;
+let notificationsService: import('./domains/notification-feed/service.js').NotificationService | undefined;
+let taskOrchestrator: import('./application/orchestration/types.js').TaskOrchestrator | undefined;
 let branchAllocator: ClaudiaBranchService | undefined;
-let facadeHubRef: import('./domains/gateway/ws-hub.js').FacadeWsHub | null = null;
+let facadeHubRef: import('./infrastructure/gateway/ws-hub.js').FacadeWsHub | null = null;
+
+function getTaskCoordination(): TaskCoordinationPort | undefined {
+  const orch = taskOrchestrator;
+  const alloc = branchAllocator;
+  if (!orch || !alloc) return undefined;
+  return {
+    getTask: (taskId) => orch.getTask(taskId),
+    spawnTask: (parentId, config) => orch.spawnTask(parentId, config),
+    killTask: (taskId) => orch.killTask(taskId),
+    allocateBranch: (opts) => alloc.allocateBranch(opts),
+    allocateForContinue: (opts) => alloc.allocateForContinue(opts),
+    setActiveBranchId: (hostProjectId, branchId) => alloc.setActiveBranchId(hostProjectId, branchId),
+    attachSession: (branchId, sessionId) => alloc.attachSession(branchId, sessionId),
+    updateBranchTask: (branchId, taskId, sessionId) => alloc.updateBranchTask(branchId, taskId, sessionId),
+  };
+}
+
+function getSessionSync(): SessionSyncPort {
+  return {
+    broadcastSessionUpdated: (sessionId, db) => {
+      const gatewayClient = getGatewayClient();
+      if (!gatewayClient) return;
+
+      const updatedSession = db.prepare(`
+        SELECT s.id, s.name, s.updated_at as updatedAt, s.archived_at as archivedAt
+        FROM sessions s
+        WHERE s.id = ?
+      `).get(sessionId);
+
+      if (updatedSession) {
+        gatewayClient.commands.backendData.broadcastSessionEvent('updated', updatedSession);
+      }
+    },
+  };
+}
 
 // Re-exports for backward compatibility
 export type { ConnectedClient, MessageSender };
@@ -160,8 +198,7 @@ function getMessageHandlerContext(): MessageHandlerContext {
     broadcastPluginState,
     findProcessPidsByTaskCommand,
     notificationService: notificationsService,
-    orchestrator: taskOrchestrator,
-    branchAllocator,
+    taskCoordination: getTaskCoordination(),
     providerRegistry,
   };
 }
@@ -175,6 +212,7 @@ function getRunHandlerContext(): RunHandlerContext {
     notificationsService,
     serverPort,
     broadcastHeartbeat,
+    sessionSync: getSessionSync(),
     providerRegistry,
   };
 }
@@ -195,7 +233,7 @@ export interface ServerContext {
   setGatewayConnector: (connector: (config: GatewayConfig) => Promise<void>) => void;
   setGatewayDisconnector: (disconnector: () => Promise<void>) => void;
   setServerPort: (port: number) => void;
-  setFacadeHub: (hub: import('./domains/gateway/ws-hub.js').FacadeWsHub | null) => void;
+  setFacadeHub: (hub: import('./infrastructure/gateway/ws-hub.js').FacadeWsHub | null) => void;
 }
 
 export async function createServer(): Promise<ServerContext> {

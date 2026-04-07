@@ -7,7 +7,7 @@ import {
   loadSkillContent,
   selectSkills,
   toolRegistry as pluginToolRegistry,
-} from '../../plugins/index.js';
+} from '../../../application/plugins/index.js';
 import {
   providerSupportsNativePlanMode,
   buildNonNativePlanPrompt,

@@ -7,7 +7,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import type { WorkflowService } from '../domains/workflows/service.js';
-import type { WorkflowNodeDef, WorkflowTrigger, WorkflowTriggerType } from '@my-claudia/shared';
+import type { WorkflowNodeDef, WorkflowTrigger, WorkflowTriggerType } from '@my-claudia/shared/features/workflows';
 import { v4 as uuidv4 } from 'uuid';
 
 interface SimpleAutomationBody {

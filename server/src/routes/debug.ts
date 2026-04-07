@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import type { ApiResponse } from '@my-claudia/shared';
+import type { ApiResponse } from '@my-claudia/shared/core/api';
 import { getCrashLogFilePath, readCrashReports } from '../utils/crash-log.js';
 import type { ProcessSupervisor, ManagedProcessRecord } from '../services/process-supervisor.js';
 

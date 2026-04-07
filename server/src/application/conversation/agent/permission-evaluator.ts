@@ -6,7 +6,7 @@ import type {
   PermissionCategory,
   EvaluationContext,
   UnifiedPermissionPolicy,
-} from '@my-claudia/shared';
+} from '@my-claudia/shared/interaction/permissions';
 import {
   DEFAULT_SENSITIVE_PATTERNS,
   DEFAULT_GLOBAL_GUARDS,
@@ -14,7 +14,7 @@ import {
   DEFAULT_UNIFIED_PROFILE,
   normalizeToUnifiedPolicy,
   ensureEscalateAlways,
-} from '@my-claudia/shared';
+} from '@my-claudia/shared/interaction/permissions';
 import * as fs from 'fs';
 import * as path from 'path';
 import { minimatch } from 'minimatch';

@@ -8,7 +8,7 @@
  * to enable server-side normalization for interaction events.
  */
 
-import type { NormalizedTodoItem } from '@my-claudia/shared';
+import type { NormalizedTodoItem } from '@my-claudia/shared/interaction/forms';
 
 const VALID_STATUSES = new Set(['pending', 'in_progress', 'completed']);
 

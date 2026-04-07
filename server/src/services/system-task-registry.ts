@@ -1,4 +1,4 @@
-import type { SystemTaskInfo, SystemTaskCategory } from '@my-claudia/shared';
+import type { SystemTaskInfo, SystemTaskCategory } from '@my-claudia/shared/features/system-tasks';
 
 export interface SystemTaskRegistration {
   id: string;

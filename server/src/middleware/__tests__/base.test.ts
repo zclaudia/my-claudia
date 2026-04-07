@@ -7,7 +7,7 @@ import {
   type MessageContext,
   type MessageHandler,
 } from '../base.js';
-import type { Request, Response } from '@my-claudia/shared';
+import type { Request, Response } from '@my-claudia/shared/protocol/correlation';
 
 describe('middleware/base', () => {
   let mockCtx: MessageContext;

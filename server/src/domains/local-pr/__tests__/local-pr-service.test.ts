@@ -50,7 +50,8 @@ const mockStartAISession = vi.fn((opts: any) => {
 import { LocalPRService } from '../service.js';
 import type { LocalPRAIDeps } from '../service.js';
 import { LocalPRRepository } from '../repository.js';
-import type { LocalPR, ServerMessage } from '@my-claudia/shared';
+import type { LocalPR } from '@my-claudia/shared/features/local-pr';
+import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 
 function createAIDeps(overrides?: Partial<LocalPRAIDeps>): LocalPRAIDeps {
   return {

@@ -1,6 +1,6 @@
 import { BaseRepository } from '../../repositories/base.js';
 import type { Database } from 'better-sqlite3';
-import type { Project } from '@my-claudia/shared';
+import type { Project } from '@my-claudia/shared/core/project';
 import { v4 as uuidv4 } from 'uuid';
 
 export class ProjectRepository extends BaseRepository<

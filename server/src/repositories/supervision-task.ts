@@ -1,5 +1,5 @@
 import type { Database } from 'better-sqlite3';
-import type { SupervisionTask, TaskStatus, TaskResult } from '@my-claudia/shared';
+import type { SupervisionTask, TaskStatus, TaskResult } from '@my-claudia/shared/features/supervision';
 import { v4 as uuidv4 } from 'uuid';
 
 export class SupervisionTaskRepository {

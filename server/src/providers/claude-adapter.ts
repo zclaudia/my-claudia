@@ -1,6 +1,6 @@
 import type { ProviderAdapter, RunOptions, ClaudeMessage, PermissionCallback } from './types.js';
 import { runClaude, type ClaudeQueryHandle } from './claude-sdk.js';
-import type { PermissionMode } from '@my-claudia/shared';
+import type { PermissionMode } from '@my-claudia/shared/core/provider';
 import { CLAUDE_MANIFEST } from './manifests.js';
 import {
   isProcessAlive,

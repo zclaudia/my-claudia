@@ -1,5 +1,5 @@
 import type { StepExecutorPort, StepResult, StepContext } from '../ports/step-executor.js';
-import type { WorkflowNodeDef } from '@my-claudia/shared';
+import type { WorkflowNodeDef } from '@my-claudia/shared/features/workflows';
 
 export class WebhookStepExecutor implements StepExecutorPort {
   readonly supportedTypes = ['webhook'] as const;

@@ -1,14 +1,14 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { Database } from 'better-sqlite3';
+import type { Session } from '@my-claudia/shared/core/session';
+import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 import type {
   AgentMode,
-  Session,
   ProjectAgent,
   SupervisionTask,
-  ServerMessage,
   SupervisionLogEvent,
   SupervisorConfig,
-} from '@my-claudia/shared';
+} from '@my-claudia/shared/features/supervision';
 import { SupervisionTaskRepository } from '../../repositories/supervision-task.js';
 import { ProjectRepository } from '../projects/repository.js';
 import { SessionRepository } from '../sessions/repository.js';

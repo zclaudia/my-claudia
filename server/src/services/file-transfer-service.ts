@@ -1,11 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import type {
-  FilePushMetadata,
-  FilePushNotificationMessage,
-  ServerMessage,
-} from '@my-claudia/shared';
+import type { FilePushMetadata } from '@my-claudia/shared/core/message';
+import type { FilePushNotificationMessage, ServerMessage } from '@my-claudia/shared/protocol/messages';
 import type WebSocket from 'ws';
 import { fileStore } from '../storage/fileStore.js';
 

@@ -12,7 +12,7 @@ import { pluginEvents } from '../../../events/index.js';
 import { generateToolSignature } from '../../../loop-detection.js';
 import type { ProviderRegistryPort } from '../../../providers/registry.js';
 import type { ClaudeMessage, SystemInfo } from '../../../providers/types.js';
-import type { PushNotificationService } from '../../notification/notification-service.js';
+import type { PushNotificationService } from '../../../infrastructure/push/push-notification-service.js';
 
 export interface ProviderEventState {
   sdkSessionId?: string;

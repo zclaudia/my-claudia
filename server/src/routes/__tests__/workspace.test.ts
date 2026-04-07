@@ -3,7 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import { createWorkspaceRoutes } from '../workspace.js';
 import { workspaceService } from '../../services/workspace.js';
-import { getExternalSkillDirs, refreshSkillTools, saveExternalSkillDirs } from '../../domains/plugins/skill-tools.js';
+import { getExternalSkillDirs, refreshSkillTools, saveExternalSkillDirs } from '../../application/plugins/skill-tools.js';
 
 vi.mock('../../services/workspace.js', () => ({
   workspaceService: {
@@ -18,7 +18,7 @@ vi.mock('../../services/workspace.js', () => ({
   },
 }));
 
-vi.mock('../../domains/plugins/skill-tools.js', () => ({
+vi.mock('../../application/plugins/skill-tools.js', () => ({
   refreshSkillTools: vi.fn(),
   getExternalSkillDirs: vi.fn(),
   saveExternalSkillDirs: vi.fn(),

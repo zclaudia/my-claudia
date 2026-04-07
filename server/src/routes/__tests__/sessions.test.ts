@@ -4,7 +4,7 @@ import request from 'supertest';
 import Database from 'better-sqlite3';
 import { createSessionRoutes } from '../sessions.js';
 
-vi.mock('../../domains/gateway/gateway-instance.js', () => ({
+vi.mock('../../infrastructure/gateway/gateway-instance.js', () => ({
   getGatewayClient: vi.fn(() => ({
     commands: {
       backendData: {
@@ -1450,12 +1450,12 @@ internal reasoning cursor plan
     beforeEach(async () => {
       mockBroadcastSessionEvent = vi.fn();
       mockGatewayClient = { commands: { backendData: { broadcastSessionEvent: mockBroadcastSessionEvent } } };
-      const { getGatewayClient } = await import('../../domains/gateway/gateway-instance.js');
+      const { getGatewayClient } = await import('../../infrastructure/gateway/gateway-instance.js');
       (getGatewayClient as ReturnType<typeof vi.fn>).mockReturnValue(mockGatewayClient);
     });
 
     afterEach(async () => {
-      const { getGatewayClient } = await import('../../domains/gateway/gateway-instance.js');
+      const { getGatewayClient } = await import('../../infrastructure/gateway/gateway-instance.js');
       (getGatewayClient as ReturnType<typeof vi.fn>).mockReturnValue(null);
     });
 

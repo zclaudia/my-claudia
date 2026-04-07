@@ -1,5 +1,5 @@
 import type { StepExecutorPort, StepResult, StepContext } from '../ports/step-executor.js';
-import type { WorkflowNodeDef } from '@my-claudia/shared';
+import type { WorkflowNodeDef } from '@my-claudia/shared/features/workflows';
 import type { PluginStepExecutor } from './plugin-executor.js';
 
 const DEFAULT_STEP_TIMEOUT_MS = 10 * 60 * 1000;

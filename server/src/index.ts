@@ -3,11 +3,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createServer, createVirtualClient, activeRuns, connectedClients, cancelRun } from './server.js';
 import { autoDetectProviders, checkProviderVersions, startTempFileCleanup, shutdownProviders } from './providers/initializer.js';
-import { pluginLoader } from './domains/plugins/loader.js';
+import { pluginLoader } from './application/plugins/loader.js';
 import { registerBuiltinCommands } from './commands/init.js';
 import { sanitizeInheritedProviderEnv } from './utils/startup-env.js';
 import { isIgnorableProcessError } from './utils/process-error-filter.js';
-import { GatewayManager } from './domains/gateway/manager.js';
+import { GatewayManager } from './infrastructure/gateway/manager.js';
 import { stopFileStoreCleanup } from './storage/fileStore.js';
 import { writeCrashReportSync } from './utils/crash-log.js';
 
@@ -113,7 +113,7 @@ async function main() {
     }
 
     // Register workspace + external skills as MCP bridge tools
-    const { setDatabase: setSkillDb, registerSkillTools } = await import('./domains/plugins/skill-tools.js');
+    const { setDatabase: setSkillDb, registerSkillTools } = await import('./application/plugins/skill-tools.js');
     setSkillDb(serverContext.db);
     const skillCount = await registerSkillTools();
     if (skillCount > 0) {

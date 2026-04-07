@@ -24,7 +24,7 @@ import { TaskRunner } from '../task-runner.js';
 import { SupervisionTaskRepository } from '../../../repositories/supervision-task.js';
 import { ProjectRepository } from '../../../repositories/project.js';
 import type { ContextManager, WorkflowAction } from '../context-manager.js';
-import type { SupervisionTask, SupervisionLogEvent } from '@my-claudia/shared';
+import type { SupervisionTask, SupervisionLogEvent } from '@my-claudia/shared/features/supervision';
 
 // ---------------------------------------------------------------------------
 // Helpers

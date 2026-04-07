@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { createPluginRoutes } from '../../domains/plugins/routes.js';
+import { createPluginRoutes } from '../../application/plugins/routes.js';
 
 // Mock fs module
 vi.mock('fs', () => ({
@@ -10,7 +10,7 @@ vi.mock('fs', () => ({
 }));
 
 // Mock pluginLoader
-vi.mock('../../domains/plugins/loader.js', () => ({
+vi.mock('../../application/plugins/loader.js', () => ({
   pluginLoader: {
     getPlugins: vi.fn(() => []),
     getPlugin: vi.fn(),
@@ -27,7 +27,7 @@ vi.mock('../../domains/plugins/loader.js', () => ({
 }));
 
 // Mock permissionManager
-vi.mock('../../domains/plugins/permissions.js', () => ({
+vi.mock('../../application/plugins/permissions.js', () => ({
   permissionManager: {
     getGrantedPermissions: vi.fn(() => []),
     grantAll: vi.fn(),
@@ -36,7 +36,7 @@ vi.mock('../../domains/plugins/permissions.js', () => ({
 }));
 
 // Mock toolRegistry
-vi.mock('../../domains/plugins/tool-registry.js', () => ({
+vi.mock('../../application/plugins/tool-registry.js', () => ({
   toolRegistry: {
     getByPlugin: vi.fn(() => []),
   },
@@ -50,9 +50,9 @@ vi.mock('../../commands/registry.js', () => ({
 }));
 
 import * as fs from 'fs';
-import { pluginLoader } from '../../domains/plugins/loader.js';
-import { permissionManager } from '../../domains/plugins/permissions.js';
-import { toolRegistry } from '../../domains/plugins/tool-registry.js';
+import { pluginLoader } from '../../application/plugins/loader.js';
+import { permissionManager } from '../../application/plugins/permissions.js';
+import { toolRegistry } from '../../application/plugins/tool-registry.js';
 import { commandRegistry } from '../../commands/registry.js';
 
 function createTestApp() {

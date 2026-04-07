@@ -6,7 +6,7 @@
  */
 
 import type { Express, RequestHandler } from 'express';
-import type { ServerMessage } from '@my-claudia/shared';
+import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 import type { initDatabase } from '../../storage/db.js';
 import { SupervisorService } from './supervisor-service.js';
 import { StateRecovery } from './state-recovery.js';
@@ -17,18 +17,15 @@ import { ProjectRepository } from '../projects/repository.js';
 import { SessionRepository } from '../sessions/repository.js';
 import { createSupervisionRoutes } from './routes.js';
 import { systemTaskRegistry } from '../../services/system-task-registry.js';
-import { sendMessage } from '../conversation/ws/broadcast.js';
-import { createVirtualClient } from '../conversation/ws/types.js';
-import type { ConnectedClient, ActiveRun } from '../conversation/ws/types.js';
-
 export interface SupervisionDomainDeps {
   db: ReturnType<typeof initDatabase>;
   app: Express;
   authMiddleware: RequestHandler;
-  clients: Map<string, ConnectedClient>;
-  activeRuns: Map<string, ActiveRun>;
+  broadcast: (msg: ServerMessage) => void;
+  activeRuns: Map<string, { runId: string; clientId: string }>;
+  createVirtualClient: (clientId: string, sender: { send: (msg: ServerMessage) => void }) => unknown;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- handleRunStart accepts various message shapes from different callers
-  handleRunStart: (client: ConnectedClient, message: any, db: ReturnType<typeof initDatabase>, options?: Record<string, unknown>, clients?: Map<string, ConnectedClient>) => Promise<void>;
+  handleRunStart: (client: unknown, message: any, db: ReturnType<typeof initDatabase>, options?: Record<string, unknown>, clients?: Map<string, unknown>) => Promise<void>;
 }
 
 export interface SupervisionDomainResult {
@@ -36,21 +33,12 @@ export interface SupervisionDomainResult {
 }
 
 export function registerSupervisionDomain(deps: SupervisionDomainDeps): SupervisionDomainResult {
-  const { db, app, authMiddleware, clients, activeRuns, handleRunStart } = deps;
+  const { db, app, authMiddleware, broadcast, activeRuns, createVirtualClient, handleRunStart } = deps;
 
   // Repositories
   const taskRepo = new SupervisionTaskRepository(db);
   const projectRepo = new ProjectRepository(db);
   const sessionRepo = new SessionRepository(db);
-
-  // Broadcast helper
-  const broadcast = (msg: ServerMessage) => {
-    clients.forEach((client) => {
-      if (client.authenticated) {
-        sendMessage(client.ws, msg);
-      }
-    });
-  };
 
   // SupervisorService
   const supervisorService = new SupervisorService(
