@@ -722,7 +722,7 @@ describe('SupervisorService', () => {
       });
 
       await expect(service.approveTaskResult(task.id)).rejects.toThrow(
-        "Cannot approve result for task in status 'running'",
+        /Invalid task transition/,
       );
     });
 
@@ -1393,7 +1393,7 @@ describe('SupervisorService', () => {
       });
 
       await expect(service.resolveConflict(task.id)).rejects.toThrow(
-        /must be 'merge_conflict'/,
+        'No worktree found for this task',
       );
     });
   });
@@ -2389,7 +2389,7 @@ describe('SupervisorService', () => {
         status: 'pending',
       });
 
-      expect(() => service.submitTaskPlan(task.id)).toThrow(/must be 'planning'/);
+      expect(() => service.submitTaskPlan(task.id)).toThrow('has no planning session');
     });
 
     it('throws when plan is incomplete', () => {

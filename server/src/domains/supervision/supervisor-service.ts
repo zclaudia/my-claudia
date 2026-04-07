@@ -23,6 +23,8 @@ import { WorktreeManager } from './worktree-manager.js';
 import { TaskLifecycle } from './task-lifecycle.js';
 import { TaskExecution } from './task-execution.js';
 import { TaskAdmin } from './task-admin.js';
+import { EventDispatcher } from './event-dispatcher.js';
+import type { SupervisionTaskEvent } from './task-events.js';
 import { SupervisorAgentManager } from './supervisor-agent.js';
 import { SupervisorContextService } from './supervisor-context.js';
 import { buildTaskPrompt as buildSupervisedTaskPrompt } from './task-prompt.js';
@@ -42,6 +44,7 @@ export class SupervisorService {
   private taskLifecycle: TaskLifecycle;
   private taskExecution: TaskExecution;
   private taskAdmin: TaskAdmin;
+  private taskEventDispatcher: EventDispatcher<SupervisionTaskEvent>;
   private agentManager: SupervisorAgentManager;
   private contextService: SupervisorContextService;
 
@@ -110,6 +113,8 @@ export class SupervisorService {
       log: logFn,
     });
 
+    this.taskEventDispatcher = new EventDispatcher<SupervisionTaskEvent>();
+
     this.taskLifecycle = new TaskLifecycle({
       taskRepo,
       projectRepo,
@@ -118,6 +123,7 @@ export class SupervisorService {
       taskRunner: this.taskRunner,
       worktreeManager: this.worktreeManager,
       virtualClients: this.virtualClients,
+      dispatcher: this.taskEventDispatcher,
       getCheckpointEngine: () => this.checkpointEngine,
       tick: () => this.tick(),
       broadcastTaskUpdate: broadcastTaskUpdateFn,
@@ -146,6 +152,7 @@ export class SupervisorService {
       projectRepo,
       sessionRepo,
       sessionModel: this.sessionModel,
+      dispatcher: this.taskEventDispatcher,
       pauseAgent: (projectId, reason) => this.guards.pauseAgent(projectId, reason),
       broadcastTaskUpdate: broadcastTaskUpdateFn,
       broadcastAgentUpdate: (projectId, agent) => this.broadcastAgentUpdate(projectId, agent),
@@ -179,6 +186,7 @@ export class SupervisorService {
       worktreeManager: this.worktreeManager,
       virtualClients: this.virtualClients,
       aiRunPort: this.aiRunPort,
+      dispatcher: this.taskEventDispatcher,
       broadcast: this.broadcastFn,
       handleTaskRunMessage: (taskId, projectId, msg) =>
         this.handleTaskRunMessage(taskId, projectId, msg),

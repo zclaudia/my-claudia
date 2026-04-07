@@ -10,7 +10,9 @@ import type { ContextManager } from './context-manager.js';
 import type { WorktreeManager } from './worktree-manager.js';
 import type { TaskScheduler } from './task-scheduler.js';
 import type { SupervisionAiRunPort } from './ports.js';
-import { assertTaskTransition } from './status-machine.js';
+import { TaskAggregate } from './task-aggregate.js';
+import type { EventDispatcher } from './event-dispatcher.js';
+import type { SupervisionTaskEvent } from './task-events.js';
 
 interface TaskExecutionDeps {
   db: Database;
@@ -22,6 +24,7 @@ interface TaskExecutionDeps {
   worktreeManager: WorktreeManager;
   virtualClients: Map<string, unknown>;
   aiRunPort: SupervisionAiRunPort;
+  dispatcher: EventDispatcher<SupervisionTaskEvent>;
   broadcast: (msg: ServerMessage) => void;
   handleTaskRunMessage: (taskId: string, projectId: string, msg: ServerMessage) => void;
   handleLiteTaskMessage: (taskId: string, projectId: string, msg: ServerMessage) => void;
@@ -47,7 +50,7 @@ export class TaskExecution {
     const project = this.deps.projectRepo.findById(task.projectId);
     if (!project?.rootPath) {
       const error = new Error(`Cannot start task ${task.id}: project has no rootPath`);
-      this.markTaskStartFailed(task, task.status, 'queued', error);
+      this.markTaskStartFailed(task, error);
       throw error;
     }
 
@@ -70,30 +73,31 @@ export class TaskExecution {
         }, task.id);
       } catch (err) {
         console.error(`[Supervisor] Failed to acquire worktree for task ${task.id}:`, err);
-        this.markTaskStartFailed(task, task.status, 'queued', err);
+        this.markTaskStartFailed(task, err);
         throw err;
       }
     }
 
     try {
       const session = this.prepareTaskSession(task, workingDirectory);
-      const extra: { sessionId: string; baseCommit?: string } = { sessionId: session.id };
 
+      let baseCommit: string | undefined;
       if (isGit) {
         try {
-          const commit = execSync('git rev-parse HEAD', {
+          baseCommit = execSync('git rev-parse HEAD', {
             cwd: workingDirectory,
             encoding: 'utf-8',
           }).trim();
-          extra.baseCommit = commit;
         } catch {
           // Base commit is best-effort metadata.
         }
       }
 
-      assertTaskTransition(task.status, 'running');
-      this.deps.taskRepo.updateStatus(task.id, 'running', extra);
+      // Aggregate command: mark started
+      const agg = new TaskAggregate(task, this.deps.taskRepo);
+      agg.markStarted(session.id, workingDirectory, baseCommit);
       taskMarkedRunning = true;
+
       this.deps.broadcastTaskUpdate(task.id, task.projectId);
       this.deps.log(task.projectId, 'task_status_changed', {
         taskId: task.id,
@@ -102,6 +106,7 @@ export class TaskExecution {
         sessionId: session.id,
         workingDirectory,
       }, task.id);
+      this.deps.dispatcher.dispatchAll(agg.releaseEvents());
 
       const contextManager = this.deps.getContextManager(task.projectId, project.rootPath);
       const contextInjection = contextManager.getContextForTask(task.relevantDocIds);
@@ -125,7 +130,26 @@ export class TaskExecution {
       if (virtualClientRegistered) {
         this.deps.virtualClients.delete(task.id);
       }
-      this.markTaskStartFailed(task, task.status, taskMarkedRunning ? 'running' : 'queued', err);
+      if (!taskMarkedRunning) {
+        // Not yet marked running — use aggregate to mark failed from current status
+        this.markTaskStartFailed(task, err);
+      } else {
+        // Already marked running — mark failed from running
+        const currentTask = this.deps.taskRepo.findById(task.id);
+        if (currentTask) {
+          const agg = new TaskAggregate(currentTask, this.deps.taskRepo);
+          agg.markStartFailed(err instanceof Error ? err.message : String(err));
+          this.deps.broadcastTaskUpdate(task.id, task.projectId);
+          this.deps.log(task.projectId, 'task_status_changed', {
+            taskId: task.id,
+            from: 'running',
+            to: 'failed',
+            reason: 'start_failed',
+            error: err instanceof Error ? err.message : String(err),
+          }, task.id);
+          this.deps.dispatcher.dispatchAll(agg.releaseEvents());
+        }
+      }
       if (acquiredFromPool && taskMarkedRunning) {
         const currentTask = this.deps.taskRepo.findById(task.id);
         if (currentTask) {
@@ -148,7 +172,7 @@ export class TaskExecution {
     const project = this.deps.projectRepo.findById(task.projectId);
     if (!project?.rootPath) {
       const error = new Error(`Cannot start lite task ${task.id}: project has no rootPath`);
-      this.markTaskStartFailed(task, task.status, 'queued', error);
+      this.markTaskStartFailed(task, error);
       throw error;
     }
 
@@ -157,8 +181,10 @@ export class TaskExecution {
     try {
       const session = this.resolveLiteTaskSession(task, project);
 
-      assertTaskTransition(task.status, 'running');
-      this.deps.taskRepo.updateStatus(task.id, 'running', { sessionId: session.id });
+      // Aggregate command: mark lite started
+      const agg = new TaskAggregate(task, this.deps.taskRepo);
+      agg.markLiteStarted(session.id);
+
       this.deps.broadcastTaskUpdate(task.id, task.projectId);
       this.deps.log(task.projectId, 'task_status_changed', {
         taskId: task.id,
@@ -166,6 +192,7 @@ export class TaskExecution {
         to: 'running',
         sessionId: session.id,
       }, task.id);
+      this.deps.dispatcher.dispatchAll(agg.releaseEvents());
 
       const clientId = `lite_task_${task.id}`;
       this.deps.virtualClients.set(task.id, { clientId, sessionId: session.id });
@@ -186,7 +213,7 @@ export class TaskExecution {
       if (virtualClientRegistered) {
         this.deps.virtualClients.delete(task.id);
       }
-      this.markTaskStartFailed(task, task.status, 'running', err);
+      this.markTaskStartFailed(task, err);
       throw err;
     }
   }
@@ -240,27 +267,23 @@ export class TaskExecution {
 
   private markTaskStartFailed(
     task: SupervisionTask,
-    fromStatus: string,
-    fallbackCurrentStatus: 'queued' | 'running',
     err: unknown,
   ): void {
     const currentTask = this.deps.taskRepo.findById(task.id);
-    const effectiveFrom = (currentTask?.status ?? fallbackCurrentStatus) as SupervisionTask['status'];
+    if (!currentTask) return;
 
-    assertTaskTransition(effectiveFrom, 'failed');
-    this.deps.taskRepo.updateStatus(task.id, 'failed', {
-      result: {
-        summary: `Task failed to start: ${err instanceof Error ? err.message : String(err)}`,
-        filesChanged: [],
-      },
-    });
+    const agg = new TaskAggregate(currentTask, this.deps.taskRepo);
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    agg.markStartFailed(errorMsg);
+
     this.deps.broadcastTaskUpdate(task.id, task.projectId);
     this.deps.log(task.projectId, 'task_status_changed', {
       taskId: task.id,
-      from: effectiveFrom || fromStatus,
+      from: currentTask.status,
       to: 'failed',
       reason: 'start_failed',
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMsg,
     }, task.id);
+    this.deps.dispatcher.dispatchAll(agg.releaseEvents());
   }
 }

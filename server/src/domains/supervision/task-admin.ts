@@ -1,18 +1,15 @@
-import type { Session } from '@my-claudia/shared/core/session';
 import type {
   ProjectAgent,
   SupervisionLogEvent,
   SupervisionTask,
-  TaskStatus,
 } from '@my-claudia/shared/features/supervision';
 import type { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
 import type { SupervisionProjectPort, SupervisionSessionPort, SupervisionSessionModelPort } from './ports.js';
+import type { SupervisionTaskEvent } from './task-events.js';
+import type { EventDispatcher } from './event-dispatcher.js';
 import { computeNextCronRun } from '../../utils/cron.js';
-import { assertTaskStatus, assertTaskTransition } from './status-machine.js';
-import {
-  resolveCreatedTaskStatus,
-  shouldActivateAgentForTaskStatus,
-} from './model.js';
+import { TaskAggregate } from './task-aggregate.js';
+import { shouldActivateAgentForTaskStatus } from './model.js';
 
 interface CreateTaskInput {
   title: string;
@@ -36,6 +33,7 @@ interface TaskAdminDeps {
   projectRepo: SupervisionProjectPort;
   sessionRepo: SupervisionSessionPort;
   sessionModel: SupervisionSessionModelPort;
+  dispatcher: EventDispatcher<SupervisionTaskEvent>;
   pauseAgent: (projectId: string, reason: 'budget') => void;
   broadcastTaskUpdate: (taskId: string, projectId: string) => void;
   broadcastAgentUpdate: (projectId: string, agent: ProjectAgent) => void;
@@ -56,10 +54,7 @@ export class TaskAdmin {
       throw new Error(`No agent found for project: ${projectId}`);
     }
 
-    const source = data.source ?? 'user';
     const trustLevel = project.agent.config.trustLevel;
-
-    const status: TaskStatus = resolveCreatedTaskStatus(source, trustLevel);
 
     if (project.agent.config.maxTotalTasks !== undefined) {
       const currentCount = this.deps.taskRepo.countByProject(projectId);
@@ -76,34 +71,33 @@ export class TaskAdmin {
       scheduleNextRun = computeNextCronRun(data.scheduleCron);
     }
 
-    const task = this.deps.taskRepo.create({
-      projectId,
-      title: data.title,
-      description: data.description,
-      source,
-      status,
-      priority: data.priority,
-      dependencies: data.dependencies,
-      dependencyMode: data.dependencyMode,
-      relevantDocIds: data.relevantDocIds,
-      taskSpecificContext: data.taskSpecificContext,
-      scope: data.scope,
-      acceptanceCriteria: data.acceptanceCriteria,
-      maxRetries: data.maxRetries,
-      scheduleCron: data.scheduleCron,
-      scheduleEnabled: data.scheduleEnabled,
-      scheduleNextRun,
-      retryDelayMs: data.retryDelayMs,
-    });
+    const agg = TaskAggregate.create(
+      {
+        projectId,
+        title: data.title,
+        description: data.description,
+        source: data.source,
+        priority: data.priority,
+        dependencies: data.dependencies,
+        dependencyMode: data.dependencyMode,
+        relevantDocIds: data.relevantDocIds,
+        taskSpecificContext: data.taskSpecificContext,
+        scope: data.scope,
+        acceptanceCriteria: data.acceptanceCriteria,
+        maxRetries: data.maxRetries,
+        scheduleCron: data.scheduleCron,
+        scheduleEnabled: data.scheduleEnabled,
+        scheduleNextRun,
+        retryDelayMs: data.retryDelayMs,
+      },
+      trustLevel,
+      this.deps.taskRepo,
+    );
 
-    this.deps.broadcastTaskUpdate(task.id, projectId);
-    this.deps.log(projectId, 'task_created', {
-      taskId: task.id,
-      title: task.title,
-      status,
-    }, task.id);
+    const task = agg.snapshot;
 
-    if (shouldActivateAgentForTaskStatus(project.agent.phase, status)) {
+    // Side effects: agent activation
+    if (shouldActivateAgentForTaskStatus(project.agent.phase, task.status)) {
       const agent = { ...project.agent, phase: 'active' as const, updatedAt: Date.now() };
       this.deps.projectRepo.update(projectId, { agent });
       this.deps.broadcastAgentUpdate(projectId, agent);
@@ -113,6 +107,17 @@ export class TaskAdmin {
         reason: 'new_task',
       });
     }
+
+    // Side effects: broadcast + log
+    this.deps.broadcastTaskUpdate(task.id, projectId);
+    this.deps.log(projectId, 'task_created', {
+      taskId: task.id,
+      title: task.title,
+      status: task.status,
+    }, task.id);
+
+    // Dispatch domain events
+    this.deps.dispatcher.dispatchAll(agg.releaseEvents());
 
     return task;
   }
@@ -130,6 +135,7 @@ export class TaskAdmin {
       }
     }
 
+    // Side effect: create session
     const project = this.deps.projectRepo.findById(task.projectId);
     const taskSession = this.deps.sessionRepo.create(
       this.deps.sessionModel.buildTaskPlanningSession({
@@ -142,12 +148,18 @@ export class TaskAdmin {
       }),
     );
 
-    assertTaskTransition(task.status, 'planning');
-    this.deps.taskRepo.updateStatus(task.id, 'planning', { sessionId: taskSession.id });
+    // Aggregate command: transition to planning
+    const agg = new TaskAggregate(task, this.deps.taskRepo);
+    agg.openSession(taskSession.id);
+
+    // Side effect: log
     this.deps.log(task.projectId, 'task_session_opened', {
       taskId: task.id,
       sessionId: taskSession.id,
     }, task.id);
+
+    // Dispatch domain events
+    this.deps.dispatcher.dispatchAll(agg.releaseEvents());
 
     return { sessionId: taskSession.id };
   }
@@ -157,10 +169,11 @@ export class TaskAdmin {
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
     }
-    assertTaskStatus(task.status, 'proposed', 'approve');
 
-    assertTaskTransition('proposed', 'pending');
-    this.deps.taskRepo.updateStatus(taskId, 'pending');
+    const agg = new TaskAggregate(task, this.deps.taskRepo);
+    agg.approve();
+
+    // Side effects: broadcast + log
     this.deps.broadcastTaskUpdate(taskId, task.projectId);
     this.deps.log(task.projectId, 'task_status_changed', {
       taskId,
@@ -168,7 +181,10 @@ export class TaskAdmin {
       to: 'pending',
     }, taskId);
 
-    return this.deps.taskRepo.findById(taskId)!;
+    // Dispatch domain events
+    this.deps.dispatcher.dispatchAll(agg.releaseEvents());
+
+    return agg.snapshot;
   }
 
   rejectTask(taskId: string): SupervisionTask {
@@ -176,10 +192,11 @@ export class TaskAdmin {
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
     }
-    assertTaskStatus(task.status, 'proposed', 'reject');
 
-    assertTaskTransition('proposed', 'cancelled');
-    this.deps.taskRepo.updateStatus(taskId, 'cancelled');
+    const agg = new TaskAggregate(task, this.deps.taskRepo);
+    agg.reject();
+
+    // Side effects: broadcast + log
     this.deps.broadcastTaskUpdate(taskId, task.projectId);
     this.deps.log(task.projectId, 'task_status_changed', {
       taskId,
@@ -187,7 +204,10 @@ export class TaskAdmin {
       to: 'cancelled',
     }, taskId);
 
-    return this.deps.taskRepo.findById(taskId)!;
+    // Dispatch domain events
+    this.deps.dispatcher.dispatchAll(agg.releaseEvents());
+
+    return agg.snapshot;
   }
 
   updateTask(
@@ -197,10 +217,20 @@ export class TaskAdmin {
       'acceptanceCriteria' | 'relevantDocIds' | 'scope' | 'taskSpecificContext'
     >>,
   ): SupervisionTask | undefined {
-    const task = this.deps.taskRepo.update(taskId, data);
-    if (task) {
-      this.deps.broadcastTaskUpdate(task.id, task.projectId);
+    const task = this.deps.taskRepo.findById(taskId);
+    if (!task) {
+      return undefined;
     }
-    return task;
+
+    const agg = new TaskAggregate(task, this.deps.taskRepo);
+    agg.update(data);
+
+    // Side effect: broadcast
+    this.deps.broadcastTaskUpdate(agg.id, agg.projectId);
+
+    // Dispatch domain events
+    this.deps.dispatcher.dispatchAll(agg.releaseEvents());
+
+    return agg.snapshot;
   }
 }

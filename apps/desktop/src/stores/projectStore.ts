@@ -100,14 +100,20 @@ export const useProjectStore = create<ProjectState>((set) => ({
         }
         return true;
       });
+      const mergedAcceptedProjects = acceptedProjects.map((project) =>
+        mergeProjectPreservingFields(
+          state.projects.find((existingProject) => existingProject.id === project.id),
+          project,
+        )
+      );
       const currentBackendProjects = state.projects.filter(
         (project) => ownership.getProjectBackendId(project.id) === backendId
       );
 
       // Shallow equality check: skip update if the project set is identical
       if (
-        currentBackendProjects.length === acceptedProjects.length &&
-        currentBackendProjects.every((cur, i) => cur.id === acceptedProjects[i].id && cur.updatedAt === acceptedProjects[i].updatedAt)
+        currentBackendProjects.length === mergedAcceptedProjects.length &&
+        currentBackendProjects.every((cur, i) => cur.id === mergedAcceptedProjects[i].id && cur.updatedAt === mergedAcceptedProjects[i].updatedAt)
       ) {
         return state;
       }
@@ -116,8 +122,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
         (project) => ownership.getProjectBackendId(project.id) !== backendId
       );
       ownership.removeProjectOwnersByBackend(backendId);
-      ownership.setProjectOwners(acceptedProjects.map((project) => project.id), backendId);
-      return { projects: [...otherProjects, ...acceptedProjects] };
+      ownership.setProjectOwners(mergedAcceptedProjects.map((project) => project.id), backendId);
+      return { projects: [...otherProjects, ...mergedAcceptedProjects] };
     }),
 
   upsertProjectForBackend: (backendId, project) =>
@@ -133,11 +139,15 @@ export const useProjectStore = create<ProjectState>((set) => ({
       }
 
       ownership.setProjectOwner(project.id, backendId);
+      const mergedProject = mergeProjectPreservingFields(
+        state.projects.find((existingProject) => existingProject.id === project.id),
+        project,
+      );
 
       if (existingOwnerBackendId === backendId) {
         return {
           projects: state.projects.map((existingProject) =>
-            existingProject.id === project.id ? { ...existingProject, ...project } : existingProject
+            existingProject.id === project.id ? mergedProject : existingProject
           ),
         };
       }
@@ -145,7 +155,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       return {
         projects: [
           ...state.projects.filter((existingProject) => existingProject.id !== project.id),
-          project,
+          mergedProject,
         ],
       };
     }),
@@ -422,4 +432,17 @@ function resolveOwnershipBackendId(): string | null {
   }
 
   return resolveCanonicalBackendId(parsedBackendId, resolveLocalBackendId() ?? parsedBackendId);
+}
+
+function mergeProjectPreservingFields(existing: Project | undefined, incoming: Project): Project {
+  if (!existing) return incoming;
+  return {
+    ...existing,
+    ...incoming,
+    rootPath: incoming.rootPath ?? existing.rootPath,
+    providerId: incoming.providerId ?? existing.providerId,
+    systemPrompt: incoming.systemPrompt ?? existing.systemPrompt,
+    permissionPolicy: incoming.permissionPolicy ?? existing.permissionPolicy,
+    agent: incoming.agent ?? existing.agent,
+  };
 }

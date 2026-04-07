@@ -113,6 +113,38 @@ describe('projectStore', () => {
       expect(useOwnershipStore.getState().getProjectBackendId('local-p2')).toBe('local-backend-1');
     });
 
+    it('replaceProjectsForBackend preserves existing rootPath when snapshot project is partial', () => {
+      const localFull = createProject({
+        id: 'local-p1',
+        name: 'Local Full',
+        rootPath: '/repo/full',
+        providerId: 'provider-1',
+      });
+      useOwnershipStore.getState().setProjectOwner('local-p1', 'local-backend-1');
+      useProjectStore.setState({
+        projects: [localFull],
+      });
+
+      useProjectStore.getState().replaceProjectsForBackend('local-backend-1', [
+        createProject({
+          id: 'local-p1',
+          name: 'Local Snapshot',
+          rootPath: undefined,
+          providerId: undefined,
+          updatedAt: localFull.updatedAt + 1,
+        }),
+      ]);
+
+      expect(useProjectStore.getState().projects).toEqual([
+        expect.objectContaining({
+          id: 'local-p1',
+          name: 'Local Snapshot',
+          rootPath: '/repo/full',
+          providerId: 'provider-1',
+        }),
+      ]);
+    });
+
     it('addProject appends to projects', () => {
       const p1 = createProject({ id: 'p1' });
       const p2 = createProject({ id: 'p2' });
@@ -143,6 +175,36 @@ describe('projectStore', () => {
         localKeep,
       ]);
       expect(useOwnershipStore.getState().getProjectBackendId('shared-id')).toBe('remote-1');
+    });
+
+    it('upsertProjectForBackend preserves existing rootPath when event project is partial', () => {
+      const remoteOriginal = createProject({
+        id: 'shared-id',
+        name: 'Remote Original',
+        rootPath: '/repo/root',
+        providerId: 'provider-1',
+      });
+      useOwnershipStore.getState().setProjectOwner('shared-id', 'remote-1');
+      useProjectStore.setState({
+        projects: [remoteOriginal],
+      });
+
+      useProjectStore.getState().upsertProjectForBackend('remote-1', createProject({
+        id: 'shared-id',
+        name: 'Remote Updated',
+        rootPath: undefined,
+        providerId: undefined,
+        updatedAt: remoteOriginal.updatedAt + 1,
+      }));
+
+      expect(useProjectStore.getState().projects).toEqual([
+        expect.objectContaining({
+          id: 'shared-id',
+          name: 'Remote Updated',
+          rootPath: '/repo/root',
+          providerId: 'provider-1',
+        }),
+      ]);
     });
 
     it('removeProjectForBackend ignores projects owned by a different backend', () => {
