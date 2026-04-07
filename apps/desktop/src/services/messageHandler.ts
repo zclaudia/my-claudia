@@ -182,13 +182,21 @@ function reconcileStaleBackgroundRunTasks(
   const now = Date.now();
 
   for (const task of Object.values(backgroundTaskStore.tasks)) {
-    if (task.source !== 'background_run') continue;
     // Skip tasks belonging to a different server; include tasks with no serverId (legacy)
     if (task.serverId && task.serverId !== serverId) continue;
+    // Only reconcile running tasks
     if (task.status !== 'started' && task.status !== 'in_progress' && task.status !== 'paused') continue;
-    if (!task.id.startsWith('background:')) continue;
 
-    const backgroundSessionId = task.id.slice('background:'.length);
+    // Determine the background session ID to check against active runs
+    let backgroundSessionId: string | null = null;
+    if (task.source === 'background_run' && task.id.startsWith('background:')) {
+      backgroundSessionId = task.id.slice('background:'.length);
+    } else if (task.source === 'sdk_task') {
+      backgroundSessionId = task.sessionId;
+    }
+    if (!backgroundSessionId) continue;
+
+    // If the session is still active on the server, keep the task
     if (activeBackgroundSessionIds.has(backgroundSessionId)) continue;
 
     backgroundTaskStore.updateTask(task.id, {
@@ -890,6 +898,9 @@ export function handleServerMessage(
       const backendName = ctx.resolveBackendName();
       const chatState = useChatStore.getState();
       clearExpiredTerminalRuns();
+
+      // Track heartbeat arrival for staleness detection
+      useServerStore.getState().recordHeartbeat(serverId);
 
       const serverActiveRunIds = new Set(heartbeat.activeRuns.map(r => r.runId));
       const activeBackgroundSessionIds = new Set(

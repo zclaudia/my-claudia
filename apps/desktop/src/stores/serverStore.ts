@@ -11,6 +11,8 @@ import { create } from 'zustand';
 import type { ServerFeature } from '@my-claudia/shared';
 import type { ControlPlaneMode } from '../utils/controlPlane';
 
+export type ConnectionQuality = 'good' | 'degraded';
+
 // Per-backend connection metadata (features, latency, encryption keys)
 export interface ServerConnection {
   isLocalConnection: boolean | null;
@@ -19,6 +21,10 @@ export interface ServerConnection {
   lastLatencyProbeAt?: number;
   /** RSA-OAEP public key PEM for E2E credential encryption */
   publicKey?: string;
+  /** Timestamp of the last state_heartbeat received from this server */
+  lastHeartbeatAt?: number;
+  /** Connection quality — 'degraded' when heartbeats stop arriving */
+  connectionQuality?: ConnectionQuality;
 }
 
 const DEFAULT_CONNECTION: ServerConnection = {
@@ -38,6 +44,8 @@ interface ServerState {
   setServerFeatures: (serverId: string, features: ServerFeature[]) => void;
   setServerPublicKey: (serverId: string, publicKey: string | undefined) => void;
   setServerLatency: (serverId: string, latencyMs: number | null) => void;
+  recordHeartbeat: (serverId: string) => void;
+  setConnectionQuality: (serverId: string, quality: ConnectionQuality) => void;
   updateLastConnected: (id: string) => void;
   setLocalServerPort: (port: number) => void;
   setControlPlaneMode: (mode: ControlPlaneMode) => void;
@@ -107,6 +115,35 @@ export const useServerStore = create<ServerState>()((set, get) => ({
           latencyMs,
           lastLatencyProbeAt: Date.now(),
         },
+      },
+    });
+  },
+
+  recordHeartbeat: (serverId) => {
+    const state = get();
+    const existing = state.connections[serverId];
+    const wasDegraded = existing?.connectionQuality === 'degraded';
+    set({
+      connections: {
+        ...state.connections,
+        [serverId]: {
+          ...DEFAULT_CONNECTION,
+          ...existing,
+          lastHeartbeatAt: Date.now(),
+          ...(wasDegraded ? { connectionQuality: 'good' as ConnectionQuality } : {}),
+        },
+      },
+    });
+  },
+
+  setConnectionQuality: (serverId, quality) => {
+    const state = get();
+    const existing = state.connections[serverId];
+    if (existing?.connectionQuality === quality) return;
+    set({
+      connections: {
+        ...state.connections,
+        [serverId]: { ...DEFAULT_CONNECTION, ...existing, connectionQuality: quality },
       },
     });
   },

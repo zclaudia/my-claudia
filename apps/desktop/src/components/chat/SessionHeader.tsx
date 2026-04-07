@@ -1,5 +1,6 @@
-import { RotateCcw, Download, ExternalLink, Archive, ArrowLeft, MoreHorizontal } from 'lucide-react';
+import { RotateCcw, Download, ExternalLink, Archive, ArrowLeft, MoreHorizontal, WifiOff } from 'lucide-react';
 import type { Session, Project, ProviderConfig } from '@my-claudia/shared';
+import { useServerStore } from '../../stores/serverStore';
 
 const isDesktopTauri = typeof window !== 'undefined'
   && '__TAURI_INTERNALS__' in window
@@ -51,6 +52,11 @@ export function SessionHeader({
   onPopOut,
   onToggleSessionMenu,
 }: SessionHeaderProps) {
+  const activeServerId = useServerStore(s => s.activeServerId);
+  const connectionQuality = useServerStore(s =>
+    activeServerId ? s.connections[activeServerId]?.connectionQuality : undefined,
+  );
+
   return (
     <div className="flex min-h-[48px] items-center gap-2.5 px-3 py-0 sm:min-h-[36px] sm:px-3.5 sm:py-0 border-b border-border bg-card safe-top-pad">
       {/* Mobile: hamburger menu */}
@@ -119,6 +125,15 @@ export function SessionHeader({
           );
         })()}
       </div>
+      {connectionQuality === 'degraded' && (
+        <div
+          className="flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-[9px] font-medium text-warning shrink-0"
+          title="Backend may be unresponsive — heartbeat timeout"
+        >
+          <WifiOff size={10} />
+          <span className="hidden sm:inline">Unstable</span>
+        </div>
+      )}
       {/* Actions (hidden for background sessions) */}
       {currentSession.type !== 'background' && (
         <>

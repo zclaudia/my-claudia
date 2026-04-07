@@ -5,6 +5,8 @@
  * 1. Visibility change detection (background/foreground)
  * 2. Network change detection (online/offline)
  * 3. Client-side health probing (25s interval)
+ * 4. Heartbeat staleness detection — marks connections degraded when
+ *    state_heartbeat messages stop arriving and triggers proactive recovery.
  *
  * Only active when the facade supports forceReconnect (direct gateway mode).
  * The facade handles all auto-recovery — this manager just ensures the WS
@@ -12,8 +14,11 @@
  */
 
 import type { BackendFacade } from '@my-claudia/shared';
+import { useServerStore } from '../stores/serverStore';
 
 const HEALTH_PROBE_INTERVAL_MS = 25_000;
+/** Mark connection degraded if no heartbeat for 75s (2.5 × 30s heartbeat interval). */
+const HEARTBEAT_STALE_THRESHOLD_MS = 75_000;
 
 class AppLifecycleManager {
   private facade: BackendFacade | null = null;
@@ -104,6 +109,7 @@ class AppLifecycleManager {
       }
 
       this.facade?.probeHealth?.();
+      this.checkHeartbeatStaleness(now);
     }, HEALTH_PROBE_INTERVAL_MS);
   }
 
@@ -112,6 +118,49 @@ class AppLifecycleManager {
       clearInterval(this.healthProbeTimer);
       this.healthProbeTimer = null;
     }
+  }
+
+  /**
+   * Check all remote connections for stale heartbeats.
+   * If a connection hasn't received a state_heartbeat within the threshold,
+   * mark it degraded and trigger proactive recovery (session sync via REST).
+   */
+  private checkHeartbeatStaleness(now: number): void {
+    const store = useServerStore.getState();
+    const { connections } = store;
+
+    for (const [serverId, conn] of Object.entries(connections)) {
+      // Skip local connections — they use IPC, not remote heartbeat
+      if (conn.isLocalConnection) continue;
+      // Skip connections that haven't received any heartbeat yet (not fully initialized)
+      if (!conn.lastHeartbeatAt) continue;
+
+      const staleDuration = now - conn.lastHeartbeatAt;
+      if (staleDuration > HEARTBEAT_STALE_THRESHOLD_MS && conn.connectionQuality !== 'degraded') {
+        console.warn(
+          `[AppLifecycleManager] Heartbeat stale for ${serverId}: ${Math.round(staleDuration / 1000)}s since last heartbeat — marking degraded`,
+        );
+        store.setConnectionQuality(serverId, 'degraded');
+
+        // Proactive recovery: sync session state via REST to catch any missed
+        // permission requests or run completions
+        this.triggerStateRecovery(serverId);
+      }
+    }
+  }
+
+  /**
+   * Trigger proactive state recovery for a degraded connection.
+   * Uses REST API (independent of WebSocket heartbeat) to fetch current state.
+   */
+  private triggerStateRecovery(serverId: string): void {
+    import('./sessionSync').then(({ eagerSyncCurrentSession, recoverCurrentSessionTail }) => {
+      console.log(`[AppLifecycleManager] Triggering state recovery for ${serverId}`);
+      void eagerSyncCurrentSession(serverId);
+      void recoverCurrentSessionTail(serverId);
+    }).catch((err) => {
+      console.error('[AppLifecycleManager] Failed to trigger state recovery:', err);
+    });
   }
 }
 
