@@ -176,9 +176,10 @@ shared/
 1. ✅ 统计并削减跨上下文直接依赖（依赖审计已完成，8 处违规已修复）。
 2. ✅ conversation 内部拆分：ws/ → transport/runtime/handlers/interactions inline。
 3. ✅ storage/、providers/ sdk impl、routes/、router/ 迁入 infrastructure/interfaces。
-4. 中期：conversation → gateway 解耦（getGatewayClient 全局单例改为 adapter 注入）。
-5. 中期：shared 方向性收敛（shared-kernel / integration-protocol / ui-facade-types）。
-6. 长期：整理 server/src/ 剩余顶层目录（commands/, events/, handlers/, helpers/, middleware/, mcp/, plugins/, repositories/, services/, utils/）。
+4. ✅ conversation → gateway 解耦（domains/sessions 不再直接引用 getGatewayClient）。
+5. ✅ shared 方向性收敛（shared-kernel / integration-protocol / ui-facade 已分类标注）。
+6. ✅ 整理 server/src/ 剩余顶层目录（events → infrastructure, repositories → infrastructure, handlers → interfaces, helpers → utils; 跨切面 middleware/services/utils 保留顶层）。
+7. 后续可选：middleware/ → interfaces/http/middleware/、services/ 按职责拆分、shared 物理拆包。
 
 ## 跨上下文依赖审计（2026-04-07）
 
