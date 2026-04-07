@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as fs from 'fs';
-import { fileStore } from '../../storage/fileStore.js';
+import { fileStore } from '../../infrastructure/storage/fileStore.js';
 import {
   FileTransferError,
   FileTransferService,
@@ -12,7 +12,7 @@ vi.mock('fs', () => ({
   statSync: vi.fn(),
 }));
 
-vi.mock('../../storage/fileStore.js', () => ({
+vi.mock('../../infrastructure/storage/fileStore.js', () => ({
   fileStore: {
     storeFileByMoving: vi.fn(),
     storeFileFromBuffer: vi.fn(),

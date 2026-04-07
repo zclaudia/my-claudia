@@ -5,7 +5,7 @@ import {
   getSearchSuggestions,
   saveSearchHistory,
   type SearchHistoryEntry,
-} from '../../storage/search-history.js';
+} from '../../infrastructure/storage/search-history.js';
 
 export interface SessionSearchQuery {
   q: string;

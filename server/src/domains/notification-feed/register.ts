@@ -1,6 +1,6 @@
 import type { Express } from 'express';
 import type { RequestHandler } from 'express';
-import type { initDatabase } from '../../storage/db.js';
+import type { initDatabase } from '../../infrastructure/storage/db.js';
 import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 import { createNotificationRoutes } from './routes.js';
 import { createPushNotificationRoutes } from './notification-routes.js';

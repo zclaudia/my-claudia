@@ -7,7 +7,7 @@
 
 import type { Express, RequestHandler } from 'express';
 import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
-import type { initDatabase } from '../../storage/db.js';
+import type { initDatabase } from '../../infrastructure/storage/db.js';
 import { SupervisorService } from './supervisor-service.js';
 import { StateRecovery } from './state-recovery.js';
 import { CheckpointEngine } from './checkpoint-engine.js';

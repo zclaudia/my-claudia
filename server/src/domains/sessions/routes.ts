@@ -1,1 +1,1 @@
-export { createSessionRoutes } from '../../routes/sessions.js';
+export { createSessionRoutes } from '../../interfaces/http/sessions.js';

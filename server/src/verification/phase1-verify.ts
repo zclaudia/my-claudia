@@ -7,7 +7,7 @@
  * 3. Middleware system (auth, logging, error handling)
  */
 
-import { initDatabase } from '../storage/db.js';
+import { initDatabase } from '../infrastructure/storage/db.js';
 import { ProjectRepository } from '../repositories/project.js';
 import type { Request, Response } from '@my-claudia/shared/protocol/correlation';
 import { isRequest, isResponse, createRequest, createResponse } from '@my-claudia/shared/protocol/correlation';

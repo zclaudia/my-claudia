@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchLocalApi, getProviders } from '../../services/api';
+import { fetchApi, getProviders } from '../../services/api';
 import type { ProviderConfig } from '@my-claudia/shared';
 import { ShortcutSettings } from './ShortcutSettings';
 import { isDesktopTauri } from '../../utils/platform';
@@ -30,7 +30,7 @@ export function AgentSettings() {
     try {
       await loadConfig();
       const [capsRes, providerList] = await Promise.all([
-        fetchLocalApi<AgentCapabilities>('/api/agent/capabilities'),
+        fetchApi<AgentCapabilities>('/api/agent/capabilities'),
         getProviders().catch(() => [] as ProviderConfig[]),
       ]);
       if (capsRes.success && capsRes.data) setCapabilities(capsRes.data);

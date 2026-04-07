@@ -2,13 +2,13 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createServer, createVirtualClient, activeRuns, connectedClients, cancelRun } from './server.js';
-import { autoDetectProviders, checkProviderVersions, startTempFileCleanup, shutdownProviders } from './providers/initializer.js';
+import { autoDetectProviders, checkProviderVersions, startTempFileCleanup, shutdownProviders } from './infrastructure/providers/initializer.js';
 import { pluginLoader } from './application/plugins/loader.js';
 import { registerBuiltinCommands } from './commands/init.js';
 import { sanitizeInheritedProviderEnv } from './utils/startup-env.js';
 import { isIgnorableProcessError } from './utils/process-error-filter.js';
 import { GatewayManager } from './infrastructure/gateway/manager.js';
-import { stopFileStoreCleanup } from './storage/fileStore.js';
+import { stopFileStoreCleanup } from './infrastructure/storage/fileStore.js';
 import { writeCrashReportSync } from './utils/crash-log.js';
 
 const sanitizedEnv = sanitizeInheritedProviderEnv();

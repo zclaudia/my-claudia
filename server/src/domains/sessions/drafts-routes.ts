@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3';
 import type { ApiResponse } from '@my-claudia/shared/core/api';
 import type { SessionDraft } from '@my-claudia/shared/core/session';
 import { SessionDraftRepository } from './draft-repository.js';
-import { sendApiError } from '../../routes/response.js';
+import { sendApiError } from '../../interfaces/http/response.js';
 
 export function createSessionDraftRoutes(db: Database.Database): Router {
   const router = Router();

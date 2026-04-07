@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
 import type { PCPEffectiveProfile } from '@my-claudia/shared/core/pcp';
 import { toolRegistry } from './tool-registry.js';
-import { shouldExposeInteractionTool } from '../../providers/pcp-capability.js';
-import { sendApiError } from '../../routes/response.js';
+import { shouldExposeInteractionTool } from '../../infrastructure/providers/pcp-capability.js';
+import { sendApiError } from '../../interfaces/http/response.js';
 
 export interface PluginToolsRoutesDeps {
   getActiveProfile?: (sessionId: string) => PCPEffectiveProfile | undefined;

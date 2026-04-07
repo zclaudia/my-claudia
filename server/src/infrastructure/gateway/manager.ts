@@ -10,7 +10,7 @@ import { StandaloneBackendFacadeProvider } from './standalone-provider.js';
 import type { LocalBackendHandler } from './embedded-adapter.js';
 import type { FacadeWsHub } from './ws-hub.js';
 import type Database from 'better-sqlite3';
-import type { GatewayConfig } from '../../routes/gateway.js';
+import type { GatewayConfig } from '../../interfaces/http/gateway.js';
 import type { ServerContext } from '../../server.js';
 import { hasForegroundActiveRunForSession } from '../../utils/run-state.js';
 import { parsePersistedMessageContent } from '../../utils/persisted-message.js';

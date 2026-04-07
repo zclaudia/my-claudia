@@ -4,4 +4,4 @@ export {
   handlePromptAnswerMessage,
   handleInteractionResponse,
   handlePluginPermissionResponse,
-} from '../ws/handlers/permissions.js';
+} from '../handlers/permissions.js';

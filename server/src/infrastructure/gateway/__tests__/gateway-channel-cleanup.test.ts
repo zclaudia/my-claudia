@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handleChannelClosed } from '../gateway-channel-cleanup.js';
-import type { ActiveRun } from '../../../application/conversation/ws/types.js';
+import type { ActiveRun } from '../../../application/conversation/transport/types.js';
 
 function createRun(clientId: string, completed = false): ActiveRun {
   return {

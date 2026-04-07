@@ -11,8 +11,8 @@ import type {
   ProviderCallResult,
   ProviderStreamChunk,
 } from '@my-claudia/shared/plugin-types';
-import { providerRegistry } from '../../providers/registry.js';
-import type { RunOptions } from '../../providers/types.js';
+import { providerRegistry } from '../../infrastructure/providers/registry.js';
+import type { RunOptions } from '../../infrastructure/providers/types.js';
 
 export type { ProviderCallOptions, ProviderCallResult, ProviderStreamChunk };
 

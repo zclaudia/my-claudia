@@ -1,5 +1,5 @@
 import * as path from 'path';
-import type { SystemInfo } from '../providers/types.js';
+import type { SystemInfo } from '../infrastructure/providers/types.js';
 
 // Commands that can be handled using system info from init message
 export const SYSTEM_INFO_COMMANDS = ['/status'];

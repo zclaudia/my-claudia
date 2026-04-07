@@ -14,6 +14,17 @@ docs/
 
 ## 文档分类
 
+### 🧭 架构文档 (architecture/)
+
+| 文件 | 描述 |
+|------|------|
+| [context-map.md](./architecture/context-map.md) | 目标 Bounded Context 与上下文映射 |
+| [domain-classification.md](./architecture/domain-classification.md) | 领域、应用层、基础设施分类口径 |
+| [ubiquitous-language.md](./architecture/ubiquitous-language.md) | 统一语言词汇表 |
+| [phase1-migration-summary.md](./architecture/phase1-migration-summary.md) | 第 1 期结构迁移总结与第 2 期切分建议 |
+| [phase2-decoupling-progress.md](./architecture/phase2-decoupling-progress.md) | 第 2 期 port 解耦进度与剩余问题 |
+| [shared-contraction-plan.md](./architecture/shared-contraction-plan.md) | `shared` 收缩边界与拆分建议 |
+
 ### 📐 设计文档 (design/)
 
 | 文件 | 状态 |

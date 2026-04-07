@@ -1,5 +1,5 @@
 import type { Express, RequestHandler } from 'express';
-import type { initDatabase } from '../../storage/db.js';
+import type { initDatabase } from '../../infrastructure/storage/db.js';
 import { createProjectRoutes, type ProjectChangeEvent } from './routes.js';
 
 export interface ProjectsDomainDeps {

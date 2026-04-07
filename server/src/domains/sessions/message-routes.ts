@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
 import type { ApiResponse } from '@my-claudia/shared/core/api';
 import type { Message, MessageMetadata, MessageRole } from '@my-claudia/shared/core/message';
-import { extractAndIndexMetadata } from '../../storage/metadata-extractor.js';
+import { extractAndIndexMetadata } from '../../infrastructure/storage/metadata-extractor.js';
 import { findForegroundActiveRunIdForSession } from '../../utils/run-state.js';
 import { parsePersistedMessageMetadata } from '../../utils/persisted-message.js';
 import { SessionMessageRepository } from './message-repository.js';

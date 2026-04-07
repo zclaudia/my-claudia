@@ -4,8 +4,8 @@ import { PROVIDER_TYPES } from '@my-claudia/shared/core/provider';
 import type { ProviderConfig } from '@my-claudia/shared/core/provider';
 import type { ApiResponse } from '@my-claudia/shared/core/api';
 import { ProviderRepository } from './repository.js';
-import { mountCapabilityRoutes } from '../../routes/provider-capabilities.js';
-import { mountCommandRoutes } from '../../routes/provider-commands.js';
+import { mountCapabilityRoutes } from '../../interfaces/http/provider-capabilities.js';
+import { mountCommandRoutes } from '../../interfaces/http/provider-commands.js';
 
 const VALID_PROVIDER_TYPES = [...PROVIDER_TYPES] as ProviderConfig['type'][];
 

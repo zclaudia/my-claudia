@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { FilePushMetadata } from '@my-claudia/shared/core/message';
 import type { FilePushNotificationMessage, ServerMessage } from '@my-claudia/shared/protocol/messages';
 import type WebSocket from 'ws';
-import { fileStore } from '../storage/fileStore.js';
+import { fileStore } from '../infrastructure/storage/fileStore.js';
 
 const MIME_TYPES: Record<string, string> = {
   '.apk': 'application/vnd.android.package-archive',

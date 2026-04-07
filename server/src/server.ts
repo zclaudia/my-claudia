@@ -12,10 +12,10 @@ import type {
 } from '@my-claudia/shared/protocol/messages';
 import type { Request as CorrelatedRequest } from '@my-claudia/shared/protocol/correlation';
 import { ALL_SERVER_FEATURES } from '@my-claudia/shared/core/server';
-import { initDatabase } from './storage/db.js';
-import { initFileStore } from './storage/fileStore.js';
+import { initDatabase } from './infrastructure/storage/db.js';
+import { initFileStore } from './infrastructure/storage/fileStore.js';
 import { initWorkspace } from './services/workspace.js';
-import type { GatewayConfig, GatewayStatus } from './routes/gateway.js';
+import type { GatewayConfig, GatewayStatus } from './interfaces/http/gateway.js';
 import { TerminalManager } from './terminal-manager.js';
 import { generateKeyPair, getPublicKeyPem } from './utils/crypto.js';
 import { pluginLoader } from './application/plugins/loader.js';
@@ -25,11 +25,11 @@ import { ClaudiaBranchService } from './application/orchestration/claudia-branch
 import type { TaskCoordinationPort } from './application/conversation/task-coordination-port.js';
 import type { SessionSyncPort } from './application/conversation/session-sync-port.js';
 import { getGatewayClient } from './infrastructure/gateway/gateway-instance.js';
-import { providerRegistry } from './providers/registry.js';
+import { providerRegistry } from './infrastructure/providers/registry.js';
 
 // WebSocket message-router architecture.
 // This router is not the HTTP REST entrypoint; REST routes are mounted in server-setup.ts.
-import { createRouter } from './router/index.js';
+import { createRouter } from './interfaces/websocket/index.js';
 import { loggingMiddleware as routerLoggingMiddleware } from './middleware/logging.js';
 import { errorHandlingMiddleware as routerErrorMiddleware } from './middleware/error.js';
 import { isLocalhost } from './middleware/local-only.js';

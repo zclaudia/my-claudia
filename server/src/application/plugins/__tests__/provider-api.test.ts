@@ -2,13 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { PluginProviderAPI, createProviderAPI } from '../provider-api.js';
 
-vi.mock('../../../providers/registry.js', () => ({
+vi.mock('../../../infrastructure/providers/registry.js', () => ({
   providerRegistry: {
     get: vi.fn(),
   },
 }));
 
-import { providerRegistry } from '../../../providers/registry.js';
+import { providerRegistry } from '../../../infrastructure/providers/registry.js';
 
 function createTestDb(): Database.Database {
   const db = new Database(':memory:');

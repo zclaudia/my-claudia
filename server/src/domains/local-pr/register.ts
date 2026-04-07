@@ -8,7 +8,7 @@
 import type { Express } from 'express';
 import type { RequestHandler } from 'express';
 import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
-import type { initDatabase } from '../../storage/db.js';
+import type { initDatabase } from '../../infrastructure/storage/db.js';
 import { LocalPRService } from './service.js';
 import { createLocalPRRoutes } from './routes.js';
 import { systemTaskRegistry } from '../../services/system-task-registry.js';

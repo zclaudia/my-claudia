@@ -1,4 +1,4 @@
-import type { initDatabase } from '../../storage/db.js';
+import type { initDatabase } from '../../infrastructure/storage/db.js';
 import type { ConnectedClient, ActiveRun } from '../conversation/transport/types.js';
 import { sendMessage } from '../conversation/transport/broadcast.js';
 import { SessionRepository } from '../../domains/sessions/repository.js';

@@ -7,7 +7,7 @@
 import type { Express } from 'express';
 import type { RequestHandler } from 'express';
 import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
-import type { initDatabase } from '../../storage/db.js';
+import type { initDatabase } from '../../infrastructure/storage/db.js';
 import { WorkflowEngine } from './engine.js';
 import { WorkflowService } from './service.js';
 import { WorkflowGeneratorService } from './generator.js';

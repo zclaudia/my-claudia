@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { PluginManagementError, PluginManagementService } from './management-service.js';
 import { PluginFrontendError, PluginFrontendService } from './frontend-service.js';
-import { sendApiError } from '../../routes/response.js';
+import { sendApiError } from '../../interfaces/http/response.js';
 
 export function createPluginRoutes(): Router {
   const router = Router();
