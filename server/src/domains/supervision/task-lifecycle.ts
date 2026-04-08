@@ -185,7 +185,7 @@ export class TaskLifecycle {
     }
   }
 
-  submitTaskPlan(taskId: string): { task: import('@my-claudia/shared').SupervisionTask; sessionId: string } {
+  submitTaskPlan(taskId: string): { task: import('@my-claudia/shared/features/supervision').SupervisionTask; sessionId: string } {
     const task = this.deps.taskRepo.findById(taskId);
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
@@ -227,7 +227,7 @@ export class TaskLifecycle {
     return { task: this.deps.taskRepo.findById(task.id)!, sessionId: session.id };
   }
 
-  retryTask(taskId: string): import('@my-claudia/shared').SupervisionTask {
+  retryTask(taskId: string): import('@my-claudia/shared/features/supervision').SupervisionTask {
     const task = this.deps.taskRepo.findById(taskId);
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
@@ -250,7 +250,7 @@ export class TaskLifecycle {
     return agg.snapshot;
   }
 
-  cancelTask(taskId: string): import('@my-claudia/shared').SupervisionTask {
+  cancelTask(taskId: string): import('@my-claudia/shared/features/supervision').SupervisionTask {
     const task = this.deps.taskRepo.findById(taskId);
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
@@ -276,7 +276,7 @@ export class TaskLifecycle {
     return agg.snapshot;
   }
 
-  runTaskNow(taskId: string): import('@my-claudia/shared').SupervisionTask {
+  runTaskNow(taskId: string): import('@my-claudia/shared/features/supervision').SupervisionTask {
     const task = this.deps.taskRepo.findById(taskId);
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
@@ -299,7 +299,7 @@ export class TaskLifecycle {
     return agg.snapshot;
   }
 
-  async approveTaskResult(taskId: string): Promise<import('@my-claudia/shared').SupervisionTask> {
+  async approveTaskResult(taskId: string): Promise<import('@my-claudia/shared/features/supervision').SupervisionTask> {
     const task = this.deps.taskRepo.findById(taskId);
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
@@ -360,7 +360,7 @@ export class TaskLifecycle {
     return this.deps.taskRepo.findById(taskId)!;
   }
 
-  rejectTaskResult(taskId: string, reviewNotes: string): import('@my-claudia/shared').SupervisionTask {
+  rejectTaskResult(taskId: string, reviewNotes: string): import('@my-claudia/shared/features/supervision').SupervisionTask {
     const task = this.deps.taskRepo.findById(taskId);
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
@@ -400,7 +400,7 @@ export class TaskLifecycle {
     return agg.snapshot;
   }
 
-  async resolveConflict(taskId: string): Promise<import('@my-claudia/shared').SupervisionTask> {
+  async resolveConflict(taskId: string): Promise<import('@my-claudia/shared/features/supervision').SupervisionTask> {
     const task = this.deps.taskRepo.findById(taskId);
     if (!task) {
       throw new Error('Task not found');

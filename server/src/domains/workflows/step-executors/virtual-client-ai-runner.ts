@@ -74,7 +74,7 @@ export class VirtualClientAIRunner implements AIRunnerPort {
           } else if (msg.type === 'run_failed') {
             settled = true;
             clearTimeout(timeout);
-            const error = (msg as import('@my-claudia/shared').RunFailedMessage).error ?? 'AI prompt failed';
+            const error = (msg as import('@my-claudia/shared/protocol/messages').RunFailedMessage).error ?? 'AI prompt failed';
             reject(new Error(error));
           }
         },

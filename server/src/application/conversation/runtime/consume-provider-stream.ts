@@ -19,7 +19,7 @@ interface ConsumeProviderStreamInput {
   providerRunner: AsyncIterable<ClaudeMessage>;
   providerType: string;
   runId: string;
-  sendRunEvent: (event: import('@my-claudia/shared').ServerMessage) => void;
+  sendRunEvent: (event: import('@my-claudia/shared/protocol/messages').ServerMessage) => void;
   sessionId: string;
   sessionType: ActiveRun['sessionType'];
   state: ProviderEventState;

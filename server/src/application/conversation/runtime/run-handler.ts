@@ -35,19 +35,19 @@ export interface RunHandlerContext {
   providerRegistry: ProviderRegistryPort;
 }
 
-type ExtendedAIReviewMetadata = import('@my-claudia/shared').AIReviewMetadata & {
+type ExtendedAIReviewMetadata = import('@my-claudia/shared/interaction/permissions').AIReviewMetadata & {
   payloadDisposition?: 'safe_to_send' | 'send_with_redaction' | 'do_not_send';
   redactionCount?: number;
   reviewedFileCount?: number;
 };
 
-type ExtendedDelegationContext = import('@my-claudia/shared').NotificationItem['delegationContext'] & {
+type ExtendedDelegationContext = import('@my-claudia/shared/features/notification-feed').NotificationItem['delegationContext'] & {
   payloadDisposition?: 'safe_to_send' | 'send_with_redaction' | 'do_not_send';
   redactionCount?: number;
   reviewedFileCount?: number;
 };
 
-function buildAIReviewFeedSummary(aiResult: import('@my-claudia/shared').AIReviewResult): string {
+function buildAIReviewFeedSummary(aiResult: import('@my-claudia/shared/interaction/permissions').AIReviewResult): string {
   const metadata = aiResult.metadata as ExtendedAIReviewMetadata | undefined;
   const base = aiResult.reasoning;
   if (metadata?.payloadDisposition === 'do_not_send') {
@@ -67,7 +67,7 @@ function postAIReviewFeedItem(
     requestId: string;
     toolName: string;
     detail: string;
-    result: import('@my-claudia/shared').AIReviewResult;
+    result: import('@my-claudia/shared/interaction/permissions').AIReviewResult;
   },
 ): void {
   if (!feedService) return;

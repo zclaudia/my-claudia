@@ -319,7 +319,7 @@ Generate a workflow definition based on the user's natural language description.
             resolve(allContent);
           } else if (msg.type === 'run_failed') {
             clearTimeout(timeout);
-            const failedMsg = msg as import('@my-claudia/shared').RunFailedMessage;
+            const failedMsg = msg as import('@my-claudia/shared/protocol/messages').RunFailedMessage;
             reject(new Error(failedMsg.error ?? 'AI generation failed'));
           }
         },

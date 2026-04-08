@@ -28,7 +28,7 @@ interface HandleRunExceptionInput {
   recoveryState: { sessionResetRetryCount?: number };
   runId: string;
   sdkSessionId?: string;
-  sendRunEvent: (event: import('@my-claudia/shared').ServerMessage) => void;
+  sendRunEvent: (event: import('@my-claudia/shared/protocol/messages').ServerMessage) => void;
   sessionType: 'regular' | 'background' | 'agent';
   trace: TraceRecorder;
 }
@@ -121,7 +121,7 @@ export async function handleRunException(input: HandleRunExceptionInput): Promis
       sessionId: message.sessionId,
       status: 'failed',
       reason: formattedErrMsg,
-    } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
+    } as import('@my-claudia/shared/protocol/messages').BackgroundTaskUpdateMessage);
   }
 
   return { handedOffToRetry: false };

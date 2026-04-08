@@ -144,7 +144,7 @@ export class ReviewEngine {
     if (msg.type === 'run_failed') {
       this.clearReviewTimeout(taskId);
       try {
-        const errorMsg = 'error' in msg ? (msg as import('@my-claudia/shared').RunFailedMessage).error : 'Review run failed';
+        const errorMsg = 'error' in msg ? (msg as import('@my-claudia/shared/protocol/messages').RunFailedMessage).error : 'Review run failed';
         this.logFn(
           projectId,
           'review_failed',

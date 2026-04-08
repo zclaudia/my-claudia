@@ -70,7 +70,7 @@ export function registerPluginsDomain(deps: PluginsDomainDeps): void {
   });
 
   pluginPermissionManager.onRequest((request) => {
-    const msg: import('@my-claudia/shared').PluginPermissionRequestMessage = {
+    const msg: import('@my-claudia/shared/protocol/messages').PluginPermissionRequestMessage = {
       type: 'plugin_permission_request',
       pluginId: request.pluginId,
       pluginName: request.pluginName,

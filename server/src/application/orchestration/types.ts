@@ -17,7 +17,7 @@ export interface OrchestratorTask {
   projectId: string | null;
   sessionId: string | null;
   branchId: string | null;
-  branchAction?: import('@my-claudia/shared').BranchAction;
+  branchAction?: import('@my-claudia/shared/protocol/messages').BranchAction;
   contextReset?: boolean;
   kind: TaskKind;
   contextTemplate: string;
@@ -48,11 +48,11 @@ export interface SpawnTaskConfig {
   contextTemplate?: string;
   initiator?: TaskInitiator;
   branchId?: string;
-  branchAction?: import('@my-claudia/shared').BranchAction;
+  branchAction?: import('@my-claudia/shared/protocol/messages').BranchAction;
   contextReset?: boolean;
   feed?: {
     triggerId?: string;
-    source: import('@my-claudia/shared').NotificationSource;
+    source: import('@my-claudia/shared/features/notification-feed').NotificationSource;
     title: string;
   };
   tools?: string[];

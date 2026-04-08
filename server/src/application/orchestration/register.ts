@@ -48,10 +48,10 @@ export function registerOrchestrationDomain(
     notificationService,
     onTaskStatusChange: (task, extra) => {
       if (task.initiator !== 'claudia') return;
-      const update: import('@my-claudia/shared').ClaudiaTaskUpdateMessage = {
+      const update: import('@my-claudia/shared/protocol/messages').ClaudiaTaskUpdateMessage = {
         type: 'claudia_task_update',
         taskId: task.id,
-        status: task.status as import('@my-claudia/shared').ClaudiaTaskStatus,
+        status: task.status as import('@my-claudia/shared/protocol/messages').ClaudiaTaskStatus,
         sessionId: task.sessionId ?? undefined,
         branchId: task.branchId ?? undefined,
         branchAction: task.branchAction,
@@ -70,7 +70,7 @@ export function registerOrchestrationDomain(
       }
     },
     onTaskDelta: (taskId, content) => {
-      const delta: import('@my-claudia/shared').ClaudiaTaskDeltaMessage = {
+      const delta: import('@my-claudia/shared/protocol/messages').ClaudiaTaskDeltaMessage = {
         type: 'claudia_task_delta',
         taskId,
         content,

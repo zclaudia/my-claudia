@@ -31,7 +31,7 @@ export interface SetupDependencies {
   router: ReturnType<typeof createRouter>;
   clients: Map<string, ConnectedClient>;
   activeRuns: Map<string, ActiveRun>;
-  buildStateHeartbeat: () => import('@my-claudia/shared').StateHeartbeatMessage;
+  buildStateHeartbeat: () => import('@my-claudia/shared/protocol/messages').StateHeartbeatMessage;
   broadcastHeartbeat: () => void;
   broadcastPluginState: () => void;
   handleRunStart: (...args: any[]) => Promise<void>;
@@ -48,7 +48,7 @@ export interface SetupResult {
   updateGatewayConnected: (connected: boolean) => void;
   updateGatewayBackendId: (backendId: string | null) => void;
   updateGatewayIdentity: (instanceId: string, deviceId: string) => void;
-  updateDiscoveredBackends: (backends: import('@my-claudia/shared').GatewayBackendInfo[]) => void;
+  updateDiscoveredBackends: (backends: import('@my-claudia/shared/core/server').GatewayBackendInfo[]) => void;
   setGatewayConnector: (connector: (config: GatewayConfig) => Promise<void>) => void;
   setGatewayDisconnector: (disconnector: () => Promise<void>) => void;
   notificationService: PushNotificationService;

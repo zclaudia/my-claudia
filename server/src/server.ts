@@ -77,7 +77,7 @@ function buildStateHeartbeat(): StateHeartbeatMessage {
   return heartbeat;
 }
 
-function buildClaudiaTaskSnapshot(): import('@my-claudia/shared').ClaudiaTaskSnapshotMessage | null {
+function buildClaudiaTaskSnapshot(): import('@my-claudia/shared/protocol/messages').ClaudiaTaskSnapshotMessage | null {
   const orch = taskOrchestrator;
   if (!orch || !database) return null;
   const branchService = new ClaudiaBranchService(database);
@@ -118,7 +118,7 @@ function buildClaudiaTaskSnapshot(): import('@my-claudia/shared').ClaudiaTaskSna
         contextReset: task.contextReset,
         input: task.task,
         title: task.task.trim().replace(/\s+/g, ' ').slice(0, 80) || 'Claudia Task',
-        status: task.status as import('@my-claudia/shared').ClaudiaTaskStatus,
+        status: task.status as import('@my-claudia/shared/protocol/messages').ClaudiaTaskStatus,
         summary: task.resultSummary,
         error: task.errorSummary,
         responseText,
@@ -229,7 +229,7 @@ export interface ServerContext {
   updateGatewayConnected: (connected: boolean) => void;
   updateGatewayBackendId: (backendId: string | null) => void;
   updateGatewayIdentity: (instanceId: string, deviceId: string) => void;
-  updateDiscoveredBackends: (backends: import('@my-claudia/shared').GatewayBackendInfo[]) => void;
+  updateDiscoveredBackends: (backends: import('@my-claudia/shared/core/server').GatewayBackendInfo[]) => void;
   setGatewayConnector: (connector: (config: GatewayConfig) => Promise<void>) => void;
   setGatewayDisconnector: (disconnector: () => Promise<void>) => void;
   setServerPort: (port: number) => void;

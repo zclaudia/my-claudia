@@ -30,7 +30,7 @@ interface HandleProviderEventParams {
   persistSessionWorkingDirectory: (nextWorkingDirectory: string | null | undefined) => void;
   providerType: string;
   runId: string;
-  sendRunEvent: (event: import('@my-claudia/shared').ServerMessage) => void;
+  sendRunEvent: (event: import('@my-claudia/shared/protocol/messages').ServerMessage) => void;
   sessionId: string;
   sessionType: ActiveRun['sessionType'];
   state: ProviderEventState;
@@ -357,7 +357,7 @@ export function handleProviderEvent({
           type: 'background_task_update',
           sessionId,
           status: 'completed',
-        } as import('@my-claudia/shared').BackgroundTaskUpdateMessage);
+        } as import('@my-claudia/shared/protocol/messages').BackgroundTaskUpdateMessage);
       }
       break;
     }
@@ -424,7 +424,7 @@ export function handleProviderEvent({
             cliPid,
             taskCommand: taskProcInfo?.command,
             taskRootPid: taskProcInfo?.rootPid,
-          } as import('@my-claudia/shared').TaskNotificationMessage,
+          } as import('@my-claudia/shared/protocol/messages').TaskNotificationMessage,
         };
       };
 
