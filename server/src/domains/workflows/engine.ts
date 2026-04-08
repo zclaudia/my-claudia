@@ -3,6 +3,7 @@
  *
  * Owns: DAG traversal, run lifecycle, step orchestration, template resolution, approval state.
  * Delegates: step execution to injected StepExecutorPort (see step-executors/).
+ * Uses WorkflowRunAggregate for state transitions + domain events.
  */
 
 import type {
@@ -18,6 +19,9 @@ import { ProjectRepository } from '../projects/repository.js';
 import { renderConfig, type RenderContext } from './template-renderer.js';
 import type { StepExecutorPort, StepResult, StepContext, ApprovalPort } from './ports/step-executor.js';
 import type { Database } from 'better-sqlite3';
+import { WorkflowRunAggregate } from './run-aggregate.js';
+import { EventDispatcher } from '../supervision/event-dispatcher.js';
+import type { WorkflowRunEvent } from './run-events.js';
 
 // Re-export for backward compatibility
 export type { StepResult } from './ports/step-executor.js';
@@ -25,6 +29,7 @@ export type { StepResult } from './ports/step-executor.js';
 export interface ExecutionContext {
   results: Map<string, StepResult>;
   run: WorkflowRun;
+  agg: WorkflowRunAggregate;
   projectId?: string;
   projectRootPath?: string;
   providerId?: string;
@@ -46,15 +51,23 @@ export class WorkflowEngine implements ApprovalPort {
     resolve: (approved: boolean) => void;
     timeout: NodeJS.Timeout;
   }>();
+  readonly dispatcher: EventDispatcher<WorkflowRunEvent>;
 
   constructor(
     private db: Database,
     private broadcastFn: (projectId: string | undefined, message: ServerMessage | { type: string; [key: string]: unknown }) => void,
     private stepExecutor: StepExecutorPort,
+    dispatcher?: EventDispatcher<WorkflowRunEvent>,
   ) {
     this.runRepo = new WorkflowRunRepository(db);
     this.stepRunRepo = new WorkflowStepRunRepository(db);
     this.projectRepo = new ProjectRepository(db);
+    this.dispatcher = dispatcher ?? new EventDispatcher<WorkflowRunEvent>();
+
+    // Register broadcastRunUpdate as a wildcard event handler
+    this.dispatcher.onAny((event) => {
+      this.broadcastRunUpdate(event.projectId, event.runId);
+    });
   }
 
   isRunning(workflowId: string): boolean {
@@ -194,7 +207,13 @@ export class WorkflowEngine implements ApprovalPort {
     return loopEdge ? (loopEdge.maxIterations ?? 3) : 1;
   }
 
-  // ── Main Execution ──────────────────────────────────────────────
+  // ── Aggregate + dispatch helper ────────────────────────────────
+
+  private flushEvents(agg: WorkflowRunAggregate): void {
+    this.dispatcher.dispatchAll(agg.releaseEvents());
+  }
+
+  // ── Main Execution ────────���─────────────────────────────────────
 
   async startRun(
     workflowId: string,
@@ -215,40 +234,29 @@ export class WorkflowEngine implements ApprovalPort {
 
     const project = projectId ? this.projectRepo.findById(projectId) : null;
 
-    const run = this.runRepo.create({
+    const agg = WorkflowRunAggregate.start(
+      definition,
       workflowId,
       projectId,
-      status: 'running',
       triggerSource,
+      this.runRepo,
+      this.stepRunRepo,
       triggerDetail,
-      startedAt: Date.now(),
-    });
+    );
+    const run = agg.snapshot;
 
-    for (const node of definition.nodes) {
-      this.stepRunRepo.create({
-        runId: run.id,
-        stepId: node.id,
-        stepType: node.type,
-        status: 'pending',
-        attempt: 1,
-      });
-    }
-
-    this.broadcastRunUpdate(projectId, run.id);
+    this.flushEvents(agg);
     this.activeRuns.set(workflowId, true);
 
-    this.executeGraph(run, definition, project?.rootPath, project?.providerId, triggerData)
+    this.executeGraph(agg, definition, project?.rootPath, project?.providerId, triggerData)
       .catch((err) => {
         console.error(`[Workflow] Run ${run.id} failed:`, err);
         const currentRun = this.runRepo.findById(run.id);
         if (currentRun && currentRun.status === 'running') {
-          this.runRepo.update(run.id, {
-            status: 'failed',
-            error: err.message,
-            completedAt: Date.now(),
-            currentStepId: undefined,
-          });
-          this.broadcastRunUpdate(projectId, run.id);
+          // Re-wrap in aggregate for the fail transition
+          const freshAgg = new WorkflowRunAggregate(currentRun, this.runRepo, this.stepRunRepo);
+          freshAgg.failRun(err.message);
+          this.flushEvents(freshAgg);
         }
       })
       .finally(() => {
@@ -259,15 +267,17 @@ export class WorkflowEngine implements ApprovalPort {
   }
 
   private async executeGraph(
-    run: WorkflowRun,
+    agg: WorkflowRunAggregate,
     definition: WorkflowDefinition,
     projectRootPath?: string,
     providerId?: string,
     triggerData?: RunTriggerContext,
   ): Promise<void> {
+    const run = agg.snapshot;
     const ctx: ExecutionContext = {
       results: new Map(),
       run,
+      agg,
       projectId: run.projectId,
       projectRootPath,
       providerId,
@@ -300,30 +310,20 @@ export class WorkflowEngine implements ApprovalPort {
             continue;
           }
         }
-        this.runRepo.update(run.id, {
-          status: 'failed',
-          error: `Cycle detected at node "${currentNodeId}"`,
-          completedAt: Date.now(),
-          currentStepId: undefined,
-        });
-        this.broadcastRunUpdate(run.projectId, run.id);
+        agg.failRun(`Cycle detected at node "${currentNodeId}"`);
+        this.flushEvents(agg);
         return;
       }
       visitCounts.set(currentNodeId, currentVisits + 1);
 
       const nodeDef = nodeMap.get(currentNodeId);
       if (!nodeDef) {
-        this.runRepo.update(run.id, {
-          status: 'failed',
-          error: `Node "${currentNodeId}" not found in workflow definition`,
-          completedAt: Date.now(),
-          currentStepId: undefined,
-        });
-        this.broadcastRunUpdate(run.projectId, run.id);
+        agg.failRun(`Node "${currentNodeId}" not found in workflow definition`);
+        this.flushEvents(agg);
         return;
       }
 
-      this.runRepo.update(run.id, { currentStepId: nodeDef.id });
+      agg.setCurrentStep(nodeDef.id);
 
       const result = await this.executeStep(nodeDef, ctx, run.id);
       ctx.results.set(nodeDef.id, result);
@@ -331,13 +331,8 @@ export class WorkflowEngine implements ApprovalPort {
       if (result.status === 'failed') {
         const onError = nodeDef.onError ?? 'abort';
         if (onError === 'abort') {
-          this.runRepo.update(run.id, {
-            status: 'failed',
-            error: result.error ?? `Node "${nodeDef.name}" failed`,
-            completedAt: Date.now(),
-            currentStepId: undefined,
-          });
-          this.broadcastRunUpdate(run.projectId, run.id);
+          agg.failRun(result.error ?? `Node "${nodeDef.name}" failed`);
+          this.flushEvents(agg);
           return;
         }
       }
@@ -346,21 +341,20 @@ export class WorkflowEngine implements ApprovalPort {
       currentNodeId = this.findNextNodeId(nodeDef.id, result, adjacency, nodeDef);
     }
 
+    // Skip unvisited nodes
     for (const node of definition.nodes) {
       if (!visitCounts.has(node.id)) {
-        const stepRun = this.stepRunRepo.findByRunAndStep(run.id, node.id);
-        if (stepRun && stepRun.status === 'pending') {
-          this.stepRunRepo.update(stepRun.id, { status: 'skipped', completedAt: Date.now() });
+        try {
+          agg.skipStep(node.id);
+        } catch {
+          // Step may already be in a non-skippable state; ignore
         }
       }
     }
+    this.flushEvents(agg);
 
-    this.runRepo.update(run.id, {
-      status: 'completed',
-      completedAt: Date.now(),
-      currentStepId: undefined,
-    });
-    this.broadcastRunUpdate(run.projectId, run.id);
+    agg.completeRun();
+    this.flushEvents(agg);
   }
 
   // ── Step Execution (delegates to StepExecutorPort) ──────────
@@ -370,6 +364,7 @@ export class WorkflowEngine implements ApprovalPort {
     ctx: ExecutionContext,
     runId: string,
   ): Promise<StepResult> {
+    const { agg } = ctx;
     const stepRun = this.stepRunRepo.findByRunAndStep(runId, nodeDef.id);
     if (!stepRun) {
       return { status: 'failed', output: {}, error: 'Step run record not found' };
@@ -378,16 +373,12 @@ export class WorkflowEngine implements ApprovalPort {
     const maxAttempts = nodeDef.onError === 'retry' ? (nodeDef.retryCount ?? 1) + 1 : 1;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      this.stepRunRepo.update(stepRun.id, {
-        status: 'running',
-        startedAt: Date.now(),
-        attempt,
-      });
-      this.broadcastRunUpdate(ctx.projectId, runId);
+      agg.startStep(nodeDef.id, attempt);
+      this.flushEvents(agg);
 
       try {
         const resolvedConfig = this.resolveConfig(nodeDef.config, ctx.results, ctx);
-        this.stepRunRepo.update(stepRun.id, { input: resolvedConfig });
+        agg.setStepInput(nodeDef.id, resolvedConfig);
 
         const stepCtx: StepContext = {
           runId,
@@ -400,7 +391,7 @@ export class WorkflowEngine implements ApprovalPort {
           triggerContext: ctx.triggerContext,
           resolveTemplate: (template: string) => this.resolveTemplate(template, ctx.results),
           setSessionId: (sessionId: string) => {
-            this.stepRunRepo.update(stepRun.id, { sessionId });
+            agg.setStepSessionId(nodeDef.id, sessionId);
             this.broadcastRunUpdate(ctx.projectId, runId);
           },
         };
@@ -408,35 +399,29 @@ export class WorkflowEngine implements ApprovalPort {
         const result = await this.stepExecutor.execute(nodeDef, resolvedConfig, stepCtx);
 
         if (result.status === 'completed') {
-          this.stepRunRepo.update(stepRun.id, {
-            status: 'completed',
-            output: result.output,
-            completedAt: Date.now(),
-          });
-          this.broadcastRunUpdate(ctx.projectId, runId);
+          agg.completeStep(nodeDef.id, result.output);
+          this.flushEvents(agg);
           return result;
         }
 
         if (attempt === maxAttempts) {
-          const failStatus = nodeDef.onError === 'skip' ? 'skipped' : 'failed';
-          this.stepRunRepo.update(stepRun.id, {
-            status: failStatus as 'failed' | 'skipped',
-            error: result.error,
-            completedAt: Date.now(),
-          });
-          this.broadcastRunUpdate(ctx.projectId, runId);
+          if (nodeDef.onError === 'skip') {
+            agg.skipStep(nodeDef.id);
+          } else {
+            agg.failStep(nodeDef.id, result.error);
+          }
+          this.flushEvents(agg);
           return result;
         }
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         if (attempt === maxAttempts) {
-          const failStatus = nodeDef.onError === 'skip' ? 'skipped' : 'failed';
-          this.stepRunRepo.update(stepRun.id, {
-            status: failStatus as 'failed' | 'skipped',
-            error: errorMsg,
-            completedAt: Date.now(),
-          });
-          this.broadcastRunUpdate(ctx.projectId, runId);
+          if (nodeDef.onError === 'skip') {
+            agg.skipStep(nodeDef.id);
+          } else {
+            agg.failStep(nodeDef.id, errorMsg);
+          }
+          this.flushEvents(agg);
           return { status: 'failed', output: {}, error: errorMsg };
         }
       }
@@ -542,10 +527,9 @@ export class WorkflowEngine implements ApprovalPort {
     const run = this.runRepo.findById(runId);
     if (!run || (run.status !== 'running' && run.status !== 'pending')) return false;
 
-    this.runRepo.update(runId, {
-      status: 'cancelled',
-      completedAt: Date.now(),
-    });
+    const agg = new WorkflowRunAggregate(run, this.runRepo, this.stepRunRepo);
+    agg.cancelRun();
+    this.flushEvents(agg);
 
     const stepRuns = this.stepRunRepo.findByRun(runId);
     for (const sr of stepRuns) {
@@ -554,7 +538,6 @@ export class WorkflowEngine implements ApprovalPort {
       }
     }
 
-    this.broadcastRunUpdate(run.projectId, runId);
     return true;
   }
 

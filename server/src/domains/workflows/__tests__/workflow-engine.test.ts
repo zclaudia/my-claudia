@@ -5,9 +5,21 @@ const mockRunRepo = {
   update: vi.fn().mockImplementation((_id: string, data: any) => data),
   findById: vi.fn(),
 };
+// Stateful step-run store so aggregate reads reflect prior updates
+const stepRunStore = new Map<string, any>();
 const mockStepRunRepo = {
-  create: vi.fn().mockReturnValue({ id: 'sr1', runId: 'r1', stepId: 's1', status: 'pending' }),
-  update: vi.fn().mockImplementation((_id: string, data: any) => data),
+  create: vi.fn().mockImplementation((data: any) => {
+    const sr = { id: data.id ?? `sr-${data.stepId ?? 's1'}`, ...data, status: data.status ?? 'pending' };
+    stepRunStore.set(sr.id, sr);
+    return sr;
+  }),
+  update: vi.fn().mockImplementation((id: string, data: any) => {
+    const existing = stepRunStore.get(id);
+    if (existing) {
+      Object.assign(existing, data);
+    }
+    return data;
+  }),
   findByRun: vi.fn().mockReturnValue([]),
   findByRunAndStep: vi.fn(),
 };
@@ -96,11 +108,30 @@ describe('WorkflowEngine', () => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     // Reset defaults after clearAllMocks
+    stepRunStore.clear();
     mockRunRepo.create.mockReturnValue({ id: 'r1', workflowId: 'w1', projectId: 'p1', status: 'running', startedAt: Date.now() });
     mockRunRepo.update.mockImplementation((_id: string, data: any) => data);
-    mockStepRunRepo.create.mockReturnValue({ id: 'sr1', runId: 'r1', stepId: 's1', status: 'pending' });
-    mockStepRunRepo.update.mockImplementation((_id: string, data: any) => data);
+    mockStepRunRepo.create.mockImplementation((data: any) => {
+      const sr = { id: data.id ?? `sr-${data.stepId ?? 's1'}`, ...data, status: data.status ?? 'pending' };
+      stepRunStore.set(sr.id, sr);
+      return sr;
+    });
+    mockStepRunRepo.update.mockImplementation((id: string, data: any) => {
+      const existing = stepRunStore.get(id);
+      if (existing) {
+        Object.assign(existing, data);
+      }
+      return data;
+    });
     mockStepRunRepo.findByRun.mockReturnValue([]);
+    // Default: findByRunAndStep looks up the stateful store
+    mockStepRunRepo.findByRunAndStep.mockImplementation((_runId: string, stepId: string) => {
+      // Try by composite key first, then by id 'sr1' as fallback for single-step tests
+      for (const sr of stepRunStore.values()) {
+        if (sr.stepId === stepId) return { ...sr };
+      }
+      return null;
+    });
     mockProjectRepo.findById.mockReturnValue({ id: 'p1', providerId: 'prov1', rootPath: '/test' });
     mockSessionRepo.create.mockReturnValue({ id: 'sess1' });
     mockWorkflowAiRunPort.startVirtualRun.mockReset();
@@ -312,7 +343,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       const run = await engine.startRun('w3', 'p1', def as any, 'manual');
@@ -382,7 +413,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       const run = await engine.startRun('wf-notify', 'p1', def as any, 'manual');
@@ -399,7 +430,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       // Return cancelled status when checked
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'cancelled', projectId: 'p1' });
 
@@ -443,7 +474,11 @@ describe('WorkflowEngine', () => {
       let stepRunCallCount = 0;
       mockStepRunRepo.findByRunAndStep.mockImplementation((_runId: string, stepId: string) => {
         stepRunCallCount++;
-        return { id: `sr-${stepId}`, status: 'pending' };
+        const existing = stepRunStore.get(`sr-${stepId}`);
+        if (existing) return { ...existing };
+        const sr = { id: `sr-${stepId}`, runId: _runId, stepId, status: 'pending' };
+        stepRunStore.set(sr.id, sr);
+        return { ...sr };
       });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
@@ -465,7 +500,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
       (mockWorkflowStepRegistry as any).has.mockReturnValue(false);
 
@@ -486,7 +521,11 @@ describe('WorkflowEngine', () => {
         entryNodeId: 'n1',
       };
       mockStepRunRepo.findByRunAndStep.mockImplementation((_runId: string, stepId: string) => {
-        return { id: `sr-${stepId}`, status: 'pending' };
+        const existing = stepRunStore.get(`sr-${stepId}`);
+        if (existing) return { ...existing };
+        const sr = { id: `sr-${stepId}`, runId: _runId, stepId, status: 'pending' };
+        stepRunStore.set(sr.id, sr);
+        return { ...sr };
       });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
@@ -510,7 +549,11 @@ describe('WorkflowEngine', () => {
         entryNodeId: 'n1',
       };
       mockStepRunRepo.findByRunAndStep.mockImplementation((_runId: string, stepId: string) => {
-        return { id: `sr-${stepId}`, status: 'pending' };
+        const existing = stepRunStore.get(`sr-${stepId}`);
+        if (existing) return { ...existing };
+        const sr = { id: `sr-${stepId}`, runId: _runId, stepId, status: 'pending' };
+        stepRunStore.set(sr.id, sr);
+        return { ...sr };
       });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
       (mockWorkflowStepRegistry as any).has.mockReturnValue(false);
@@ -538,7 +581,11 @@ describe('WorkflowEngine', () => {
         entryNodeId: 'n1',
       };
       mockStepRunRepo.findByRunAndStep.mockImplementation((_runId: string, stepId: string) => {
-        return { id: `sr-${stepId}`, status: 'pending' };
+        const existing = stepRunStore.get(`sr-${stepId}`);
+        if (existing) return { ...existing };
+        const sr = { id: `sr-${stepId}`, runId: _runId, stepId, status: 'pending' };
+        stepRunStore.set(sr.id, sr);
+        return { ...sr };
       });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
       (mockWorkflowStepRegistry as any).has.mockReturnValue(false);
@@ -567,7 +614,11 @@ describe('WorkflowEngine', () => {
         entryNodeId: 'n1',
       };
       mockStepRunRepo.findByRunAndStep.mockImplementation((_runId: string, stepId: string) => {
-        return { id: `sr-${stepId}`, status: 'pending' };
+        const existing = stepRunStore.get(`sr-${stepId}`);
+        if (existing) return { ...existing };
+        const sr = { id: `sr-${stepId}`, runId: _runId, stepId, status: 'pending' };
+        stepRunStore.set(sr.id, sr);
+        return { ...sr };
       });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
@@ -590,7 +641,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
       // execFileAsync always fails
       mockExecFileAsync.mockRejectedValue(new Error('command failed'));
@@ -629,7 +680,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
       (mockWorkflowStepRegistry as any).has.mockReturnValue(true);
       (mockWorkflowStepRegistry as any).execute.mockResolvedValue({ status: 'completed', output: { pluginResult: true } });
@@ -652,7 +703,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       const run = await engine.startRun('wf-v1', 'p1', def as any, 'manual');
@@ -669,7 +720,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
       mockExecFileAsync.mockResolvedValue({ stdout: 'hello\n', stderr: '' });
 
@@ -689,7 +740,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       await engine.startRun('wf-shell-empty', 'p1', def as any, 'manual');
@@ -705,7 +756,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
       mockExecFileAsync.mockRejectedValue({ code: undefined, killed: true });
 
@@ -722,7 +773,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
       mockExecFileAsync.mockRejectedValue({ code: 1, killed: false, stdout: '', stderr: 'error output', message: 'exit code 1' });
 
@@ -748,7 +799,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       await engine.startRun('wf-webhook', 'p1', def as any, 'manual');
@@ -768,7 +819,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       await engine.startRun('wf-webhook-no-url', 'p1', def as any, 'manual');
@@ -791,7 +842,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       await engine.startRun('wf-webhook-err', 'p1', def as any, 'manual');
@@ -815,7 +866,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       await engine.startRun('wf-webhook-get', 'p1', def as any, 'manual');
@@ -840,7 +891,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       await engine.startRun('wf-notify-hook', 'p1', def as any, 'manual');
@@ -862,7 +913,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       await engine.startRun('wf-cond-no-expr', 'p1', def as any, 'manual');
@@ -880,7 +931,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       await engine.startRun('wf-wait', 'p1', def as any, 'manual');
@@ -899,7 +950,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       await engine.startRun('wf-approve', 'p1', def as any, 'manual');
@@ -927,7 +978,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       await engine.startRun('wf-reject', 'p1', def as any, 'manual');
@@ -951,7 +1002,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
       mockExecFileAsync
         .mockResolvedValueOnce({ stdout: 'M file.ts\n', stderr: '' })  // git status
@@ -976,7 +1027,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
       mockExecFileAsync.mockResolvedValueOnce({ stdout: '', stderr: '' }); // git status empty
 
@@ -996,7 +1047,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
       mockProjectRepo.findById.mockReturnValue({ id: 'p1', rootPath: undefined, providerId: 'prov1' });
 
@@ -1016,7 +1067,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
       mockExecFileAsync
         .mockResolvedValueOnce({ stdout: '', stderr: '' })  // git checkout
@@ -1038,7 +1089,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
       mockExecFileAsync
         .mockResolvedValueOnce({ stdout: '', stderr: '' })  // git checkout
@@ -1059,7 +1110,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       await engine.startRun('wf-merge-no-branch', 'p1', def as any, 'manual');
@@ -1077,7 +1128,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
       mockExecFileAsync.mockResolvedValueOnce({ stdout: '', stderr: '' });
 
@@ -1097,7 +1148,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       await engine.startRun('wf-wt-no-branch', 'p1', def as any, 'manual');
@@ -1115,7 +1166,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
       mockExecFileAsync
         .mockResolvedValueOnce({ stdout: 'feature-branch\n', stderr: '' })  // rev-parse
@@ -1137,7 +1188,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
       mockProjectRepo.findById.mockReturnValue({ id: 'p1', rootPath: undefined, providerId: 'prov1' });
 
@@ -1157,7 +1208,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       await engine.startRun('wf-ai-no-prompt', 'p1', def as any, 'manual');
@@ -1173,7 +1224,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
       mockProjectRepo.findById.mockReturnValue({ id: 'p1', rootPath: '/test', providerId: undefined });
 
@@ -1191,7 +1242,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       mockWorkflowAiRunPort.startVirtualRun.mockImplementation(({ onMessage }: any) => {
@@ -1221,7 +1272,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       mockWorkflowAiRunPort.startVirtualRun.mockImplementation(({ onMessage }: any) => {
@@ -1243,7 +1294,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
       mockProjectRepo.findById.mockReturnValue({ id: 'p1', rootPath: '/test', providerId: undefined });
 
@@ -1261,7 +1312,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       const mockDb = {
@@ -1300,7 +1351,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       await engine.startRun('wf-broadcast', 'p1', def as any, 'manual');
@@ -1327,7 +1378,7 @@ describe('WorkflowEngine', () => {
         edges: [],
         entryNodeId: 'n1',
       };
-      mockStepRunRepo.findByRunAndStep.mockReturnValue({ id: 'sr1', status: 'pending' });
+      stepRunStore.set('sr1', { id: 'sr1', runId: 'r1', stepId: 'n1', status: 'pending' });
       mockRunRepo.findById.mockReturnValue({ id: 'r1', status: 'running', projectId: 'p1' });
 
       await engine.startRun('wf-detail', 'p1', def as any, 'schedule', 'cron: * * * * *');
