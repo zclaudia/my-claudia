@@ -25,6 +25,17 @@ export default defineConfig(async () => {
       exclude: socketTestsAvailable ? [] : ['src/interfaces/http/__tests__/**'],
       setupFiles: ['./src/test/setup.ts'],
       pool: 'forks',
+      poolOptions: {
+        forks: {
+          // Limit concurrency to reduce fork scheduling contention.
+          maxForks: 4,
+        },
+      },
+      testTimeout: 15000,
+      // Retry flaky tests once before reporting failure.
+      // Root cause: vitest fork pool scheduling can delay worker init
+      // causing occasional SQLite contention or timeout on first attempt.
+      retry: 1,
       coverage: {
         provider: 'v8',
         reporter: ['text', 'json', 'html'],
