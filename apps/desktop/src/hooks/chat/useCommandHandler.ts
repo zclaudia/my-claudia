@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { useProjectStore } from '../../stores/projectStore';
+import { useProviderMetaStore } from '../../stores/providerMetaStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
 import { useChatStore } from '../../stores/chatStore';
 import * as api from '../../services/api';
@@ -167,7 +168,7 @@ export function useCommandHandler({
           : api.getProviderTypeCommands('claude', currentProject?.rootPath || undefined)
         )
           .then(cmds => {
-            useProjectStore.getState().setProviderCommands(commandsCacheKey, cmds);
+            useProviderMetaStore.getState().setProviderCommands(commandsCacheKey, cmds);
             addMessage(sessionId, {
               id: crypto.randomUUID(),
               sessionId,

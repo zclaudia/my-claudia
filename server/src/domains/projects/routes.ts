@@ -135,8 +135,7 @@ export function createProjectRoutes(
     const projectId = req.params.id;
 
     try {
-      const project = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);
-      if (!project) {
+      if (!repo.exists(projectId)) {
         res.status(404).json({
           success: false,
           error: { code: 'NOT_FOUND', message: 'Project not found' },
@@ -144,8 +143,7 @@ export function createProjectRoutes(
         return;
       }
 
-      const result = db.prepare('DELETE FROM projects WHERE id = ?').run(projectId);
-      if (result.changes === 0) {
+      if (!repo.deleteById(projectId)) {
         res.status(404).json({
           success: false,
           error: { code: 'NOT_FOUND', message: 'Project not found' },
@@ -216,12 +214,7 @@ export function createProjectRoutes(
         return;
       }
 
-      const update = db.prepare('UPDATE projects SET sort_order = ? WHERE id = ?');
-      db.transaction(() => {
-        for (let i = 0; i < orderedIds.length; i++) {
-          update.run(i, orderedIds[i]);
-        }
-      })();
+      repo.reorder(orderedIds);
 
       onProjectChanged?.();
       res.json({ success: true } as ApiResponse<void>);

@@ -4,6 +4,7 @@ import { PROVIDER_TYPES } from '@my-claudia/shared/core/provider';
 import type { ProviderConfig } from '@my-claudia/shared/core/provider';
 import type { ApiResponse } from '@my-claudia/shared/core/api';
 import { ProviderRepository } from './repository.js';
+import { ProviderDeletionService, ProviderNotFoundError } from './provider-deletion-service.js';
 import { mountCapabilityRoutes } from '../../interfaces/http/provider-capabilities.js';
 import { mountCommandRoutes } from '../../interfaces/http/provider-commands.js';
 
@@ -16,6 +17,7 @@ interface ToolRegistryPort {
 export function createProviderRoutes(db: Database.Database, toolRegistry?: ToolRegistryPort): Router {
   const router = Router();
   const repo = new ProviderRepository(db);
+  const deletionService = new ProviderDeletionService(db);
 
   router.get('/', (_req: Request, res: Response) => {
     try {
@@ -144,54 +146,16 @@ export function createProviderRoutes(db: Database.Database, toolRegistry?: ToolR
 
   router.delete('/:id', (req: Request, res: Response) => {
     try {
-      const providerId = req.params.id;
-      const existing = repo.findById(providerId);
-
-      if (!existing) {
+      deletionService.deleteProvider(req.params.id);
+      res.json({ success: true } as ApiResponse<void>);
+    } catch (error) {
+      if (error instanceof ProviderNotFoundError) {
         res.status(404).json({
           success: false,
           error: { code: 'NOT_FOUND', message: 'Provider not found' },
         });
         return;
       }
-
-      const hasColumn = (table: string, column: string): boolean => {
-        const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
-        return columns.some((col) => col.name === column);
-      };
-
-      const deleteProviderTx = db.transaction(() => {
-        db.prepare('UPDATE projects SET provider_id = NULL WHERE provider_id = ?').run(providerId);
-        db.prepare('UPDATE sessions SET provider_id = NULL WHERE provider_id = ?').run(providerId);
-
-        if (hasColumn('projects', 'review_provider_id')) {
-          db.prepare('UPDATE projects SET review_provider_id = NULL WHERE review_provider_id = ?').run(providerId);
-        }
-        if (hasColumn('agent_config', 'provider_id')) {
-          db.prepare('UPDATE agent_config SET provider_id = NULL WHERE provider_id = ?').run(providerId);
-        }
-
-        const result = db.prepare('DELETE FROM providers WHERE id = ?').run(providerId);
-        if (result.changes === 0) {
-          throw new Error('Provider not found');
-        }
-
-        if (existing.isDefault) {
-          const replacement = db.prepare(`
-            SELECT id FROM providers
-            ORDER BY created_at ASC
-            LIMIT 1
-          `).get() as { id: string } | undefined;
-          if (replacement) {
-            repo.setDefault(replacement.id);
-          }
-        }
-      });
-
-      deleteProviderTx();
-
-      res.json({ success: true } as ApiResponse<void>);
-    } catch (error) {
       console.error('Error deleting provider:', error);
       res.status(500).json({
         success: false,

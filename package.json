@@ -16,6 +16,7 @@
     "build:macos:install": "bash scripts/build/install-macos.sh",
     "release:macos": "bash scripts/release/macos.sh",
     "clean": "pnpm -r run clean && rm -rf node_modules",
+    "check:architecture": "bash scripts/with-project-node.sh node scripts/check-architecture-boundaries.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\"",

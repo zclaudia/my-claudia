@@ -137,4 +137,24 @@ export class ProjectRepository extends BaseRepository<
     ).get() as { sortOrder: number };
     return row.sortOrder;
   }
+
+  exists(id: string): boolean {
+    const row = this.db
+      .prepare('SELECT 1 FROM projects WHERE id = ?')
+      .get(id) as { 1: number } | undefined;
+    return Boolean(row);
+  }
+
+  deleteById(id: string): boolean {
+    return this.delete(id);
+  }
+
+  reorder(orderedIds: string[]): void {
+    const update = this.db.prepare('UPDATE projects SET sort_order = ? WHERE id = ?');
+    this.db.transaction(() => {
+      for (let i = 0; i < orderedIds.length; i++) {
+        update.run(i, orderedIds[i]);
+      }
+    })();
+  }
 }
