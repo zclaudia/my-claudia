@@ -436,7 +436,7 @@ describe('projectStore', () => {
 
       useProjectStore.getState().selectSession('s1');
 
-      expect(mockSetActiveServer).toHaveBeenCalledWith('local-backend-1');
+      expect(mockSetActiveServer).not.toHaveBeenCalled();
     });
 
     it('selectSession also updates selectedProjectId from session', () => {
@@ -470,14 +470,14 @@ describe('projectStore', () => {
       expect(mockSetActiveServer).not.toHaveBeenCalled();
     });
 
-    it('selectSession falls back to remote sessions for gateway', () => {
-      useProjectStore.getState().selectSession('remote-s1');
+    it('selectSession can use an explicit projectId override', () => {
+      useProjectStore.getState().selectSession('remote-s1', 'p-remote');
       expect(useProjectStore.getState().selectedProjectId).toBe('p-remote');
     });
 
-    it('selectSession switches to the owning remote backend for remote sessions', () => {
+    it('selectSession does not switch backend for remote sessions by itself', () => {
       useProjectStore.getState().selectSession('remote-s1');
-      expect(mockSetActiveServer).toHaveBeenCalledWith('b1');
+      expect(mockSetActiveServer).not.toHaveBeenCalled();
     });
   });
 

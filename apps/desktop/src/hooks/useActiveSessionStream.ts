@@ -1,4 +1,4 @@
-import { useProjectStore } from '../stores/projectStore';
+import { useSelectionStore } from '../stores/selectionStore';
 import { useSessionRoute } from './chat/useSessionRoute';
 
 /**
@@ -8,6 +8,6 @@ import { useSessionRoute } from './chat/useSessionRoute';
  * run completion.
  */
 export function useActiveSessionStream(): void {
-  const selectedSessionId = useProjectStore((s) => s.selectedSessionId);
+  const selectedSessionId = useSelectionStore((s) => s.selectedSessionId);
   useSessionRoute(selectedSessionId, { maintainDesiredState: true });
 }

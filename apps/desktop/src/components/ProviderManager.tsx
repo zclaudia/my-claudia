@@ -3,7 +3,6 @@ import { ChevronDown, Check } from 'lucide-react';
 import type { ProviderConfig } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
 import { useFacadeStore } from '../stores/facadeStore';
-import { useProjectStore } from '../stores/projectStore';
 import { useProviderMetaStore } from '../stores/providerMetaStore';
 import * as api from '../services/api';
 import { useAndroidBack } from '../hooks/useAndroidBack';
@@ -100,7 +99,7 @@ export function ProviderManager({ isOpen, onClose, inline = false, readOnly = fa
       const data = await api.getProviders();
       setProviders(data);
       // Sync to global store so Sidebar's provider dropdown stays current
-      useProjectStore.getState().setProviders(data);
+      useProviderMetaStore.getState().setProviders(data, activeServerId);
     } catch (error) {
       console.error('Failed to load providers:', error);
     } finally {

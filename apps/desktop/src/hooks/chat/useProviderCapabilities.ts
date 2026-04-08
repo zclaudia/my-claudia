@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useProjectStore } from '../../stores/projectStore';
+import { useProviderMetaStore } from '../../stores/providerMetaStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useChatStore } from '../../stores/chatStore';
 import * as api from '../../services/api';
@@ -12,9 +13,10 @@ interface UseProviderCapabilitiesOptions {
 }
 
 export function useProviderCapabilities({ sessionId, isConnected }: UseProviderCapabilitiesOptions) {
-  const providerCommands = useProjectStore((s) => s.providerCommands);
-  const providerCapabilities = useProjectStore((s) => s.providerCapabilities);
-  const setProviderCapabilities = useProjectStore((s) => s.setProviderCapabilities);
+  const providerCommands = useProviderMetaStore((s) => s.providerCommands);
+  const providerCapabilities = useProviderMetaStore((s) => s.providerCapabilities);
+  const setProviderCapabilities = useProviderMetaStore((s) => s.setProviderCapabilities);
+  const setProviderCommands = useProviderMetaStore((s) => s.setProviderCommands);
   const dataServerId = useProjectStore((s) => s.dataServerId);
   const sessions = useProjectStore((s) => s.sessions);
   const projects = useProjectStore((s) => s.projects);
@@ -45,7 +47,7 @@ export function useProviderCapabilities({ sessionId, isConnected }: UseProviderC
     if (providerId) {
       api.getProviderCommands(providerId, projectRoot || undefined, { signal: controller.signal })
         .then(commands => {
-          useProjectStore.getState().setProviderCommands(commandsCacheKey, commands);
+          setProviderCommands(commandsCacheKey, commands);
         })
         .catch(err => {
           if (err instanceof Error && err.name === 'AbortError') return;
@@ -54,7 +56,7 @@ export function useProviderCapabilities({ sessionId, isConnected }: UseProviderC
     } else {
       api.getProviderTypeCommands('claude', projectRoot || undefined, { signal: controller.signal })
         .then(commands => {
-          useProjectStore.getState().setProviderCommands(commandsCacheKey, commands);
+          setProviderCommands(commandsCacheKey, commands);
         })
         .catch(err => {
           if (err instanceof Error && err.name === 'AbortError') return;
@@ -63,7 +65,7 @@ export function useProviderCapabilities({ sessionId, isConnected }: UseProviderC
     }
 
     return () => controller.abort();
-  }, [currentSession?.providerId, currentProject?.providerId, currentProject?.rootPath, isConnected, isBackendDataReady, commandsCacheKey]);
+  }, [currentSession?.providerId, currentProject?.providerId, currentProject?.rootPath, isConnected, isBackendDataReady, commandsCacheKey, providerId, setProviderCommands]);
 
   useEffect(() => {
     const controller = new AbortController();

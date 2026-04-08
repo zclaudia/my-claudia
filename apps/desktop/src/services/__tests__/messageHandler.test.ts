@@ -35,6 +35,7 @@ const mockProjectStore = {
 
 const mockServerStore = {
   activeServerId: 'server-1',
+  recordHeartbeat: vi.fn(),
 };
 
 const mockPermissionStore = {
@@ -56,9 +57,7 @@ const mockPromptRequestStore = {
   hasRequest: vi.fn(() => false),
 };
 
-const mockHandleLocalPRMessage = vi.fn().mockReturnValue(true);
-const mockHandleWorkflowMessage = vi.fn().mockReturnValue(true);
-const mockHandleSupervisionMessage = vi.fn().mockReturnValue(true);
+const mockDispatchFeatureMessage = vi.fn().mockReturnValue(true);
 
 const mockSessionsStore = {
   setSessionActiveFlag: vi.fn(),
@@ -118,14 +117,8 @@ vi.mock('../../stores/permissionStore', () => ({
 vi.mock('../../stores/promptRequestStore', () => ({
   usePromptRequestStore: { getState: () => mockPromptRequestStore },
 }));
-vi.mock('../../features/local-pr/handlers', () => ({
-  handleLocalPRMessage: (...args: any[]) => mockHandleLocalPRMessage(...args),
-}));
-vi.mock('../../features/workflows/handlers', () => ({
-  handleWorkflowMessage: (...args: any[]) => mockHandleWorkflowMessage(...args),
-}));
-vi.mock('../../features/supervision/handlers', () => ({
-  handleSupervisionMessage: (...args: any[]) => mockHandleSupervisionMessage(...args),
+vi.mock('../../features/message-dispatcher', () => ({
+  dispatchFeatureMessage: (...args: any[]) => mockDispatchFeatureMessage(...args),
 }));
 vi.mock('../../stores/sessionsStore', () => ({
   useSessionsStore: { getState: () => mockSessionsStore },
@@ -644,19 +637,19 @@ describe('handleServerMessage', () => {
   it('handles supervision_task_update', () => {
     const msg = { type: 'supervision_task_update', projectId: 'p1', task: { id: 'task1' } };
     handleServerMessage(msg, makeCtx());
-    expect(mockHandleSupervisionMessage).toHaveBeenCalledWith(msg);
+    expect(mockDispatchFeatureMessage).toHaveBeenCalledWith(msg);
   });
 
   it('handles supervision_agent_update', () => {
     const msg = { type: 'supervision_agent_update', projectId: 'p1', agent: { id: 'a1' } };
     handleServerMessage(msg, makeCtx());
-    expect(mockHandleSupervisionMessage).toHaveBeenCalledWith(msg);
+    expect(mockDispatchFeatureMessage).toHaveBeenCalledWith(msg);
   });
 
   it('handles supervision_checkpoint', () => {
     const msg = { type: 'supervision_checkpoint', projectId: 'p1', summary: 'All good' };
     handleServerMessage(msg, makeCtx());
-    expect(mockHandleSupervisionMessage).toHaveBeenCalledWith(msg);
+    expect(mockDispatchFeatureMessage).toHaveBeenCalledWith(msg);
   });
 
   describe('sessions_created', () => {
@@ -687,37 +680,37 @@ describe('handleServerMessage', () => {
   it('handles local_pr_update', () => {
     const msg = { type: 'local_pr_update', projectId: 'p1', pr: { id: 'pr1' } };
     handleServerMessage(msg, makeCtx());
-    expect(mockHandleLocalPRMessage).toHaveBeenCalledWith(msg);
+    expect(mockDispatchFeatureMessage).toHaveBeenCalledWith(msg);
   });
 
   it('handles local_pr_deleted', () => {
     const msg = { type: 'local_pr_deleted', projectId: 'p1', prId: 'pr1' };
     handleServerMessage(msg, makeCtx());
-    expect(mockHandleLocalPRMessage).toHaveBeenCalledWith(msg);
+    expect(mockDispatchFeatureMessage).toHaveBeenCalledWith(msg);
   });
 
   it('handles workflow_update', () => {
     const msg = { type: 'workflow_update', projectId: 'p1', workflow: { id: 'w1' } };
     handleServerMessage(msg, makeCtx());
-    expect(mockHandleWorkflowMessage).toHaveBeenCalledWith(msg);
+    expect(mockDispatchFeatureMessage).toHaveBeenCalledWith(msg);
   });
 
   it('handles workflow_deleted', () => {
     const msg = { type: 'workflow_deleted', projectId: 'p1', workflowId: 'w1' };
     handleServerMessage(msg, makeCtx());
-    expect(mockHandleWorkflowMessage).toHaveBeenCalledWith(msg);
+    expect(mockDispatchFeatureMessage).toHaveBeenCalledWith(msg);
   });
 
   it('handles workflow_run_update', () => {
     const msg = { type: 'workflow_run_update', projectId: 'p1', run: { id: 'wr1' }, stepRuns: [] };
     handleServerMessage(msg, makeCtx());
-    expect(mockHandleWorkflowMessage).toHaveBeenCalledWith(msg);
+    expect(mockDispatchFeatureMessage).toHaveBeenCalledWith(msg);
   });
 
   it('handles workflow_step_types_changed', () => {
     const msg = { type: 'workflow_step_types_changed' };
     handleServerMessage(msg, makeCtx());
-    expect(mockHandleWorkflowMessage).toHaveBeenCalledWith(msg);
+    expect(mockDispatchFeatureMessage).toHaveBeenCalledWith(msg);
   });
 
   describe('state_heartbeat', () => {

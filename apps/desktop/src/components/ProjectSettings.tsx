@@ -165,7 +165,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
     try {
       const data = await api.getProviders();
       setProviders(data);
-      useProjectStore.getState().setProviders(data);
+      useProviderMetaStore.getState().setProviders(data, activeServerId);
     } catch (error) {
       console.error('Failed to load providers:', error);
     }

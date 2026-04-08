@@ -14,9 +14,7 @@ import { useProjectStore } from '../stores/projectStore';
 import { useServerStore } from '../stores/serverStore';
 import { usePermissionStore } from '../stores/permissionStore';
 import { usePromptRequestStore } from '../stores/promptRequestStore';
-import { handleLocalPRMessage } from '../features/local-pr/handlers';
-import { handleWorkflowMessage } from '../features/workflows/handlers';
-import { handleSupervisionMessage } from '../features/supervision/handlers';
+import { dispatchFeatureMessage } from '../features/message-dispatcher';
 import { useSystemTaskStore } from '../stores/systemTaskStore';
 import { useInteractionStore } from '../stores/interactionStore';
 import { useSessionsStore } from '../stores/sessionsStore';
@@ -651,12 +649,6 @@ export function handleServerMessage(
       break;
     }
 
-    case 'supervision_task_update':
-    case 'supervision_agent_update':
-    case 'supervision_checkpoint':
-      handleSupervisionMessage(msg);
-      break;
-
     case 'sessions_created': {
       const { session } = msg as any;
       const store = useProjectStore.getState();
@@ -672,23 +664,11 @@ export function handleServerMessage(
       break;
     }
 
-    case 'local_pr_update':
-    case 'local_pr_deleted':
-      handleLocalPRMessage(msg);
-      break;
-
     case 'system_task_update': {
       const { task } = msg as any;
       useSystemTaskStore.getState().updateTask(task);
       break;
     }
-
-    case 'workflow_update':
-    case 'workflow_deleted':
-    case 'workflow_run_update':
-    case 'workflow_step_types_changed':
-      handleWorkflowMessage(msg);
-      break;
 
     case 'claudia_task_created': {
       const taskMsg = msg as import('@my-claudia/shared').ClaudiaTaskCreatedMessage;
@@ -1264,6 +1244,19 @@ export function handleServerMessage(
       }
       break;
     }
+
+    case 'supervision_task_update':
+    case 'supervision_agent_update':
+    case 'supervision_checkpoint':
+    case 'local_pr_update':
+    case 'local_pr_deleted':
+    case 'workflow_update':
+    case 'workflow_deleted':
+    case 'workflow_run_update':
+    case 'workflow_step_types_changed':
+    case 'workflow_trigger_sources_changed':
+      dispatchFeatureMessage(msg);
+      break;
 
     default:
       console.warn(`[${logTag}] Unknown message type:`, (msg as any).type);

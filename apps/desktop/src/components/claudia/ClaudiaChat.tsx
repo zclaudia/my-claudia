@@ -3,6 +3,7 @@ import { MessageInput } from '../chat/MessageInput';
 import { useClaudiaStore } from '../../stores/claudiaStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useProjectStore } from '../../stores/projectStore';
+import { useSelectionStore } from '../../stores/selectionStore';
 import { useSelectionCoordinator } from '../../hooks/useSelectionCoordinator';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { fetchApi } from '../../services/api';
@@ -49,8 +50,8 @@ export function ClaudiaChat({ isMobile = false, hostProjectId, contextProjectId 
     isConnected,
     handlePermissionDecision,
   } = useConnection();
-  const selectedSessionId = useProjectStore((s) => s.selectedSessionId);
-  const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
+  const selectedSessionId = useSelectionStore((s) => s.selectedSessionId);
+  const selectedProjectId = useSelectionStore((s) => s.selectedProjectId);
   const sessions = useProjectStore((s) => s.sessions);
   const projects = useProjectStore((s) => s.projects);
   const updateSession = useProjectStore((s) => s.updateSession);

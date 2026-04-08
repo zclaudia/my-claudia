@@ -10,7 +10,7 @@ import { ChatInterface } from '../chat/ChatInterface';
 import { LocalPRsPanel } from '../../features/local-pr/components/LocalPRsPanel';
 import { WorkflowsPanel } from '../../features/workflows/components/WorkflowsPanel';
 import { DashboardHome } from './DashboardHome';
-import { useProjectStore } from '../../stores/projectStore';
+import { useSelectionStore } from '../../stores/selectionStore';
 
 export type DashboardView = 'home' | 'tasks' | 'local-prs' | 'workflows' | 'supervisor';
 
@@ -33,8 +33,8 @@ export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations
   const tasks = useSupervisionStore((s) => s.tasks[projectId]) ?? [];
   const setAgent = useSupervisionStore((s) => s.setAgent);
   const setTasks = useSupervisionStore((s) => s.setTasks);
-  const savedView = useProjectStore((s) => s.dashboardViews[projectId] ?? 'home');
-  const setDashboardView = useProjectStore((s) => s.setDashboardView);
+  const savedView = useSelectionStore((s) => s.dashboardViews[projectId] ?? 'home');
+  const setDashboardView = useSelectionStore((s) => s.setDashboardView);
   const [view, setView] = useState<DashboardView>(savedView);
   const [workflowViewMode, setWorkflowViewMode] = useState<'list' | 'detail'>('list');
 

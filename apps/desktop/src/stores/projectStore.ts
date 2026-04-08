@@ -1,12 +1,12 @@
 import { create } from 'zustand';
 import type { Project, Session, SlashCommand, ProviderConfig, ProviderCapabilities } from '@my-claudia/shared';
-import { useSessionsStore } from './sessionsStore';
 import { useChatStore } from './chatStore';
 import { useProviderMetaStore } from './providerMetaStore';
 import { useServerStore } from './serverStore';
 import { useOwnershipStore } from './ownershipStore';
 import { parseBackendId } from './gatewayStore';
 import { getControlPlaneMode, resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/controlPlane';
+import { useSelectionStore } from './selectionStore';
 
 export type ProjectDashboardView =
   | 'home'
@@ -57,7 +57,7 @@ interface ProjectState {
 
   // Actions — selection & UI
   selectProject: (id: string | null) => void;
-  selectSession: (id: string | null) => void;
+  selectSession: (id: string | null, projectId?: string | null) => void;
   setDashboardView: (projectId: string, view: ProjectDashboardView) => void;
 
   // Actions — provider metadata (synced to providerMetaStore)
@@ -337,7 +337,6 @@ export const useProjectStore = create<ProjectState>((set) => ({
   setProviders: (providers) => {
     const getState = (useServerStore as { getState?: () => { activeServerId?: string | null } }).getState;
     useProviderMetaStore.getState().setProviders(providers, getState?.().activeServerId);
-    set({ providers });
   },
 
   setDataServerId: (serverId) => set({ dataServerId: serverId }),
@@ -349,78 +348,127 @@ export const useProjectStore = create<ProjectState>((set) => ({
       if (state.selectedProjectId === id) {
         return state;
       }
+      useSelectionStore.getState().setSelectedProjectId(id);
       return { selectedProjectId: id };
     }),
 
-  selectSession: (id) =>
+  selectSession: (id, projectId) =>
     set((state) => {
       if (state.selectedSessionId === id) {
         return state;
       }
 
-      let session = state.sessions.find((s) => s.id === id);
-      let targetBackendId: string | null = null;
-      if (!session && id) {
-        for (const [backendId, sessions] of useSessionsStore.getState().remoteSessions) {
-          const remote = sessions.find((s) => s.id === id);
-          if (remote) {
-            session = remote;
-            targetBackendId = backendId;
-            break;
-          }
-        }
-      }
-
-      if (id) {
-        if (targetBackendId) {
-          // Session found on a specific remote backend — switch to it
-          useServerStore.getState().setActiveServer(targetBackendId);
-        } else if (!useServerStore.getState().activeServerId && session && getControlPlaneMode() === 'embedded-local') {
-          // No active server yet (first boot) and session is local — set local backend.
-          // Don't override if user has already selected a remote backend.
-          const localBackendId = resolveLocalBackendId();
-          if (localBackendId) {
-            useServerStore.getState().setActiveServer(localBackendId);
-          }
-        }
-      }
+      const session = state.sessions.find((s) => s.id === id);
+      const nextSelectedProjectId = projectId ?? session?.projectId ?? state.selectedProjectId;
+      useSelectionStore.getState().setSelectedSessionId(id);
+      useSelectionStore.getState().setSelectedProjectId(nextSelectedProjectId);
 
       return {
         selectedSessionId: id,
-        selectedProjectId: session?.projectId || state.selectedProjectId,
+        selectedProjectId: nextSelectedProjectId,
       };
     }),
 
   setDashboardView: (projectId, view) =>
-    set((state) => ({
-      dashboardViews: {
-        ...state.dashboardViews,
-        [projectId]: view,
-      },
-    })),
+    set((state) => {
+      useSelectionStore.getState().setDashboardView(projectId, view);
+      return {
+        dashboardViews: {
+          ...state.dashboardViews,
+          [projectId]: view,
+        },
+      };
+    }),
 
   // ── Provider metadata (synced to providerMetaStore) ──
 
   setProviderCommands: (providerId, commands) => {
     useProviderMetaStore.getState().setProviderCommands(providerId, commands);
-    set((state) => ({
-      providerCommands: {
-        ...state.providerCommands,
-        [providerId]: commands,
-      },
-    }));
   },
 
   setProviderCapabilities: (providerId, capabilities) => {
     useProviderMetaStore.getState().setProviderCapabilities(providerId, capabilities);
-    set((state) => ({
-      providerCapabilities: {
-        ...state.providerCapabilities,
-        [providerId]: capabilities,
-      },
-    }));
   },
 }));
+
+function syncLegacyProviderSnapshot(activeServerId?: string | null): void {
+  const providerMetaState = useProviderMetaStore.getState();
+  useProjectStore.setState({
+    providers: providerMetaState.getProviders(activeServerId),
+    providerCommands: providerMetaState.providerCommands,
+    providerCapabilities: providerMetaState.providerCapabilities,
+  });
+}
+
+function syncSelectionSnapshot(): void {
+  const selectionState = useSelectionStore.getState();
+  useProjectStore.setState({
+    selectedProjectId: selectionState.selectedProjectId,
+    selectedSessionId: selectionState.selectedSessionId,
+    dashboardViews: selectionState.dashboardViews,
+  });
+}
+
+const providerMetaSubscribe = (useProviderMetaStore as typeof useProviderMetaStore & {
+  subscribe?: (listener: () => void) => () => void;
+}).subscribe;
+
+providerMetaSubscribe?.(() => {
+  syncLegacyProviderSnapshot(useServerStore.getState().activeServerId);
+});
+
+const serverStoreSubscribe = (useServerStore as typeof useServerStore & {
+  subscribe?: (listener: (
+    state: ReturnType<typeof useServerStore.getState>,
+    prevState: ReturnType<typeof useServerStore.getState>,
+  ) => void) => () => void;
+}).subscribe;
+
+serverStoreSubscribe?.((state, prevState) => {
+  if (state.activeServerId !== prevState.activeServerId) {
+    syncLegacyProviderSnapshot(state.activeServerId);
+  }
+});
+
+const selectionStoreSubscribe = (useSelectionStore as typeof useSelectionStore & {
+  subscribe?: (listener: () => void) => () => void;
+}).subscribe;
+
+selectionStoreSubscribe?.(() => {
+  syncSelectionSnapshot();
+});
+
+const projectStoreSubscribe = (useProjectStore as typeof useProjectStore & {
+  subscribe?: (listener: (
+    state: ReturnType<typeof useProjectStore.getState>,
+    prevState: ReturnType<typeof useProjectStore.getState>,
+  ) => void) => () => void;
+}).subscribe;
+
+projectStoreSubscribe?.((state, prevState) => {
+  const selectionState = useSelectionStore.getState();
+  if (
+    state.selectedProjectId === prevState.selectedProjectId
+    && state.selectedSessionId === prevState.selectedSessionId
+    && state.dashboardViews === prevState.dashboardViews
+  ) {
+    return;
+  }
+
+  if (state.selectedProjectId !== selectionState.selectedProjectId) {
+    useSelectionStore.getState().setSelectedProjectId(state.selectedProjectId);
+  }
+  if (state.selectedSessionId !== selectionState.selectedSessionId) {
+    useSelectionStore.getState().setSelectedSessionId(state.selectedSessionId);
+  }
+  if (state.dashboardViews !== selectionState.dashboardViews) {
+    for (const [projectId, view] of Object.entries(state.dashboardViews)) {
+      if (selectionState.dashboardViews[projectId] !== view) {
+        useSelectionStore.getState().setDashboardView(projectId, view);
+      }
+    }
+  }
+});
 
 function resolveOwnershipBackendId(): string | null {
   const activeServerId = useServerStore.getState().activeServerId ?? null;

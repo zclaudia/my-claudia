@@ -1,10 +1,9 @@
 import { Router, Request, Response } from 'express';
-import * as fs from 'fs';
-import * as path from 'path';
 import type Database from 'better-sqlite3';
 import type { Project } from '@my-claudia/shared/core/project';
 import type { ApiResponse } from '@my-claudia/shared/core/api';
 import { ProjectRepository } from './repository.js';
+import { ProjectWorktreeService, ProjectNotFoundError, ProjectRootPathMissingError } from './worktree-service.js';
 import {
   applyProjectPatch,
   assertValidProjectState,
@@ -12,28 +11,10 @@ import {
   buildProjectPatch,
   isProjectValidationError,
 } from './model.js';
-import { listGitWorktrees, createGitWorktree } from '../../utils/git-worktrees.js';
 
 export type ProjectChangeEvent =
   | { type: 'project_upsert'; project: Project }
   | { type: 'project_remove'; projectId: string };
-
-function ensureWorktreesGitignore(repoPath: string): void {
-  const gitignorePath = path.join(repoPath, '.gitignore');
-  const entry = '.worktrees/';
-  try {
-    if (fs.existsSync(gitignorePath)) {
-      const content = fs.readFileSync(gitignorePath, 'utf-8');
-      if (!content.split('\n').some((line) => line.trim() === entry)) {
-        fs.appendFileSync(gitignorePath, `\n${entry}\n`);
-      }
-    } else {
-      fs.writeFileSync(gitignorePath, `${entry}\n`);
-    }
-  } catch {
-    // Best effort only.
-  }
-}
 
 export function createProjectRoutes(
   db: Database.Database,
@@ -41,6 +22,7 @@ export function createProjectRoutes(
 ): Router {
   const router = Router();
   const repo = new ProjectRepository(db);
+  const worktreeService = new ProjectWorktreeService(db);
 
   router.get('/', (_req: Request, res: Response) => {
     try {
@@ -189,18 +171,13 @@ export function createProjectRoutes(
   router.get('/:id/worktrees', (req: Request, res: Response) => {
     const projectId = req.params.id;
     try {
-      const project = db.prepare('SELECT root_path FROM projects WHERE id = ?').get(projectId) as { root_path: string | null } | undefined;
-      if (!project) {
+      const worktrees = worktreeService.listWorktrees(projectId);
+      res.json({ success: true, data: worktrees });
+    } catch (error) {
+      if (error instanceof ProjectNotFoundError) {
         res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Project not found' } });
         return;
       }
-      if (!project.root_path) {
-        res.json({ success: true, data: [] });
-        return;
-      }
-      const worktrees = listGitWorktrees(project.root_path);
-      res.json({ success: true, data: worktrees });
-    } catch (error) {
       console.error('Error listing worktrees:', error);
       res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Failed to list worktrees' } });
     }
@@ -211,27 +188,20 @@ export function createProjectRoutes(
     const { branch: rawBranch, path: worktreePath } = req.body as { branch?: string; path?: string };
 
     try {
-      const project = db.prepare('SELECT root_path FROM projects WHERE id = ?').get(projectId) as { root_path: string | null } | undefined;
-      if (!project) {
+      const worktree = worktreeService.createWorktree(projectId, {
+        branch: rawBranch,
+        path: worktreePath,
+      });
+      res.json({ success: true, data: worktree });
+    } catch (error) {
+      if (error instanceof ProjectNotFoundError) {
         res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Project not found' } });
         return;
       }
-      if (!project.root_path) {
+      if (error instanceof ProjectRootPathMissingError) {
         res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Project has no root path' } });
         return;
       }
-
-      const branch = rawBranch?.trim() || `wt-${new Date().toISOString().slice(0, 16).replace(/[-T:]/g, '').replace(/(\d{8})(\d{4})/, '$1-$2')}`;
-      const resolvedPath = worktreePath?.trim()
-        || path.join(project.root_path, '.worktrees', branch.replace(/\//g, '-'));
-
-      if (!worktreePath?.trim()) {
-        ensureWorktreesGitignore(project.root_path);
-      }
-
-      const worktree = createGitWorktree(project.root_path, resolvedPath, branch.trim());
-      res.json({ success: true, data: worktree });
-    } catch (error) {
       const msg = error instanceof Error ? error.message : 'Failed to create worktree';
       console.error('Error creating worktree:', error);
       res.status(500).json({ success: false, error: { code: 'GIT_ERROR', message: msg } });

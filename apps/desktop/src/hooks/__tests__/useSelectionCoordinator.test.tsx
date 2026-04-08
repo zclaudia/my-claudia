@@ -24,6 +24,16 @@ vi.mock('../../stores/ownershipStore', () => ({
   },
 }));
 
+vi.mock('../../stores/sessionsStore', () => ({
+  useSessionsStore: {
+    getState: () => ({
+      remoteSessions: new Map([
+        ['b1', [{ id: 'remote-s1', projectId: 'p-remote' }]],
+      ]),
+    }),
+  },
+}));
+
 vi.mock('../../utils/controlPlane', () => ({
   getControlPlaneMode: () => 'gateway-direct',
   resolveLocalBackendId: () => 'local',
@@ -124,20 +134,24 @@ describe('useSelectionCoordinator', () => {
     expect(mockConnectServer).not.toHaveBeenCalled();
   });
 
+  it('resolves remote session projectId through the selection coordinator', () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useSelectionCoordinator());
+
+    act(() => {
+      result.current.selectSession('remote-s1', { backendId: 'b1' });
+      vi.runAllTimers();
+    });
+
+    expect(useProjectStore.getState().selectedSessionId).toBe('remote-s1');
+    expect(useProjectStore.getState().selectedProjectId).toBe('p-remote');
+    vi.useRealTimers();
+  });
+
   it('reconnects when selecting on the same backend but the connection is down', () => {
-    useRecoveryStore.setState({
-      backends: {
-        'backend-1': {
-          backendId: 'backend-1',
-          status: 'visible',
-          subscribed: false,
-          dataReady: false,
-          retryCount: 0,
-          lastError: null,
-          lastCloseReason: null,
-          statusEnteredAt: Date.now(),
-        },
-      },
+    useFacadeStore.setState({
+      connectionState: 'connected',
+      backends: [{ backendId: 'backend-1', runtimeState: 'visible', name: 'Backend 1' }],
     } as any);
 
     const { result } = renderHook(() => useSelectionCoordinator());
@@ -152,19 +166,9 @@ describe('useSelectionCoordinator', () => {
   });
 
   it('reissues connect intent when the same backend is still marked connecting', () => {
-    useRecoveryStore.setState({
-      backends: {
-        'backend-1': {
-          backendId: 'backend-1',
-          status: 'subscribing',
-          subscribed: false,
-          dataReady: false,
-          retryCount: 0,
-          lastError: null,
-          lastCloseReason: null,
-          statusEnteredAt: Date.now(),
-        },
-      },
+    useFacadeStore.setState({
+      connectionState: 'connected',
+      backends: [{ backendId: 'backend-1', runtimeState: 'subscribing', name: 'Backend 1' }],
     } as any);
 
     const { result } = renderHook(() => useSelectionCoordinator());

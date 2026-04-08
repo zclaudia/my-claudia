@@ -28,6 +28,7 @@ async function openSessionInNewWindow(sessionId: string, projectId: string) {
   }
 }
 import { useProjectStore } from '../stores/projectStore';
+import { useSelectionStore } from '../stores/selectionStore';
 import { useProviderMetaStore } from '../stores/providerMetaStore';
 import { useServerStore } from '../stores/serverStore';
 import { useFacadeStore } from '../stores/facadeStore';
@@ -96,7 +97,7 @@ export function Sidebar({
   const projects = useProjectStore((s) => s.projects) ?? [];
   const sessions = useProjectStore((s) => s.sessions) ?? [];
   const legacyProviders = useProjectStore((s) => s.providers) ?? [];
-  const selectedSessionId = useProjectStore((s) => s.selectedSessionId);
+  const selectedSessionId = useSelectionStore((s) => s.selectedSessionId);
   const addProject = useProjectStore((s) => s.addProject);
   const addSession = useProjectStore((s) => s.addSession);
   const deleteProject = useProjectStore((s) => s.deleteProject);

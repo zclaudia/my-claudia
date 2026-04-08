@@ -401,7 +401,7 @@ export function ChatInputArea({
 
           return (
             <div className="flex items-center gap-1.5">
-              {hasWorktreeSelector && currentProject && (
+              {hasWorktreeSelector && currentProject?.rootPath && (
                 <WorktreeSelector
                   projectId={currentProject.id}
                   projectRootPath={currentProject.rootPath}

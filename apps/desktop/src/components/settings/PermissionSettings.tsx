@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchApi } from '../../services/api';
 import * as providersApi from '../../services/api/providers';
-import { useProjectStore } from '../../stores/projectStore';
+import { useProviderMetaStore } from '../../stores/providerMetaStore';
+import { useServerStore } from '../../stores/serverStore';
 import type {
   UnifiedPermissionPolicy,
   CategoryAction,
@@ -76,7 +77,8 @@ function AIReviewProviderSelector({ value, onChange, disabled }: {
   onChange: (id: string | undefined) => void;
   disabled: boolean;
 }) {
-  const providers = useProjectStore((s) => s.providers);
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const providers = useProviderMetaStore((s) => s.getProviders(activeServerId));
   const [eligibleProviderIds, setEligibleProviderIds] = useState<Record<string, boolean>>({});
 
   useEffect(() => {

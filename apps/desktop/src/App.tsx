@@ -32,6 +32,7 @@ import { useServerStore } from './stores/serverStore';
 import { useFacadeStore } from './stores/facadeStore';
 import { useGatewayStore } from './stores/gatewayStore';
 import { useProjectStore } from './stores/projectStore';
+import { useSelectionStore } from './stores/selectionStore';
 import { useClaudiaStore } from './stores/claudiaStore';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { useClaudiaStatus } from './hooks/useClaudiaStatus';
@@ -156,12 +157,12 @@ function AppContent() {
   const controlPlaneState = isMobile
     ? getMobileControlPlaneState(facadeConnectionState, facadeSnapshotVersion)
     : (transportStatus === 'connected' ? 'ready' : transportStatus === 'error' ? 'error' : 'connecting');
-  const selectedSessionId = useProjectStore((s) => s.selectedSessionId);
-  const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
+  const selectedSessionId = useSelectionStore((s) => s.selectedSessionId);
+  const selectedProjectId = useSelectionStore((s) => s.selectedProjectId);
   const sessions = useProjectStore((s) => s.sessions);
   const projects = useProjectStore((s) => s.projects);
   const selectSession = useProjectStore((s) => s.selectSession);
-  const setDashboardView = useProjectStore((s) => s.setDashboardView);
+  const setDashboardView = useSelectionStore((s) => s.setDashboardView);
   const { selectProject } = useSelectionCoordinator();
   const [dashboardProjectId, setDashboardProjectId] = useState<string | null>(null);
   const openAutomationWindowFn = useCallback(() => {
