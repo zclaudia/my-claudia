@@ -13,6 +13,9 @@ import {
   type SessionCreateInput,
   type SessionUpdatePatch,
 } from './model.js';
+import { assertPlanStatusTransition, isSessionArchived } from './plan-status-machine.js';
+import type { EventDispatcher } from '../supervision/event-dispatcher.js';
+import type { SessionDomainEvent } from './session-events.js';
 
 type SessionEventType = 'created' | 'updated' | 'deleted';
 
@@ -21,6 +24,7 @@ interface SessionLifecycleDependencies {
   pathExists?: (path: string) => boolean;
   broadcastSessionEvent?: (type: SessionEventType, session: Session) => void;
   emitPluginEvent?: (event: string, payload?: EventData) => Promise<unknown>;
+  eventDispatcher?: EventDispatcher<SessionDomainEvent>;
 }
 
 export class SessionLifecycleError extends Error {
@@ -39,6 +43,7 @@ export class SessionLifecycleService {
   private readonly pathExists: (path: string) => boolean;
   private readonly broadcastSessionEvent: (type: SessionEventType, session: Session) => void;
   private readonly emitPluginEvent: (event: string, payload?: EventData) => Promise<unknown>;
+  private readonly domainEvents: EventDispatcher<SessionDomainEvent> | undefined;
 
   constructor(
     private readonly db: Database.Database,
@@ -51,6 +56,7 @@ export class SessionLifecycleService {
       /* no-op — caller should inject a concrete broadcast function */
     });
     this.emitPluginEvent = deps.emitPluginEvent ?? ((event, payload) => pluginEvents.emit(event, payload));
+    this.domainEvents = deps.eventDispatcher;
   }
 
   createSession(input: SessionCreateInput): Session {
@@ -89,6 +95,12 @@ export class SessionLifecycleService {
 
     this.broadcastSessionEvent('created', session);
     this.emitPluginEvent('session.created', { sessionId: session.id, session }).catch(() => {});
+    this.domainEvents?.dispatch({
+      type: 'session.created',
+      sessionId: session.id,
+      projectId: session.projectId,
+      timestamp: this.now(),
+    });
     return session;
   }
 
@@ -107,6 +119,12 @@ export class SessionLifecycleService {
       const session = this.repo.findById(id);
       if (session) {
         this.broadcastSessionEvent('updated', session);
+        this.domainEvents?.dispatch({
+          type: 'session.archived',
+          sessionId: id,
+          projectId: session.projectId,
+          timestamp: this.now(),
+        });
       }
       this.emitPluginEvent('session.archived', { sessionId: id }).catch(() => {});
     }
@@ -129,6 +147,12 @@ export class SessionLifecycleService {
       const session = this.repo.findById(id);
       if (session) {
         this.broadcastSessionEvent('updated', session);
+        this.domainEvents?.dispatch({
+          type: 'session.restored',
+          sessionId: id,
+          projectId: session.projectId,
+          timestamp: this.now(),
+        });
       }
       this.emitPluginEvent('session.restored', { sessionId: id }).catch(() => {});
     }
@@ -142,6 +166,10 @@ export class SessionLifecycleService {
       throw new SessionLifecycleError(404, 'NOT_FOUND', 'Session not found');
     }
 
+    if (isSessionArchived(existing)) {
+      throw new SessionLifecycleError(409, 'ARCHIVED', 'Cannot update metadata of an archived session');
+    }
+
     const repoPatch = Object.fromEntries(
       Object.entries(patch).filter(([, v]) => v !== undefined),
     ) as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>;
@@ -152,6 +180,13 @@ export class SessionLifecycleService {
     }
 
     this.publishUpdatedSession(updatedSession);
+    this.domainEvents?.dispatch({
+      type: 'session.metadata_updated',
+      sessionId: updatedSession.id,
+      projectId: updatedSession.projectId,
+      timestamp: this.now(),
+      fields: Object.keys(patch).filter(k => (patch as Record<string, unknown>)[k] !== undefined),
+    });
     return updatedSession;
   }
 
@@ -191,6 +226,10 @@ export class SessionLifecycleService {
     const unlockedState = buildUnlockedSessionState(existing);
     assertValidSessionState(unlockedState);
 
+    const previousPlanStatus = existing.planStatus ?? null;
+    const nextPlanStatus = unlockedState.planStatus ?? null;
+    assertPlanStatusTransition(previousPlanStatus, nextPlanStatus);
+
     this.repo.update(sessionId, {
       isReadOnly: false,
       planStatus: unlockedState.planStatus,
@@ -202,6 +241,22 @@ export class SessionLifecycleService {
     }
 
     this.publishUpdatedSession(updatedSession);
+    this.domainEvents?.dispatch({
+      type: 'session.unlocked',
+      sessionId,
+      projectId: updatedSession.projectId,
+      timestamp: this.now(),
+    });
+    if (previousPlanStatus !== nextPlanStatus) {
+      this.domainEvents?.dispatch({
+        type: 'session.plan_status_changed',
+        sessionId,
+        projectId: updatedSession.projectId,
+        timestamp: this.now(),
+        from: previousPlanStatus,
+        to: nextPlanStatus,
+      });
+    }
     return updatedSession;
   }
 
@@ -242,6 +297,10 @@ export class SessionLifecycleService {
       throw new SessionLifecycleError(404, 'NOT_FOUND', 'Session not found');
     }
 
+    if (session.isReadOnly) {
+      throw new SessionLifecycleError(409, 'LOCKED', 'Cannot delete a read-only session with active task execution');
+    }
+
     const result = this.db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
     if (result.changes === 0) {
       throw new SessionLifecycleError(404, 'NOT_FOUND', 'Session not found');
@@ -249,6 +308,12 @@ export class SessionLifecycleService {
 
     this.broadcastSessionEvent('deleted', session);
     this.emitPluginEvent('session.deleted', { sessionId, session }).catch(() => {});
+    this.domainEvents?.dispatch({
+      type: 'session.deleted',
+      sessionId,
+      projectId: session.projectId,
+      timestamp: this.now(),
+    });
   }
 
   reorderSessions(projectId: string | undefined, orderedIds: string[] | undefined): void {

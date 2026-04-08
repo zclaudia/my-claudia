@@ -18,6 +18,23 @@ export {
 } from './search-repository.js';
 export { SessionLifecycleError, SessionLifecycleService } from './lifecycle-service.js';
 export {
+  assertPlanStatusTransition,
+  isSessionLocked,
+  isSessionArchived,
+  PLAN_STATUS_TRANSITIONS,
+} from './plan-status-machine.js';
+export type {
+  SessionDomainEvent,
+  SessionEventBase,
+  SessionCreated,
+  SessionArchived,
+  SessionRestored,
+  SessionMetadataUpdated,
+  SessionDeleted,
+  SessionPlanStatusChanged,
+  SessionUnlocked,
+} from './session-events.js';
+export {
   SessionQueryError,
   SessionQueryService,
   type SessionSyncResult,

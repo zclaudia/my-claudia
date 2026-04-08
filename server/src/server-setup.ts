@@ -6,77 +6,24 @@
  * message router used for shared-protocol request.type dispatch.
  */
 import type { Express, Request, Response } from 'express';
-import { request as httpRequest, type IncomingMessage } from 'http';
-import { request as httpsRequest } from 'https';
-import { pipeline } from 'stream';
 import type { WebSocket } from 'ws';
-import { v4 as uuidv4 } from 'uuid';
-import type {
-  ClientMessage,
-  ErrorMessage,
-  AuthResultMessage,
-} from '@my-claudia/shared/protocol/messages';
-import type { Request as CorrelatedRequest } from '@my-claudia/shared/protocol/correlation';
-import { ALL_SERVER_FEATURES } from '@my-claudia/shared/core/server';
 import type { initDatabase } from './infrastructure/storage/db.js';
-import type { ProjectChangeEvent } from './domains/projects/index.js';
-import { createFilesRoutes } from './interfaces/http/files.js';
-import { createCommandsRoutes } from './interfaces/http/commands.js';
-import { createGatewayRouter, type GatewayConfig, type GatewayStatus } from './interfaces/http/gateway.js';
-import { createImportRoutes } from './interfaces/http/import.js';
-import { createOpenCodeImportRoutes } from './interfaces/http/import-opencode.js';
-import { createAgentRoutes } from './interfaces/http/agent.js';
-import { createClaudiaRoutes } from './interfaces/http/claudia.js';
-import { handleMcpRequest, handleMcpSse, handleMcpSessionClose, getMcpServerInfo } from './interfaces/mcp/mcp-server.js';
-import { createDelegationRoutes } from './interfaces/http/delegation.js';
-import type { NotificationService } from './domains/notification-feed/index.js';
-import { createMcpServerRoutes } from './interfaces/http/mcp-servers.js';
-import { createSystemStatsRoutes } from './interfaces/http/system-stats.js';
-import { createDebugRoutes } from './interfaces/http/debug.js';
+import type { GatewayConfig, GatewayStatus } from './interfaces/http/gateway.js';
 import { ProcessSupervisor, setGlobalProcessSupervisor } from './infrastructure/services/process-supervisor.js';
-import { createSystemTaskRoutes } from './interfaces/http/system-tasks.js';
-import { registerLocalPRDomain } from './domains/local-pr/index.js';
-import { registerSupervisionDomain, type SupervisionProjectPort, type SupervisionSessionPort, type SupervisionSessionModelPort } from './domains/supervision/index.js';
-import { ProjectRepository } from './domains/projects/index.js';
-import {
-  SessionRepository,
-  buildTaskPlanningSession,
-  buildTaskExecutingSessionPatch,
-  buildTaskPlannedSessionPatch,
-  buildTaskUnlockedSessionPatch,
-} from './domains/sessions/index.js';
-import { createWorkspaceRoutes } from './interfaces/http/workspace.js';
-import type { LocalPRService } from './domains/local-pr/index.js';
-import { registerWorkflowDomain } from './domains/workflows/index.js';
-import { registerSessionsDomain } from './domains/sessions/index.js';
-import { registerProvidersDomain } from './domains/providers/index.js';
-import { registerPluginsDomain } from './application/plugins/register.js';
-import { workflowStepRegistry, toolRegistry, workflowTriggerRegistry } from './application/plugins/index.js';
-import { registerProjectsDomain } from './domains/projects/index.js';
-import { createAutomationRoutes } from './interfaces/http/automations.js';
-import { systemTaskRegistry } from './application/services/system-task-registry.js';
+import type { NotificationService } from './domains/notification-feed/index.js';
 import type { SupervisorService } from './domains/supervision/index.js';
 import { PushNotificationService } from './infrastructure/push/push-notification-service.js';
-import { registerInteractionTools } from './application/conversation/interactions/interaction-tools.js';
-import { registerAgentTools } from './application/conversation/agent-tools/index.js';
-import { registerOrchestrationDomain } from './application/orchestration/register.js';
-import { pluginEvents } from './infrastructure/events/index.js';
-import { isLocalhost, localOnlyMiddleware } from './interfaces/http/middleware/local-only.js';
+import { ALL_SERVER_FEATURES } from '@my-claudia/shared/core/server';
+import { isLocalhost } from './interfaces/http/middleware/local-only.js';
 import { createExpressAuthMiddleware } from './interfaces/http/middleware/express-auth.js';
 import { getPublicKeyPem } from './utils/crypto.js';
 import { getSdkVersionReport } from './utils/sdk-version-check.js';
-import { getGatewayClient } from './infrastructure/gateway/gateway-instance.js';
 import { ProcessMonitor } from './utils/process-monitor.js';
-import { sendMessage, buildPluginStateMessage, bumpProjectsVersion } from './application/conversation/transport/broadcast.js';
-import { getNextOffset } from './application/conversation/runtime/run-lifecycle.js';
-import { createVirtualClient, type ConnectedClient, type ActiveRun } from './application/conversation/transport/types.js';
-import type { SessionEventPublisherPort } from './domains/sessions/index.js';
-import type { LocalPRAiSessionPort, LocalPRSchedulingPort } from './domains/local-pr/index.js';
-import type { SupervisionAiRunPort } from './domains/supervision/index.js';
-import type { WorkflowAiRunPort, WorkflowSchedulingPort } from './domains/workflows/index.js';
+import { sendMessage } from './application/conversation/transport/broadcast.js';
+import type { ConnectedClient, ActiveRun } from './application/conversation/transport/types.js';
 import type { createRouter } from './interfaces/websocket/index.js';
-import { registerNotificationDomain } from './domains/notification-feed/index.js';
-import { registerInteractionDomain } from './application/conversation/interactions/register.js';
+import { createGatewayState } from './infrastructure/gateway/gateway-state.js';
+import { bootstrapDomains } from './application/domain-bootstrap.js';
 
 export interface SetupDependencies {
   db: ReturnType<typeof initDatabase>;
@@ -119,6 +66,8 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     handleRunStart, getServerPort,
     setNotificationService, setProcessMonitor,
   } = deps;
+
+  // Process supervisor
   const processSupervisor = new ProcessSupervisor(db);
   setGlobalProcessSupervisor(processSupervisor);
   processSupervisor.start();
@@ -145,68 +94,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     });
   });
 
-  // Gateway state (managed by index.ts)
-  let gatewayStatus: GatewayStatus = {
-    enabled: false,
-    connected: false,
-    gatewayBackendId: null,
-    gatewayUrl: null,
-    gatewaySecret: null,
-    backendName: null,
-    registerAsBackend: true,
-    discoveredBackends: []
-  };
-
-  let gatewayConnector: ((config: GatewayConfig) => Promise<void>) = async () => {
-    console.warn('[Gateway] Gateway connector not implemented');
-  };
-  let gatewayDisconnector: (() => Promise<void>) = async () => {
-    console.warn('[Gateway] Gateway disconnector not implemented');
-  };
-
-  const getGatewayStatus = () => gatewayStatus;
-
-  const connectGateway = async (config: GatewayConfig) => {
-    gatewayStatus = {
-      enabled: true,
-      connected: false,
-      gatewayBackendId: null,
-      gatewayUrl: config.gatewayUrl,
-      gatewaySecret: config.gatewaySecret,
-      backendName: config.backendName,
-      registerAsBackend: config.registerAsBackend !== false,
-      discoveredBackends: []
-    };
-    await gatewayConnector(config);
-  };
-
-  const disconnectGateway = async () => {
-    await gatewayDisconnector();
-    gatewayStatus = {
-      enabled: false,
-      connected: false,
-      gatewayBackendId: null,
-      gatewayUrl: null,
-      gatewaySecret: null,
-      backendName: null,
-      registerAsBackend: true,
-      discoveredBackends: []
-    };
-  };
-
-  const updateGatewayBackendId = (backendId: string | null) => {
-    gatewayStatus.gatewayBackendId = backendId;
-    if (backendId) {
-      db.prepare(`
-        UPDATE gateway_config SET backend_id = ?, updated_at = ? WHERE id = 1
-      `).run(backendId, Date.now());
-    }
-  };
-
-  const updateGatewayConnected = (connected: boolean) => {
-    gatewayStatus.connected = connected;
-  };
-
+  // Auth middleware
   const authMiddleware = createExpressAuthMiddleware((token) => {
     const row = db.prepare(`
       SELECT client_id
@@ -218,397 +106,22 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     return !!row?.client_id;
   });
 
-  const handleProjectChanged = (event?: ProjectChangeEvent) => {
-    bumpProjectsVersion();
-    broadcastHeartbeat();
+  // Gateway state
+  const gateway = createGatewayState({ db });
 
-    if (!event) return;
-    const gatewayClient = getGatewayClient();
-    if (!gatewayClient) return;
-
-    if (event.type === 'project_upsert') {
-      gatewayClient.commands.backendData.broadcastProjectEvent('updated', event.project);
-    } else {
-      gatewayClient.commands.backendData.broadcastProjectEvent('deleted', { id: event.projectId });
-    }
-  };
-
-  const sessionEvents: SessionEventPublisherPort = {
-    publishSessionEvent: (type, session) => {
-      const gatewayClient = getGatewayClient();
-      gatewayClient?.commands.backendData.broadcastSessionEvent(type, session);
-    },
-  };
-
-  const supervisionAiRunPort: SupervisionAiRunPort = {
-    startVirtualRun: async ({ clientId, sessionId, input, workingDirectory, onMessage }) => {
-      const virtualClient = createVirtualClient(clientId, { send: onMessage });
-      await handleRunStart(virtualClient, {
-        type: 'run_start',
-        clientRequestId: `${clientId}_${Date.now()}`,
-        sessionId,
-        input,
-        workingDirectory,
-      }, db);
-    },
-  };
-
-  const localPrAiSessionPort: LocalPRAiSessionPort = {
-    startAISession: async ({ clientId, sessionId, input, workingDirectory, providerId, onMessage }) => {
-      const virtualClient = createVirtualClient(clientId, { send: onMessage });
-      await handleRunStart(virtualClient, {
-        type: 'run_start',
-        clientRequestId: `${clientId}_${Date.now()}`,
-        sessionId,
-        input,
-        workingDirectory,
-        providerId,
-      }, db);
-    },
-  };
-
-  const localPrScheduling: LocalPRSchedulingPort = systemTaskRegistry;
-
-  const workflowAiRunPort: WorkflowAiRunPort = {
-    startVirtualRun: async ({ clientId, sessionId, input, workingDirectory, providerId, systemContext, onMessage }) => {
-      const virtualClient = createVirtualClient(clientId, { send: onMessage });
-      await handleRunStart(virtualClient, {
-        type: 'run_start',
-        clientRequestId: clientId,
-        sessionId,
-        input,
-        workingDirectory,
-        providerId,
-        systemContext,
-      }, db);
-    },
-  };
-
-  const workflowScheduling: WorkflowSchedulingPort = systemTaskRegistry;
-
-  // HTTP API surface (protected by auth middleware).
-  // This is the canonical REST mounting point; do not confuse it with server/src/router.
-  registerProjectsDomain({ db, app, authMiddleware, onProjectChanged: handleProjectChanged });
-  registerSessionsDomain({ app, authMiddleware, db, activeRuns, sessionEvents });
-  registerProvidersDomain({ app, authMiddleware, db, toolRegistry });
-  app.use('/api/files', authMiddleware, createFilesRoutes({
-    sendMessage,
-    getAuthenticatedClients: () => {
-      const result: Array<{ ws: import('ws').WebSocket }> = [];
-      clients.forEach((client) => {
-        if (client.authenticated) {
-          result.push({ ws: client.ws });
-        }
-      });
-      return result;
-    },
-    db,
-    getNextOffset: (sid: string) => getNextOffset(db, sid),
-  }));
-  app.use('/api/commands', authMiddleware, createCommandsRoutes());
-  app.use('/api/agent', authMiddleware, createAgentRoutes(db));
-  app.use('/api/delegation', authMiddleware, createDelegationRoutes(db));
-
+  // Domain registration, route mounting, orchestration wiring
   const {
+    supervisorService,
+    notificationsService,
     pushNotificationService,
-    notificationService: notificationsService,
-  } = registerNotificationDomain({
-    db,
-    app,
-    authMiddleware,
-    broadcastMessage: (msg) => {
-      for (const client of clients.values()) {
-        if (client.authenticated) sendMessage(client.ws, msg);
-      }
-    },
-    setPushNotificationService: setNotificationService,
+    orchestrator,
+  } = bootstrapDomains({
+    db, app, authMiddleware, clients, activeRuns,
+    broadcastPluginState, broadcastHeartbeat,
+    handleRunStart, getServerPort,
+    setNotificationService, processSupervisor,
+    gateway,
   });
-  app.use('/api/claudia', authMiddleware, createClaudiaRoutes(db));
-  app.use('/api/import', localOnlyMiddleware, createImportRoutes(db));
-  app.use('/api/import', localOnlyMiddleware, createOpenCodeImportRoutes(db));
-
-  // Supervision domain — construct cross-domain port adapters
-  const svProjectRepo = new ProjectRepository(db);
-  const svSessionRepo = new SessionRepository(db);
-
-  const supervisionProjectPort: SupervisionProjectPort = {
-    findById: (id) => svProjectRepo.findById(id) ?? undefined,
-    findAll: () => svProjectRepo.findAll(),
-    update: (id, data) => svProjectRepo.update(id, {
-      ...data,
-      agent: data.agent === null ? undefined : data.agent,
-    }),
-  };
-  const supervisionSessionPort: SupervisionSessionPort = {
-    findById: (id) => svSessionRepo.findById(id) ?? undefined,
-    create: (data) => svSessionRepo.create(data),
-    update: (id, data) => svSessionRepo.update(id, data),
-    findByProjectRole: (projectId, role) => svSessionRepo.findByProjectRole(projectId, role),
-  };
-  const supervisionSessionModel: SupervisionSessionModelPort = {
-    buildTaskPlanningSession,
-    buildTaskExecutingSessionPatch,
-    buildTaskPlannedSessionPatch,
-    buildTaskUnlockedSessionPatch,
-  };
-
-  const { supervisorService } = registerSupervisionDomain({
-    db, app, authMiddleware,
-    broadcast: (msg) => {
-      clients.forEach((client) => { if (client.authenticated) sendMessage(client.ws, msg); });
-    },
-    activeRuns,
-    aiRunPort: supervisionAiRunPort,
-    systemTaskRegistry,
-    projectPort: supervisionProjectPort,
-    sessionPort: supervisionSessionPort,
-    sessionModel: supervisionSessionModel,
-  });
-
-  // Local PR domain
-  const { localPRService } = registerLocalPRDomain({
-    db, app, authMiddleware,
-    broadcast: (projectId, msg) => {
-      clients.forEach((client) => { if (client.authenticated) sendMessage(client.ws, msg); });
-    },
-    onProjectChanged: handleProjectChanged,
-    isWorktreeAvailable: (projectId) => {
-      const pool = supervisorService.getWorktreePoolIfExists(projectId);
-      if (!pool) return true;
-      return pool.getStatus().available > 0;
-    },
-    startAISession: localPrAiSessionPort.startAISession,
-    scheduling: localPrScheduling,
-  });
-
-  // Workflow domain
-  const { workflowService } = registerWorkflowDomain({
-    db, app, authMiddleware,
-    broadcast: (projectId, msg) => {
-      clients.forEach((client) => { if (client.authenticated) sendMessage(client.ws, msg as any); });
-    },
-    notificationService: pushNotificationService,
-    workflowStepRegistry,
-    workflowTriggerRegistry,
-    systemTaskRegistry: workflowScheduling,
-    aiRunPort: workflowAiRunPort,
-  });
-  app.use('/api/automations', authMiddleware, createAutomationRoutes(workflowService));
-
-  registerPluginsDomain({
-    app,
-    authMiddleware,
-    localOnlyMiddleware,
-    db,
-    activeRuns,
-    clients,
-    broadcastPluginState,
-  });
-
-  // MCP server management routes
-  app.use('/api/mcp-servers', authMiddleware, createMcpServerRoutes(db));
-
-  // MCP Streamable HTTP endpoint — exposes all registered tools to external AI
-  {
-    app.post('/mcp', authMiddleware, async (req: Request, res: Response) => {
-      await handleMcpRequest(req, res, req.body);
-    });
-    app.get('/mcp', authMiddleware, async (req: Request, res: Response) => {
-      await handleMcpSse(req, res);
-    });
-    app.delete('/mcp', authMiddleware, async (req: Request, res: Response) => {
-      await handleMcpSessionClose(req, res);
-    });
-    app.get('/mcp/info', authMiddleware, (_req: Request, res: Response) => {
-      res.json(getMcpServerInfo());
-    });
-  }
-
-  // MCP export config — returns JSON for external AI tools to connect
-  app.get('/api/mcp-export', authMiddleware, (_req: Request, res: Response) => {
-    const port = getServerPort() ?? 3100;
-    res.json({
-      claudia: {
-        type: 'url',
-        url: `http://localhost:${port}/mcp`,
-      },
-    });
-  });
-
-  // System stats + plugin storage reader (local only)
-  app.use('/api/system', localOnlyMiddleware, createSystemStatsRoutes());
-  app.use('/api/debug', localOnlyMiddleware, createDebugRoutes(processSupervisor));
-  app.use('/api', authMiddleware, createSystemTaskRoutes());
-
-  // Workspace routes (Agent personality configuration)
-  app.use('/api/workspace', authMiddleware, createWorkspaceRoutes());
-
-  app.use('/api/server/gateway', localOnlyMiddleware, createGatewayRouter(
-    db,
-    getGatewayStatus,
-    connectGateway,
-    disconnectGateway
-  ));
-
-  // Gateway relay: list available remote backends (local only)
-  app.get('/api/gateway/backends', localOnlyMiddleware, async (_req: Request, res: Response) => {
-    try {
-      const clientMode: any = null; // GatewayClientMode removed in v2
-      if (!clientMode || !clientMode.isConnected()) {
-        res.json({ success: true, data: [] });
-        return;
-      }
-      const backends = await clientMode.listBackends();
-      res.json({ success: true, data: backends });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to list backends' },
-      });
-    }
-  });
-
-  // Gateway relay: HTTP proxy to remote backend via gateway (local only)
-  app.all('/api/gateway-proxy/:backendId/*', localOnlyMiddleware, async (req: Request, res: Response) => {
-    const { backendId } = req.params;
-    const subPath = req.params[0] || '';
-
-    const gatewayClient = getGatewayClient();
-    if (!gatewayClient || !gatewayClient.queries.connection.isConnected()) {
-      res.status(502).json({
-        success: false,
-        error: { code: 'GATEWAY_NOT_CONNECTED', message: 'Gateway client not connected' },
-      });
-      return;
-    }
-
-    try {
-      const targetUrl = `${gatewayClient.queries.connection.getGatewayUrl()}/api/proxy/${backendId}/${subPath}`;
-      const qs = req.originalUrl.split('?')[1];
-      const fullUrl = qs ? `${targetUrl}?${qs}` : targetUrl;
-
-      const headers: Record<string, string> = {
-        authorization: `Bearer ${gatewayClient.queries.connection.getGatewaySecret()}`,
-      };
-      for (const [key, value] of Object.entries(req.headers)) {
-        const lowerKey = key.toLowerCase();
-        if (value == null) continue;
-        if (lowerKey === 'authorization' || lowerKey === 'host' || lowerKey === 'connection') continue;
-        headers[key] = Array.isArray(value) ? value.join(', ') : value;
-      }
-
-      const agent = gatewayClient.queries.connection.createHttpAgent();
-      const body = !['GET', 'HEAD'].includes(req.method)
-        ? (Buffer.isBuffer(req.body)
-          ? req.body
-          : typeof req.body === 'string'
-            ? Buffer.from(req.body)
-            : req.body != null
-              ? Buffer.from(JSON.stringify(req.body))
-              : null)
-        : null;
-      if (body) {
-        headers['content-length'] = String(body.length);
-      } else {
-        delete headers['content-length'];
-      }
-
-      const parsed = new URL(fullUrl);
-      const transport = parsed.protocol === 'https:' ? httpsRequest : httpRequest;
-
-      await new Promise<void>((resolve, reject) => {
-        const proxyReq = transport(fullUrl, {
-          method: req.method,
-          headers,
-          agent: agent || undefined,
-        }, (upstream) => {
-          res.status(upstream.statusCode || 502);
-          for (const [key, val] of Object.entries(upstream.headers)) {
-            if (!val || key.toLowerCase() === 'transfer-encoding') continue;
-            res.setHeader(key, Array.isArray(val) ? val.join(', ') : val);
-          }
-
-          pipeline(upstream, res, (error) => {
-            if (error && !res.writableEnded) {
-              reject(error);
-              return;
-            }
-            resolve();
-          });
-        });
-
-        const abortUpstream = () => {
-          proxyReq.destroy();
-        };
-
-        req.on('aborted', abortUpstream);
-        res.on('close', abortUpstream);
-        proxyReq.on('error', reject);
-        proxyReq.on('close', () => {
-          req.off('aborted', abortUpstream);
-          res.off('close', abortUpstream);
-        });
-
-        if (body) {
-          proxyReq.end(body);
-        } else {
-          proxyReq.end();
-        }
-      });
-    } catch (error) {
-      console.error(`[GatewayProxy] Error proxying to backend ${backendId}:`, error);
-      if (res.headersSent) {
-        res.destroy(error instanceof Error ? error : undefined);
-        return;
-      }
-      res.status(502).json({
-        success: false,
-        error: { code: 'PROXY_ERROR', message: 'Failed to proxy request to gateway' },
-      });
-    }
-  });
-
-  // Register internal interaction tools
-  registerInteractionTools({
-    getServerPort,
-  });
-
-  // Register agent assistant tools (scope: agent-assistant)
-  registerAgentTools({
-    getDb: () => db,
-    getProcessSupervisor: () => processSupervisor,
-  });
-
-  // Register browser tool (lightweight URL fetcher)
-  import('./application/conversation/agent-tools/browser.js').then(m => m.registerBrowserTool());
-
-  const { orchestrator } = registerOrchestrationDomain({
-    db,
-    clients,
-    handleRunStart,
-    createVirtualClient,
-    getServerPort,
-    notificationService: notificationsService,
-  });
-
-  // Record activity log on run completion (Layer 1 — session-level summaries)
-  pluginEvents.on('run.completed', (event: any) => {
-    try {
-      const { recordActivity } = require('./memory/activity-log.js');
-      const session = db.prepare('SELECT project_id FROM sessions WHERE id = ?').get(event.sessionId) as { project_id: string } | undefined;
-      recordActivity(db, {
-        projectId: session?.project_id ?? null,
-        sessionId: event.sessionId,
-        type: 'run_completed',
-        summary: `Run completed (${event.usage?.outputTokens ?? 0} output tokens)`,
-        metadata: { runId: event.runId, usage: event.usage },
-      });
-    } catch {
-      // Activity log is best-effort, don't break run completion
-    }
-  });
-
-  registerInteractionDomain({ activeRuns, clients });
 
   // Periodic state heartbeat broadcast (every 30s)
   const heartbeatInterval = setInterval(() => {
@@ -652,25 +165,16 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   };
 
   return {
-    gatewayStatus,
-    getGatewayStatus,
-    connectGateway,
-    disconnectGateway,
-    updateGatewayConnected,
-    updateGatewayBackendId,
-    updateGatewayIdentity: (instanceId: string, deviceId: string) => {
-      gatewayStatus.instanceId = instanceId;
-      gatewayStatus.currentDeviceId = deviceId;
-    },
-    updateDiscoveredBackends: (backends: import('@my-claudia/shared').GatewayBackendInfo[]) => {
-      gatewayStatus.discoveredBackends = backends;
-    },
-    setGatewayConnector: (connector: (config: GatewayConfig) => Promise<void>) => {
-      gatewayConnector = connector;
-    },
-    setGatewayDisconnector: (disconnector: () => Promise<void>) => {
-      gatewayDisconnector = disconnector;
-    },
+    gatewayStatus: gateway.gatewayStatus,
+    getGatewayStatus: gateway.getGatewayStatus,
+    connectGateway: gateway.connectGateway,
+    disconnectGateway: gateway.disconnectGateway,
+    updateGatewayConnected: gateway.updateGatewayConnected,
+    updateGatewayBackendId: gateway.updateGatewayBackendId,
+    updateGatewayIdentity: gateway.updateGatewayIdentity,
+    updateDiscoveredBackends: gateway.updateDiscoveredBackends,
+    setGatewayConnector: gateway.setGatewayConnector,
+    setGatewayDisconnector: gateway.setGatewayDisconnector,
     notificationService: pushNotificationService,
     supervisorService,
     notificationsService,
