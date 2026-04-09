@@ -136,6 +136,29 @@ describe('useBackendFacade run_event forwarding', () => {
     );
   });
 
+  it('forwards backend messages without sessionId to the shared message handler', () => {
+    const serverMessage = {
+      type: 'terminal_output',
+      terminalId: 'term-1',
+      data: 'prompt',
+    } as any;
+
+    syncToGatewayStore({
+      type: 'backend_message_received',
+      backendId: 'local-standalone',
+      message: serverMessage,
+    } as any);
+
+    expect(handleServerMessage).toHaveBeenCalledWith(
+      serverMessage,
+      expect.objectContaining({
+        serverId: 'local-standalone',
+        backendId: 'local-standalone',
+        logTag: 'Facade:local-standalone',
+      }),
+    );
+  });
+
   it('shows toast when content catch-up fails', () => {
     syncToGatewayStore({
       type: 'content_patch_failed',

@@ -73,6 +73,7 @@ export function XTerminal({ terminalId, projectId, workingDirectory, mode = 'ope
   const fitAddonRef = useRef<FitAddon | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const clearNeedsReattach = useTerminalStore((s) => s.clearNeedsReattach);
+  const clearReattachFailed = useTerminalStore((s) => s.clearReattachFailed);
   const activeServerId = useServerStore((s) => s.activeServerId);
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const facadeBackends = useFacadeStore((s) => s.backends);
@@ -164,7 +165,6 @@ export function XTerminal({ terminalId, projectId, workingDirectory, mode = 'ope
 
         if (mode === 'attach') {
           // Reattach to existing PTY session (for pop-out windows)
-          clearNeedsReattach(terminalId);
           sendMessage({
             type: 'terminal_attach',
             terminalId,
@@ -174,6 +174,7 @@ export function XTerminal({ terminalId, projectId, workingDirectory, mode = 'ope
         } else {
           // Create new PTY session
           clearNeedsReattach(terminalId);
+          clearReattachFailed(terminalId);
           sendMessage({
             type: 'terminal_open',
             terminalId,
@@ -242,6 +243,7 @@ export function XTerminal({ terminalId, projectId, workingDirectory, mode = 'ope
     workingDirectory,
     mode,
     clearNeedsReattach,
+    clearReattachFailed,
     activeServerId,
     activeServerStatus,
     connectServer,

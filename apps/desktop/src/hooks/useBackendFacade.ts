@@ -505,7 +505,24 @@ export function syncToGatewayStore(
       });
       break;
 
-    default:
+    default: {
+      // Messages not in the BackendFacadeEvent union (plugin_state,
+      // backend_message_received, etc.) are forwarded by embedded-facade-client
+      // via its default case.  Route them to the shared message handler.
+      const ev = event as any;
+      const msgType = ev.type as string;
+      if (msgType === 'backend_message_received' || msgType?.startsWith('plugin_')) {
+        const backendId = ev.backendId ?? useFacadeStore.getState().localBackendId ?? 'local';
+        const msg = msgType === 'backend_message_received' ? ev.message : ev;
+        handleServerMessage(msg, {
+          serverId: backendId,
+          backendId,
+          serverRunsRef: facadeServerRuns,
+          resolveBackendName: () => useFacadeStore.getState().backends.find(b => b.backendId === backendId)?.name,
+          logTag: `Facade:${backendId}`,
+        });
+      }
       break;
+    }
   }
 }

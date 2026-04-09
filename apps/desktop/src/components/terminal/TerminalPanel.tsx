@@ -90,6 +90,7 @@ export function TerminalPanel({ projectId, workingDirectory }: TerminalPanelProp
   const activeServerId = useServerStore((s) => s.activeServerId);
   const terminalId = useTerminalStore((s) => s.getTerminalId(projectId, activeServerId));
   const shouldReattach = useTerminalStore((s) => terminalId ? s.shouldReattach(terminalId) : false);
+  const reattachFailed = useTerminalStore((s) => terminalId ? s.hasReattachFailed(terminalId) : false);
   const isCtrl = !!(terminalId && ctrlActive[terminalId]);
   const { sendMessage } = useConnection();
 
@@ -136,7 +137,7 @@ export function TerminalPanel({ projectId, workingDirectory }: TerminalPanelProp
             terminalId={terminalId}
             projectId={projectId}
             workingDirectory={workingDirectory}
-            mode={shouldReattach ? 'attach' : 'open'}
+            mode={shouldReattach && !reattachFailed ? 'attach' : 'open'}
           />
         ) : (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">

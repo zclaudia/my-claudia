@@ -19,6 +19,8 @@ interface TerminalState {
   poppedOutTerminals: Record<string, string>;
   // Existing PTYs that should be reattached instead of reopened
   reattachTerminals: Record<string, boolean>;
+  // Reattach failed because the PTY no longer exists on the backend
+  failedReattachTerminals: Record<string, boolean>;
   openTerminal: (projectId: string, backendId?: string | null) => string;
   closeTerminal: (terminalId: string) => void;
   setDrawerOpen: (projectId: string, open: boolean, backendId?: string | null) => void;
@@ -36,6 +38,9 @@ interface TerminalState {
   markNeedsReattach: (terminalId: string) => void;
   clearNeedsReattach: (terminalId: string) => void;
   shouldReattach: (terminalId: string) => boolean;
+  markReattachFailed: (terminalId: string) => void;
+  clearReattachFailed: (terminalId: string) => void;
+  hasReattachFailed: (terminalId: string) => boolean;
 }
 
 export const useTerminalStore = create<TerminalState>((set, get) => ({
@@ -45,6 +50,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   ctrlActive: {},
   poppedOutTerminals: {},
   reattachTerminals: {},
+  failedReattachTerminals: {},
   openTerminal: (projectId: string, backendId) => {
     const scopeKey = getTerminalScopeKey(projectId, backendId ?? useServerStore.getState().activeServerId);
     const existing = get().terminals[scopeKey];
@@ -67,7 +73,11 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       }
       const readyTerminals = new Set(state.readyTerminals);
       readyTerminals.delete(terminalId);
-      return { terminals, readyTerminals };
+      const reattachTerminals = { ...state.reattachTerminals };
+      delete reattachTerminals[terminalId];
+      const failedReattachTerminals = { ...state.failedReattachTerminals };
+      delete failedReattachTerminals[terminalId];
+      return { terminals, readyTerminals, reattachTerminals, failedReattachTerminals };
     });
   },
 
@@ -96,7 +106,11 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       }
       const readyTerminals = new Set(state.readyTerminals);
       readyTerminals.delete(terminalId);
-      return { terminals, readyTerminals };
+      const reattachTerminals = { ...state.reattachTerminals };
+      delete reattachTerminals[terminalId];
+      const failedReattachTerminals = { ...state.failedReattachTerminals };
+      delete failedReattachTerminals[terminalId];
+      return { terminals, readyTerminals, reattachTerminals, failedReattachTerminals };
     });
   },
 
@@ -154,6 +168,10 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   markNeedsReattach: (terminalId: string) => {
     set((state) => ({
       reattachTerminals: { ...state.reattachTerminals, [terminalId]: true },
+      failedReattachTerminals: {
+        ...state.failedReattachTerminals,
+        [terminalId]: false,
+      },
     }));
   },
 
@@ -167,5 +185,24 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
 
   shouldReattach: (terminalId: string) => {
     return !!get().reattachTerminals[terminalId];
+  },
+
+  markReattachFailed: (terminalId: string) => {
+    set((state) => ({
+      failedReattachTerminals: { ...state.failedReattachTerminals, [terminalId]: true },
+    }));
+  },
+
+  clearReattachFailed: (terminalId: string) => {
+    set((state) => {
+      if (!(terminalId in state.failedReattachTerminals)) return state;
+      const failedReattachTerminals = { ...state.failedReattachTerminals };
+      delete failedReattachTerminals[terminalId];
+      return { failedReattachTerminals };
+    });
+  },
+
+  hasReattachFailed: (terminalId: string) => {
+    return !!get().failedReattachTerminals[terminalId];
   },
 }));

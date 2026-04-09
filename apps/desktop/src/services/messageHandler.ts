@@ -1087,7 +1087,14 @@ export function handleServerMessage(
           attachEntry.terminal.writeln(`\r\n\x1b[31mTerminal attach failed: ${msg.error || 'Unknown error'}\x1b[0m`);
         }
       }
-      useTerminalStore.getState().markReady(msg.terminalId);
+      if (msg.success) {
+        useTerminalStore.getState().clearReattachFailed(msg.terminalId);
+        useTerminalStore.getState().clearNeedsReattach(msg.terminalId);
+        useTerminalStore.getState().markReady(msg.terminalId);
+      } else if (msg.error === 'Terminal not found') {
+        // The backend lost the old PTY, so the next render should reopen a fresh terminal.
+        useTerminalStore.getState().markReattachFailed(msg.terminalId);
+      }
       break;
     }
 

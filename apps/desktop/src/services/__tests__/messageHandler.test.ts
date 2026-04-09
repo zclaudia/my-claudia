@@ -69,6 +69,9 @@ const mockSessionsStore = {
 const mockTerminalStore = {
   markReady: vi.fn(),
   handleTerminalExited: vi.fn(),
+  markReattachFailed: vi.fn(),
+  clearReattachFailed: vi.fn(),
+  clearNeedsReattach: vi.fn(),
 };
 
 const mockBottomPanelStore = {
@@ -994,6 +997,35 @@ describe('handleServerMessage', () => {
     it('handles terminal_opened success (no-op)', () => {
       handleServerMessage({ type: 'terminal_opened', terminalId: 't1', success: true }, makeCtx());
       // Success is a no-op
+    });
+
+    it('handles terminal_attached success', () => {
+      (xtermRegistry.get as any).mockReturnValue(mockXtermEntry);
+      handleServerMessage({
+        type: 'terminal_attached',
+        terminalId: 't1',
+        success: true,
+        scrollback: ['hello'],
+      }, makeCtx());
+
+      expect(mockXtermEntry.terminal.write).toHaveBeenCalledWith('hello');
+      expect(mockTerminalStore.clearReattachFailed).toHaveBeenCalledWith('t1');
+      expect(mockTerminalStore.clearNeedsReattach).toHaveBeenCalledWith('t1');
+      expect(mockTerminalStore.markReady).toHaveBeenCalledWith('t1');
+    });
+
+    it('marks terminal for reopen when terminal_attached reports missing PTY', () => {
+      (xtermRegistry.get as any).mockReturnValue(mockXtermEntry);
+      handleServerMessage({
+        type: 'terminal_attached',
+        terminalId: 't1',
+        success: false,
+        error: 'Terminal not found',
+      }, makeCtx());
+
+      expect(mockXtermEntry.terminal.writeln).toHaveBeenCalled();
+      expect(mockTerminalStore.markReattachFailed).toHaveBeenCalledWith('t1');
+      expect(mockTerminalStore.markReady).not.toHaveBeenCalled();
     });
 
     it('handles terminal_output', () => {
