@@ -239,6 +239,12 @@ export function useCommandHandler({
     try {
       await api.resetSessionSdkSession(sessionId);
       useChatStore.getState().clearSessionUsage(sessionId);
+      // Clear any stale frontend run state so the session is no longer stuck in loading
+      const staleRunId = useChatStore.getState().getSessionRunId(sessionId);
+      if (staleRunId) {
+        useChatStore.getState().endRun(staleRunId);
+      }
+      useProjectStore.getState().setSessionActive(sessionId, false);
       addMessage(sessionId, {
         id: crypto.randomUUID(),
         sessionId,

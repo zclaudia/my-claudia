@@ -286,15 +286,15 @@ await esbuild.build({
   const pluginSources = [
     {
       name: 'mcp-bridge',
-      src: path.join(serverRoot, 'src', 'domains', 'plugins', 'mcp-bridge.ts'),
-      dist: path.join(serverRoot, 'dist', 'domains', 'plugins', 'mcp-bridge.js'),
-      dest: path.join(outDir, 'domains', 'plugins', 'mcp-bridge.js'),
+      src: path.join(serverRoot, 'src', 'application', 'plugins', 'mcp-bridge.ts'),
+      dist: path.join(serverRoot, 'dist', 'application', 'plugins', 'mcp-bridge.js'),
+      dest: path.join(outDir, 'application', 'plugins', 'mcp-bridge.js'),
     },
     {
       name: 'worker-runner',
-      src: path.join(serverRoot, 'src', 'domains', 'plugins', 'worker-runner.ts'),
-      dist: path.join(serverRoot, 'dist', 'domains', 'plugins', 'worker-runner.js'),
-      dest: path.join(outDir, 'domains', 'plugins', 'worker-runner.js'),
+      src: path.join(serverRoot, 'src', 'application', 'plugins', 'worker-runner.ts'),
+      dist: path.join(serverRoot, 'dist', 'application', 'plugins', 'worker-runner.js'),
+      dest: path.join(outDir, 'application', 'plugins', 'worker-runner.js'),
     },
   ];
 

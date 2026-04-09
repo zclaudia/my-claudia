@@ -256,7 +256,16 @@ export async function* runCursor(
       try {
         event = JSON.parse(line);
       } catch {
-        console.warn('[Cursor SDK] Failed to parse JSON line:', line.slice(0, 200));
+        // Non-JSON output from cursor-agent is typically a CLI-level error
+        // (e.g. "I: Model Blocked ...", "E: ...", "W: ...")
+        // Surface as provider error so the run terminates and the user sees the message.
+        const trimmed = line.trim();
+        if (trimmed.startsWith('I:') || trimmed.startsWith('E:') || trimmed.startsWith('W:')) {
+          console.error('[Cursor SDK] CLI message:', trimmed);
+          yield { type: 'error', error: trimmed } as ClaudeMessage;
+        } else {
+          console.warn('[Cursor SDK] Failed to parse JSON line:', line.slice(0, 200));
+        }
         continue;
       }
 

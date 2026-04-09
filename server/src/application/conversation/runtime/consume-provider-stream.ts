@@ -96,4 +96,19 @@ export async function consumeProviderStream(input: ConsumeProviderStreamInput): 
       }
     }
   }
+
+  // If the provider stream ended without emitting a result/error event,
+  // the frontend never receives run_completed/run_failed and gets stuck in
+  // a permanent loading state.  Emit a synthetic run_completed so the client
+  // can move on.
+  if (!activeRun.completed) {
+    trace.log('server_norm', 'stream_ended_without_result', { runId, providerType }, 'provider stream ended without result event');
+    sendRunEvent({
+      type: 'run_completed',
+      runId,
+      sessionId,
+    });
+    activeRun.completed = true;
+    broadcastHeartbeat();
+  }
 }
