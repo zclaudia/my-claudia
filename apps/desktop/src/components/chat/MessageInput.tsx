@@ -57,6 +57,7 @@ const DRAFT_PERSIST_DEBOUNCE_MS = 300;
 const COLLAPSED_CONTROL_SIZE_PX = 48;
 const EXPANDED_INPUT_DEFAULT_HEIGHT_PX = 160;
 const EXPANDED_INPUT_MIN_HEIGHT_PX = 120;
+const DUPLICATE_SEND_GUARD_MS = 400;
 
 // Format file size
 const formatFileSize = (bytes: number): string => {
@@ -123,6 +124,7 @@ export function MessageInput({
   const draftPersistTimeoutRef = useRef<number | null>(null);
   const pendingDraftValueRef = useRef('');
   const pendingDraftAttachmentsRef = useRef<Attachment[]>([]);
+  const lastSubmissionRef = useRef<{ key: string; at: number } | null>(null);
 
   const getPendingDraft = useCallback((): SessionDraft => ({
     content: pendingDraftValueRef.current,
@@ -678,6 +680,21 @@ export function MessageInput({
     if (disabled) return;
 
     const trimmedValue = value.trim();
+    const submissionKey = JSON.stringify({
+      text: trimmedValue,
+      attachments: attachments.map((attachment) => attachment.id),
+    });
+    const lastSubmission = lastSubmissionRef.current;
+
+    // Guard against duplicate mobile taps / synthetic click re-entry before
+    // React clears the local input state.
+    if (
+      lastSubmission &&
+      lastSubmission.key === submissionKey &&
+      Date.now() - lastSubmission.at < DUPLICATE_SEND_GUARD_MS
+    ) {
+      return;
+    }
 
     // Handle slash commands
     if (trimmedValue.startsWith('/')) {
@@ -690,6 +707,7 @@ export function MessageInput({
       const isPluginCommand = command.includes(':');
 
       if (onCommand && (isKnownCommand || isPluginCommand)) {
+        lastSubmissionRef.current = { key: submissionKey, at: Date.now() };
         clearDraftPersistence();
         onCommand(command, args);
         setValue('');
@@ -700,6 +718,7 @@ export function MessageInput({
 
     // Send message with attachments
     if (trimmedValue || attachments.length > 0) {
+      lastSubmissionRef.current = { key: submissionKey, at: Date.now() };
       clearDraftPersistence();
       onSend(trimmedValue, attachments.length > 0 ? attachments : undefined);
       setValue('');

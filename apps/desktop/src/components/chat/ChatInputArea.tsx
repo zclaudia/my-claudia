@@ -195,7 +195,7 @@ export function ChatInputArea({
           onChange={(policy) => onSetPermissionOverride(sessionId, policy)}
           disabled={isLoading}
         />
-        {!isMobile && currentProject?.id && currentProject?.rootPath && (
+        {currentProject?.id && currentProject?.rootPath && (
           <WorktreeSelector
             projectId={currentProject.id}
             projectRootPath={currentProject.rootPath}
@@ -393,25 +393,13 @@ export function ChatInputArea({
             });
           }
 
-          const hasWorktreeSelector = Boolean(currentProject?.id && currentProject?.rootPath);
-          if (!hasWorktreeSelector && toolItems.length === 0) return undefined;
+          if (toolItems.length === 0) return undefined;
 
           const hasActiveItem = toolItems.some(t => t.isActive);
           const hasBadge = toolItems.some(t => t.hasBadge);
 
           return (
             <div className="flex items-center gap-1.5">
-              {hasWorktreeSelector && currentProject?.rootPath && (
-                <WorktreeSelector
-                  projectId={currentProject.id}
-                  projectRootPath={currentProject.rootPath}
-                  currentWorktree={currentSession?.workingDirectory || ''}
-                  onChange={onWorktreeChange}
-                  disabled={isLoading}
-                  locked={isForcedPlanSession}
-                  lockReason={isForcedPlanSession ? 'Locked by Supervisor planning mode' : undefined}
-                />
-              )}
               {toolItems.length > 0 && (
                 <div className="relative" ref={mobileToolsRef}>
                   <button

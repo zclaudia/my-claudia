@@ -157,6 +157,20 @@ describe('MessageInput', () => {
     expect(textarea).toHaveValue('');
   });
 
+  it('guards against duplicate rapid submissions before input state clears', () => {
+    const onSend = vi.fn();
+    render(<MessageInput {...defaultProps} onSend={onSend} />);
+    const textarea = screen.getByPlaceholderText(/Type a message/);
+    const sendButton = screen.getByTitle('Send message (Enter)');
+
+    fireEvent.change(textarea, { target: { value: 'Hello' } });
+    fireEvent.click(sendButton);
+    fireEvent.click(sendButton);
+
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledWith('Hello', undefined);
+  });
+
   it('trims whitespace from message before sending', () => {
     const onSend = vi.fn();
     render(<MessageInput {...defaultProps} onSend={onSend} />);
