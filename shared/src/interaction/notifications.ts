@@ -5,7 +5,6 @@ export interface NotificationEventPreferences {
   promptRequest: boolean;
   runCompleted: boolean;
   runFailed: boolean;
-  supervisionUpdate: boolean;
   backgroundPermission: boolean;
   processLeak: boolean;
 }
@@ -26,7 +25,6 @@ export const DEFAULT_NOTIFICATION_CONFIG: NotificationConfig = {
     promptRequest: true,
     runCompleted: true,
     runFailed: true,
-    supervisionUpdate: true,
     backgroundPermission: true,
     processLeak: true,
   },

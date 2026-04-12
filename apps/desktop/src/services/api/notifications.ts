@@ -1,34 +1,17 @@
 import type { NotificationConfig } from '@my-claudia/shared';
-import { useGatewayStore } from '../../stores/gatewayStore';
+import { resolveGatewayDirectUrl, getGatewayAuthHeaders } from '../gatewayProxy';
 
 /**
  * Notification config lives on the gateway (not the backend).
- * Requests go directly to the gateway HTTP endpoint.
- * No gateway = notifications not available.
+ * Desktop routes through the local backend proxy (SOCKS5-aware);
+ * mobile connects to the gateway directly.
  */
-function resolveGatewayUrl(path: string): string | null {
-  const { gatewayUrl } = useGatewayStore.getState();
-  if (!gatewayUrl) return null;
-  const httpUrl = gatewayUrl.includes('://')
-    ? gatewayUrl.replace(/^ws/, 'http')
-    : `http://${gatewayUrl}`;
-  return `${httpUrl}${path}`;
-}
-
-function getAuthHeaders(): Record<string, string> {
-  const { gatewaySecret } = useGatewayStore.getState();
-  if (!gatewaySecret) return {};
-  return {
-    Authorization: `Bearer ${gatewaySecret}`,
-    'Content-Type': 'application/json',
-  };
-}
 
 async function gatewayFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const url = resolveGatewayUrl(path);
+  const url = resolveGatewayDirectUrl(path);
   if (!url) throw new Error('No gateway connection — notification config is not available');
 
-  const headers = { ...getAuthHeaders(), ...options?.headers };
+  const headers = { ...getGatewayAuthHeaders(), 'Content-Type': 'application/json', ...options?.headers };
   const response = await fetch(url, { ...options, headers });
   const json = await response.json();
 
@@ -39,7 +22,7 @@ async function gatewayFetch<T>(path: string, options?: RequestInit): Promise<T> 
 }
 
 export function isNotificationConfigAvailable(): boolean {
-  return resolveGatewayUrl('/api/notifications/config') !== null;
+  return resolveGatewayDirectUrl('/api/notifications/config') !== null;
 }
 
 export async function getNotificationConfig(): Promise<NotificationConfig> {

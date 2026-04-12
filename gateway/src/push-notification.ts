@@ -42,15 +42,26 @@ export class GatewayPushNotificationService {
   }
 
   private normalizeConfig(config: Partial<NotificationConfig>): NotificationConfig {
-    const legacyPromptRequest = (config.events as Record<string, unknown> | undefined)?.askUserQuestion;
+    const rawEvents = config.events as Record<string, unknown> | undefined;
+    const legacyPromptRequest = rawEvents?.askUserQuestion;
+
+    // Start from defaults, then overlay only valid boolean values
+    const events = { ...DEFAULT_NOTIFICATION_CONFIG.events };
+    if (typeof legacyPromptRequest === 'boolean') {
+      events.promptRequest = legacyPromptRequest;
+    }
+    if (rawEvents) {
+      for (const key of Object.keys(events) as (keyof typeof events)[]) {
+        if (typeof rawEvents[key] === 'boolean') {
+          events[key] = rawEvents[key] as boolean;
+        }
+      }
+    }
+
     return {
       ...DEFAULT_NOTIFICATION_CONFIG,
       ...config,
-      events: {
-        ...DEFAULT_NOTIFICATION_CONFIG.events,
-        ...(typeof legacyPromptRequest === 'boolean' ? { promptRequest: legacyPromptRequest } : {}),
-        ...(config.events || {}),
-      },
+      events,
     };
   }
 

@@ -43,7 +43,7 @@ vi.mock('../../services/api', async (importOriginal) => {
   stubbed.getNotificationConfig = vi.fn().mockResolvedValue({
     enabled: false, ntfyUrl: 'https://ntfy.sh', ntfyTopic: '', events: {
       permissionRequest: true, promptRequest: true, runCompleted: false,
-      runFailed: false, supervisionUpdate: false, backgroundPermission: false,
+      runFailed: false, backgroundPermission: false,
       processLeak: true,
     },
   });
@@ -716,7 +716,7 @@ describe('SettingsPanel', () => {
       enabled: true, ntfyUrl: 'https://ntfy.sh', ntfyTopic: 'test-topic',
       events: {
         permissionRequest: true, promptRequest: true, runCompleted: false,
-        runFailed: false, supervisionUpdate: false, backgroundPermission: false,
+        runFailed: false, backgroundPermission: false,
       },
     });
 
@@ -730,7 +730,6 @@ describe('SettingsPanel', () => {
       expect(container.textContent).toContain('Prompt requests');
       expect(container.textContent).toContain('Run completed');
       expect(container.textContent).toContain('Run failed');
-      expect(container.textContent).toContain('Supervision updates');
       expect(container.textContent).toContain('Background task alerts');
     });
   });
@@ -738,7 +737,7 @@ describe('SettingsPanel', () => {
   it('shows Send Test button for notifications', async () => {
     (api.getNotificationConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
       enabled: true, ntfyUrl: 'https://ntfy.sh', ntfyTopic: 'test-topic',
-      events: { permissionRequest: true, promptRequest: true, runCompleted: false, runFailed: false, supervisionUpdate: false, backgroundPermission: false },
+      events: { permissionRequest: true, promptRequest: true, runCompleted: false, runFailed: false, backgroundPermission: false },
     });
 
     const { container } = await renderSettingsPanel();

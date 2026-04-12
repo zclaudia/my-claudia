@@ -21,7 +21,7 @@ import { generateKeyPair, getPublicKeyPem } from './utils/crypto.js';
 import { pluginLoader } from './application/plugins/loader.js';
 import type { ProcessMonitor } from './utils/process-monitor.js';
 import type { NotificationSender } from './infrastructure/push/notification-sender.js';
-import { GatewayNotificationSender, NoopNotificationSender } from './infrastructure/push/notification-sender.js';
+import { GatewayNotificationSender } from './infrastructure/push/notification-sender.js';
 import { ClaudiaBranchService } from './application/orchestration/claudia-branch-service.js';
 import type { TaskCoordinationPort } from './application/conversation/task-coordination-port.js';
 import type { SessionSyncPort } from './application/conversation/session-sync-port.js';
@@ -269,6 +269,7 @@ export async function createServer(): Promise<ServerContext> {
   // Preserve raw bytes for gateway-proxy requests so binary and multipart payloads
   // are forwarded without JSON/body-parser mutation.
   app.use('/api/gateway-proxy', express.raw({ type: '*/*', limit: '100mb' }));
+  app.use('/api/gateway-direct', express.raw({ type: '*/*', limit: '1mb' }));
   app.use(express.json({ limit: '15mb' }));
 
   // WebSocket clients map (declared early so it can be used in auth endpoints)
@@ -281,10 +282,10 @@ export async function createServer(): Promise<ServerContext> {
     if (client) sendMessage(client.ws, msg);
   });
 
-  // Create notification sender (gateway-aware or no-op)
-  notificationSender = process.env.GATEWAY_URL
-    ? new GatewayNotificationSender(() => getGatewayClient())
-    : new NoopNotificationSender();
+  // Create notification sender — always gateway-aware.
+  // GatewayNotificationSender lazily calls getGatewayClient() on each notify(),
+  // so it gracefully no-ops when no gateway is connected yet.
+  notificationSender = new GatewayNotificationSender(() => getGatewayClient());
 
   // Setup routes, services, and periodic tasks
   const setup = setupRoutesAndServices({

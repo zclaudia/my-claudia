@@ -35,6 +35,30 @@ export function resolveGatewayBackendUrl(backendId: string): string | null {
 }
 
 /**
+ * Resolve a gateway-direct URL (not backend-specific).
+ *
+ * Desktop: routes through local backend proxy (supports SOCKS5).
+ * Mobile: routes directly to gateway.
+ *
+ * @param path - gateway API path, e.g. "/api/notifications/config"
+ */
+export function resolveGatewayDirectUrl(path: string): string | null {
+  // Desktop: route through local backend proxy
+  const localPort = useServerStore.getState().localServerPort;
+  if (localPort) {
+    return `http://127.0.0.1:${localPort}/api/gateway-direct${path}`;
+  }
+
+  // Mobile fallback: direct connection to gateway
+  const { gatewayUrl } = useGatewayStore.getState();
+  if (!gatewayUrl) return null;
+  const gwAddr = gatewayUrl.includes('://')
+    ? gatewayUrl.replace(/^ws/, 'http')
+    : `http://${gatewayUrl}`;
+  return `${gwAddr}${path}`;
+}
+
+/**
  * Get auth headers for requests to a gateway backend.
  *
  * Desktop: local proxy injects auth automatically, returns empty.

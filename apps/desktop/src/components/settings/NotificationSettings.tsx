@@ -9,7 +9,6 @@ const EVENT_LABELS: { key: keyof NotificationConfig['events']; label: string; de
   { key: 'promptRequest', label: 'Prompt requests', description: 'The app surfaces a prompt request' },
   { key: 'runCompleted', label: 'Run completed', description: 'A run finishes successfully' },
   { key: 'runFailed', label: 'Run failed', description: 'A run fails with an error' },
-  { key: 'supervisionUpdate', label: 'Supervision updates', description: 'Supervision completes, fails, or is cancelled' },
   { key: 'backgroundPermission', label: 'Background task alerts', description: 'Background task needs your attention' },
   { key: 'processLeak', label: 'Process leak alerts', description: 'Orphaned child processes were detected' },
 ];
