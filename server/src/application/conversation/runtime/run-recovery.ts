@@ -81,7 +81,6 @@ export async function handleRunException(input: HandleRunExceptionInput): Promis
       clearInterval(activeRun.saveInterval);
       activeRun.saveInterval = undefined;
     }
-    activeRun.aiReviewQueue?.cancelAll();
     cleanupPendingPermissions(activeRun, 'Session reset retry');
     activeRuns.delete(runId);
     broadcastHeartbeat();

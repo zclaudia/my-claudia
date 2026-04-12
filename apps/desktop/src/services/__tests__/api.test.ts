@@ -117,6 +117,8 @@ import {
 } from '../api';
 import { useServerStore } from '../../stores/serverStore';
 
+let mockControlPlaneMode = 'embedded-local';
+
 const mockServerStore = {
   activeServerId: 'server-1',
   localServerPort: 3100,
@@ -158,7 +160,7 @@ vi.mock('../../stores/ownershipStore', () => ({
 }));
 
 vi.mock('../../utils/controlPlane', () => ({
-  getControlPlaneMode: () => 'embedded-local',
+  getControlPlaneMode: () => mockControlPlaneMode,
   isLocalBackendId: (id: string | null | undefined) => id === 'server-1' || id === 'local',
   resolveLocalBackendId: () => 'server-1',
   resolveCanonicalBackendId: (backendId: string | null | undefined, fallback: string | null = null) => backendId ?? fallback,
@@ -190,6 +192,7 @@ describe('api', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mockServerStore.activeServerId = 'server-1';
+    mockControlPlaneMode = 'embedded-local';
   });
 
   // Helper to setup fetch mock response
@@ -690,34 +693,32 @@ describe('api', () => {
       expect(result.projectId).toBe('p1');
     });
 
-    it('ensureAgent always targets the local default server', async () => {
-      const originalGetState = useServerStore.getState;
-      (useServerStore.getState as any) = () => ({
-        activeServerId: 'gw:remote-1',
-        getActiveServer: () => ({
-          id: 'gw:remote-1',
-          name: 'Remote Server',
-          address: 'remote.example.com:3100',
-        }),
-        getDefaultServer: () => ({
-          id: 'server-1',
-          name: 'Local Server',
-          address: 'localhost:3100',
-        }),
-        activeServerSupports: () => true,
-      });
+    it('ensureAgent targets the embedded local backend even when a remote backend is active', async () => {
+      mockServerStore.activeServerId = 'gw:remote-1';
 
-      try {
-        mockResponse({ projectId: 'p1', sessionId: 's1' });
-        await ensureAgent();
+      mockResponse({ projectId: 'p1', sessionId: 's1' });
+      await ensureAgent();
 
-        expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:3100/api/agent/ensure',
-          expect.objectContaining({ method: 'POST' }),
-        );
-      } finally {
-        (useServerStore.getState as any) = originalGetState;
-      }
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3100/api/agent/ensure',
+        expect.objectContaining({ method: 'POST' }),
+      );
+    });
+
+    it('ensureAgent targets the active backend in gateway-direct mode', async () => {
+      mockControlPlaneMode = 'gateway-direct';
+      mockServerStore.activeServerId = 'gw:remote-1';
+
+      mockResponse({ projectId: 'p1', sessionId: 's1' });
+      await ensureAgent();
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://gateway/gw:remote-1/api/agent/ensure',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ Authorization: 'Bearer gw-token' }),
+        }),
+      );
     });
 
     it('getAgentConfig', async () => {
@@ -1328,6 +1329,22 @@ describe('api', () => {
         json: () => Promise.resolve({ success: false }),
       });
       await expect(fetchLocalApi('/api/test')).rejects.toThrow(AuthError);
+    });
+
+    it('routes through the active backend in gateway-direct mode', async () => {
+      mockControlPlaneMode = 'gateway-direct';
+      mockServerStore.activeServerId = 'gw:remote-1';
+      mockResponse({ key: 'value' });
+
+      const result = await fetchLocalApi('/api/test');
+
+      expect(result).toEqual({ success: true, data: { key: 'value' } });
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://gateway/gw:remote-1/api/test',
+        expect.objectContaining({
+          headers: expect.objectContaining({ Authorization: 'Bearer gw-token' }),
+        })
+      );
     });
   });
 

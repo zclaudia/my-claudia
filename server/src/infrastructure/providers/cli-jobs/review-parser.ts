@@ -63,14 +63,23 @@ export function summarizeCliOutput(text: string | undefined, maxLength = 600): s
   return compact.length > maxLength ? `${compact.slice(0, maxLength)}...` : compact;
 }
 
+export class CliReviewParseError extends Error {
+  /** Raw assistant text that failed to parse — callers may pass this upstream for a second parse attempt. */
+  readonly rawAssistantText: string;
+  constructor(errorPrefix: string, stdout: string, stderr: string, rawAssistantText: string, cause: unknown) {
+    const causeMsg = cause instanceof Error ? cause.message : String(cause);
+    super(`${causeMsg} | stdout=${summarizeCliOutput(stdout)} | stderr=${summarizeCliOutput(stderr)}`);
+    this.name = 'CliReviewParseError';
+    this.rawAssistantText = rawAssistantText;
+  }
+}
+
 export function buildCliReviewParseError(
   errorPrefix: string,
   stdout: string,
   stderr: string,
   cause: unknown,
-): Error {
-  const message = cause instanceof Error ? cause.message : String(cause);
-  return new Error(
-    `${message} | stdout=${summarizeCliOutput(stdout)} | stderr=${summarizeCliOutput(stderr)}`,
-  );
+  rawAssistantText?: string,
+): CliReviewParseError {
+  return new CliReviewParseError(errorPrefix, stdout, stderr, rawAssistantText ?? stdout, cause);
 }

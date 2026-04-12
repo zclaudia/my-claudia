@@ -54,18 +54,15 @@ export function useChatSession({ sessionId, isConnected }: UseChatSessionParams)
   const addMessage = useChatStore((s) => s.addMessage);
   const clearMessages = useChatStore((s) => s.clearMessages);
   const setMode = useChatStore((s) => s.setMode);
-  const getMode = useChatStore((s) => s.getMode);
-  const getRuntimeMode = useChatStore((s) => s.getRuntimeMode);
+  const selectedMode = useChatStore((s) => s.modeOverrides[sessionId] || '');
+  const runtimeMode = useChatStore((s) => s.runtimeModes[sessionId] || '');
   const setModelOverride = useChatStore((s) => s.setModelOverride);
-  const getModelOverride = useChatStore((s) => s.getModelOverride);
+  const modelOverride = useChatStore((s) => s.modelOverrides[sessionId] || '');
   const permissionOverride = useChatStore((s) => s.getPermissionOverride(sessionId));
   const setPermissionOverride = useChatStore((s) => s.setPermissionOverride);
 
   // ── Derived values ──
   const useStreamingSegmented = isLoading && sessionContentBlocks.length > 1 && sessionToolCallHistory.length > 0;
-  const selectedMode = getMode(sessionId);
-  const runtimeMode = getRuntimeMode(sessionId);
-  const modelOverride = getModelOverride(sessionId);
 
   const lastSessionMessage = sessionMessages.length > 0 ? sessionMessages[sessionMessages.length - 1] : null;
   const lastStreamingBlock = sessionContentBlocks.length > 0

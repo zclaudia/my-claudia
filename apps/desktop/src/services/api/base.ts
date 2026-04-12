@@ -3,7 +3,7 @@ import { useServerStore } from '../../stores/serverStore';
 import { useFacadeStore } from '../../stores/facadeStore';
 
 import { resolveGatewayBackendUrl, getGatewayAuthHeaders } from '../gatewayProxy';
-import { getControlPlaneMode, isLocalBackendId } from '../../utils/controlPlane';
+import { getControlPlaneMode, isLocalBackendId, resolveLocalBackendId } from '../../utils/controlPlane';
 
 /** Check if the active server advertises a specific feature. */
 export function activeServerSupports(feature: ServerFeature): boolean {
@@ -127,18 +127,35 @@ export async function fetchApiForBackend<T>(
 }
 
 // ============================================
-// Local API: always targets the local server
-// Used by Settings, data loader, and admin features
+// Primary control-plane API
+// Embedded desktop: targets the local backend.
+// Direct/mobile mode: targets the active backend through the gateway.
+// Used by Settings, data loader, and admin features.
 // ============================================
 
+function resolvePrimaryBackendId(): string | null {
+  const controlPlaneMode = getControlPlaneMode();
+
+  if (controlPlaneMode === 'gateway-direct') {
+    return useServerStore.getState().activeServerId;
+  }
+
+  return resolveLocalBackendId(useServerStore.getState().activeServerId);
+}
+
 function getLocalBaseUrl(): string {
+  const backendId = resolvePrimaryBackendId();
+  if (backendId) {
+    return getBaseUrlForBackend(backendId);
+  }
+
   const port = useServerStore.getState().localServerPort || 3100;
   return `http://localhost:${port}`;
 }
 
 function getLocalAuthHeaders(): HeadersInit {
-  // Local server trusts localhost connections, no auth needed
-  return {};
+  const backendId = resolvePrimaryBackendId();
+  return getAuthHeadersForBackend(backendId);
 }
 
 export async function fetchLocalApi<T>(

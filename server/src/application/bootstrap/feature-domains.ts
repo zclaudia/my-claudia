@@ -22,6 +22,8 @@ import { toolRegistry, workflowStepRegistry, workflowTriggerRegistry } from '../
 import { createAutomationRoutes } from '../../interfaces/http/automations.js';
 import { PushNotificationService } from '../../infrastructure/push/push-notification-service.js';
 import type { NotificationService } from '../../domains/notification-feed/index.js';
+import { PermissionBridge } from '../conversation/agent/permission-bridge.js';
+
 
 interface RegisterFeatureDomainsDeps {
   db: ReturnType<typeof initDatabase>;
@@ -46,6 +48,8 @@ export interface FeatureDomainsResult {
   workflowService: import('../../domains/workflows/index.js').WorkflowService;
   notificationsService: NotificationService;
   pushNotificationService: PushNotificationService;
+  permissionBridge: PermissionBridge;
+  cancelWorkflowRun: (runId: string) => void;
 }
 
 function broadcastToAuthenticatedClients(
@@ -145,6 +149,9 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     scheduling: localPrScheduling,
   });
 
+  // Permission bridge — connects workflow engine to conversation permission system
+  const permissionBridge = new PermissionBridge();
+
   const { workflowService } = registerWorkflowDomain({
     db,
     app,
@@ -155,8 +162,14 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     workflowTriggerRegistry,
     systemTaskRegistry: workflowScheduling,
     aiRunPort: workflowAiRunPort,
+    permissionBridge,
   });
   app.use('/api/automations', authMiddleware, createAutomationRoutes(workflowService));
+
+  // Callback for cancelling a workflow run (used when user manually decides a permission)
+  const cancelWorkflowRun = (runId: string): void => {
+    workflowService.cancelRun(runId);
+  };
 
   registerPluginsDomain({
     app,
@@ -173,5 +186,7 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     workflowService,
     notificationsService,
     pushNotificationService,
+    permissionBridge,
+    cancelWorkflowRun,
   };
 }

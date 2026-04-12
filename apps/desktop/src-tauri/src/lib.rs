@@ -4,6 +4,10 @@ use tauri::{LogicalPosition, Manager, Position, WebviewUrl, WebviewWindow, Webvi
 use std::sync::Mutex;
 #[cfg(not(target_os = "android"))]
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState as GlobalShortcutState};
+#[cfg(not(target_os = "android"))]
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+#[cfg(not(target_os = "android"))]
+use tauri::menu::{MenuBuilder, MenuItemBuilder};
 
 #[cfg(not(target_os = "android"))]
 mod server;
@@ -497,7 +501,52 @@ pub fn run() {
                 eprintln!("[Permissions] Folders not yet authorized: {:?}", pending);
             }
         });
-        
+
+        // System tray icon
+        let show_item = MenuItemBuilder::with_id("show", "Show MyClaudia").build(app)?;
+        let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+        let tray_menu = MenuBuilder::new(app)
+            .items(&[&show_item, &quit_item])
+            .build()?;
+
+        let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon@2x.png"))
+            .expect("failed to load tray icon");
+
+        TrayIconBuilder::with_id("main-tray")
+            .icon(tray_icon)
+            .icon_as_template(true)
+            .menu(&tray_menu)
+            .tooltip("MyClaudia")
+            .on_menu_event(|app, event| match event.id().as_ref() {
+                "show" => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                }
+                "quit" => {
+                    app.exit(0);
+                }
+                _ => {}
+            })
+            .on_tray_icon_event(|tray, event| {
+                if let TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                } = event
+                {
+                    let app = tray.app_handle();
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                }
+            })
+            .build(app)?;
+
         Ok(())
     });
 
@@ -515,6 +564,15 @@ pub fn run() {
                         && matches!(event, tauri::WindowEvent::Focused(false))
                     {
                         let _ = hide_claudia_chat(app.clone());
+                    }
+                    // Close button on main window: hide to tray instead of quitting
+                    if label == "main" {
+                        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                            api.prevent_close();
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.hide();
+                            }
+                        }
                     }
                 }
                 tauri::RunEvent::Exit => {

@@ -76,3 +76,71 @@ export async function getManagedProcesses(): Promise<ManagedProcessRecord[]> {
   }
   return result.data;
 }
+
+export interface PermissionLogEntry {
+  id: string;
+  session_id: string;
+  tool: string;
+  detail: string;
+  decision: 'allow' | 'deny';
+  remembered: number;
+  created_at: number;
+}
+
+export interface PermissionLogsResponse {
+  entries: PermissionLogEntry[];
+  total: number;
+}
+
+export async function getPermissionLogs(params?: {
+  limit?: number;
+  offset?: number;
+  session_id?: string;
+  decision?: string;
+}): Promise<PermissionLogsResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.limit) searchParams.set('limit', String(params.limit));
+  if (params?.offset) searchParams.set('offset', String(params.offset));
+  if (params?.session_id) searchParams.set('session_id', params.session_id);
+  if (params?.decision) searchParams.set('decision', params.decision);
+  const qs = searchParams.toString();
+  const path = `/api/debug/permission-logs${qs ? '?' + qs : ''}`;
+  const result = await fetchLocalApi<PermissionLogsResponse>(path);
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'Failed to fetch permission logs');
+  }
+  return result.data;
+}
+
+export interface SimulateAIReviewRequest {
+  toolName: string;
+  toolInput: unknown;
+  detail: string;
+  cwd: string;
+  providerId?: string;
+  confidenceThreshold?: number;
+  mode?: 'quick' | 'full';
+}
+
+export interface SimulateAIReviewResponse {
+  decision: 'approve' | 'deny' | 'uncertain';
+  reasoning: string;
+  confidence: number;
+  metadata?: Record<string, unknown>;
+  durationMs: number;
+  providerId: string;
+  providerType: string;
+  mode: 'quick' | 'full';
+}
+
+export async function simulateAIReview(req: SimulateAIReviewRequest): Promise<SimulateAIReviewResponse> {
+  const result = await fetchLocalApi<SimulateAIReviewResponse>('/api/debug/simulate-ai-review', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error?.message || 'AI review simulation failed');
+  }
+  return result.data;
+}

@@ -47,6 +47,8 @@ export interface MessageHandlerContext {
   notificationService?: NotificationService;
   taskCoordination?: TaskCoordinationPort;
   providerRegistry?: ProviderRegistryPort;
+  permissionBridge?: import('../agent/permission-bridge.js').PermissionBridge;
+  cancelWorkflowRun?: (runId: string) => void;
 }
 
 export async function handleClientMessage(
@@ -150,7 +152,7 @@ export async function handleClientMessage(
 
     // ── Permissions ──
     case 'permission_decision':
-      handlePermission(message, ctx.activeRuns, ctx.connectedClients);
+      handlePermission(message, ctx.activeRuns, ctx.connectedClients, ctx.permissionBridge, ctx.cancelWorkflowRun);
       break;
 
     case 'prompt_answer':

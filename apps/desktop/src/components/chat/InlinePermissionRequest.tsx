@@ -38,6 +38,7 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
   const clearFeedbackDraft = usePermissionStore((state) => state.clearFeedbackDraft);
   const aiReviewResult = usePermissionStore((state) => state.aiReviewResults[request.requestId]);
   const aiReviewMetadataHint = buildAIReviewMetadataHint(aiReviewResult);
+  const workflowProgress = usePermissionStore((state) => state.workflowProgress[request.requestId]);
   const isExitPlanModeRequest = request.toolName.toLowerCase().includes('exitplanmode');
 
   useEffect(() => {
@@ -136,11 +137,11 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
 
   return (
     <div className={`rounded-xl border border-border overflow-hidden border-l-4 ${borderColor}`}>
-      {/* Timeout progress bar */}
+      {/* Timeout progress bar (legacy — hidden when workflow manages timeout) */}
       {hasTimeout && (
         <div className="h-0.5 bg-muted">
           <div
-            className={`h-full transition-all duration-1000 ease-linear ${request.aiInitiated ? 'bg-success' : 'bg-warning'}`}
+            className="h-full transition-all duration-1000 ease-linear bg-warning"
             style={{ width: `${progressPercent}%` }}
           />
         </div>
@@ -217,8 +218,25 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
 
         {/* Timer + remember + actions */}
         <div className="flex items-center gap-2 mt-2 flex-wrap">
-          {/* Timer / AI Review status */}
-          {aiReviewResult ? (
+          {/* Workflow progress */}
+          {request.workflowMode && workflowProgress && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Bot size={12} />
+              <span>
+                {workflowProgress.currentStep.status === 'running'
+                  ? `${workflowProgress.currentStep.label}...`
+                  : `${workflowProgress.completedSteps.length}/${workflowProgress.totalSteps} steps`}
+              </span>
+            </div>
+          )}
+          {request.workflowMode && !workflowProgress && !aiReviewResult && (
+            <span className="text-xs text-muted-foreground flex items-center gap-1 animate-pulse">
+              <Bot size={12} />
+              Workflow processing...
+            </span>
+          )}
+          {/* AI Review status (populated by workflow's ai_risk_analysis step) */}
+          {aiReviewResult && (
             <div className="flex flex-col gap-0.5">
               <span className={`text-xs flex items-center gap-1 ${
                 aiReviewResult.decision === 'deny' ? 'text-destructive' : 'text-muted-foreground'
@@ -236,23 +254,7 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
                 </span>
               )}
             </div>
-          ) : hasTimeout && remainingTime > 0 ? (
-            <span className="text-xs text-muted-foreground flex items-center gap-1">
-              {request.aiInitiated && <span>Auto-approve:</span>}
-              <span className={
-                request.aiInitiated
-                  ? (remainingTime <= 10 ? 'text-success font-semibold' : 'text-success/80')
-                  : (remainingTime <= 10 ? 'text-warning font-semibold' : 'text-muted-foreground')
-              }>
-                {remainingTime}s
-              </span>
-            </span>
-          ) : hasTimeout && remainingTime === 0 && !aiReviewResult ? (
-            <span className="text-xs text-muted-foreground flex items-center gap-1 animate-pulse">
-              <Bot size={12} />
-              AI reviewing...
-            </span>
-          ) : null}
+          )}
 
           {/* Remember checkbox */}
           <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground">

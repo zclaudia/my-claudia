@@ -20,6 +20,9 @@ const BUILTIN_STEP_TYPE_LABELS: Record<BuiltinWorkflowStepType, string> = {
   condition: 'Condition',
   notify: 'Notify',
   wait: 'Wait / Approval',
+  permission_classify: 'Permission Classify',
+  ai_risk_analysis: 'AI Risk Analysis',
+  permission_decide: 'Permission Decide',
 };
 
 function getStepTypeLabel(type: string): string {

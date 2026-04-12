@@ -144,6 +144,8 @@ let connectedClients = new Map<string, ConnectedClient>();
 let pushNotificationService: PushNotificationService;
 let serverPort: number | null = null;
 let notificationsService: import('./domains/notification-feed/index.js').NotificationService | undefined;
+let permissionBridge: import('./application/conversation/agent/permission-bridge.js').PermissionBridge | undefined;
+let cancelWorkflowRun: ((runId: string) => void) | undefined;
 let taskOrchestrator: import('./application/orchestration/types.js').TaskOrchestrator | undefined;
 let branchAllocator: ClaudiaBranchService | undefined;
 let facadeHubRef: import('./infrastructure/gateway/ws-hub.js').FacadeWsHub | null = null;
@@ -200,6 +202,8 @@ function getMessageHandlerContext(): MessageHandlerContext {
     notificationService: notificationsService,
     taskCoordination: getTaskCoordination(),
     providerRegistry,
+    permissionBridge,
+    cancelWorkflowRun,
   };
 }
 
@@ -212,6 +216,7 @@ function getRunHandlerContext(): RunHandlerContext {
     notificationsService,
     serverPort,
     broadcastHeartbeat,
+    permissionBridge,
     sessionSync: getSessionSync(),
     providerRegistry,
   };
@@ -285,6 +290,8 @@ export async function createServer(): Promise<ServerContext> {
     setProcessMonitor: (pm) => { processMonitor = pm; },
   });
   notificationsService = setup.notificationsService;
+  permissionBridge = setup.permissionBridge;
+  cancelWorkflowRun = setup.cancelWorkflowRun;
   taskOrchestrator = setup.orchestrator;
 
   // Error handling middleware (must be after routes)

@@ -8,9 +8,11 @@ import {
   persistProjectAllowedOutsideWorkspaceRoots,
   persistSessionRememberedDecision
 } from '../agent/permission-evaluator.js';
+import { writePermissionLog } from '../agent/permission-log-writer.js';
 import { broadcastRunMessage } from '../transport/broadcast.js';
 import type { ConnectedClient, ActiveRun } from '../transport/types.js';
 import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
+import type { PermissionBridge } from '../agent/permission-bridge.js';
 
 function broadcastPermissionResolved(
   run: ActiveRun,
@@ -37,6 +39,8 @@ export function handlePermissionDecision(
   },
   activeRuns: Map<string, ActiveRun>,
   connectedClients: Map<string, ConnectedClient>,
+  permissionBridge?: PermissionBridge,
+  cancelWorkflowRun?: (runId: string) => void,
 ): void {
   console.log(`[Permission] Received decision for ${message.requestId}: ${message.allow ? 'allow' : 'deny'}`);
   console.log(`[Permission] Active runs: ${activeRuns.size}`);
@@ -50,8 +54,9 @@ export function handlePermissionDecision(
       if (pending.timeout) {
         clearTimeout(pending.timeout);
       }
-      // Cancel any queued/in-flight AI review for this request
-      run.aiReviewQueue?.cancel(message.requestId);
+      // Remove from permission bridge and cancel associated workflow run
+      const wfRunId = permissionBridge?.removeAndGetWorkflowRunId(message.requestId);
+      if (wfRunId) cancelWorkflowRun?.(wfRunId);
       run.pendingPermissions.delete(message.requestId);
 
       // Revert to running status after permission resolved
@@ -123,6 +128,14 @@ export function handlePermissionDecision(
       if (updatedInput !== undefined) {
         decision.updatedInput = updatedInput;
       }
+      writePermissionLog(
+        run.db,
+        run.sessionId,
+        pending.originalRequest?.toolName ?? 'unknown',
+        pending.originalRequest?.detail ?? '',
+        message.allow ? 'allow' : 'deny',
+        !!message.remember,
+      );
       pending.resolve(decision);
 
       // Broadcast resolution to all clients (so other devices close their modals)

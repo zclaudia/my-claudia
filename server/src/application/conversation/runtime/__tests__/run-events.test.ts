@@ -198,7 +198,6 @@ describe('ws/run-events', () => {
       sessionId: 'session-1',
       providerType: 'claude',
       completed: false,
-      aiReviewQueue: { cancelAll: vi.fn() },
       collectedToolCalls: [],
       contentBlocks: [],
       fullContent: '',
@@ -236,7 +235,6 @@ describe('ws/run-events', () => {
     const sendRunEventMock = vi.fn();
     const broadcastHeartbeatMock = vi.fn();
     const notifyMock = vi.fn();
-    const cancelAllMock = vi.fn();
     const activeRun = {
       sessionId: 'session-1',
       providerType: 'claude',
@@ -245,7 +243,6 @@ describe('ws/run-events', () => {
       fullContent: 'partial',
       pendingPermissions: new Map(),
       recentToolCalls: [],
-      aiReviewQueue: { cancelAll: cancelAllMock },
       completed: false,
     } as any;
     const activeRuns = new Map([['run-1', activeRun]]);
@@ -289,7 +286,6 @@ describe('ws/run-events', () => {
     }));
     expect(broadcastHeartbeatMock).toHaveBeenCalled();
     expect(notifyMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'run_failed' }));
-    expect(cancelAllMock).toHaveBeenCalled();
     expect(cleanupPendingPermissionsMock).toHaveBeenCalled();
     expect(activeRuns.has('run-1')).toBe(false);
   });

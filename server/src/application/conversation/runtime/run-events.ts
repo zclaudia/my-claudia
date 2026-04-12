@@ -398,7 +398,6 @@ export function handleProviderEvent({
       }
 
       clearSession(sessionId);
-      activeRun.aiReviewQueue?.cancelAll();
       cleanupPendingPermissions(activeRun, errorMessage);
       activeRuns.delete(runId);
       break;

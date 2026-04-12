@@ -53,7 +53,7 @@ export function registerPlatformRoutes(deps: RegisterPlatformRoutesDeps): void {
   });
 
   app.use('/api/system', localOnlyMiddleware, createSystemStatsRoutes());
-  app.use('/api/debug', localOnlyMiddleware, createDebugRoutes(processSupervisor));
+  app.use('/api/debug', localOnlyMiddleware, createDebugRoutes(processSupervisor, db));
   app.use('/api', authMiddleware, createSystemTaskRoutes());
   app.use('/api/workspace', authMiddleware, createWorkspaceRoutes());
 

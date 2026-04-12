@@ -26,7 +26,11 @@ import {
   AIReviewStepExecutor,
   GitStepExecutor,
   PluginStepExecutor,
+  PermissionClassifyStepExecutor,
+  AIRiskAnalysisStepExecutor,
+  PermissionDecideStepExecutor,
 } from './step-executors/index.js';
+import type { PermissionBridgePort, AIRiskAnalysisPort } from './ports/step-executor.js';
 import { VirtualClientAIRunner } from './step-executors/virtual-client-ai-runner.js';
 
 /** Minimal port for plugin step registry — avoids direct application/ import */
@@ -49,6 +53,8 @@ export interface WorkflowDomainDeps {
   workflowTriggerRegistry?: WorkflowTriggerRegistryPort;
   systemTaskRegistry: WorkflowSchedulingPort;
   aiRunPort: WorkflowAiRunPort;
+  permissionBridge?: PermissionBridgePort;
+  aiRiskAnalysisPort?: AIRiskAnalysisPort;
 }
 
 export interface WorkflowDomainResult {
@@ -57,7 +63,7 @@ export interface WorkflowDomainResult {
 }
 
 export function registerWorkflowDomain(deps: WorkflowDomainDeps): WorkflowDomainResult {
-  const { db, app, authMiddleware, broadcast, notificationService, workflowStepRegistry, workflowTriggerRegistry, systemTaskRegistry, aiRunPort } = deps;
+  const { db, app, authMiddleware, broadcast, notificationService, workflowStepRegistry, workflowTriggerRegistry, systemTaskRegistry, aiRunPort, permissionBridge, aiRiskAnalysisPort } = deps;
 
   // -- Assemble step executors --
   const aiRunner = new VirtualClientAIRunner(db, aiRunPort);
@@ -71,6 +77,15 @@ export function registerWorkflowDomain(deps: WorkflowDomainDeps): WorkflowDomain
   composite.register(new AIReviewStepExecutor(aiRunner));
   composite.register(new GitStepExecutor());
   composite.registerPlugin(new PluginStepExecutor(workflowStepRegistry));
+
+  // -- Permission workflow step executors --
+  composite.register(new PermissionClassifyStepExecutor());
+  if (permissionBridge) {
+    composite.register(new PermissionDecideStepExecutor(permissionBridge));
+  }
+  if (aiRiskAnalysisPort) {
+    composite.register(new AIRiskAnalysisStepExecutor(aiRiskAnalysisPort));
+  }
 
   // -- Build engine --
   const engine = new WorkflowEngine(db, broadcast, composite);

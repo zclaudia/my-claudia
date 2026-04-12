@@ -3,18 +3,6 @@ import type { AIReviewCliJobResult, CliJobInput } from './types.js';
 import { buildCliReviewParseError, parseFinalReviewFromText } from './review-parser.js';
 import { sanitizeInheritedProviderEnv } from '../../../utils/startup-env.js';
 
-const REVIEW_SCHEMA = JSON.stringify({
-  type: 'object',
-  properties: {
-    type: { const: 'final' },
-    decision: { type: 'string', enum: ['approve', 'deny', 'uncertain'] },
-    reasoning: { type: 'string' },
-    confidence: { type: 'number', minimum: 0, maximum: 1 },
-  },
-  required: ['type', 'decision', 'reasoning', 'confidence'],
-  additionalProperties: false,
-});
-
 export async function runClaudeReviewJob(input: CliJobInput): Promise<AIReviewCliJobResult> {
   const binary = input.cliPath || 'claude';
   const args = [
@@ -26,8 +14,6 @@ export async function runClaudeReviewJob(input: CliJobInput): Promise<AIReviewCl
     'bypassPermissions',
     '--tools',
     '',
-    '--json-schema',
-    REVIEW_SCHEMA,
   ];
 
   if (input.model) {
@@ -65,11 +51,11 @@ export async function runClaudeReviewJob(input: CliJobInput): Promise<AIReviewCl
     const settleResolve = (exitCode: number | null): void => {
       if (settled) return;
       settled = true;
+      let sourceText = stdoutBuffer;
       try {
-        let sourceText = stdoutBuffer;
         try {
           const parsedStdout = JSON.parse(stdoutBuffer) as Record<string, unknown>;
-          if (typeof parsedStdout.result === 'string') {
+          if (typeof parsedStdout.result === 'string' && parsedStdout.result.length > 0) {
             sourceText = parsedStdout.result;
           }
         } catch {
@@ -83,7 +69,7 @@ export async function runClaudeReviewJob(input: CliJobInput): Promise<AIReviewCl
           exitCode,
         });
       } catch (error) {
-        reject(buildCliReviewParseError('Claude review job', stdoutBuffer, stderrBuffer, error));
+        reject(buildCliReviewParseError('Claude review job', stdoutBuffer, stderrBuffer, error, sourceText));
       }
     };
 

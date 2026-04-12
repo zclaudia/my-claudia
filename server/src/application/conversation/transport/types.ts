@@ -3,7 +3,6 @@ import type { ToolCall, ContentBlock } from '@my-claudia/shared/core/message';
 import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 import type { PCPEffectiveProfile } from '@my-claudia/shared/core/pcp';
 import type { AskUserQuestionItem } from '@my-claudia/shared/interaction/forms';
-import type { AIReviewQueue } from '../agent/ai-review-queue.js';
 import type { PermissionDecision, SystemInfo } from '../../../infrastructure/providers/types.js';
 import type { initDatabase } from '../../../infrastructure/storage/db.js';
 import type { ProcessMonitor } from '../../../utils/process-monitor.js';
@@ -40,7 +39,6 @@ export interface ActiveRun {
       requiresCredential?: boolean;
       credentialHint?: string;
       questions?: AskUserQuestionItem[];
-      aiInitiated?: boolean;
     };
   }>;
   // Streaming state for message persistence (allows cancelRun to save partial content)
@@ -71,8 +69,6 @@ export interface ActiveRun {
   eventSeq: number; // Monotonically increasing event sequence number (starts at 0, first event gets seq=1)
   /** PCP effective profile negotiated at run start */
   effectiveProfile?: PCPEffectiveProfile;
-  /** Serialized AI review queue — shared across all permission requests in this run */
-  aiReviewQueue?: AIReviewQueue;
   /**
    * Broadcast a message to ALL connected clients (not just the run's originating client).
    * Set up in run-bootstrap.ts. Falls back to run.client.ws if not wired (e.g. supervision).
@@ -86,20 +82,7 @@ export interface MessageSender {
 }
 
 // DEFAULT_PERMISSION_POLICY removed — use DEFAULT_UNIFIED_POLICY from '@my-claudia/shared' instead.
-
-// Permission timeout policies: keyed by tool name, applied when the request times out.
-export const PERMISSION_TIMEOUT_POLICIES: Map<string, {
-  behavior: 'approve' | 'deny';
-  /** Override timeoutSeconds when the request has no timeout (0). */
-  timeoutSeconds?: number;
-  condition?: (run: { aiInitiatedPlanMode?: boolean }) => boolean;
-}> = new Map([
-  ['ExitPlanMode', {
-    behavior: 'approve',
-    timeoutSeconds: 120, // 2 minutes
-    condition: (run) => !!run.aiInitiatedPlanMode,
-  }],
-]);
+// PERMISSION_TIMEOUT_POLICIES removed — timeout logic is now handled by the permission workflow template.
 
 export const MAX_SESSION_RESET_RETRIES = 1;
 

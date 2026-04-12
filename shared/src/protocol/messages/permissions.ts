@@ -50,6 +50,10 @@ export interface PermissionRequestMessage {
   credentialHint?: string;
   /** When true, timeout will auto-approve (not deny); show countdown accordingly. */
   aiInitiated?: boolean;
+  /** When true, this permission is being handled by a permission workflow. */
+  workflowMode?: boolean;
+  /** Workflow run ID for tracking progress. */
+  workflowRunId?: string;
 }
 
 // Prompt request: transport-level native question routing (Server → Client)
@@ -106,6 +110,22 @@ export interface PromptRequestResolvedMessage {
   type: 'prompt_request_resolved';
   requestId: string;
   sessionId?: string;
+}
+
+// Server → Client: permission workflow step progress
+export interface PermissionWorkflowProgressMessage {
+  type: 'permission_workflow_progress';
+  requestId: string;
+  sessionId: string;
+  workflowRunId: string;
+  currentStep: {
+    id: string;
+    type: string;
+    status: 'running' | 'completed' | 'failed';
+    label: string;
+  };
+  completedSteps: string[];
+  totalSteps: number;
 }
 
 // Plugin permission request (Server → Client)

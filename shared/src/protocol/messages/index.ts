@@ -141,7 +141,7 @@ import type {
 import type {
   PermissionRequestMessage, PromptRequestMessage, AgentPermissionInterceptedMessage,
   PermissionResolvedMessage, PermissionAutoResolvedMessage, PromptRequestResolvedMessage,
-  PluginPermissionRequestMessage, AIReviewCompletedMessage,
+  PluginPermissionRequestMessage, AIReviewCompletedMessage, PermissionWorkflowProgressMessage,
 } from './permissions.js';
 import type {
   SupervisionTaskUpdateMessage, SupervisionAgentUpdateMessage, SupervisionCheckpointMessage,
@@ -215,6 +215,7 @@ export type ServerMessage =
   | PermissionResolvedMessage
   | PermissionAutoResolvedMessage
   | AIReviewCompletedMessage
+  | PermissionWorkflowProgressMessage
   | PromptRequestResolvedMessage
   | StateHeartbeatMessage
   | TerminalOpenedMessage

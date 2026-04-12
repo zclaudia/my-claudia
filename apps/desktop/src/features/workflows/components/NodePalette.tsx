@@ -35,6 +35,14 @@ const BUILTIN_STEP_CATEGORIES: { label: string; steps: { type: string; label: st
       { type: 'wait', label: 'Wait / Approval' },
     ],
   },
+  {
+    label: 'Permission',
+    steps: [
+      { type: 'permission_classify', label: 'Permission Classify' },
+      { type: 'ai_risk_analysis', label: 'AI Risk Analysis' },
+      { type: 'permission_decide', label: 'Permission Decide' },
+    ],
+  },
 ];
 
 export function NodePalette() {

@@ -60,3 +60,44 @@ export interface NotificationPort {
     tags?: string[];
   }): Promise<void>;
 }
+
+// ── Permission Workflow Bridge ─────────────────────────────────
+
+export interface PermissionEscalationContext {
+  requestId: string;
+  runId: string;
+  sessionId: string;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  detail: string;
+  cwd: string;
+  category: string;
+  matchedRule?: string;
+  isEscalateAlways: boolean;
+  sessionType: 'regular' | 'background' | 'agent';
+  aiInitiatedPlanMode?: boolean;
+}
+
+export interface PermissionBridgePort {
+  resolvePermission(requestId: string, decision: 'allow' | 'deny', reason?: string): boolean;
+  getPermissionContext(requestId: string): PermissionEscalationContext | undefined;
+}
+
+export interface AIRiskAnalysisPort {
+  evaluate(ctx: {
+    toolName: string;
+    toolInput: unknown;
+    detail: string;
+    cwd: string;
+    config: {
+      confidenceThreshold: number;
+      maxAutoApprovalsPerMinute: number;
+      analysisProviderId?: string;
+    };
+  }): Promise<{
+    decision: 'approve' | 'deny' | 'uncertain';
+    reasoning: string;
+    confidence: number;
+    metadata?: Record<string, unknown>;
+  }>;
+}

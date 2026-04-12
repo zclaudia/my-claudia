@@ -13,13 +13,16 @@ import { handlePermissionDecision, handlePromptAnswer } from '../interactions/pe
 import { interactionDispatcher } from '../interactions/interaction-dispatcher.js';
 import { permissionManager as pluginPermissionManager } from '../../../application/plugins/index.js';
 import { broadcastRunMessage } from '../transport/broadcast.js';
+import type { PermissionBridge } from '../agent/permission-bridge.js';
 
 export function handlePermission(
   message: PermissionDecisionMessage,
   activeRuns: Map<string, ActiveRun>,
   connectedClients: Map<string, ConnectedClient>,
+  permissionBridge?: PermissionBridge,
+  cancelWorkflowRun?: (runId: string) => void,
 ): void {
-  handlePermissionDecision(message, activeRuns, connectedClients);
+  handlePermissionDecision(message, activeRuns, connectedClients, permissionBridge, cancelWorkflowRun);
 }
 
 export function handlePromptAnswerMessage(

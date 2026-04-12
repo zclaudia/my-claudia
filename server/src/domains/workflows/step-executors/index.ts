@@ -8,3 +8,6 @@ export { AIPromptStepExecutor } from './ai-prompt-executor.js';
 export { AIReviewStepExecutor } from './ai-review-executor.js';
 export { GitStepExecutor } from './git-executor.js';
 export { PluginStepExecutor } from './plugin-executor.js';
+export { PermissionClassifyStepExecutor } from './permission-classify-executor.js';
+export { AIRiskAnalysisStepExecutor } from './ai-risk-analysis-executor.js';
+export { PermissionDecideStepExecutor } from './permission-decide-executor.js';

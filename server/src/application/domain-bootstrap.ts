@@ -52,6 +52,8 @@ export interface BootstrapResult {
   notificationsService: NotificationService;
   pushNotificationService: PushNotificationService;
   orchestrator: import('../application/orchestration/types.js').TaskOrchestrator;
+  permissionBridge: import('./conversation/agent/permission-bridge.js').PermissionBridge;
+  cancelWorkflowRun: (runId: string) => void;
 }
 
 export function bootstrapDomains(deps: BootstrapDeps): BootstrapResult {
@@ -107,6 +109,8 @@ export function bootstrapDomains(deps: BootstrapDeps): BootstrapResult {
     supervisorService,
     notificationsService,
     pushNotificationService,
+    permissionBridge,
+    cancelWorkflowRun,
   } = registerFeatureDomains({
     db,
     app,
@@ -178,5 +182,7 @@ export function bootstrapDomains(deps: BootstrapDeps): BootstrapResult {
     notificationsService,
     pushNotificationService,
     orchestrator,
+    permissionBridge,
+    cancelWorkflowRun,
   };
 }

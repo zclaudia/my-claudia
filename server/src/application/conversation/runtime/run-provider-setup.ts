@@ -1,32 +1,10 @@
-import { AIReviewQueue } from '../agent/ai-review-queue.js';
 import { processAtMentions } from '../../../utils/server-utils.js';
-import { runAIReviewCliJob, supportsAIReviewCliJob } from '../../../infrastructure/providers/cli-jobs/review-job.js';
 import { createPermissionCallback } from './run-permissions.js';
 import type { RunStartMessage, RunSessionRecord } from './run-bootstrap.js';
 import type { ActiveRun, ConnectedClient } from '../transport/types.js';
 import type { PushNotificationService } from '../../../infrastructure/push/push-notification-service.js';
 import type { ProviderConfig } from '@my-claudia/shared/core/provider';
-
-function parseProviderEnv(envJson: string | null, providerId: string): Record<string, string> {
-  if (!envJson) return {};
-
-  try {
-    const parsed = JSON.parse(envJson) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      console.warn(`[AI Review] Ignoring invalid provider env for ${providerId}: expected object`);
-      return {};
-    }
-    return Object.fromEntries(
-      Object.entries(parsed).map(([key, value]) => [key, String(value)])
-    );
-  } catch (error) {
-    console.warn(
-      `[AI Review] Failed to parse provider env for ${providerId}:`,
-      error instanceof Error ? error.message : error
-    );
-    return {};
-  }
-}
+import type { PermissionBridge } from '../agent/permission-bridge.js';
 
 interface PrepareProviderRunInput {
   activeRun: ActiveRun;
@@ -41,12 +19,6 @@ interface PrepareProviderRunInput {
   db: ActiveRun['db'];
   message: RunStartMessage;
   notificationService: PushNotificationService;
-  onAIReviewResolved: (input: {
-    requestId: string;
-    toolName: string;
-    detail: string;
-    result: import('@my-claudia/shared/interaction/permissions').AIReviewResult;
-  }) => void;
   providerConfig?: ProviderConfig;
   providerId: string | null;
   providerType: string;
@@ -56,7 +28,7 @@ interface PrepareProviderRunInput {
   session: RunSessionRecord;
   sessionType: 'regular' | 'background' | 'agent';
   markPendingResolutionResumed: () => void;
-  aiReviewSystemPrompt: string;
+  permissionBridge?: PermissionBridge;
 }
 
 export interface PreparedProviderRun {
@@ -69,7 +41,6 @@ export interface PreparedProviderRun {
 export function prepareProviderRun(input: PrepareProviderRunInput): PreparedProviderRun {
   const {
     activeRun,
-    aiReviewSystemPrompt,
     client,
     broadcastToOtherAuthenticatedClients,
     connectedClients,
@@ -78,12 +49,8 @@ export function prepareProviderRun(input: PrepareProviderRunInput): PreparedProv
     markPendingResolutionResumed,
     message,
     notificationService,
-    onAIReviewResolved,
-    providerConfig,
-    providerId,
     providerType,
     runId,
-    sendMessage,
     sendRunEvent,
     session,
     sessionType,
@@ -103,61 +70,6 @@ export function prepareProviderRun(input: PrepareProviderRunInput): PreparedProv
     console.log(`[Mode] Forced plan mode for task planning session ${message.sessionId}`);
   }
 
-  const createDelegationAnalysisProvider = (analysisProviderId?: string) => {
-    const resolvedProviderId = analysisProviderId || providerId;
-    if (!resolvedProviderId) return undefined;
-
-    const providerRow = db.prepare(`
-      SELECT id, type, cli_path as cliPath, env
-      FROM providers
-      WHERE id = ?
-    `).get(resolvedProviderId) as {
-      id: string;
-      type: string;
-      cliPath: string | null;
-      env: string | null;
-    } | undefined;
-
-    const resolvedType = providerRow?.type || providerConfig?.type;
-    if (!resolvedType) return undefined;
-    if (!supportsAIReviewCliJob(resolvedType)) return undefined;
-    console.log(
-      `[AI Review] Using analysis provider id=${resolvedProviderId} type=${resolvedType}${providerRow?.cliPath ? ` cli=${providerRow.cliPath}` : ''}`
-    );
-
-    return {
-      runPrompt: async (prompt: string, sessionId?: string): Promise<{ response: string; sessionId?: string }> => {
-        const result = await runAIReviewCliJob(resolvedType, {
-          prompt,
-          cwd,
-          cliPath: providerRow?.cliPath || providerConfig?.cliPath,
-          env: {
-            ...(providerConfig?.env || {}),
-            ...parseProviderEnv(providerRow?.env ?? null, resolvedProviderId),
-          },
-          model: message.model,
-          systemPrompt: aiReviewSystemPrompt,
-          timeoutMs: 120000,
-        });
-
-        return {
-          response: JSON.stringify({
-            type: 'final',
-            decision: result.decision,
-            reasoning: result.reasoning,
-            confidence: result.confidence,
-          }),
-          sessionId: undefined,
-        };
-      },
-    };
-  };
-
-  activeRun.aiReviewQueue = new AIReviewQueue({
-    createProvider: (analysisProviderId) => createDelegationAnalysisProvider(analysisProviderId),
-    cwd,
-  });
-
   const permissionCallback = createPermissionCallback({
     activeRun,
     cwd,
@@ -170,7 +82,6 @@ export function prepareProviderRun(input: PrepareProviderRunInput): PreparedProv
     },
     modeValue,
     notificationService,
-    onAIReviewResolved,
     providerType,
     runId,
     sendRunEvent,
@@ -178,6 +89,7 @@ export function prepareProviderRun(input: PrepareProviderRunInput): PreparedProv
       project_id: session.project_id,
     },
     sessionType,
+    permissionBridge: input.permissionBridge!,
   });
 
   return {

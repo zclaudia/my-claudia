@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { GitCommit, GitMerge, GitBranch, GitPullRequest, Bot, Terminal, Globe, Bell, HelpCircle, Pause, Puzzle } from 'lucide-react';
+import { GitCommit, GitMerge, GitBranch, GitPullRequest, Bot, Terminal, Globe, Bell, HelpCircle, Pause, Puzzle, Shield, ShieldCheck, ShieldAlert } from 'lucide-react';
 import type { BuiltinWorkflowStepType } from '@my-claudia/shared';
 
 const STEP_ICONS: Record<BuiltinWorkflowStepType, React.ReactNode> = {
@@ -15,6 +15,9 @@ const STEP_ICONS: Record<BuiltinWorkflowStepType, React.ReactNode> = {
   condition: <HelpCircle size={14} />,
   notify: <Bell size={14} />,
   wait: <Pause size={14} />,
+  permission_classify: <Shield size={14} />,
+  ai_risk_analysis: <ShieldCheck size={14} />,
+  permission_decide: <ShieldAlert size={14} />,
 };
 
 export function getStepIcon(type: string): React.ReactNode {

@@ -2,7 +2,6 @@ import type {
   AgentPermissionInterceptedMessage,
   BackgroundPermissionPendingMessage,
   BackgroundTaskUpdateMessage,
-  PermissionAutoResolvedMessage,
   PromptRequestMessage,
 } from '@my-claudia/shared/protocol/messages';
 import type {
@@ -20,7 +19,6 @@ import {
   getProjectPermissionOverride,
   isInternalInteractionTool,
   isOutsideWorkspacePathAllowed,
-  isUnifiedPolicy,
   mergePolicy,
   normalizePolicy,
   PermissionEvaluator,
@@ -28,10 +26,14 @@ import {
 } from '../agent/permission-evaluator.js';
 import { isBashLikeTool, isSudoCommand } from '../../../utils/server-utils.js';
 import type { PermissionDecision } from '../../../infrastructure/providers/types.js';
-import { PERMISSION_TIMEOUT_POLICIES, type ActiveRun } from '../transport/types.js';
+import type { ActiveRun } from '../transport/types.js';
 import { broadcastRunMessage } from '../transport/broadcast.js';
 import { normalizeFromAskUser } from '../interactions/interaction-normalizer.js';
 import type { PushNotificationService } from '../../../infrastructure/push/push-notification-service.js';
+import { writePermissionLog } from '../agent/permission-log-writer.js';
+import type { PermissionBridge } from '../agent/permission-bridge.js';
+import type { PermissionEscalationContext } from '../../../domains/workflows/ports/step-executor.js';
+import { pluginEvents } from '../../../infrastructure/events/index.js';
 
 interface SessionContext {
   project_id: string;
@@ -51,17 +53,13 @@ export interface CreatePermissionCallbackInput {
   message: MessageContext;
   modeValue: string;
   notificationService: PushNotificationService;
-  onAIReviewResolved: (input: {
-    requestId: string;
-    toolName: string;
-    detail: string;
-    result: import('@my-claudia/shared/interaction/permissions').AIReviewResult;
-  }) => void;
   providerType: string;
   runId: string;
   sendRunEvent: (event: import('@my-claudia/shared/protocol/messages').ServerMessage) => void;
   session: SessionContext;
   sessionType: 'regular' | 'background' | 'agent';
+  /** Permission bridge for workflow-based permission handling */
+  permissionBridge: PermissionBridge;
 }
 
 export function createPermissionCallback(input: CreatePermissionCallbackInput) {
@@ -74,7 +72,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
     message,
     modeValue,
     notificationService,
-    onAIReviewResolved,
+    permissionBridge,
     providerType,
     runId,
     sendRunEvent,
@@ -103,6 +101,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
             sessionId: message.sessionId,
             runId,
           } as AgentPermissionInterceptedMessage);
+          writePermissionLog(db, message.sessionId, request.toolName, request.detail, 'deny', false);
           resolve({ behavior: 'deny', message: reason });
           return;
         }
@@ -124,6 +123,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
           sessionId: message.sessionId,
           runId,
         } as AgentPermissionInterceptedMessage);
+        writePermissionLog(db, message.sessionId, request.toolName, request.detail, remembered, true);
         resolve({ behavior: remembered, message: remembered === 'deny' ? 'Denied (remembered)' : undefined });
         return;
       }
@@ -146,6 +146,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
           sessionId: message.sessionId,
           runId,
         } as AgentPermissionInterceptedMessage);
+        writePermissionLog(db, message.sessionId, request.toolName, request.detail, 'allow', true);
         resolve({ behavior: 'allow', updatedInput: request.toolInput });
         return;
       }
@@ -274,152 +275,56 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
         }
 
         const isEscalateAlways = effectivePolicy?.escalateAlways?.includes(request.toolName);
-        const timeoutPolicy = PERMISSION_TIMEOUT_POLICIES.get(request.toolName);
-        const policyApplies = timeoutPolicy && (!timeoutPolicy.condition || timeoutPolicy.condition(activeRun));
-        const aiReviewConfig = effectivePolicy && isUnifiedPolicy(effectivePolicy)
-          ? effectivePolicy.aiReview
-          : undefined;
+        const category = classify(request.toolName, request.toolInput, request.detail);
 
-        let effectiveTimeoutSeconds: number;
-        let effectiveTimeoutBehavior: 'approve' | 'deny' | 'ai_review';
-        let aiInitiated = false;
+        // ── All permission escalations go through the workflow engine ──
+        const escalationContext: PermissionEscalationContext = {
+          requestId: request.requestId,
+          runId,
+          sessionId: message.sessionId,
+          toolName: request.toolName,
+          toolInput: request.toolInput as Record<string, unknown>,
+          detail: request.detail,
+          cwd,
+          category,
+          matchedRule,
+          isEscalateAlways: !!isEscalateAlways,
+          sessionType,
+          aiInitiatedPlanMode: !!activeRun.aiInitiatedPlanMode,
+        };
 
-        if (policyApplies) {
-          effectiveTimeoutBehavior = timeoutPolicy!.behavior;
-          effectiveTimeoutSeconds = request.timeoutSeconds || timeoutPolicy!.timeoutSeconds || 0;
-          aiInitiated = timeoutPolicy!.behavior === 'approve';
-        } else if (!isEscalateAlways && aiReviewConfig?.enabled) {
-          effectiveTimeoutBehavior = 'ai_review';
-          effectiveTimeoutSeconds = aiReviewConfig.timeoutBeforeReview;
-        } else {
-          effectiveTimeoutBehavior = 'deny';
-          effectiveTimeoutSeconds = request.timeoutSeconds;
-        }
+        // Register in bridge so workflow's permission_decide step can resolve it
+        permissionBridge.register(request.requestId, resolve, escalationContext);
 
-        let timeout: ReturnType<typeof setTimeout> | null = null;
-        if (effectiveTimeoutSeconds > 0) {
-          const timeoutMs = effectiveTimeoutSeconds * 1000;
-          timeout = setTimeout(() => void (async () => {
-            if (!activeRun.pendingPermissions.has(request.requestId)) return;
-
-            if (effectiveTimeoutBehavior === 'ai_review' && aiReviewConfig) {
-              console.log(`[AI Review] Enqueuing review for ${request.requestId} (${request.toolName}), queue depth: ${activeRun.aiReviewQueue?.pendingCount ?? 0}`);
-              try {
-                const aiResult = await activeRun.aiReviewQueue!.enqueue(
-                  request.requestId,
-                  aiReviewConfig,
-                  {
-                    toolName: request.toolName,
-                    toolInput: request.toolInput,
-                    detail: request.detail,
-                    cwd,
-                  },
-                );
-
-                if (!activeRun.pendingPermissions.has(request.requestId)) return;
-
-                if (aiResult.decision === 'approve') {
-                  onAIReviewResolved({
-                    requestId: request.requestId,
-                    toolName: request.toolName,
-                    detail: request.detail,
-                    result: aiResult,
-                  });
-                  activeRun.pendingPermissions.delete(request.requestId);
-                  const resolvedEvent = {
-                    type: 'permission_auto_resolved',
-                    requestId: request.requestId,
-                    sessionId: message.sessionId,
-                    behavior: 'approve' as const,
-                    reason: `AI review: ${aiResult.reasoning} (${Math.round(aiResult.confidence * 100)}%)`,
-                    metadata: aiResult.metadata,
-                  } as PermissionAutoResolvedMessage;
-                  broadcastRunMessage(activeRun, resolvedEvent);
-                  console.log(`[AI Review] Approved ${request.requestId} (${request.toolName}): ${aiResult.reasoning}`);
-                  markPendingResolutionResumed();
-                  resolve({ behavior: 'allow', updatedInput: request.toolInput });
-                } else {
-                  onAIReviewResolved({
-                    requestId: request.requestId,
-                    toolName: request.toolName,
-                    detail: request.detail,
-                    result: aiResult,
-                  });
-                  const reviewEvent = {
-                    type: 'ai_review_completed',
-                    requestId: request.requestId,
-                    sessionId: message.sessionId,
-                    decision: aiResult.decision,
-                    reasoning: aiResult.reasoning,
-                    confidence: aiResult.confidence,
-                    metadata: aiResult.metadata,
-                  } as import('@my-claudia/shared/protocol/messages').AIReviewCompletedMessage;
-                  broadcastRunMessage(activeRun, reviewEvent);
-                  console.log(`[AI Review] ${aiResult.decision} ${request.requestId} (${request.toolName}): ${aiResult.reasoning} — keeping pending for user`);
-                }
-              } catch (err) {
-                console.error('[AI Review] Failed:', err);
-                if (activeRun.pendingPermissions.has(request.requestId)) {
-                  const failEvent: import('@my-claudia/shared/protocol/messages').AIReviewCompletedMessage = {
-                    type: 'ai_review_completed',
-                    requestId: request.requestId,
-                    sessionId: message.sessionId,
-                    decision: 'uncertain',
-                    reasoning: `AI review failed: ${err instanceof Error ? err.message : String(err)}`,
-                    confidence: 0,
-                  };
-                  broadcastRunMessage(activeRun, failEvent);
-                }
-              }
-            } else {
-              activeRun.pendingPermissions.delete(request.requestId);
-              const behavior = effectiveTimeoutBehavior === 'ai_review' ? 'deny' : effectiveTimeoutBehavior;
-              const resolvedEvent = {
-                type: 'permission_auto_resolved',
-                requestId: request.requestId,
-                sessionId: message.sessionId,
-                behavior,
-              } as PermissionAutoResolvedMessage;
-              broadcastRunMessage(activeRun, resolvedEvent);
-              markPendingResolutionResumed();
-              if (behavior === 'approve') {
-                console.log(`[Permission] Auto-approved ${request.requestId} (${request.toolName}) on timeout`);
-                resolve({ behavior: 'allow', updatedInput: request.toolInput });
-              } else {
-                console.log(`[Permission] Auto-denied ${request.requestId} (${request.toolName}) on timeout`);
-                resolve({ behavior: 'deny', message: 'Permission request timed out' });
-              }
-            }
-          })().catch((err) => {
-            console.error(`[Permission] Timeout handler error for ${request.requestId}:`, err);
-          }), timeoutMs);
-        }
-
+        // Store pending permission (user can still manually decide via frontend)
         const isAskUserQuestion = request.toolName === 'AskUserQuestion';
         const toolInput = request.toolInput as Record<string, unknown>;
         const requiresCredential = !isAskUserQuestion && isSudoCommand(request.toolName, request.toolInput);
         activeRun.pendingPermissions.set(request.requestId, {
           resolve,
-          timeout,
+          timeout: null,
           originalToolInput: request.toolInput,
           originalRequest: {
             toolName: request.toolName,
             detail: request.detail,
             ...(matchedRule && { matchedRule }),
-            timeoutSeconds: effectiveTimeoutSeconds,
+            timeoutSeconds: 0,
             sessionId: message.sessionId,
             ...(requiresCredential && { requiresCredential: true, credentialHint: 'sudo_password' }),
             ...(isAskUserQuestion && { questions: (toolInput.questions as AskUserQuestionItem[]) || [] }),
-            ...(aiInitiated && { aiInitiated: true }),
           },
         });
-        console.log(`[Permission] Stored pending permission ${request.requestId} in run ${runId} (timeout: ${effectiveTimeoutSeconds > 0 ? `${effectiveTimeoutSeconds}s` : 'none'}, behavior: ${effectiveTimeoutBehavior}, aiInitiated: ${aiInitiated}, session: ${sessionType})`);
 
         db.prepare('UPDATE sessions SET last_run_status = ?, updated_at = ? WHERE id = ?')
           .run('waiting', Date.now(), activeRun.sessionId);
 
+        // Emit event to trigger the permission workflow
+        pluginEvents.emit('permission.escalated', escalationContext as unknown as Record<string, unknown>);
+        console.log(`[Permission] Delegated ${request.requestId} (${request.toolName}) to permission workflow`);
+
+        // Send request to frontend (user can still manually approve/deny)
         if (sessionType !== 'background') {
-          if (request.toolName === 'AskUserQuestion') {
+          if (isAskUserQuestion) {
             const askUserInput = request.toolInput as { questions?: AskUserQuestionItem[] };
             broadcastRunMessage(activeRun, {
               type: 'prompt_request',
@@ -445,7 +350,6 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
               tags: ['question'],
             });
           } else {
-            const requestRequiresCredential = isSudoCommand(request.toolName, request.toolInput);
             broadcastRunMessage(activeRun, {
               type: 'permission_request',
               requestId: request.requestId,
@@ -453,14 +357,14 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
               toolName: request.toolName,
               detail: request.detail,
               ...(matchedRule && { matchedRule }),
-              timeoutSeconds: effectiveTimeoutSeconds,
-              ...(requestRequiresCredential && {
+              timeoutSeconds: 0,
+              ...(requiresCredential && {
                 requiresCredential: true,
                 credentialHint: 'sudo_password',
               }),
-              ...(aiInitiated && { aiInitiated: true }),
+              workflowMode: true,
             } as import('@my-claudia/shared/protocol/messages').PermissionRequestMessage);
-            console.log(`[Permission] Sent permission request ${request.requestId} to client${requestRequiresCredential ? ' (requires sudo credential)' : ''}${aiInitiated ? ' (ai-initiated, auto-approve on timeout)' : ''}`);
+            console.log(`[Permission] Sent permission request ${request.requestId} to client`);
             notificationService.notify({
               type: 'permission_request',
               title: 'Permission Required',

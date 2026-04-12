@@ -55,6 +55,8 @@ export interface SetupResult {
   supervisorService: SupervisorService;
   notificationsService: NotificationService;
   orchestrator: import('./application/orchestration/types.js').TaskOrchestrator;
+  permissionBridge?: import('./application/conversation/agent/permission-bridge.js').PermissionBridge;
+  cancelWorkflowRun?: (runId: string) => void;
   /** Cleanup function: call when WebSocket server closes */
   onWssClose: () => void;
 }
@@ -115,6 +117,8 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     notificationsService,
     pushNotificationService,
     orchestrator,
+    permissionBridge: permBridge,
+    cancelWorkflowRun: cancelWfRun,
   } = bootstrapDomains({
     db, app, authMiddleware, clients, activeRuns,
     broadcastPluginState, broadcastHeartbeat,
@@ -179,6 +183,8 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     supervisorService,
     notificationsService,
     orchestrator,
+    permissionBridge: permBridge,
+    cancelWorkflowRun: cancelWfRun,
     onWssClose,
   };
 }

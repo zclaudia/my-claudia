@@ -216,6 +216,18 @@ class PluginEventEmitter {
    * @param data - The event data
    * @param sourcePluginId - Optional ID of the plugin that emitted the event
    */
+  /**
+   * Check if any listener is subscribed to the given event (exact or pattern match).
+   */
+  hasListeners(event: PluginEvent): boolean {
+    const exact = this.listeners.get(event);
+    if (exact && exact.size > 0) return true;
+    for (const [pattern, subs] of this.patternListeners) {
+      if (subs.size > 0 && matchesEventPattern(event, pattern)) return true;
+    }
+    return false;
+  }
+
   async emit(event: PluginEvent, data: EventData = {}, sourcePluginId?: string): Promise<void> {
     // Get regular listeners
     const listeners = this.listeners.get(event);

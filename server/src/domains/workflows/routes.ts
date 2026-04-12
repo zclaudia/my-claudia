@@ -433,6 +433,9 @@ export function createWorkflowRoutes(
       { type: 'notify', name: 'Notify', description: 'Send notification', category: 'Automation', source: 'builtin' },
       { type: 'condition', name: 'Condition', description: 'Conditional branching', category: 'Flow Control', source: 'builtin' },
       { type: 'wait', name: 'Wait / Approval', description: 'Wait or require approval', category: 'Flow Control', source: 'builtin' },
+      { type: 'permission_classify', name: 'Permission Classify', description: 'Classify permission request', category: 'Permission', source: 'builtin' },
+      { type: 'ai_risk_analysis', name: 'AI Risk Analysis', description: 'Analyze permission risk', category: 'Permission', source: 'builtin' },
+      { type: 'permission_decide', name: 'Permission Decide', description: 'Decide on permission request', category: 'Permission', source: 'builtin' },
     ];
     const pluginMeta = workflowStepRegistry?.getAllMeta() ?? [];
     res.json({ success: true, data: [...builtinMeta, ...pluginMeta] });

@@ -467,6 +467,8 @@ export function handleServerMessage(
         requiresCredential: permMsg.requiresCredential,
         credentialHint: permMsg.credentialHint,
         aiInitiated: permMsg.aiInitiated,
+        workflowMode: permMsg.workflowMode,
+        workflowRunId: permMsg.workflowRunId,
       });
       updateClaudiaTaskStatusBySessionId(permMsg.sessionId, 'waiting');
       // Toast so the user notices even if they're not looking at the chat
@@ -525,6 +527,17 @@ export function handleServerMessage(
           type: aiMsg.decision === 'deny' ? 'error' : 'info',
         });
       }
+      break;
+    }
+
+    case 'permission_workflow_progress': {
+      const progressMsg = msg as any;
+      usePermissionStore.getState().setWorkflowProgress(progressMsg.requestId, {
+        workflowRunId: progressMsg.workflowRunId,
+        currentStep: progressMsg.currentStep,
+        completedSteps: progressMsg.completedSteps,
+        totalSteps: progressMsg.totalSteps,
+      });
       break;
     }
 

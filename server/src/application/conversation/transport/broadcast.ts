@@ -106,7 +106,7 @@ export function buildStateHeartbeat(activeRuns: Map<string, ActiveRun>): StateHe
           timeoutSeconds: pending.originalRequest.timeoutSeconds,
           requiresCredential: pending.originalRequest.requiresCredential,
           credentialHint: pending.originalRequest.credentialHint,
-          aiInitiated: pending.originalRequest.aiInitiated,
+          aiInitiated: undefined,
         } as StateHeartbeatMessage['pendingPermissions'][number]);
       }
     }

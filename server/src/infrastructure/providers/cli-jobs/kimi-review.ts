@@ -79,7 +79,8 @@ export async function runKimiReviewJob(input: CliJobInput): Promise<AIReviewCliJ
       if (settled) return;
       settled = true;
       try {
-        const parsed = parseFinalReviewFromText(assistantChunks.join('\n'), 'Kimi review job');
+        const assistantText = assistantChunks.join('\n');
+        const parsed = parseFinalReviewFromText(assistantText, 'Kimi review job');
         resolve({
           ...parsed,
           rawStdout: stdoutBuffer,
@@ -87,7 +88,7 @@ export async function runKimiReviewJob(input: CliJobInput): Promise<AIReviewCliJ
           exitCode,
         });
       } catch (error) {
-        reject(buildCliReviewParseError('Kimi review job', stdoutBuffer, stderrBuffer, error));
+        reject(buildCliReviewParseError('Kimi review job', stdoutBuffer, stderrBuffer, error, assistantChunks.join('\n')));
       }
     };
 

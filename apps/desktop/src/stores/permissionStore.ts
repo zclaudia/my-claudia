@@ -21,6 +21,22 @@ export interface PermissionRequest {
   credentialHint?: string;
   /** When true, timeout will auto-approve; countdown label changes accordingly. */
   aiInitiated?: boolean;
+  /** When true, this permission is being handled by a permission workflow. */
+  workflowMode?: boolean;
+  /** Workflow run ID for tracking progress. */
+  workflowRunId?: string;
+}
+
+export interface PermissionWorkflowProgress {
+  workflowRunId: string;
+  currentStep: {
+    id: string;
+    type: string;
+    status: 'running' | 'completed' | 'failed';
+    label: string;
+  };
+  completedSteps: string[];
+  totalSteps: number;
 }
 
 interface PermissionState {
@@ -32,6 +48,8 @@ interface PermissionState {
   feedbackDrafts: Record<string, string>;
   // AI review results keyed by requestId
   aiReviewResults: Record<string, AIReviewResult>;
+  // Workflow progress keyed by requestId
+  workflowProgress: Record<string, PermissionWorkflowProgress>;
 
   // Actions
   setPendingRequest: (request: PermissionRequest | null) => void;
@@ -45,6 +63,8 @@ interface PermissionState {
   setFeedbackDraft: (requestId: string, feedback: string) => void;
   clearFeedbackDraft: (requestId: string) => void;
   setAIReviewResult: (requestId: string, result: AIReviewResult) => void;
+  setWorkflowProgress: (requestId: string, progress: PermissionWorkflowProgress) => void;
+  clearWorkflowProgress: (requestId: string) => void;
 }
 
 export const usePermissionStore = create<PermissionState>((set, get) => ({
@@ -52,6 +72,7 @@ export const usePermissionStore = create<PermissionState>((set, get) => ({
   pendingRequest: null,
   feedbackDrafts: {},
   aiReviewResults: {},
+  workflowProgress: {},
 
   setPendingRequest: (request) => {
     if (!request) {
@@ -174,4 +195,17 @@ export const usePermissionStore = create<PermissionState>((set, get) => ({
     set((state) => ({
       aiReviewResults: { ...state.aiReviewResults, [requestId]: result },
     })),
+
+  setWorkflowProgress: (requestId, progress) =>
+    set((state) => ({
+      workflowProgress: { ...state.workflowProgress, [requestId]: progress },
+    })),
+
+  clearWorkflowProgress: (requestId) =>
+    set((state) => {
+      if (!(requestId in state.workflowProgress)) return state;
+      const workflowProgress = { ...state.workflowProgress };
+      delete workflowProgress[requestId];
+      return { workflowProgress };
+    }),
 }));

@@ -23,7 +23,10 @@ export type BuiltinWorkflowStepType =
   | 'webhook'
   | 'condition'
   | 'notify'
-  | 'wait';
+  | 'wait'
+  | 'permission_classify'
+  | 'ai_risk_analysis'
+  | 'permission_decide';
 
 export type WorkflowStepType = BuiltinWorkflowStepType | (string & {});
 
@@ -267,6 +270,6 @@ export interface WorkflowTemplate {
   id: string;
   name: string;
   description: string;
-  category: 'git' | 'ci' | 'ai' | 'custom';
+  category: 'git' | 'ci' | 'ai' | 'permission' | 'custom';
   definition: WorkflowDefinition;
 }

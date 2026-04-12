@@ -45,6 +45,16 @@ export async function runOpenCodeReviewJob(input: CliJobInput): Promise<AIReview
     const settleResolve = (exitCode: number | null): void => {
       if (settled) return;
       settled = true;
+
+      // Detect agent configuration errors (e.g. oh-my-openagent plugin missing agents)
+      if (exitCode !== 0 && !stdoutBuffer.trim() && stderrBuffer.includes('agent') && stderrBuffer.includes('not found')) {
+        reject(new Error(
+          `OpenCode review failed: agent not found. ${stderrBuffer.split('\n')[0].replace(/\x1b\[[0-9;]*m/g, '').trim()}. ` +
+          'Check your OpenCode agent configuration (opencode agent list).'
+        ));
+        return;
+      }
+
       try {
         const sourceText = assistantChunks.join('\n') || stdoutBuffer;
         const parsed = parseFinalReviewFromText(sourceText, 'OpenCode review job');
@@ -55,7 +65,7 @@ export async function runOpenCodeReviewJob(input: CliJobInput): Promise<AIReview
           exitCode,
         });
       } catch (error) {
-        reject(buildCliReviewParseError('OpenCode review job', stdoutBuffer, stderrBuffer, error));
+        reject(buildCliReviewParseError('OpenCode review job', stdoutBuffer, stderrBuffer, error, assistantChunks.join('\n') || stdoutBuffer));
       }
     };
 

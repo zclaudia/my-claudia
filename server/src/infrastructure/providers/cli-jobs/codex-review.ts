@@ -102,7 +102,7 @@ export async function runCodexReviewJob(input: CliJobInput): Promise<AIReviewCli
           });
         } catch (fallbackError) {
           cleanup();
-          reject(buildCliReviewParseError('Codex review job', stdoutBuffer, stderrBuffer, fallbackError ?? error));
+          reject(buildCliReviewParseError('Codex review job', stdoutBuffer, stderrBuffer, fallbackError ?? error, stdoutBuffer || stderrBuffer));
         }
       }
     };

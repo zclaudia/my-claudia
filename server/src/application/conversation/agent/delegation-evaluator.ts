@@ -67,6 +67,12 @@ function recordApproval(): void {
   approvalTimestamps.push(Date.now());
 }
 
+/** @internal Test-only: reset the rate limiter state */
+export function _resetRateLimiterForTesting(): void {
+  approvalTimestamps = [];
+  approvalStartIdx = 0;
+}
+
 /** Load delegation config from DB */
 export function getDelegationConfig(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- better-sqlite3 Statement.get() uses variadic params

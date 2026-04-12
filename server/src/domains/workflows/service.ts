@@ -21,7 +21,7 @@ import { WorkflowScheduleRepository } from './workflow-schedule-repository.js';
 import type { WorkflowEngine } from './engine.js';
 import { computeNextCronRun } from '../../utils/cron.js';
 import { pluginEvents } from '../../infrastructure/events/index.js';
-import { BUILTIN_WORKFLOW_TEMPLATES } from './templates.js';
+import { BUILTIN_WORKFLOW_TEMPLATES, PERMISSION_WORKFLOW_TEMPLATE_ID } from './templates.js';
 
 export class WorkflowService {
   private workflowRepo: WorkflowRepository;
@@ -44,7 +44,27 @@ export class WorkflowService {
   // ── Initialization ────────────────────────────────────────────
 
   initialize(): void {
+    this.ensureBuiltinWorkflows();
     this.rebuildEventSubscriptions();
+  }
+
+  private ensureBuiltinWorkflows(): void {
+    const existing = this.workflowRepo.findGlobalByTemplate(PERMISSION_WORKFLOW_TEMPLATE_ID);
+    if (!existing) {
+      const template = BUILTIN_WORKFLOW_TEMPLATES.find(t => t.id === PERMISSION_WORKFLOW_TEMPLATE_ID);
+      if (template) {
+        this.workflowRepo.create({
+          projectId: undefined,
+          name: template.name,
+          description: template.description,
+          status: 'active',
+          definition: template.definition,
+          templateId: template.id,
+          sourceType: 'template',
+        });
+        console.log(`[Workflow] Auto-created builtin workflow: ${template.name}`);
+      }
+    }
   }
 
   // ── Workflow CRUD ─────────────────────────────────────────────

@@ -1,6 +1,141 @@
 import type { WorkflowTemplate } from '@my-claudia/shared/features/workflows';
 
+export const PERMISSION_WORKFLOW_TEMPLATE_ID = 'permission-escalation-default';
+
 export const BUILTIN_WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
+  {
+    id: PERMISSION_WORKFLOW_TEMPLATE_ID,
+    name: 'Permission Escalation (Default)',
+    description: 'Handles escalated permission requests: classifies the request, runs AI risk analysis, and auto-approves or keeps waiting for user.',
+    category: 'permission',
+    definition: {
+      entryNodeId: 'classify',
+      triggers: [
+        { type: 'event', event: 'permission.escalated' },
+      ],
+      nodes: [
+        {
+          id: 'classify',
+          name: 'Classify Request',
+          type: 'permission_classify',
+          config: {},
+          position: { x: 300, y: 0 },
+          onError: 'abort',
+        },
+        {
+          id: 'check_escalate',
+          name: 'Escalate Always?',
+          type: 'condition',
+          config: {},
+          position: { x: 300, y: 150 },
+          condition: {
+            expression: '${classify.output.isEscalateAlways} == true',
+          },
+        },
+        {
+          id: 'check_exit_plan_mode',
+          name: 'AI-Initiated ExitPlanMode?',
+          type: 'condition',
+          config: {},
+          position: { x: 450, y: 300 },
+          condition: {
+            expression: '${classify.output.toolName} == ExitPlanMode && ${classify.output.aiInitiatedPlanMode} == true',
+          },
+        },
+        {
+          id: 'wait_exit_plan',
+          name: 'Wait for User (2min)',
+          type: 'wait',
+          config: { type: 'timeout' },
+          position: { x: 600, y: 450 },
+          timeoutMs: 120000,
+        },
+        {
+          id: 'decide_approve_exit_plan',
+          name: 'Auto-Approve ExitPlanMode',
+          type: 'permission_decide',
+          config: {
+            decision: 'approve',
+            reason: 'AI-initiated ExitPlanMode auto-approved after timeout',
+          },
+          position: { x: 600, y: 600 },
+        },
+        {
+          id: 'ai_review',
+          name: 'AI Risk Analysis',
+          type: 'ai_risk_analysis',
+          config: {
+            confidenceThreshold: 0.7,
+            maxAutoApprovalsPerMinute: 10,
+          },
+          position: { x: 150, y: 300 },
+          timeoutMs: 120000,
+          onError: 'route',
+        },
+        {
+          id: 'check_confidence',
+          name: 'High Confidence Approve?',
+          type: 'condition',
+          config: {},
+          position: { x: 150, y: 450 },
+          condition: {
+            expression: '${ai_review.output.approved} == true',
+          },
+        },
+        {
+          id: 'decide_approve',
+          name: 'Auto-Approve',
+          type: 'permission_decide',
+          config: {
+            decision: 'approve',
+            reason: 'AI review: ${ai_review.output.reasoning} (${ai_review.output.confidence})',
+          },
+          position: { x: 0, y: 600 },
+        },
+        {
+          id: 'notify_review_done',
+          name: 'Notify Review Result',
+          type: 'notify',
+          config: {
+            type: 'system',
+            title: 'AI Review',
+            message: 'AI review result: ${ai_review.output.decision} — ${ai_review.output.reasoning}',
+            priority: 'normal',
+          },
+          position: { x: 300, y: 600 },
+        },
+        {
+          id: 'notify_review_failed',
+          name: 'Notify Review Failed',
+          type: 'notify',
+          config: {
+            type: 'system',
+            title: 'AI Review Error',
+            message: 'AI risk analysis failed: ${ai_review.output.error}. Waiting for manual decision.',
+            priority: 'high',
+          },
+          position: { x: 450, y: 450 },
+        },
+      ],
+      edges: [
+        { id: 'e1', source: 'classify', target: 'check_escalate', type: 'success' },
+        // escalateAlways = true → check if it's AI-initiated ExitPlanMode (auto-approve after 2min)
+        { id: 'e2', source: 'check_escalate', target: 'check_exit_plan_mode', type: 'condition_true' },
+        // escalateAlways = false → run AI review
+        { id: 'e3', source: 'check_escalate', target: 'ai_review', type: 'condition_false' },
+        // ExitPlanMode + aiInitiatedPlanMode → wait 2min then auto-approve
+        { id: 'e4', source: 'check_exit_plan_mode', target: 'wait_exit_plan', type: 'condition_true' },
+        // Not ExitPlanMode → workflow ends, wait for user manual decision
+        // (condition_false has no target — workflow completes without deciding)
+        { id: 'e5', source: 'wait_exit_plan', target: 'decide_approve_exit_plan', type: 'success' },
+        // AI review path
+        { id: 'e6', source: 'ai_review', target: 'check_confidence', type: 'success' },
+        { id: 'e7', source: 'check_confidence', target: 'decide_approve', type: 'condition_true' },
+        { id: 'e8', source: 'check_confidence', target: 'notify_review_done', type: 'condition_false' },
+        { id: 'e9', source: 'ai_review', target: 'notify_review_failed', type: 'error' },
+      ],
+    },
+  },
   {
     id: 'local-pr-review-merge',
     name: 'Local PR: Review & Merge',

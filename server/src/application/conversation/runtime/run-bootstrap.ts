@@ -156,13 +156,28 @@ export function initializeRunBootstrap(input: InitializeRunBootstrapInput): RunB
 
   const sessionType = (session.session_type || 'regular') as 'regular' | 'background' | 'agent';
   const projectId = session.project_id || message.sessionId;
+
+  // When the user switches permission mode (e.g. default → plan), the Claude
+  // Agent SDK ignores the new permissionMode if we resume an existing SDK
+  // session.  Force a fresh SDK session whenever mode changes.
+  const requestedMode = message.mode || message.permissionMode;
+  const modeRequiresNewSession = requestedMode && requestedMode !== 'default' && session.sdk_session_id;
+  const effectiveSdkSessionId = modeRequiresNewSession ? undefined : (session.sdk_session_id || undefined);
+
   const requestedCwd = message.workingDirectory
     || session.working_directory
     || session.root_path
     || process.cwd();
+  if (modeRequiresNewSession) {
+    trace.log('server_norm', 'mode_switch_new_session', {
+      requestedMode,
+      previousSdkSession: session.sdk_session_id,
+    }, `mode=${requestedMode} forces new SDK session`);
+  }
+
   const cwd = resolveProviderCwd({
     providerType: providerConfig?.type || 'claude',
-    sdkSessionId: session.sdk_session_id || undefined,
+    sdkSessionId: effectiveSdkSessionId,
     requestedCwd,
     sessionRootPath: session.root_path,
     persistedWorkingDirectory: session.working_directory,
@@ -223,7 +238,7 @@ export function initializeRunBootstrap(input: InitializeRunBootstrapInput): RunB
   };
 
   const providerEventState: RunProviderEventState = {
-    sdkSessionId: session.sdk_session_id || undefined,
+    sdkSessionId: effectiveSdkSessionId,
   };
 
   let persistedWorkingDirectory = normalizeSessionWorkingDirectory(session.working_directory, session.root_path);

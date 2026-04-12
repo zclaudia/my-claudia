@@ -17,13 +17,6 @@ import { launchProviderRun } from './run-provider-launch.js';
 import { prepareProviderRun } from './run-provider-setup.js';
 import { finalizeRun, handleRunException } from './run-recovery.js';
 
-const AI_REVIEW_SYSTEM_PROMPT = [
-  'You are a machine-only security review helper for a coding assistant.',
-  'Follow the user prompt exactly.',
-  'Do not add markdown, commentary, prose, or code fences.',
-  'Return only the JSON object requested by the prompt.',
-].join(' ');
-
 export interface RunHandlerContext {
   activeRuns: Map<string, ActiveRun>;
   processMonitor: ProcessMonitor | null;
@@ -33,75 +26,7 @@ export interface RunHandlerContext {
   broadcastHeartbeat: () => void;
   sessionSync?: SessionSyncPort;
   providerRegistry: ProviderRegistryPort;
-}
-
-type ExtendedAIReviewMetadata = import('@my-claudia/shared/interaction/permissions').AIReviewMetadata & {
-  payloadDisposition?: 'safe_to_send' | 'send_with_redaction' | 'do_not_send';
-  redactionCount?: number;
-  reviewedFileCount?: number;
-};
-
-type ExtendedDelegationContext = import('@my-claudia/shared/features/notification-feed').NotificationItem['delegationContext'] & {
-  payloadDisposition?: 'safe_to_send' | 'send_with_redaction' | 'do_not_send';
-  redactionCount?: number;
-  reviewedFileCount?: number;
-};
-
-function buildAIReviewFeedSummary(aiResult: import('@my-claudia/shared/interaction/permissions').AIReviewResult): string {
-  const metadata = aiResult.metadata as ExtendedAIReviewMetadata | undefined;
-  const base = aiResult.reasoning;
-  if (metadata?.payloadDisposition === 'do_not_send') {
-    return `${base} Remote analysis skipped because sensitive local material was detected.`;
-  }
-  if (metadata?.payloadDisposition !== 'send_with_redaction') return base;
-  const reviewedFileCount = metadata.reviewedFileCount ?? 0;
-  const redactionCount = metadata.redactionCount ?? 0;
-  return `${base} Payload sanitized locally; redactions: ${redactionCount}; files reviewed: ${reviewedFileCount}.`;
-}
-
-function postAIReviewFeedItem(
-  feedService: NotificationService | undefined,
-  input: {
-    sessionId: string;
-    projectId: string;
-    requestId: string;
-    toolName: string;
-    detail: string;
-    result: import('@my-claudia/shared/interaction/permissions').AIReviewResult;
-  },
-): void {
-  if (!feedService) return;
-
-  const feedDecision = input.result.decision === 'approve' ? 'approve' : 'deny';
-  const status = input.result.decision === 'deny' ? 'failed' : 'completed';
-  const title = input.result.decision === 'approve'
-    ? `AI review approved ${input.toolName}`
-    : input.result.decision === 'deny'
-      ? `AI review denied ${input.toolName}`
-      : `AI review needs user decision for ${input.toolName}`;
-  const metadata = input.result.metadata as ExtendedAIReviewMetadata | undefined;
-
-  feedService.postItem({
-    sessionId: input.sessionId,
-    projectId: input.projectId,
-    source: 'delegation',
-    title,
-    summary: buildAIReviewFeedSummary(input.result),
-    status,
-    error: status === 'failed' ? input.result.reasoning : undefined,
-    delegationContext: {
-      originalRequestId: input.requestId,
-      toolName: input.toolName,
-      detail: input.detail,
-      decision: feedDecision,
-      reasoning: input.result.reasoning,
-      confidence: input.result.confidence,
-      payloadDisposition: metadata?.payloadDisposition,
-      redactionCount: metadata?.redactionCount,
-      reviewedFileCount: metadata?.reviewedFileCount,
-    } as ExtendedDelegationContext,
-    completedAt: Date.now(),
-  });
+  permissionBridge?: import('../agent/permission-bridge.js').PermissionBridge;
 }
 
 export async function handleRunStart(
@@ -186,7 +111,6 @@ export async function handleRunStart(
       });
       activeRun.completed = true;
       broadcastHeartbeat();
-      activeRun.aiReviewQueue?.cancelAll();
       cleanupPendingPermissions(activeRun, 'Project path does not exist');
       activeRuns.delete(runId);
       return;
@@ -205,7 +129,6 @@ export async function handleRunStart(
       processedInput,
     } = prepareProviderRun({
       activeRun,
-      aiReviewSystemPrompt: AI_REVIEW_SYSTEM_PROMPT,
       broadcastToOtherAuthenticatedClients,
       client,
       connectedClients,
@@ -214,16 +137,6 @@ export async function handleRunStart(
       markPendingResolutionResumed,
       message,
       notificationService,
-      onAIReviewResolved: ({ requestId, toolName, detail, result }) => {
-        postAIReviewFeedItem(notificationsService, {
-          sessionId: message.sessionId,
-          projectId: session.project_id,
-          requestId,
-          toolName,
-          detail,
-          result,
-        });
-      },
       providerConfig,
       providerId,
       providerType,
@@ -232,6 +145,7 @@ export async function handleRunStart(
       sendRunEvent,
       session,
       sessionType,
+      permissionBridge: ctx?.permissionBridge,
     });
 
     const { providerRunner } = await launchProviderRun({

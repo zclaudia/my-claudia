@@ -184,60 +184,22 @@ describe('InlinePermissionRequest', () => {
     expect(usePermissionStore.getState().feedbackDrafts[request.requestId]).toBeUndefined();
   });
 
-  it('shows timeout countdown and progress bar', () => {
-    const request = makeRequest({ toolName: 'Bash', detail: '{}', timeoutSec: 30 });
+  // Timeout countdown and auto-approve/deny tests removed — these are now handled
+  // by the permission workflow engine (server-side), not frontend countdown.
+
+  it('shows workflow processing indicator for workflowMode requests', () => {
+    const request = makeRequest({ toolName: 'Bash', detail: '{}', workflowMode: true });
     render(<InlinePermissionRequest request={request} onDecision={vi.fn()} />);
-    expect(screen.getByText('30s')).toBeInTheDocument();
+    expect(screen.getByText('Workflow processing...')).toBeInTheDocument();
   });
 
-  it('decrements countdown every second', () => {
-    const request = makeRequest({ toolName: 'Bash', detail: '{}', timeoutSec: 5 });
-    render(<InlinePermissionRequest request={request} onDecision={vi.fn()} />);
-    expect(screen.getByText('5s')).toBeInTheDocument();
-
-    act(() => { vi.advanceTimersByTime(1000); });
-    expect(screen.getByText('4s')).toBeInTheDocument();
-
-    act(() => { vi.advanceTimersByTime(1000); });
-    expect(screen.getByText('3s')).toBeInTheDocument();
-  });
-
-  it('does not auto-deny non-AI-initiated request when countdown reaches 0', () => {
-    const onDecision = vi.fn();
-    const request = makeRequest({ toolName: 'Bash', detail: '{}', timeoutSec: 2, aiInitiated: false });
-    render(<InlinePermissionRequest request={request} onDecision={onDecision} />);
-
-    act(() => { vi.advanceTimersByTime(2000); });
-
-    expect(onDecision).not.toHaveBeenCalled();
-    expect(screen.getByText('AI reviewing...')).toBeInTheDocument();
-  });
-
-  it('does not auto-deny AI-initiated request when countdown reaches 0', () => {
-    const onDecision = vi.fn();
-    const request = makeRequest({ toolName: 'Bash', detail: '{}', timeoutSec: 2, aiInitiated: true });
-    render(<InlinePermissionRequest request={request} onDecision={onDecision} />);
-
-    act(() => { vi.advanceTimersByTime(2000); });
-
-    expect(onDecision).not.toHaveBeenCalled();
-  });
-
-  it('shows auto-approve label for AI-initiated requests', () => {
-    const request = makeRequest({ toolName: 'Bash', detail: '{}', timeoutSec: 10, aiInitiated: true });
-    render(<InlinePermissionRequest request={request} onDecision={vi.fn()} />);
-    expect(screen.getByText('Auto-approve:')).toBeInTheDocument();
-  });
-
-  it('sets timeout and focuses credential input for credential+timeout request', () => {
+  it('shows credential input for credential+workflow request', () => {
     const request = makeRequest({
       toolName: 'Bash',
       requiresCredential: true,
       credentialHint: 'sudo_password',
-      timeoutSec: 30,
     });
     render(<InlinePermissionRequest request={request} onDecision={vi.fn()} />);
-    expect(screen.getByText('30s')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Enter sudo password')).toBeInTheDocument();
   });
 
