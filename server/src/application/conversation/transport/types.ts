@@ -6,7 +6,7 @@ import type { AskUserQuestionItem } from '@my-claudia/shared/interaction/forms';
 import type { PermissionDecision, SystemInfo } from '../../../infrastructure/providers/types.js';
 import type { initDatabase } from '../../../infrastructure/storage/db.js';
 import type { ProcessMonitor } from '../../../utils/process-monitor.js';
-import type { PushNotificationService } from '../../../infrastructure/push/push-notification-service.js';
+import type { NotificationSender } from '../../../infrastructure/push/notification-sender.js';
 
 export interface ConnectedClient {
   id: string;

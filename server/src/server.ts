@@ -20,7 +20,8 @@ import { TerminalManager } from './terminal-manager.js';
 import { generateKeyPair, getPublicKeyPem } from './utils/crypto.js';
 import { pluginLoader } from './application/plugins/loader.js';
 import type { ProcessMonitor } from './utils/process-monitor.js';
-import type { PushNotificationService } from './infrastructure/push/push-notification-service.js';
+import type { NotificationSender } from './infrastructure/push/notification-sender.js';
+import { GatewayNotificationSender, NoopNotificationSender } from './infrastructure/push/notification-sender.js';
 import { ClaudiaBranchService } from './application/orchestration/claudia-branch-service.js';
 import type { TaskCoordinationPort } from './application/conversation/task-coordination-port.js';
 import type { SessionSyncPort } from './application/conversation/session-sync-port.js';
@@ -141,7 +142,7 @@ const activeRuns = new Map<string, ActiveRun>();
 // Module-level shared state (initialized in createServer)
 let processMonitor: ProcessMonitor | null = null;
 let connectedClients = new Map<string, ConnectedClient>();
-let pushNotificationService: PushNotificationService;
+let notificationSender: NotificationSender;
 let serverPort: number | null = null;
 let notificationsService: import('./domains/notification-feed/index.js').NotificationService | undefined;
 let permissionBridge: import('./application/conversation/agent/permission-bridge.js').PermissionBridge | undefined;
@@ -212,7 +213,7 @@ function getRunHandlerContext(): RunHandlerContext {
   return {
     activeRuns,
     processMonitor,
-    notificationService: pushNotificationService,
+    notificationService: notificationSender,
     notificationsService,
     serverPort,
     broadcastHeartbeat,
@@ -280,13 +281,18 @@ export async function createServer(): Promise<ServerContext> {
     if (client) sendMessage(client.ws, msg);
   });
 
+  // Create notification sender (gateway-aware or no-op)
+  notificationSender = process.env.GATEWAY_URL
+    ? new GatewayNotificationSender(() => getGatewayClient())
+    : new NoopNotificationSender();
+
   // Setup routes, services, and periodic tasks
   const setup = setupRoutesAndServices({
     db, app, router, clients, activeRuns,
     buildStateHeartbeat, broadcastHeartbeat, broadcastPluginState,
     handleRunStart,
     getServerPort: () => serverPort,
-    setNotificationService: (ns) => { pushNotificationService = ns; },
+    notificationSender,
     setProcessMonitor: (pm) => { processMonitor = pm; },
   });
   notificationsService = setup.notificationsService;

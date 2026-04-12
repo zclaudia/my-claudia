@@ -4,7 +4,7 @@ import type { ActiveRun } from '../transport/types.js';
 import type { SessionSyncPort } from '../../../application/conversation/session-sync-port.js';
 import type { ProcessMonitor } from '../../../utils/process-monitor.js';
 import type { ConnectedClient } from '../transport/types.js';
-import type { PushNotificationService } from '../../../infrastructure/push/push-notification-service.js';
+import type { NotificationSender } from '../../../infrastructure/push/notification-sender.js';
 import { broadcastRunMessage, sendMessage } from '../transport/broadcast.js';
 import { MAX_SESSION_RESET_RETRIES } from '../transport/types.js';
 import type { TraceRecorder } from '../../../utils/provider-trace.js';
@@ -23,7 +23,7 @@ interface HandleRunExceptionInput {
   message: {
     sessionId: string;
   } & Record<string, unknown>;
-  notificationService: PushNotificationService;
+  notificationService: NotificationSender;
   processMonitor: ProcessMonitor | null;
   recoveryState: { sessionResetRetryCount?: number };
   runId: string;

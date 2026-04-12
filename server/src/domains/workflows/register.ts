@@ -12,7 +12,7 @@ import { WorkflowEngine } from './engine.js';
 import { WorkflowService } from './service.js';
 import { WorkflowGeneratorService } from './generator.js';
 import { createWorkflowRoutes } from './routes.js';
-import type { PushNotificationService } from '../../infrastructure/push/push-notification-service.js';
+import type { NotificationSender } from '../../infrastructure/push/notification-sender.js';
 import type { WorkflowAiRunPort, WorkflowSchedulingPort } from './ports/runtime.js';
 
 import {
@@ -48,7 +48,7 @@ export interface WorkflowDomainDeps {
   app: Express;
   authMiddleware: RequestHandler;
   broadcast: (projectId: string | undefined, msg: ServerMessage | { type: string; [key: string]: unknown }) => void;
-  notificationService: PushNotificationService;
+  notificationService: NotificationSender;
   workflowStepRegistry: WorkflowStepRegistryPort;
   workflowTriggerRegistry?: WorkflowTriggerRegistryPort;
   systemTaskRegistry: WorkflowSchedulingPort;

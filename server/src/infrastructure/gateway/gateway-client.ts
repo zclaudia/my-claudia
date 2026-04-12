@@ -643,6 +643,14 @@ export class GatewayClient {
     this.sendWs(msg);
   }
 
+  sendPushNotificationRequest(event: {
+    type: string; title: string; body: string;
+    priority?: string; tags?: string[]; clickUrl?: string;
+  }): void {
+    if (!this.ws || !this.isConnected) return;
+    this.sendWs({ type: 'push_notification_request', event });
+  }
+
   // ==========================================================================
   // Internal — Handshake
   // ==========================================================================

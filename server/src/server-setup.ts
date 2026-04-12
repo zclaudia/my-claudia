@@ -12,7 +12,7 @@ import type { GatewayConfig, GatewayStatus } from './interfaces/http/gateway.js'
 import { ProcessSupervisor, setGlobalProcessSupervisor } from './infrastructure/services/process-supervisor.js';
 import type { NotificationService } from './domains/notification-feed/index.js';
 import type { SupervisorService } from './domains/supervision/index.js';
-import { PushNotificationService } from './infrastructure/push/push-notification-service.js';
+import type { NotificationSender } from './infrastructure/push/notification-sender.js';
 import { ALL_SERVER_FEATURES } from '@my-claudia/shared/core/server';
 import { isLocalhost } from './interfaces/http/middleware/local-only.js';
 import { createExpressAuthMiddleware } from './interfaces/http/middleware/express-auth.js';
@@ -36,7 +36,7 @@ export interface SetupDependencies {
   broadcastPluginState: () => void;
   handleRunStart: (...args: any[]) => Promise<void>;
   getServerPort: () => number | null;
-  setNotificationService: (ns: PushNotificationService) => void;
+  notificationSender: NotificationSender;
   setProcessMonitor: (pm: ProcessMonitor) => void;
 }
 
@@ -51,7 +51,6 @@ export interface SetupResult {
   updateDiscoveredBackends: (backends: import('@my-claudia/shared/core/server').GatewayBackendInfo[]) => void;
   setGatewayConnector: (connector: (config: GatewayConfig) => Promise<void>) => void;
   setGatewayDisconnector: (disconnector: () => Promise<void>) => void;
-  notificationService: PushNotificationService;
   supervisorService: SupervisorService;
   notificationsService: NotificationService;
   orchestrator: import('./application/orchestration/types.js').TaskOrchestrator;
@@ -66,7 +65,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     db, app, router, clients, activeRuns,
     buildStateHeartbeat, broadcastHeartbeat, broadcastPluginState,
     handleRunStart, getServerPort,
-    setNotificationService, setProcessMonitor,
+    notificationSender, setProcessMonitor,
   } = deps;
 
   // Process supervisor
@@ -115,7 +114,6 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
   const {
     supervisorService,
     notificationsService,
-    pushNotificationService,
     orchestrator,
     permissionBridge: permBridge,
     cancelWorkflowRun: cancelWfRun,
@@ -123,7 +121,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     db, app, authMiddleware, clients, activeRuns,
     broadcastPluginState, broadcastHeartbeat,
     handleRunStart, getServerPort,
-    setNotificationService, processSupervisor,
+    notificationSender, processSupervisor,
     gateway,
   });
 
@@ -143,7 +141,7 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     (report) => {
       const pids = report.leakedProcesses.map(p => `PID=${p.pid}(${p.command}, ${p.elapsedSeconds}s)`).join(', ');
       console.warn(`[ProcessMonitor] Leaked processes detected (activeRuns=${report.activeRunCount}): ${pids}`);
-      pushNotificationService.notify({
+      void notificationSender.notify({
         type: 'process_leak',
         title: 'Leaked processes detected',
         body: `${report.leakedProcesses.length} orphaned process(es) found: ${pids}`,
@@ -179,7 +177,6 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     updateDiscoveredBackends: gateway.updateDiscoveredBackends,
     setGatewayConnector: gateway.setGatewayConnector,
     setGatewayDisconnector: gateway.setGatewayDisconnector,
-    notificationService: pushNotificationService,
     supervisorService,
     notificationsService,
     orchestrator,

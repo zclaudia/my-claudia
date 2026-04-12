@@ -3,36 +3,31 @@ import type { RequestHandler } from 'express';
 import type { initDatabase } from '../../infrastructure/storage/db.js';
 import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 import { createNotificationRoutes } from './routes.js';
-import { createPushNotificationRoutes } from './notification-routes.js';
 import { NotificationService } from './service.js';
-import { PushNotificationService } from '../../infrastructure/push/push-notification-service.js';
+import type { NotificationSender } from '../../infrastructure/push/notification-sender.js';
 
 export interface NotificationDomainDeps {
   db: ReturnType<typeof initDatabase>;
   app: Express;
   authMiddleware: RequestHandler;
   broadcastMessage: (message: ServerMessage) => void;
-  setPushNotificationService: (service: PushNotificationService) => void;
+  notificationSender: NotificationSender;
 }
 
 export interface NotificationDomainResult {
-  pushNotificationService: PushNotificationService;
   notificationService: NotificationService;
 }
 
 export function registerNotificationDomain(
   deps: NotificationDomainDeps,
 ): NotificationDomainResult {
-  const { db, app, authMiddleware, broadcastMessage, setPushNotificationService } = deps;
-
-  const pushNotificationService = new PushNotificationService(db);
-  setPushNotificationService(pushNotificationService);
+  const { db, app, authMiddleware, broadcastMessage, notificationSender } = deps;
 
   const notificationService = new NotificationService({
     db,
     broadcastFn: broadcastMessage,
     notifyFn: (item) => {
-      void pushNotificationService.notify({
+      void notificationSender.notify({
         type: item.status === 'failed' ? 'run_failed' : 'run_completed',
         title: item.title,
         body: item.summary || item.error || '',
@@ -42,10 +37,8 @@ export function registerNotificationDomain(
   });
 
   app.use('/api/notifications', authMiddleware, createNotificationRoutes(notificationService));
-  app.use('/api/notifications', authMiddleware, createPushNotificationRoutes(pushNotificationService));
 
   return {
-    pushNotificationService,
     notificationService,
   };
 }

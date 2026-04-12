@@ -306,6 +306,30 @@ export interface GatewayErrorMessage {
 }
 
 // ============================================================================
+// Push Notification (backend → gateway only)
+// ============================================================================
+
+export type PushNotificationEventType =
+  | 'permission_request'
+  | 'prompt_request'
+  | 'run_completed'
+  | 'run_failed'
+  | 'background_permission'
+  | 'process_leak';
+
+export interface PushNotificationRequestMessage {
+  type: 'push_notification_request';
+  event: {
+    type: PushNotificationEventType;
+    title: string;
+    body: string;
+    priority?: 'urgent' | 'high' | 'default' | 'low' | 'min';
+    tags?: string[];
+    clickUrl?: string;
+  };
+}
+
+// ============================================================================
 // Union Types
 // ============================================================================
 
@@ -320,7 +344,8 @@ export type PeerToGatewayMessage =
   | BackendClientMessage
   | BackendServerMessage
   | BackendRunStreamEvent
-  | CatchUpSessionContentMessage;
+  | CatchUpSessionContentMessage
+  | PushNotificationRequestMessage;
 
 export type GatewayToPeerMessage =
   | PeerReadyMessage
@@ -344,7 +369,8 @@ export type BackendToGatewayMessage =
   | BackendDataSnapshotMessage
   | BackendDataEventMessage
   | BackendServerMessage
-  | BackendRunStreamEvent;
+  | BackendRunStreamEvent
+  | PushNotificationRequestMessage;
 
 export type GatewayToBackendMessage =
   | PeerReadyMessage

@@ -8,7 +8,7 @@ import { formatProviderErrorMessage, isHardQuotaExceededError } from '../../../u
 import type { ProviderRegistryPort } from '../../../infrastructure/providers/registry.js';
 import { createTraceRecorder } from '../../../utils/provider-trace.js';
 import type { initDatabase } from '../../../infrastructure/storage/db.js';
-import { PushNotificationService } from '../../../infrastructure/push/push-notification-service.js';
+import type { NotificationSender } from '../../../infrastructure/push/notification-sender.js';
 import type { NotificationService } from '../../../domains/notification-feed/index.js';
 import { ProcessMonitor } from '../../../utils/process-monitor.js';
 import { consumeProviderStream } from './consume-provider-stream.js';
@@ -20,7 +20,7 @@ import { finalizeRun, handleRunException } from './run-recovery.js';
 export interface RunHandlerContext {
   activeRuns: Map<string, ActiveRun>;
   processMonitor: ProcessMonitor | null;
-  notificationService: PushNotificationService;
+  notificationService: NotificationSender;
   notificationsService?: NotificationService;
   serverPort: number | null;
   broadcastHeartbeat: () => void;

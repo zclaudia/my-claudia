@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import * as api from '../../services/api';
 import type { NotificationConfig } from '@my-claudia/shared';
 import { DEFAULT_NOTIFICATION_CONFIG } from '@my-claudia/shared';
+import { isNotificationConfigAvailable } from '../../services/api/notifications';
 
 const EVENT_LABELS: { key: keyof NotificationConfig['events']; label: string; description: string }[] = [
   { key: 'permissionRequest', label: 'Permission requests', description: 'Tool execution needs your approval' },
@@ -72,6 +73,16 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
 
   if (loading) {
     return <div className="text-sm text-muted-foreground">Loading...</div>;
+  }
+
+  if (!isNotificationConfigAvailable()) {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Push notifications require a gateway connection. Connect to a gateway to configure ntfy notifications.
+        </p>
+      </div>
+    );
   }
 
   return (

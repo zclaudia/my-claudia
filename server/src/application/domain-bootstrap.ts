@@ -17,7 +17,7 @@ import type { NotificationService } from '../domains/notification-feed/index.js'
 import type { ProcessSupervisor } from '../infrastructure/services/process-supervisor.js';
 import { systemTaskRegistry } from '../application/services/system-task-registry.js';
 import type { SupervisorService } from '../domains/supervision/index.js';
-import { PushNotificationService } from '../infrastructure/push/push-notification-service.js';
+import type { NotificationSender } from '../infrastructure/push/notification-sender.js';
 import { registerInteractionTools } from '../application/conversation/interactions/interaction-tools.js';
 import { registerAgentTools } from '../application/conversation/agent-tools/index.js';
 import { registerOrchestrationDomain } from '../application/orchestration/register.js';
@@ -42,7 +42,7 @@ export interface BootstrapDeps {
   broadcastHeartbeat: () => void;
   handleRunStart: (...args: any[]) => Promise<void>;
   getServerPort: () => number | null;
-  setNotificationService: (ns: PushNotificationService) => void;
+  notificationSender: NotificationSender;
   processSupervisor: ProcessSupervisor;
   gateway: GatewayState;
 }
@@ -50,7 +50,6 @@ export interface BootstrapDeps {
 export interface BootstrapResult {
   supervisorService: SupervisorService;
   notificationsService: NotificationService;
-  pushNotificationService: PushNotificationService;
   orchestrator: import('../application/orchestration/types.js').TaskOrchestrator;
   permissionBridge: import('./conversation/agent/permission-bridge.js').PermissionBridge;
   cancelWorkflowRun: (runId: string) => void;
@@ -67,7 +66,7 @@ export function bootstrapDomains(deps: BootstrapDeps): BootstrapResult {
     broadcastHeartbeat,
     handleRunStart,
     getServerPort,
-    setNotificationService,
+    notificationSender,
     processSupervisor,
     gateway,
   } = deps;
@@ -108,7 +107,6 @@ export function bootstrapDomains(deps: BootstrapDeps): BootstrapResult {
   const {
     supervisorService,
     notificationsService,
-    pushNotificationService,
     permissionBridge,
     cancelWorkflowRun,
   } = registerFeatureDomains({
@@ -119,7 +117,7 @@ export function bootstrapDomains(deps: BootstrapDeps): BootstrapResult {
     activeRuns,
     localOnlyMiddleware,
     broadcastPluginState,
-    setPushNotificationService: setNotificationService,
+    notificationSender,
     handleProjectChanged,
     sessionEvents,
     supervisionAiRunPort,
@@ -180,7 +178,6 @@ export function bootstrapDomains(deps: BootstrapDeps): BootstrapResult {
   return {
     supervisorService,
     notificationsService,
-    pushNotificationService,
     orchestrator,
     permissionBridge,
     cancelWorkflowRun,

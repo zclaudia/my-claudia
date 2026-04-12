@@ -2,7 +2,7 @@ import { processAtMentions } from '../../../utils/server-utils.js';
 import { createPermissionCallback } from './run-permissions.js';
 import type { RunStartMessage, RunSessionRecord } from './run-bootstrap.js';
 import type { ActiveRun, ConnectedClient } from '../transport/types.js';
-import type { PushNotificationService } from '../../../infrastructure/push/push-notification-service.js';
+import type { NotificationSender } from '../../../infrastructure/push/notification-sender.js';
 import type { ProviderConfig } from '@my-claudia/shared/core/provider';
 import type { PermissionBridge } from '../agent/permission-bridge.js';
 
@@ -18,7 +18,7 @@ interface PrepareProviderRunInput {
   cwd: string;
   db: ActiveRun['db'];
   message: RunStartMessage;
-  notificationService: PushNotificationService;
+  notificationService: NotificationSender;
   providerConfig?: ProviderConfig;
   providerId: string | null;
   providerType: string;

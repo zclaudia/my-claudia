@@ -29,7 +29,7 @@ import type { PermissionDecision } from '../../../infrastructure/providers/types
 import type { ActiveRun } from '../transport/types.js';
 import { broadcastRunMessage } from '../transport/broadcast.js';
 import { normalizeFromAskUser } from '../interactions/interaction-normalizer.js';
-import type { PushNotificationService } from '../../../infrastructure/push/push-notification-service.js';
+import type { NotificationSender } from '../../../infrastructure/push/notification-sender.js';
 import { writePermissionLog } from '../agent/permission-log-writer.js';
 import type { PermissionBridge } from '../agent/permission-bridge.js';
 import type { PermissionEscalationContext } from '../../../domains/workflows/ports/step-executor.js';
@@ -52,7 +52,7 @@ export interface CreatePermissionCallbackInput {
   markPendingResolutionResumed: () => void;
   message: MessageContext;
   modeValue: string;
-  notificationService: PushNotificationService;
+  notificationService: NotificationSender;
   providerType: string;
   runId: string;
   sendRunEvent: (event: import('@my-claudia/shared/protocol/messages').ServerMessage) => void;

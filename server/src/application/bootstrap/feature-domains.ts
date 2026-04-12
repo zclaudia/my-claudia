@@ -20,7 +20,7 @@ import { registerWorkflowDomain, type WorkflowAiRunPort, type WorkflowScheduling
 import { registerPluginsDomain } from '../plugins/register.js';
 import { toolRegistry, workflowStepRegistry, workflowTriggerRegistry } from '../plugins/index.js';
 import { createAutomationRoutes } from '../../interfaces/http/automations.js';
-import { PushNotificationService } from '../../infrastructure/push/push-notification-service.js';
+import type { NotificationSender } from '../../infrastructure/push/notification-sender.js';
 import type { NotificationService } from '../../domains/notification-feed/index.js';
 import { PermissionBridge } from '../conversation/agent/permission-bridge.js';
 
@@ -33,7 +33,7 @@ interface RegisterFeatureDomainsDeps {
   activeRuns: Map<string, ActiveRun>;
   localOnlyMiddleware: RequestHandler;
   broadcastPluginState: () => void;
-  setPushNotificationService: (ns: PushNotificationService) => void;
+  notificationSender: NotificationSender;
   handleProjectChanged: (event?: ProjectChangeEvent) => void;
   sessionEvents: SessionEventPublisherPort;
   supervisionAiRunPort: SupervisionAiRunPort;
@@ -47,7 +47,6 @@ export interface FeatureDomainsResult {
   supervisorService: import('../../domains/supervision/index.js').SupervisorService;
   workflowService: import('../../domains/workflows/index.js').WorkflowService;
   notificationsService: NotificationService;
-  pushNotificationService: PushNotificationService;
   permissionBridge: PermissionBridge;
   cancelWorkflowRun: (runId: string) => void;
 }
@@ -72,7 +71,7 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     activeRuns,
     localOnlyMiddleware,
     broadcastPluginState,
-    setPushNotificationService,
+    notificationSender,
     handleProjectChanged,
     sessionEvents,
     supervisionAiRunPort,
@@ -87,14 +86,13 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
   registerProvidersDomain({ app, authMiddleware, db, toolRegistry });
 
   const {
-    pushNotificationService,
     notificationService: notificationsService,
   } = registerNotificationDomain({
     db,
     app,
     authMiddleware,
     broadcastMessage: (msg) => broadcastToAuthenticatedClients(clients, msg),
-    setPushNotificationService,
+    notificationSender,
   });
 
   const svProjectRepo = new ProjectRepository(db);
@@ -157,7 +155,7 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     app,
     authMiddleware,
     broadcast: (_projectId, msg) => broadcastToAuthenticatedClients(clients, msg),
-    notificationService: pushNotificationService,
+    notificationService: notificationSender,
     workflowStepRegistry,
     workflowTriggerRegistry,
     systemTaskRegistry: workflowScheduling,
@@ -185,7 +183,6 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     supervisorService,
     workflowService,
     notificationsService,
-    pushNotificationService,
     permissionBridge,
     cancelWorkflowRun,
   };

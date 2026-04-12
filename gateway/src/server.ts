@@ -40,10 +40,12 @@ import type {
   GatewayHttpProxyResponseStart,
   GatewayHttpProxyResponseChunk,
   GatewayHttpProxyResponseEnd,
+  PushNotificationRequestMessage,
 } from '@my-claudia/shared';
 import { GatewayStorage } from './storage.js';
 import { GatewayState, type PeerSession } from './state.js';
 import { encodeProxyRequestBody } from './proxy-body.js';
+import { GatewayPushNotificationService } from './push-notification.js';
 
 // ============================================================================
 // Config & Helpers
@@ -110,6 +112,7 @@ function validatePeerHelloMessage(message: unknown): string | null {
 
 export function createGatewayServer(config: GatewayConfig): Server {
   const storage = new GatewayStorage();
+  const pushNotificationService = new GatewayPushNotificationService(storage);
   const state = new GatewayState();
   const recoveryTokens = new Map<string, string>();
   const authTimeoutMs = config.authTimeoutMs ?? 10_000;
@@ -226,6 +229,41 @@ export function createGatewayServer(config: GatewayConfig): Server {
   // --- Poll Recovery: Registry ---
   app.get('/sync/registry', requireRecoveryToken, (_req: Request, res: Response) => {
     res.json({ items: state.getRegistrySnapshot() });
+  });
+
+  // --- Notification Config ---
+  app.get('/api/notifications/config', requireGatewayAuth, (_req: Request, res: Response) => {
+    try {
+      const cfg = pushNotificationService.getConfig();
+      res.json({ success: true, data: cfg });
+    } catch (err) {
+      res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: err instanceof Error ? err.message : 'Unknown error' } });
+    }
+  });
+
+  app.put('/api/notifications/config', requireGatewayAuth, (req: Request, res: Response) => {
+    try {
+      const input = req.body;
+      if (!input || typeof input !== 'object' || typeof input.enabled !== 'boolean'
+        || typeof input.ntfyUrl !== 'string' || typeof input.ntfyTopic !== 'string'
+        || !input.events || typeof input.events !== 'object') {
+        res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'Invalid notification config' } });
+        return;
+      }
+      pushNotificationService.saveConfig(input);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: err instanceof Error ? err.message : 'Unknown error' } });
+    }
+  });
+
+  app.post('/api/notifications/test', requireGatewayAuth, async (_req: Request, res: Response) => {
+    try {
+      await pushNotificationService.sendTest();
+      res.json({ success: true, data: { message: 'Test notification sent' } });
+    } catch (err) {
+      res.status(400).json({ success: false, error: { code: 'NOTIFICATION_FAILED', message: err instanceof Error ? err.message : 'Failed to send test notification' } });
+    }
   });
 
   // --- HTTP Proxy ---
@@ -574,6 +612,7 @@ export function createGatewayServer(config: GatewayConfig): Server {
       case 'http_proxy_response_start': handleHttpProxyResponseStart(message); break;
       case 'http_proxy_response_chunk': handleHttpProxyResponseChunk(message); break;
       case 'http_proxy_response_end': handleHttpProxyResponseEnd(message); break;
+      case 'push_notification_request': handlePushNotificationRequest(peer, message); break;
       case 'ping': sendToWs(peer.ws, { type: 'pong', ts: message.ts }); break;
       default: sendToWs(peer.ws, { type: 'gateway_error', code: 'INVALID_MESSAGE', message: `Unknown message type: ${message.type}` } satisfies GatewayErrorMessage);
     }
@@ -798,6 +837,22 @@ export function createGatewayServer(config: GatewayConfig): Server {
     if (!streaming) return;
     clearTimeout(streaming.timeout); pendingStreamingRequests.delete(msg.requestId);
     if (!streaming.res.writableEnded) streaming.res.end(); streaming.resolve();
+  }
+
+  // ========================================================================
+  // Push Notification
+  // ========================================================================
+
+  function handlePushNotificationRequest(peer: PeerSession, msg: PushNotificationRequestMessage): void {
+    if (!peer.backendId) {
+      sendToWs(peer.ws, {
+        type: 'gateway_error',
+        code: 'INVALID_MESSAGE',
+        message: 'push_notification_request is only allowed from backends',
+      } satisfies GatewayErrorMessage);
+      return;
+    }
+    void pushNotificationService.notify(msg.event);
   }
 
   // ========================================================================
