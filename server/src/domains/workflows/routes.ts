@@ -108,10 +108,13 @@ export function createWorkflowRoutes(
     }
   });
 
-  // GET /api/workflows — list ALL workflows (global + project-scoped)
+  // GET /api/workflows — list workflows, optionally filtered by projectId
   router.get('/workflows', (req: Request, res: Response) => {
     try {
-      const workflows = service.listAllWorkflows();
+      const projectId = typeof req.query.projectId === 'string' ? req.query.projectId : undefined;
+      const workflows = projectId
+        ? service.listWorkflows(projectId)
+        : service.listAllWorkflows();
       res.json({ success: true, data: workflows });
     } catch (error) {
       res.status(500).json({

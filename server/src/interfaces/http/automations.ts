@@ -120,10 +120,14 @@ export function createAutomationRoutes(workflowService: WorkflowService): Router
     }
   });
 
-  // GET /api/automations — list simple automations only
-  router.get('/', (_req: Request, res: Response) => {
+  // GET /api/automations — list simple automations, optionally filtered by projectId
+  router.get('/', (req: Request, res: Response) => {
     try {
-      const workflows = workflowService.listAllWorkflows().filter((w) => w.authoringMode === 'simple');
+      const projectId = typeof req.query.projectId === 'string' ? req.query.projectId : undefined;
+      const workflows = (projectId
+        ? workflowService.listWorkflows(projectId)
+        : workflowService.listAllWorkflows()
+      ).filter((w) => w.authoringMode === 'simple');
       res.json({ success: true, data: workflows });
     } catch (error) {
       res.status(500).json({

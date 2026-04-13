@@ -307,11 +307,12 @@ function AutomationsTab({
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const allWorkflows: Workflow[] = await api.get('/api/automations').catch(() => []);
+      const query = effectiveProjectId ? `?projectId=${encodeURIComponent(effectiveProjectId)}` : '';
+      const allWorkflows: Workflow[] = await api.get(`/api/automations${query}`).catch(() => []);
       setSimpleWorkflows(allWorkflows);
     } catch { /* ignore */ }
     setLoading(false);
-  }, [api]);
+  }, [api, effectiveProjectId]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -586,8 +587,9 @@ function WorkflowsTab({ api, projects, projectName, serverUrl, selectedBackendId
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
+      const query = effectiveProjectId ? `?projectId=${encodeURIComponent(effectiveProjectId)}` : '';
       const [wfs, tpls] = await Promise.all([
-        api.get('/api/workflows'),
+        api.get(`/api/workflows${query}`),
         api.get('/api/workflow-templates'),
       ]);
       // Filter out simple automations — they belong in Automations tab
@@ -595,7 +597,7 @@ function WorkflowsTab({ api, projects, projectName, serverUrl, selectedBackendId
       setTemplates(tpls);
     } catch { /* ignore */ }
     setLoading(false);
-  }, [api]);
+  }, [api, effectiveProjectId]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
