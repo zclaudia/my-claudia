@@ -18,6 +18,8 @@ export interface SdkVersionReport {
 const SDK_PACKAGES = [
   '@anthropic-ai/claude-agent-sdk',
   '@opencode-ai/sdk',
+  '@openai/codex-sdk',
+  '@modelcontextprotocol/sdk',
 ];
 
 /** Module-level cached report, set after checkSdkVersions() completes. */

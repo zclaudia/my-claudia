@@ -181,6 +181,7 @@ vi.mock('../../stores/gatewayStore', () => ({
 
 vi.mock('../gatewayProxy', () => ({
   resolveGatewayBackendUrl: (id: string) => `http://gateway/${id}`,
+  resolveGatewayDirectUrl: (path: string) => `http://gateway-direct${path}`,
   getGatewayAuthHeaders: () => ({ Authorization: 'Bearer gw-token' }),
 }));
 
