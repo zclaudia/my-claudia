@@ -23,6 +23,8 @@ import { createAutomationRoutes } from '../../interfaces/http/automations.js';
 import type { NotificationSender } from '../../infrastructure/push/notification-sender.js';
 import type { NotificationService } from '../../domains/notification-feed/index.js';
 import { PermissionBridge } from '../conversation/agent/permission-bridge.js';
+import { AIRiskAnalysisAdapter } from '../conversation/agent/ai-risk-analysis-adapter.js';
+import type { WorkflowRunEvent } from '../../domains/workflows/run-events.js';
 
 
 interface RegisterFeatureDomainsDeps {
@@ -149,8 +151,9 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
 
   // Permission bridge — connects workflow engine to conversation permission system
   const permissionBridge = new PermissionBridge();
+  const aiRiskAnalysisPort = new AIRiskAnalysisAdapter();
 
-  const { workflowService } = registerWorkflowDomain({
+  const { workflowService, workflowEngine } = registerWorkflowDomain({
     db,
     app,
     authMiddleware,
@@ -161,8 +164,84 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     systemTaskRegistry: workflowScheduling,
     aiRunPort: workflowAiRunPort,
     permissionBridge,
+    aiRiskAnalysisPort,
   });
   app.use('/api/automations', authMiddleware, createAutomationRoutes(workflowService));
+
+  // ── Permission workflow progress broadcasting ──
+  // Subscribe to workflow engine events and translate to permission-specific messages.
+  workflowEngine.dispatcher.onAny((event: WorkflowRunEvent) => {
+    const payload = workflowEngine.getRunEventPayload(event.runId);
+    if (!payload?.requestId || !payload?.sessionId) return;
+
+    const requestId = payload.requestId as string;
+    const sessionId = payload.sessionId as string;
+
+    if (event.type === 'step_started' || event.type === 'step_completed' || event.type === 'step_failed') {
+      const runDetail = workflowService.getRun(event.runId);
+      if (!runDetail) return;
+
+      const completedSteps = runDetail.stepRuns
+        .filter(s => s.status === 'completed')
+        .map(s => s.stepId);
+
+      broadcastToAuthenticatedClients(clients, {
+        type: 'permission_workflow_progress',
+        requestId,
+        sessionId,
+        workflowRunId: event.runId,
+        currentStep: {
+          id: event.stepId,
+          type: runDetail.stepRuns.find(s => s.stepId === event.stepId)?.stepType || 'unknown',
+          status: event.type === 'step_started' ? 'running'
+            : event.type === 'step_completed' ? 'completed' : 'failed',
+          label: runDetail.stepRuns.find(s => s.stepId === event.stepId)?.stepId || event.stepId,
+        },
+        completedSteps,
+        totalSteps: runDetail.stepRuns.length,
+      });
+
+      // Send ai_review_completed when ai_risk_analysis step finishes
+      if (event.type === 'step_completed') {
+        const stepRun = runDetail.stepRuns.find(s => s.stepId === event.stepId);
+        if (stepRun?.stepType === 'ai_risk_analysis' && stepRun.output) {
+          broadcastToAuthenticatedClients(clients, {
+            type: 'ai_review_completed',
+            requestId,
+            sessionId,
+            decision: stepRun.output.decision || 'uncertain',
+            reasoning: stepRun.output.reasoning || '',
+            confidence: stepRun.output.confidence ?? 0,
+            metadata: stepRun.output.metadata,
+          });
+        }
+
+        // When permission_decide step resolves the permission, notify the frontend
+        // and clean up pendingPermissions (mirrors what handlePermissionDecision does)
+        if (stepRun?.stepType === 'permission_decide' && stepRun.output?.resolved) {
+          const decision = stepRun.output.decision === 'allow' || stepRun.output.decision === 'approve'
+            ? 'approve' : 'deny';
+          broadcastToAuthenticatedClients(clients, {
+            type: 'permission_auto_resolved',
+            requestId,
+            sessionId,
+            behavior: decision,
+            reason: (stepRun.output.reason as string) || 'Auto-resolved by permission workflow',
+          });
+
+          // Clean up pending permission from active run
+          for (const [, run] of activeRuns) {
+            if (run.pendingPermissions.has(requestId)) {
+              run.pendingPermissions.delete(requestId);
+              run.db.prepare('UPDATE sessions SET last_run_status = ?, updated_at = ? WHERE id = ?')
+                .run('running', Date.now(), run.sessionId);
+              break;
+            }
+          }
+        }
+      }
+    }
+  });
 
   // Callback for cancelling a workflow run (used when user manually decides a permission)
   const cancelWorkflowRun = (runId: string): void => {

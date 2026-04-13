@@ -514,8 +514,8 @@ describe('workflow routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       const types = res.body.data;
-      // 11 builtin + 1 plugin
-      expect(types).toHaveLength(12);
+      // 14 builtin + 1 plugin
+      expect(types).toHaveLength(15);
       // Check a few builtins
       expect(types.find((t: any) => t.type === 'git_commit')).toBeDefined();
       expect(types.find((t: any) => t.type === 'ai_prompt')).toBeDefined();

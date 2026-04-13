@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockWorkflowRepo = {
   findByProject: vi.fn().mockReturnValue([]),
   findById: vi.fn(),
+  findGlobalByTemplate: vi.fn().mockReturnValue({ id: 'existing' }),
   create: vi.fn(),
   update: vi.fn(),
   delete: vi.fn(),
@@ -51,6 +52,7 @@ vi.mock('../../../infrastructure/events/index.js', () => ({
   pluginEvents: { on: vi.fn().mockReturnValue(() => {}), emit: vi.fn() },
 }));
 vi.mock('../templates.js', () => ({
+  PERMISSION_WORKFLOW_TEMPLATE_ID: 'permission-escalation-default',
   BUILTIN_WORKFLOW_TEMPLATES: [
     { id: 'tpl1', name: 'Template 1', description: 'desc', definition: { triggers: [], nodes: [], edges: [], entryNodeId: '' } },
   ],
@@ -463,7 +465,7 @@ describe('WorkflowService', () => {
       expect(mockEngine.startRun).not.toHaveBeenCalled();
     });
 
-    it('skips already running workflows on event', async () => {
+    it('allows concurrent runs for event-triggered workflows', async () => {
 
       let eventHandler: (data: any) => Promise<void>;
 
@@ -481,12 +483,21 @@ describe('WorkflowService', () => {
           },
         },
       ]);
+      mockWorkflowRepo.findById.mockReturnValue({
+        id: 'w1', projectId: 'p1', status: 'active',
+        definition: {
+          ...emptyDefinition,
+          triggers: [{ type: 'event', event: 'run.completed' }],
+        },
+      });
       mockEngine.isRunning.mockReturnValue(true);
+      mockEngine.startRun.mockResolvedValue({ id: 'r1' });
 
       service.initialize();
       await eventHandler!({});
 
-      expect(mockEngine.startRun).not.toHaveBeenCalled();
+      // Event-triggered workflows should NOT be skipped even when already running
+      expect(mockEngine.startRun).toHaveBeenCalled();
     });
 
     it('handles trigger error gracefully on event', async () => {

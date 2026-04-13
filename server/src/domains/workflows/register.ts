@@ -60,6 +60,7 @@ export interface WorkflowDomainDeps {
 export interface WorkflowDomainResult {
   workflowService: WorkflowService;
   workflowGeneratorService: WorkflowGeneratorService;
+  workflowEngine: WorkflowEngine;
 }
 
 export function registerWorkflowDomain(deps: WorkflowDomainDeps): WorkflowDomainResult {
@@ -125,5 +126,5 @@ export function registerWorkflowDomain(deps: WorkflowDomainDeps): WorkflowDomain
     }
   }, 10000);
 
-  return { workflowService, workflowGeneratorService };
+  return { workflowService, workflowGeneratorService, workflowEngine: engine };
 }

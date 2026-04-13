@@ -11,6 +11,9 @@ export interface AskUserQuestionItem {
   header: string;
   options: AskUserQuestionOption[];
   multiSelect?: boolean;
+  allowCustomValue?: boolean;
+  customValuePlaceholder?: string;
+  placeholder?: string;
 }
 
 // Unified Interaction Events

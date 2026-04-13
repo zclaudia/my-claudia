@@ -139,8 +139,8 @@ import type {
   TerminalOpenedMessage, TerminalOutputMessage, TerminalExitedMessage, TerminalAttachedMessage,
 } from './terminal.js';
 import type {
-  PermissionRequestMessage, PromptRequestMessage, AgentPermissionInterceptedMessage,
-  PermissionResolvedMessage, PermissionAutoResolvedMessage, PromptRequestResolvedMessage,
+  PermissionRequestMessage, AgentPermissionInterceptedMessage,
+  PermissionResolvedMessage, PermissionAutoResolvedMessage,
   PluginPermissionRequestMessage, AIReviewCompletedMessage, PermissionWorkflowProgressMessage,
 } from './permissions.js';
 import type {
@@ -177,7 +177,6 @@ export type ServerMessage =
   | RunCompletedMessage
   | RunFailedMessage
   | PermissionRequestMessage
-  | PromptRequestMessage
   | AgentPermissionInterceptedMessage
   | BackgroundTaskUpdateMessage
   | BackgroundPermissionPendingMessage
@@ -216,7 +215,6 @@ export type ServerMessage =
   | PermissionAutoResolvedMessage
   | AIReviewCompletedMessage
   | PermissionWorkflowProgressMessage
-  | PromptRequestResolvedMessage
   | StateHeartbeatMessage
   | TerminalOpenedMessage
   | TerminalOutputMessage

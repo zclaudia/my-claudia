@@ -33,34 +33,6 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
           },
         },
         {
-          id: 'check_exit_plan_mode',
-          name: 'AI-Initiated ExitPlanMode?',
-          type: 'condition',
-          config: {},
-          position: { x: 450, y: 300 },
-          condition: {
-            expression: '${classify.output.toolName} == ExitPlanMode && ${classify.output.aiInitiatedPlanMode} == true',
-          },
-        },
-        {
-          id: 'wait_exit_plan',
-          name: 'Wait for User (2min)',
-          type: 'wait',
-          config: { type: 'timeout' },
-          position: { x: 600, y: 450 },
-          timeoutMs: 120000,
-        },
-        {
-          id: 'decide_approve_exit_plan',
-          name: 'Auto-Approve ExitPlanMode',
-          type: 'permission_decide',
-          config: {
-            decision: 'approve',
-            reason: 'AI-initiated ExitPlanMode auto-approved after timeout',
-          },
-          position: { x: 600, y: 600 },
-        },
-        {
           id: 'ai_review',
           name: 'AI Risk Analysis',
           type: 'ai_risk_analysis',
@@ -119,15 +91,10 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
       ],
       edges: [
         { id: 'e1', source: 'classify', target: 'check_escalate', type: 'success' },
-        // escalateAlways = true → check if it's AI-initiated ExitPlanMode (auto-approve after 2min)
-        { id: 'e2', source: 'check_escalate', target: 'check_exit_plan_mode', type: 'condition_true' },
+        // escalateAlways = true → workflow completes without deciding;
+        // the request remains pending until the user explicitly approves/rejects.
         // escalateAlways = false → run AI review
         { id: 'e3', source: 'check_escalate', target: 'ai_review', type: 'condition_false' },
-        // ExitPlanMode + aiInitiatedPlanMode → wait 2min then auto-approve
-        { id: 'e4', source: 'check_exit_plan_mode', target: 'wait_exit_plan', type: 'condition_true' },
-        // Not ExitPlanMode → workflow ends, wait for user manual decision
-        // (condition_false has no target — workflow completes without deciding)
-        { id: 'e5', source: 'wait_exit_plan', target: 'decide_approve_exit_plan', type: 'success' },
         // AI review path
         { id: 'e6', source: 'ai_review', target: 'check_confidence', type: 'success' },
         { id: 'e7', source: 'check_confidence', target: 'decide_approve', type: 'condition_true' },

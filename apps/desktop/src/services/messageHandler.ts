@@ -33,6 +33,7 @@ import { getProjectsForBackend } from './api/projects';
 import { xtermRegistry } from '../utils/xtermRegistry';
 import { parseBackendId } from '../stores/gatewayStore';
 import { resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/controlPlane';
+import type { InteractionPromptMessage } from '@my-claudia/shared';
 
 // Throttled lastActivityAt updater — avoids re-renders on every delta message.
 // Updates at most once per second per runId.
@@ -238,6 +239,47 @@ function buildAIReviewAutoResolveToastMessage(msg: import('@my-claudia/shared').
   const files = metadata.reviewedFileCount ?? 0;
   const redactions = metadata.redactionCount ?? 0;
   return `AI review auto-approved with sanitized local payload; redactions ${redactions}; reviewed ${files} file${files === 1 ? '' : 's'}.`;
+}
+
+function buildProviderPromptInteraction(
+  prompt: {
+    requestId: string;
+    sessionId: string;
+    questions: import('@my-claudia/shared').AskUserQuestionItem[];
+  },
+): InteractionPromptMessage {
+  return {
+    type: 'interaction_prompt',
+    interactionId: prompt.requestId,
+    sessionId: prompt.sessionId,
+    source: 'provider_native',
+    createdAt: Date.now(),
+    title: Array.isArray(prompt.questions) && prompt.questions.length > 1 ? 'Questions' : 'Question',
+    fields: (prompt.questions || []).map((question, index) => {
+      const promptQuestion = question as typeof question & {
+        placeholder?: string;
+        allowCustomValue?: boolean;
+        customValuePlaceholder?: string;
+      };
+      return {
+      id: `question_${index}`,
+      label: question.question,
+      description: question.header,
+      type: question.multiSelect ? 'multiselect' : 'select',
+      options: (question.options || []).map((option) => ({
+        value: option.label,
+        label: option.label,
+        description: option.description,
+      })),
+      placeholder: promptQuestion.placeholder || 'Type your answer...',
+      allowCustomValue: promptQuestion.allowCustomValue ?? true,
+      customValuePlaceholder: promptQuestion.customValuePlaceholder || 'Other',
+    }; }),
+    submitLabel: 'Submit',
+    cancelLabel: 'Skip',
+    responseMode: 'prompt_answer',
+    variant: 'question',
+  };
 }
 
 /**
@@ -480,18 +522,6 @@ export function handleServerMessage(
       break;
     }
 
-    case 'prompt_request': {
-      const backendName = ctx.resolveBackendName();
-      usePromptRequestStore.getState().setPendingRequest({
-        requestId: msg.requestId,
-        sessionId: msg.sessionId,
-        serverId,
-        backendName,
-        questions: msg.questions,
-      });
-      break;
-    }
-
     case 'permission_resolved':
       updateClaudiaTaskStatusBySessionId((msg as import('@my-claudia/shared').PermissionResolvedMessage).sessionId, 'running');
       usePermissionStore.getState().clearRequestById(msg.requestId);
@@ -541,12 +571,18 @@ export function handleServerMessage(
       break;
     }
 
-    case 'prompt_request_resolved':
-      usePromptRequestStore.getState().clearRequestById(msg.requestId);
-      break;
-
     // Phase 1: Unified Interaction Events
     case 'interaction_prompt':
+      if (msg.source === 'provider_native') {
+        usePromptRequestStore.getState().setPendingRequest({
+          requestId: msg.interactionId,
+          sessionId: msg.sessionId,
+          serverId,
+        });
+      }
+      useInteractionStore.getState().upsertInteraction(msg);
+      break;
+
     case 'interaction_approval':
     case 'interaction_todo_update':
     case 'interaction_plan_review':
@@ -554,6 +590,7 @@ export function handleServerMessage(
       break;
 
     case 'interaction_resolved':
+      usePromptRequestStore.getState().clearRequestById(msg.interactionId);
       useInteractionStore.getState().resolveInteraction(msg.interactionId);
       break;
 
@@ -991,9 +1028,14 @@ export function handleServerMessage(
             requestId: q.requestId,
             sessionId: q.sessionId,
             serverId,
-            backendName,
-            questions: q.questions,
           });
+        }
+        if (!(useInteractionStore.getState().has?.(q.requestId) ?? false)) {
+          useInteractionStore.getState().upsertInteraction(buildProviderPromptInteraction({
+            requestId: q.requestId,
+            sessionId: q.sessionId,
+            questions: q.questions,
+          }));
         }
       }
 

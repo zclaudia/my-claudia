@@ -1,7 +1,7 @@
 import type { GatewayClient } from '../gateway/gateway-client.js';
 
 export interface NotifyEvent {
-  type: 'permission_request' | 'prompt_request' | 'run_completed' | 'run_failed' | 'background_permission' | 'process_leak';
+  type: 'permission_request' | 'interaction_prompt' | 'run_completed' | 'run_failed' | 'background_permission' | 'process_leak';
   title: string;
   body: string;
   priority?: 'urgent' | 'high' | 'default' | 'low' | 'min';

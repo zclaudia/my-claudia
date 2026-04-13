@@ -208,9 +208,9 @@ describe('utils/sdk-version-check', () => {
 
       const report = await checkSdkVersions();
 
-      // Should have checked both @anthropic-ai/claude-agent-sdk and @opencode-ai/sdk
+      // Should have checked all configured SDK packages
       expect(report.sdks.length).toBeGreaterThanOrEqual(0);
-      expect(mockFetch).toHaveBeenCalledTimes(Math.min(report.sdks.length, 2));
+      expect(mockFetch).toHaveBeenCalledTimes(report.sdks.length);
     });
   });
 });

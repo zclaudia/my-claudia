@@ -46,7 +46,8 @@ export class WorkflowEngine implements ApprovalPort {
   private runRepo: WorkflowRunRepository;
   private stepRunRepo: WorkflowStepRunRepository;
   private projectRepo: ProjectRepository;
-  private activeRuns = new Map<string, boolean>();
+  private activeRuns = new Map<string, Set<string>>();
+  private runEventPayloads = new Map<string, Record<string, unknown>>();
   private pendingApprovals = new Map<string, {
     resolve: (approved: boolean) => void;
     timeout: NodeJS.Timeout;
@@ -71,7 +72,15 @@ export class WorkflowEngine implements ApprovalPort {
   }
 
   isRunning(workflowId: string): boolean {
-    return this.activeRuns.has(workflowId);
+    const runs = this.activeRuns.get(workflowId);
+    return !!runs && runs.size > 0;
+  }
+
+  /**
+   * Get the event payload for a given run (used by permission workflow progress broadcasting).
+   */
+  getRunEventPayload(runId: string): Record<string, unknown> | undefined {
+    return this.runEventPayloads.get(runId);
   }
 
   destroy(): void {
@@ -81,6 +90,7 @@ export class WorkflowEngine implements ApprovalPort {
     }
     this.pendingApprovals.clear();
     this.activeRuns.clear();
+    this.runEventPayloads.clear();
   }
 
   // ── ApprovalPort implementation ──────────────────────────────
@@ -223,9 +233,8 @@ export class WorkflowEngine implements ApprovalPort {
     triggerDetail?: string,
     triggerData?: RunTriggerContext,
   ): Promise<WorkflowRun> {
-    if (this.activeRuns.has(workflowId)) {
-      throw new Error(`Workflow ${workflowId} is already running`);
-    }
+    // Note: concurrent runs are now allowed (needed for permission workflows).
+    // The isRunning check is done at the service level for scheduled workflows.
 
     const validation = this.validateDAG(definition.nodes, definition.edges);
     if (!validation.valid) {
@@ -246,7 +255,17 @@ export class WorkflowEngine implements ApprovalPort {
     const run = agg.snapshot;
 
     this.flushEvents(agg);
-    this.activeRuns.set(workflowId, true);
+
+    // Track active run
+    if (!this.activeRuns.has(workflowId)) {
+      this.activeRuns.set(workflowId, new Set());
+    }
+    this.activeRuns.get(workflowId)!.add(run.id);
+
+    // Store event payload for progress broadcasting
+    if (triggerData?.eventPayload) {
+      this.runEventPayloads.set(run.id, triggerData.eventPayload);
+    }
 
     this.executeGraph(agg, definition, project?.rootPath, project?.providerId, triggerData)
       .catch((err) => {
@@ -260,7 +279,12 @@ export class WorkflowEngine implements ApprovalPort {
         }
       })
       .finally(() => {
-        this.activeRuns.delete(workflowId);
+        const runs = this.activeRuns.get(workflowId);
+        if (runs) {
+          runs.delete(run.id);
+          if (runs.size === 0) this.activeRuns.delete(workflowId);
+        }
+        this.runEventPayloads.delete(run.id);
       });
 
     return run;

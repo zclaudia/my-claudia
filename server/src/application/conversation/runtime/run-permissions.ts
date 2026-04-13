@@ -2,7 +2,6 @@ import type {
   AgentPermissionInterceptedMessage,
   BackgroundPermissionPendingMessage,
   BackgroundTaskUpdateMessage,
-  PromptRequestMessage,
 } from '@my-claudia/shared/protocol/messages';
 import type {
   UnifiedPermissionPolicy,
@@ -13,6 +12,7 @@ import type { AskUserQuestionItem } from '@my-claudia/shared/interaction/forms';
 import {
   buildRememberKey,
   classify,
+  extractBashCommand,
   getAgentPermissionPolicy,
   getMatchedPermissionRule,
   getOutsideWorkspacePaths,
@@ -25,6 +25,9 @@ import {
   resolveRememberedDecision,
 } from '../agent/permission-evaluator.js';
 import { isBashLikeTool, isSudoCommand } from '../../../utils/server-utils.js';
+
+/** Read-only bash commands that are safe to auto-approve for remembered outside-workspace directories. */
+const READONLY_BASH_COMMANDS = /^\s*(ls|cat|head|tail|wc|file|stat|du|find|tree|realpath|dirname|basename)\b/;
 import type { PermissionDecision } from '../../../infrastructure/providers/types.js';
 import type { ActiveRun } from '../transport/types.js';
 import { broadcastRunMessage } from '../transport/broadcast.js';
@@ -128,8 +131,13 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
         return;
       }
 
+      const category = classify(request.toolName, request.toolInput, request.detail);
+      const isReadOnlyBash = category === 'shellSafe'
+        && isBashLikeTool(request.toolName)
+        && READONLY_BASH_COMMANDS.test(extractBashCommand(request.toolInput, request.detail) || '');
+
       if (
-        classify(request.toolName, request.toolInput, request.detail) === 'fileRead'
+        (category === 'fileRead' || isReadOnlyBash)
         && isOutsideWorkspacePathAllowed(
           request.toolName,
           request.toolInput,
@@ -326,13 +334,6 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
         if (sessionType !== 'background') {
           if (isAskUserQuestion) {
             const askUserInput = request.toolInput as { questions?: AskUserQuestionItem[] };
-            broadcastRunMessage(activeRun, {
-              type: 'prompt_request',
-              requestId: request.requestId,
-              sessionId: message.sessionId,
-              questions: askUserInput.questions || [],
-            } as PromptRequestMessage);
-            console.log(`[Permission] Sent prompt_request ${request.requestId} to client (${(askUserInput.questions || []).length} questions)`);
             const askUserInteraction = normalizeFromAskUser({
               requestId: request.requestId,
               sessionId: message.sessionId,
@@ -343,7 +344,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
             sendRunEvent(askUserInteraction);
             const firstQuestion = (askUserInput.questions || [])[0] as { question?: string } | undefined;
             notificationService.notify({
-              type: 'prompt_request',
+              type: 'interaction_prompt',
               title: 'Claude has a question',
               body: firstQuestion?.question?.slice(0, 200) || 'Interactive question',
               priority: 'high',

@@ -188,14 +188,7 @@ export function handlePromptAnswer(
         sessionId: run.sessionId,
       } as import('@my-claudia/shared/interaction/forms').InteractionResolvedMessage;
 
-      const promptResolvedEvent = {
-        type: 'prompt_request_resolved',
-        requestId: message.requestId,
-        sessionId: run.sessionId,
-      } as ServerMessage & { type: 'prompt_request_resolved'; requestId: string; sessionId: string };
-      broadcastRunMessage(run, promptResolvedEvent);
-
-      // Phase 1: Emit parallel interaction_resolved event
+      // Emit unified interaction_resolved event
       broadcastRunMessage(run, resolvedEvent as ServerMessage);
 
       console.log(`[PromptRequest] ${message.requestId}: answered - resolved!`);
@@ -204,12 +197,8 @@ export function handlePromptAnswer(
   }
 
   // requestId not found — already resolved by another device. Broadcast idempotent resolution.
-  console.warn(`[PromptRequest] Request ${message.requestId} not found in any active run — broadcasting prompt_request_resolved`);
+  console.warn(`[PromptRequest] Request ${message.requestId} not found in any active run — broadcasting interaction_resolved`);
   for (const [, run] of activeRuns.entries()) {
-    broadcastRunMessage(run, {
-      type: 'prompt_request_resolved',
-      requestId: message.requestId,
-    } as ServerMessage & { type: 'prompt_request_resolved'; requestId: string });
     broadcastRunMessage(run, {
       type: 'interaction_resolved',
       interactionId: message.requestId,

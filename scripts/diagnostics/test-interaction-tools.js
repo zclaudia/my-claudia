@@ -315,12 +315,12 @@ async function runScenario(ws, sessionId, scenario, providerId) {
         });
       }
 
-      // Handle prompt_request (native prompt routing, auto-answer)
-      if (msg.type === 'prompt_request' && msg.sessionId === sessionId) {
-        console.log(`  ${c.yellow}${tag} prompt_request - auto-answering${c.reset}`);
+      // Handle provider-native interaction_prompt (auto-answer)
+      if (msg.type === 'interaction_prompt' && msg.sessionId === sessionId && msg.responseMode === 'prompt_answer') {
+        console.log(`  ${c.yellow}${tag} interaction_prompt - auto-answering${c.reset}`);
         send(ws, {
           type: 'prompt_answer',
-          requestId: msg.requestId,
+          requestId: msg.interactionId,
           formattedAnswer: 'Continue with defaults',
         });
       }

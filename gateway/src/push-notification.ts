@@ -7,7 +7,7 @@ type NotifyEvent = PushNotificationRequestMessage['event'];
 
 const EVENT_KEY_MAP: Record<NotifyEvent['type'], keyof NotificationConfig['events']> = {
   permission_request: 'permissionRequest',
-  prompt_request: 'promptRequest',
+  interaction_prompt: 'promptRequest',
   run_completed: 'runCompleted',
   run_failed: 'runFailed',
   background_permission: 'backgroundPermission',

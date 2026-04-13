@@ -35,7 +35,6 @@ import { useFacadeStore } from '../stores/facadeStore';
 import { isLegacyLocalBackendId, resolveCanonicalBackendId } from '../utils/controlPlane';
 import { useSupervisionStore } from '../stores/supervisionStore';
 import { usePermissionStore } from '../stores/permissionStore';
-import { usePromptRequestStore } from '../stores/promptRequestStore';
 import { useInteractionStore } from '../stores/interactionStore';
 import { useChatStore } from '../stores/chatStore';
 import { useSessionsStore } from '../stores/sessionsStore';
@@ -127,7 +126,6 @@ export function Sidebar({
 
   // Sessions with pending approval-style interactions
   const permSessionIds = usePermissionStore(s => new Set(s.pendingRequests.map(r => r.sessionId)));
-  const promptSessionIds = usePromptRequestStore(s => new Set(s.pendingRequests.map(r => r.sessionId)));
   const interactionSessionIds = useInteractionStore((s) => {
     const ids = new Set<string>();
     for (const interaction of Object.values(s.interactions)) {
@@ -143,9 +141,8 @@ export function Sidebar({
   });
   const hasPendingForSession = useCallback((sessionId: string) => {
     return permSessionIds.has(sessionId)
-      || promptSessionIds.has(sessionId)
       || interactionSessionIds.has(sessionId);
-  }, [permSessionIds, promptSessionIds, interactionSessionIds]);
+  }, [permSessionIds, interactionSessionIds]);
 
   // Active run session IDs for status indicator.
   // Combines two sources so the sidebar stays accurate across backends:

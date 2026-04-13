@@ -74,7 +74,6 @@ import { useServerStore } from '../../stores/serverStore';
 import { useOwnershipStore } from '../../stores/ownershipStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
 import { usePermissionStore } from '../../stores/permissionStore';
-import { usePromptRequestStore } from '../../stores/promptRequestStore';
 import { useInteractionStore } from '../../stores/interactionStore';
 import { useChatStore } from '../../stores/chatStore';
 import { useUIStore } from '../../stores/uiStore';
@@ -150,7 +149,6 @@ function setupStores(overrides: Record<string, any> = {}) {
 
   useSupervisionStore.setState({ agents: {}, ...overrides.supervisionStore } as any);
   usePermissionStore.setState({ pendingRequests: [], ...overrides.permissionStore } as any);
-  usePromptRequestStore.setState({ pendingRequests: [], ...overrides.askStore } as any);
   useInteractionStore.setState({ interactions: {}, ...overrides.interactionStore } as any);
   useChatStore.setState({ activeRuns: {}, ...overrides.chatStore } as any);
   useUIStore.setState({
@@ -396,7 +394,19 @@ describe('Sidebar', () => {
 
   it('marks sessions with pending question requests', () => {
     setupStores({
-      askStore: { pendingRequests: [{ sessionId: 'sess-1', id: 'q1' }] },
+      interactionStore: {
+        interactions: {
+          'prompt-1': {
+            type: 'interaction_prompt',
+            interactionId: 'prompt-1',
+            sessionId: 'sess-1',
+            source: 'provider_native',
+            createdAt: Date.now(),
+            title: 'Question',
+            fields: [],
+          },
+        },
+      },
     });
 
     const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);

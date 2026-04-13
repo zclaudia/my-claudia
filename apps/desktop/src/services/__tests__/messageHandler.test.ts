@@ -417,12 +417,43 @@ describe('handleServerMessage', () => {
     );
   });
 
-  it('handles prompt_request', () => {
+  it('handles interaction_prompt from provider_native', () => {
     handleServerMessage({
-      type: 'prompt_request', requestId: 'q1', sessionId: 's1', questions: ['What?'],
+      type: 'interaction_prompt',
+      interactionId: 'q1',
+      sessionId: 's1',
+      source: 'provider_native',
+      createdAt: Date.now(),
+      title: 'Question',
+      fields: [{
+        id: 'question_0',
+        label: 'What framework?',
+        description: 'Framework',
+        type: 'select',
+        options: [{ value: 'React', label: 'React', description: 'A JS library' }],
+        allowCustomValue: true,
+        customValuePlaceholder: 'Other',
+      }],
+      submitLabel: 'Submit',
+      cancelLabel: 'Skip',
+      responseMode: 'prompt_answer',
+      variant: 'question',
     }, makeCtx());
     expect(mockPromptRequestStore.setPendingRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ requestId: 'q1', questions: ['What?'] })
+      expect.objectContaining({
+        requestId: 'q1',
+        sessionId: 's1',
+        serverId: 'server-1',
+      })
+    );
+    expect(mockInteractionStore.upsertInteraction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'interaction_prompt',
+        interactionId: 'q1',
+        sessionId: 's1',
+        source: 'provider_native',
+        fields: [expect.objectContaining({ id: 'question_0', label: 'What framework?' })],
+      })
     );
   });
 
@@ -506,9 +537,10 @@ describe('handleServerMessage', () => {
     });
   });
 
-  it('handles prompt_request_resolved', () => {
-    handleServerMessage({ type: 'prompt_request_resolved', requestId: 'q1' }, makeCtx());
+  it('handles interaction_resolved', () => {
+    handleServerMessage({ type: 'interaction_resolved', interactionId: 'q1' }, makeCtx());
     expect(mockPromptRequestStore.clearRequestById).toHaveBeenCalledWith('q1');
+    expect(mockInteractionStore.resolveInteraction).toHaveBeenCalledWith('q1');
   });
 
   it('handles interaction_todo_update', () => {
@@ -524,9 +556,23 @@ describe('handleServerMessage', () => {
     expect(mockInteractionStore.upsertInteraction).toHaveBeenCalledWith(event);
   });
 
-  it('handles interaction_resolved', () => {
-    handleServerMessage({ type: 'interaction_resolved', interactionId: 'q1' }, makeCtx());
-    expect(mockInteractionStore.resolveInteraction).toHaveBeenCalledWith('q1');
+  it('does not create prompt route for non-provider interaction_prompt', () => {
+    handleServerMessage({
+      type: 'interaction_prompt',
+      interactionId: 'q2',
+      sessionId: 's1',
+      source: 'tool_call',
+      createdAt: Date.now(),
+      title: 'Question',
+      fields: [],
+      responseMode: 'none',
+    }, makeCtx());
+    expect(mockPromptRequestStore.setPendingRequest).not.toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: 'q2' }),
+    );
+    expect(mockInteractionStore.upsertInteraction).toHaveBeenCalledWith(
+      expect.objectContaining({ interactionId: 'q2', source: 'tool_call' }),
+    );
   });
 
   describe('system_info', () => {
@@ -801,11 +847,24 @@ describe('handleServerMessage', () => {
     it('reconciles questions', () => {
       handleServerMessage(makeHeartbeat({
         pendingQuestions: [{
-          requestId: 'q1', sessionId: 's1', questions: ['Confirm?'],
+          requestId: 'q1',
+          sessionId: 's1',
+          questions: [{
+            question: 'Confirm?',
+            header: 'Question',
+            options: [{ label: 'Yes', description: 'Proceed' }],
+          }],
         }],
       }), makeCtx());
       expect(mockPromptRequestStore.clearStaleRequests).toHaveBeenCalled();
       expect(mockPromptRequestStore.setPendingRequest).toHaveBeenCalled();
+      expect(mockInteractionStore.upsertInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'interaction_prompt',
+          interactionId: 'q1',
+          sessionId: 's1',
+        }),
+      );
     });
 
     it('gateway: reconciles active sessions', () => {

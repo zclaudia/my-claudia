@@ -311,7 +311,7 @@ export interface GatewayErrorMessage {
 
 export type PushNotificationEventType =
   | 'permission_request'
-  | 'prompt_request'
+  | 'interaction_prompt'
   | 'run_completed'
   | 'run_failed'
   | 'background_permission'

@@ -455,7 +455,7 @@ export class BackendFacadeRuntimeCore implements BackendFacade {
 
   private handleBackendMessage(event: Extract<FacadeAdapterEvent, { type: 'backend_message_received' }>): void {
     // Pass through as run_event so the UI message handler can process it.
-    // This covers system_info, permission_request, prompt_request, and other
+    // This covers system_info, permission_request, interaction_prompt, and other
     // non-stream messages that arrive via channel_server_message.
     // Extract sessionId from message if available (many ServerMessage types carry it)
     const msg = event.message as unknown as { sessionId?: string };

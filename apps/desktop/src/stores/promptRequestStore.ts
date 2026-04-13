@@ -1,30 +1,23 @@
 import { create } from 'zustand';
-import type { AskUserQuestionItem } from '@my-claudia/shared';
 
-export interface PromptRequest {
+export interface PromptRoute {
   requestId: string;
   /** The session this prompt belongs to (may be absent for older servers). */
   sessionId?: string;
   /** Source server ID (e.g. "gw:backend-1") — used to route the answer to the correct backend. */
   serverId?: string;
-  /** Human-readable backend name for diagnostics and cross-backend routing UX. */
-  backendName?: string;
-  questions: AskUserQuestionItem[];
 }
 
 interface PromptRequestState {
-  pendingRequests: PromptRequest[];
-  pendingRequest: PromptRequest | null;
-  setPendingRequest: (request: PromptRequest | null) => void;
-  clearRequest: () => void;
+  pendingRequests: PromptRoute[];
+  pendingRequest: PromptRoute | null;
+  setPendingRequest: (request: PromptRoute | null) => void;
   clearRequestById: (requestId: string) => void;
   clearAllRequests: () => void;
   clearRequestsForServer: (serverId: string) => void;
   clearRequestsForSession: (sessionId: string) => void;
   clearStaleRequests: (serverId: string, validIds: Set<string>) => void;
   hasRequest: (requestId: string) => boolean;
-  getRequestsForSession: (sessionId: string) => PromptRequest[];
-  getSessionsWithPendingRequests: () => string[];
 }
 
 export const usePromptRequestStore = create<PromptRequestState>((set, get) => ({
@@ -47,15 +40,6 @@ export const usePromptRequestStore = create<PromptRequestState>((set, get) => ({
       };
     });
   },
-
-  clearRequest: () =>
-    set((state) => {
-      const remaining = state.pendingRequests.slice(1);
-      return {
-        pendingRequests: remaining,
-        pendingRequest: remaining[0] || null,
-      };
-    }),
 
   clearAllRequests: () =>
     set({ pendingRequests: [], pendingRequest: null }),
@@ -103,14 +87,6 @@ export const usePromptRequestStore = create<PromptRequestState>((set, get) => ({
     }),
 
   hasRequest: (requestId): boolean => {
-    return get().pendingRequests.some((r: PromptRequest) => r.requestId === requestId);
-  },
-
-  getRequestsForSession: (sessionId): PromptRequest[] => {
-    return get().pendingRequests.filter((r) => r.sessionId === sessionId);
-  },
-
-  getSessionsWithPendingRequests: (): string[] => {
-    return [...new Set(get().pendingRequests.map((r) => r.sessionId).filter(Boolean))] as string[];
+    return get().pendingRequests.some((r: PromptRoute) => r.requestId === requestId);
   },
 }));

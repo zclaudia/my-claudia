@@ -215,7 +215,7 @@ export function handleProviderEvent({
           sendRunEvent({ type: 'mode_change', runId, sessionId: activeRun.sessionId, mode: 'plan' });
           if (modeValue !== 'plan') {
             activeRun.aiInitiatedPlanMode = true;
-            console.log(`[Permission] AI entered plan mode during ${modeValue} run — ExitPlanMode will auto-approve`);
+            console.log(`[Permission] AI entered plan mode during ${modeValue} run`);
           }
         } else if (toolName === 'ExitPlanMode') {
           sendRunEvent({ type: 'mode_change', runId, sessionId: activeRun.sessionId, mode: 'default' });

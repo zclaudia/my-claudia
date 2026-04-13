@@ -1,9 +1,8 @@
 /**
- * Permission and prompt-routing messages: permission decisions, prompt answers,
+ * Permission and prompt-answer messages: permission decisions, prompt answers,
  * permission requests, agent interceptions, resolution notifications, and plugin permissions.
  */
 
-import type { AskUserQuestionItem } from '../../interaction/forms.js';
 import type { AIReviewMetadata } from '../../interaction/permissions.js';
 
 // Client → Server
@@ -56,14 +55,6 @@ export interface PermissionRequestMessage {
   workflowRunId?: string;
 }
 
-// Prompt request: transport-level native question routing (Server → Client)
-export interface PromptRequestMessage {
-  type: 'prompt_request';
-  requestId: string;
-  sessionId: string;
-  questions: AskUserQuestionItem[];
-}
-
 // Agent permission auto-approval notification (Server → Client)
 export interface AgentPermissionInterceptedMessage {
   type: 'agent_permission_intercepted';
@@ -103,13 +94,6 @@ export interface AIReviewCompletedMessage {
   reasoning: string;
   confidence: number;
   metadata?: AIReviewMetadata;
-}
-
-// Server → Client: a prompt_request has been resolved by another device
-export interface PromptRequestResolvedMessage {
-  type: 'prompt_request_resolved';
-  requestId: string;
-  sessionId?: string;
 }
 
 // Server → Client: permission workflow step progress

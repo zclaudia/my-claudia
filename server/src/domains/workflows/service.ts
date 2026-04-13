@@ -293,7 +293,8 @@ export class WorkflowService {
       const handler = async (data: unknown, _sourcePluginId?: string) => {
         for (const wf of wfs) {
           if (wf.status !== 'active') continue;
-          if (this.engine.isRunning(wf.id)) continue;
+          // Allow concurrent runs for event-triggered workflows (e.g., permission escalation).
+          // Only skip for scheduled/cron workflows where duplicates are undesirable.
 
           // Check event filter
           const trigger = wf.definition.triggers.find(

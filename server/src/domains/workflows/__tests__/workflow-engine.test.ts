@@ -319,11 +319,13 @@ describe('WorkflowEngine', () => {
   });
 
   describe('startRun', () => {
-    it('throws when workflow already running', async () => {
-      const def = { triggers: [], nodes: [{ id: 'n1', type: 'shell', config: { command: 'echo hi' } }], edges: [] };
-      const startPromise = engine.startRun('w1', 'p1', def as any, 'manual');
-      await expect(engine.startRun('w1', 'p1', def as any, 'manual')).rejects.toThrow('already running');
-      try { await startPromise; } catch {}
+    it('allows concurrent runs for the same workflow', async () => {
+      const def = { triggers: [], entryNodeId: 'n1', nodes: [{ id: 'n1', type: 'notify', name: 'Test', config: { message: 'hi' } }], edges: [] };
+      const run1 = engine.startRun('w1', 'p1', def as any, 'manual');
+      const run2 = engine.startRun('w1', 'p1', def as any, 'manual');
+      // Both should succeed without throwing
+      await expect(run1).resolves.toBeDefined();
+      await expect(run2).resolves.toBeDefined();
     });
 
     it('throws for invalid DAG', async () => {

@@ -4,16 +4,17 @@ import { MessageList } from './MessageList';
 import { ToolCallList } from './ToolCallItem';
 import { LoadingIndicator } from './LoadingIndicator';
 import { InlinePermissionRequest } from './InlinePermissionRequest';
-import { InlinePromptRequest } from './InlinePromptRequest';
+import { InteractionItem } from './InteractionItem';
 import type { MessageWithToolCalls, ToolCallState, RunHealth } from '../../stores/chatStore';
 import type { PermissionRequest } from '../../stores/permissionStore';
-import type { PromptRequest } from '../../stores/promptRequestStore';
 import type { ContentBlock } from '@my-claudia/shared';
 import type { PaginationInfo } from '../../stores/chatStore';
+import { useInteractionStore } from '../../stores/interactionStore';
 
 const AUTO_STICK_BOTTOM_THRESHOLD_PX = 200;
 
 interface ChatMessagePaneProps {
+  sessionId: string;
   // Pagination / scroll refs & state
   messagesEndRef: RefObject<HTMLDivElement>;
   messagesContainerRef: RefObject<HTMLDivElement>;
@@ -51,11 +52,10 @@ interface ChatMessagePaneProps {
   // Permission / ask-user
   permissionRequests: PermissionRequest[];
   onPermissionDecision: (requestId: string, allow: boolean, remember?: boolean, credential?: string, feedback?: string) => Promise<void>;
-  promptRequests: PromptRequest[];
-  onPromptAnswer: (requestId: string, formattedAnswer: string) => void;
 }
 
 export const ChatMessagePane = memo(function ChatMessagePane({
+  sessionId,
   messagesEndRef,
   messagesContainerRef,
   initialLoadDone,
@@ -86,9 +86,13 @@ export const ChatMessagePane = memo(function ChatMessagePane({
   onCancelRun,
   permissionRequests,
   onPermissionDecision,
-  promptRequests,
-  onPromptAnswer,
 }: ChatMessagePaneProps) {
+  const promptInteractions = useInteractionStore((state) =>
+    Object.values(state.interactions)
+      .filter((interaction) => interaction.sessionId === sessionId)
+      .filter((interaction) => interaction.type === 'interaction_prompt' && interaction.source === 'provider_native')
+      .sort((a, b) => a.createdAt - b.createdAt)
+  );
   const shouldStickToBottomRef = useRef(true);
   const hasSessionSnapshot = !!sessionPagination;
   const isInitialMessageLoading = !loadError && (!initialLoadDone || !hasSessionSnapshot);
@@ -149,6 +153,12 @@ export const ChatMessagePane = memo(function ChatMessagePane({
       scrollToBottom();
     }
   }, [permissionRequests.length, initialLoadDone, scrollToBottom]);
+
+  useEffect(() => {
+    if (initialLoadDone && promptInteractions.length > 0) {
+      scrollToBottom();
+    }
+  }, [promptInteractions.length, initialLoadDone, scrollToBottom]);
 
   return (
     <div
@@ -243,15 +253,10 @@ export const ChatMessagePane = memo(function ChatMessagePane({
         </div>
       )}
 
-      {/* Inline prompt requests (AskUserQuestion) */}
-      {promptRequests.length > 0 && (
+      {promptInteractions.length > 0 && (
         <div className="mt-4 space-y-3 max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl">
-          {promptRequests.map(req => (
-            <InlinePromptRequest
-              key={req.requestId}
-              request={req}
-              onAnswer={onPromptAnswer}
-            />
+          {promptInteractions.map((interaction) => (
+            <InteractionItem key={interaction.interactionId} interaction={interaction} />
           ))}
         </div>
       )}

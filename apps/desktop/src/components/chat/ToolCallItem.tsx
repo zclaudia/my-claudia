@@ -1,9 +1,9 @@
-import { useState, useMemo, useCallback, memo } from 'react';
+import { useState, useMemo, memo } from 'react';
 import { AnsiUp } from 'ansi_up';
 import type { ToolCallState } from '../../stores/chatStore';
 import { getToolIcon } from '../../config/icons';
 import { Icon } from '../ui/Icon';
-import { CheckCircle2, XCircle, Loader2, ChevronDown, ChevronRight, Wrench, Square, Send, X } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, ChevronDown, ChevronRight, Wrench, Square } from 'lucide-react';
 import { DiffViewer } from './DiffViewer';
 import { CodeViewer } from './CodeViewer';
 import { useTerminalStore } from '../../stores/terminalStore';
@@ -14,7 +14,6 @@ import { useServerStore } from '../../stores/serverStore';
 import { toolRendererRegistry } from '../../services/toolRendererRegistry';
 import { useInteractionStore } from '../../stores/interactionStore';
 import { InteractionItem } from './InteractionItem';
-import { usePromptRequestStore } from '../../stores/promptRequestStore';
 
 const ansiUp = new AnsiUp();
 
@@ -462,19 +461,16 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
     );
   }
 
-  // AskUserQuestion: show interactive UI when running, readonly when completed
+  // AskUserQuestion: readonly rendering; interactive answering is unified via InteractionItem
   if (toolName === 'AskUserQuestion' && input?.questions) {
     const questions = input.questions as Array<{
       question: string;
       header: string;
       options: Array<{ label: string; description: string }>;
       multiSelect?: boolean;
+      allowCustomValue?: boolean;
+      customValuePlaceholder?: string;
     }>;
-
-    // When the tool call is still running, show interactive inline answer UI
-    if (status === 'running') {
-      return <InlineAskUserAnswer questions={questions} />;
-    }
 
     return (
       <div className="px-3 pb-3 border-t border-border/50">
@@ -499,6 +495,14 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
                     </div>
                   </div>
                 ))}
+                {(q.allowCustomValue ?? true) && (
+                  <div className="flex items-start gap-2 text-xs">
+                    <span className="text-muted-foreground flex-shrink-0">{q.multiSelect ? '☐' : '○'}</span>
+                    <div>
+                      <span className="text-foreground">{q.customValuePlaceholder || 'Other'}</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -986,138 +990,3 @@ export const ToolCallList = memo(function ToolCallList({ toolCalls, defaultColla
  * allowing the user to answer directly from the tool call card
  * — works on both desktop and mobile/gateway clients.
  */
-function InlineAskUserAnswer({ questions }: {
-  questions: Array<{
-    question: string;
-    header: string;
-    options: Array<{ label: string; description: string }>;
-    multiSelect?: boolean;
-  }>;
-}) {
-  const [selections, setSelections] = useState<Record<number, Set<string>>>({});
-  const [submitted, setSubmitted] = useState(false);
-  const { handlePromptAnswer } = useConnection();
-  const pendingRequests = usePromptRequestStore(s => s.pendingRequests);
-
-  // Find the matching prompt request (AskUserQuestion creates one)
-  const matchingRequest = pendingRequests.find(r =>
-    r.questions?.length === questions.length
-  );
-
-  const toggle = useCallback((qIdx: number, label: string, multiSelect: boolean) => {
-    setSelections(prev => {
-      const current = prev[qIdx] ?? new Set<string>();
-      const next = new Set(current);
-      if (multiSelect) {
-        if (next.has(label)) next.delete(label);
-        else next.add(label);
-      } else {
-        next.clear();
-        next.add(label);
-      }
-      return { ...prev, [qIdx]: next };
-    });
-  }, []);
-
-  const handleSubmit = useCallback(() => {
-    if (!matchingRequest) return;
-    const parts = questions.map((q, idx) => {
-      const selected = selections[idx];
-      const answer = selected && selected.size > 0
-        ? [...selected].join(', ')
-        : '(No selection)';
-      return `Q: ${q.question}\nA: ${answer}`;
-    });
-    handlePromptAnswer(matchingRequest.requestId, parts.join('\n\n'));
-    setSubmitted(true);
-  }, [questions, selections, matchingRequest, handlePromptAnswer]);
-
-  const handleSkip = useCallback(() => {
-    if (!matchingRequest) return;
-    handlePromptAnswer(matchingRequest.requestId, '(Skipped)');
-    setSubmitted(true);
-  }, [matchingRequest, handlePromptAnswer]);
-
-  if (submitted) {
-    return (
-      <div className="px-3 py-2 border-t border-border/50 text-xs text-success flex items-center gap-2">
-        <CheckCircle2 size={12} />
-        <span>Response submitted</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="px-3 pb-3 border-t border-border/50">
-      <div className="mt-2 space-y-3">
-        {questions.map((q, qIdx) => {
-          const selected = selections[qIdx] ?? new Set<string>();
-          return (
-            <div key={qIdx}>
-              <div className="flex items-start gap-2 mb-1.5">
-                <span className="inline-block px-1.5 py-0.5 bg-primary/20 text-primary text-[10px] rounded font-medium flex-shrink-0">
-                  {q.header}
-                </span>
-                <span className="text-xs text-foreground">{q.question}</span>
-              </div>
-              <div className="ml-2 space-y-1">
-                {q.options.map((opt) => {
-                  const isSelected = selected.has(opt.label);
-                  return (
-                    <label
-                      key={opt.label}
-                      className={`flex items-start gap-2 p-1.5 rounded cursor-pointer transition-colors text-xs ${
-                        isSelected
-                          ? 'bg-primary/10 border border-primary/30'
-                          : 'bg-muted/30 border border-transparent hover:bg-muted/50 active:bg-muted/60'
-                      }`}
-                    >
-                      <input
-                        type={q.multiSelect ? 'checkbox' : 'radio'}
-                        name={`inline-q-${qIdx}`}
-                        checked={isSelected}
-                        onChange={() => toggle(qIdx, opt.label, !!q.multiSelect)}
-                        className="mt-0.5 w-3.5 h-3.5 flex-shrink-0"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <span className="text-foreground">{opt.label}</span>
-                        {opt.description && (
-                          <span className="text-muted-foreground ml-1">— {opt.description}</span>
-                        )}
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-
-        {/* Actions */}
-        <div className="flex items-center gap-2 justify-end pt-1">
-          <button
-            onClick={handleSkip}
-            disabled={!matchingRequest}
-            className="flex items-center gap-1 px-3 py-1.5 bg-secondary hover:bg-secondary/80 active:bg-secondary/70 text-secondary-foreground rounded-full text-xs font-medium transition-colors disabled:opacity-50"
-          >
-            <X size={10} />
-            Skip
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={!matchingRequest}
-            className="flex items-center gap-1 px-3 py-1.5 bg-primary hover:bg-primary/90 active:bg-primary/80 text-primary-foreground rounded-full text-xs font-medium transition-colors disabled:opacity-50"
-          >
-            <Send size={10} />
-            Submit
-          </button>
-        </div>
-        {!matchingRequest && (
-          <p className="text-[10px] text-muted-foreground text-center">
-            Waiting for prompt request from server...
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
