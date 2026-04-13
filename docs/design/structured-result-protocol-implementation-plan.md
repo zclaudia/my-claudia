@@ -94,7 +94,7 @@ Phase 1 需要决定：
 
 ---
 
-## 3. Phase 0 Plan: CLI Jobs Generalization
+## 3. Phase 0 Plan: CLI Jobs Generalization ✅ COMPLETED
 
 ## 3.1 Goals
 
@@ -328,7 +328,7 @@ Phase 0 的产物不是最终对外架构中心。`runAIReviewCliJob()` 可以�
 
 ---
 
-## 4. Phase 1 Plan: Structured Result Foundation
+## 4. Phase 1 Plan: Structured Result Foundation ✅ COMPLETED
 
 ## 4.1 Goals
 
@@ -496,21 +496,19 @@ Phase 1 交付的是 one-shot task 的结果协议基础，而不是独立悬空
 
 ---
 
-## 7. Immediate Next Action
+## 7. Current Status & Next Action
 
-最合理的下一步是直接进入 **Phase 0** 的代码实施，因为：
+### 已完成
 
-- 风险最低
-- 收益立即可见
-- 不依赖 provider runtime 升级
-- 不会改变产品行为
+- **Phase 0**：`runner.ts` + 5 个 adapter + `types.ts` + 错误类型已落地
+- **Phase 1**：`structured-result/*` 全模块已落地（types / schema-registry / validator / fallback / finalization-tool / builtins）
+- **ai_review_v1** 已注册，fallback parser 已对接
 
-推荐从下面两个文件开始：
+### 下一步
 
-1. `server/src/infrastructure/providers/cli-jobs/runner.ts`
-2. `server/src/infrastructure/providers/cli-jobs/adapters/codex.ts`
+进入 **Phase 2a**（见 `one-shot-task-runtime-interface-draft.md` 第 10 节），实现：
 
-原因：
-
-- `runner.ts` 决定整体骨架
-- `codex` 是资源生命周期最复杂的 provider，先拿它验证接口是否足够
+1. `OneShotTaskContractRegistry` + ai_review contract 注册
+2. `CliBatchBridge` 包裹现有 adapter + runner
+3. 最小 `OneShotTaskRuntime` 编排层
+4. `delegation-evaluator` 新增 runtime 分支

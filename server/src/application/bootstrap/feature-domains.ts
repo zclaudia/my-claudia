@@ -25,6 +25,12 @@ import type { NotificationService } from '../../domains/notification-feed/index.
 import { PermissionBridge } from '../conversation/agent/permission-bridge.js';
 import { AIRiskAnalysisAdapter } from '../conversation/agent/ai-risk-analysis-adapter.js';
 import type { WorkflowRunEvent } from '../../domains/workflows/run-events.js';
+import { createOneShotRuntime } from '../oneshot/index.js';
+import { claudeReviewAdapter } from '../../infrastructure/providers/cli-jobs/adapters/claude.js';
+import { codexReviewAdapter } from '../../infrastructure/providers/cli-jobs/adapters/codex.js';
+import { cursorReviewAdapter } from '../../infrastructure/providers/cli-jobs/adapters/cursor.js';
+import { kimiReviewAdapter } from '../../infrastructure/providers/cli-jobs/adapters/kimi.js';
+import { opencodeReviewAdapter } from '../../infrastructure/providers/cli-jobs/adapters/opencode.js';
 
 
 interface RegisterFeatureDomainsDeps {
@@ -51,6 +57,7 @@ export interface FeatureDomainsResult {
   notificationsService: NotificationService;
   permissionBridge: PermissionBridge;
   cancelWorkflowRun: (runId: string) => void;
+  oneShotRuntime: import('../oneshot/types.js').OneShotTaskRuntime;
 }
 
 function broadcastToAuthenticatedClients(
@@ -258,11 +265,23 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     broadcastPluginState,
   });
 
+  // --- OneShotTaskRuntime bootstrap ---
+  const oneShotRuntime = createOneShotRuntime({
+    batchAdapters: [
+      claudeReviewAdapter,
+      codexReviewAdapter,
+      cursorReviewAdapter,
+      kimiReviewAdapter,
+      opencodeReviewAdapter,
+    ],
+  });
+
   return {
     supervisorService,
     workflowService,
     notificationsService,
     permissionBridge,
     cancelWorkflowRun,
+    oneShotRuntime,
   };
 }
