@@ -7,6 +7,8 @@ import { supportsAIReviewCliJob, runAIReviewCliJob } from '../../infrastructure/
 import { CliReviewParseError } from '../../infrastructure/providers/cli-jobs/review-parser.js';
 import { DEFAULT_AI_REVIEW_CONFIG } from '@my-claudia/shared/interaction/permissions';
 import type Database from 'better-sqlite3';
+import type { OneShotTaskRuntime } from '../../application/oneshot/types.js';
+import { AI_REVIEW_TASK_TYPE } from '../../application/oneshot/contract-registry.js';
 
 export interface PermissionLogEntry {
   id: string;
@@ -18,7 +20,7 @@ export interface PermissionLogEntry {
   created_at: number;
 }
 
-export function createDebugRoutes(processSupervisor?: ProcessSupervisor, db?: Database.Database): Router {
+export function createDebugRoutes(processSupervisor?: ProcessSupervisor, db?: Database.Database, oneShotRuntime?: OneShotTaskRuntime): Router {
   const router = Router();
 
   router.get('/crashes', (_req: Request, res: Response) => {
@@ -123,7 +125,7 @@ export function createDebugRoutes(processSupervisor?: ProcessSupervisor, db?: Da
       cwd?: string;
       providerId?: string;
       confidenceThreshold?: number;
-      mode?: 'quick' | 'full';
+      mode?: 'quick' | 'full' | 'runtime';
     };
 
     if (!toolName || !detail || !cwd) {
@@ -181,6 +183,52 @@ export function createDebugRoutes(processSupervisor?: ProcessSupervisor, db?: Da
 
     const startTime = Date.now();
     try {
+      if (mode === 'runtime') {
+        // Runtime mode: use OneShotTaskRuntime directly (Phase 2b validation)
+        if (!oneShotRuntime) {
+          res.status(500).json({
+            success: false,
+            error: { code: 'NO_RUNTIME', message: 'OneShotTaskRuntime not available' },
+          } satisfies ApiResponse<never>);
+          return;
+        }
+
+        const reviewPrompt = [
+          `Review this tool call for safety:`,
+          `Tool: ${toolName}`,
+          `Detail: ${detail}`,
+          toolInput ? `Input: ${JSON.stringify(toolInput).slice(0, 800)}` : '',
+          `Working directory: ${cwd}`,
+          '',
+          'Respond with a JSON object: {"decision": "approve"|"deny"|"uncertain", "reasoning": "...", "confidence": 0.0-1.0}',
+        ].filter(Boolean).join('\n');
+
+        const result = await oneShotRuntime.run({
+          taskType: AI_REVIEW_TASK_TYPE,
+          providerType: providerRow.type,
+          prompt: reviewPrompt,
+          cwd,
+          systemPrompt: systemPrompt,
+          model: undefined,
+          timeoutMs: 120000,
+        });
+
+        res.json({
+          success: true,
+          data: {
+            decision: (result.result as { decision?: string } | undefined)?.decision ?? 'uncertain',
+            reasoning: (result.result as { reasoning?: string } | undefined)?.reasoning ?? result.rawText?.slice(0, 500) ?? '',
+            confidence: (result.result as { confidence?: number } | undefined)?.confidence ?? 0,
+            durationMs: result.telemetry.durationMs,
+            providerId: providerRow.id,
+            providerType: providerRow.type,
+            mode: 'runtime',
+            telemetry: result.telemetry,
+          },
+        });
+        return;
+      }
+
       if (mode === 'full') {
         // Full mode: use evaluateAIReview with multi-turn file reading
         const config = {

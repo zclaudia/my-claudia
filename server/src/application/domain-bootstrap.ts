@@ -109,6 +109,7 @@ export function bootstrapDomains(deps: BootstrapDeps): BootstrapResult {
     notificationsService,
     permissionBridge,
     cancelWorkflowRun,
+    oneShotRuntime,
   } = registerFeatureDomains({
     db,
     app,
@@ -135,6 +136,7 @@ export function bootstrapDomains(deps: BootstrapDeps): BootstrapResult {
     processSupervisor,
     gateway,
     getServerPort,
+    oneShotRuntime,
   });
 
   registerInteractionTools({
