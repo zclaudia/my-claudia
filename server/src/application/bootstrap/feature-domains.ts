@@ -54,6 +54,7 @@ interface RegisterFeatureDomainsDeps {
 export interface FeatureDomainsResult {
   supervisorService: import('../../domains/supervision/index.js').SupervisorService;
   workflowService: import('../../domains/workflows/index.js').WorkflowService;
+  workflowEngine: import('../../domains/workflows/engine.js').WorkflowEngine;
   notificationsService: NotificationService;
   permissionBridge: PermissionBridge;
   cancelWorkflowRun: (runId: string) => void;
@@ -279,6 +280,7 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
   return {
     supervisorService,
     workflowService,
+    workflowEngine,
     notificationsService,
     permissionBridge,
     cancelWorkflowRun,

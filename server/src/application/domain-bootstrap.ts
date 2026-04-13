@@ -106,6 +106,7 @@ export function bootstrapDomains(deps: BootstrapDeps): BootstrapResult {
 
   const {
     supervisorService,
+    workflowEngine,
     notificationsService,
     permissionBridge,
     cancelWorkflowRun,
@@ -137,6 +138,7 @@ export function bootstrapDomains(deps: BootstrapDeps): BootstrapResult {
     gateway,
     getServerPort,
     oneShotRuntime,
+    workflowEngine,
   });
 
   registerInteractionTools({

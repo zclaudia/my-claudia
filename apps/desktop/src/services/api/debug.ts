@@ -119,7 +119,7 @@ export interface SimulateAIReviewRequest {
   cwd: string;
   providerId?: string;
   confidenceThreshold?: number;
-  mode?: 'quick' | 'full';
+  mode?: 'quick' | 'full' | 'runtime' | 'workflow';
 }
 
 export interface SimulateAIReviewResponse {
@@ -130,7 +130,12 @@ export interface SimulateAIReviewResponse {
   durationMs: number;
   providerId: string;
   providerType: string;
-  mode: 'quick' | 'full';
+  mode: 'quick' | 'full' | 'runtime' | 'workflow';
+  telemetry?: Record<string, unknown>;
+  workflowRunId?: string;
+  workflowStatus?: string;
+  workflowDecision?: string | null;
+  steps?: Array<{ nodeId: string; status: string; output: unknown }>;
 }
 
 export async function simulateAIReview(req: SimulateAIReviewRequest): Promise<SimulateAIReviewResponse> {

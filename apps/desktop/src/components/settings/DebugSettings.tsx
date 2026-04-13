@@ -37,7 +37,7 @@ export function DebugSettings({ isConnected, sendMessage, embeddedServerStatus }
   const [simCwd, setSimCwd] = useState('');
   const [simProviderId, setSimProviderId] = useState('');
   const [simThreshold, setSimThreshold] = useState(0.8);
-  const [simMode, setSimMode] = useState<'quick' | 'full'>('quick');
+  const [simMode, setSimMode] = useState<'quick' | 'full' | 'runtime' | 'workflow'>('quick');
   const [simRunning, setSimRunning] = useState(false);
   const [simResult, setSimResult] = useState<SimulateAIReviewResponse | null>(null);
   const [simError, setSimError] = useState<string | null>(null);
@@ -599,7 +599,7 @@ export function DebugSettings({ isConnected, sendMessage, embeddedServerStatus }
               </div>
 
               <div className="flex items-center bg-secondary/80 rounded-lg p-0.5 gap-0.5">
-                {(['quick', 'full'] as const).map((m) => (
+                {(['quick', 'full', 'runtime', 'workflow'] as const).map((m) => (
                   <button
                     key={m}
                     onClick={() => setSimMode(m)}
@@ -609,7 +609,7 @@ export function DebugSettings({ isConnected, sendMessage, embeddedServerStatus }
                         : 'text-muted-foreground hover:text-foreground'
                     }`}
                   >
-                    {m === 'quick' ? 'Quick' : 'Full'}
+                    {{ quick: 'Quick', full: 'Full', runtime: 'Runtime', workflow: 'Workflow' }[m]}
                   </button>
                 ))}
               </div>

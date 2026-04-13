@@ -23,10 +23,11 @@ interface RegisterPlatformRoutesDeps {
   gateway: GatewayState;
   getServerPort: () => number | null;
   oneShotRuntime?: import('../oneshot/types.js').OneShotTaskRuntime;
+  workflowEngine?: import('../../domains/workflows/engine.js').WorkflowEngine;
 }
 
 export function registerPlatformRoutes(deps: RegisterPlatformRoutesDeps): void {
-  const { app, db, authMiddleware, localOnlyMiddleware, processSupervisor, gateway, getServerPort, oneShotRuntime } = deps;
+  const { app, db, authMiddleware, localOnlyMiddleware, processSupervisor, gateway, getServerPort, oneShotRuntime, workflowEngine } = deps;
 
   app.use('/api/mcp-servers', authMiddleware, createMcpServerRoutes(db));
 
@@ -54,7 +55,7 @@ export function registerPlatformRoutes(deps: RegisterPlatformRoutesDeps): void {
   });
 
   app.use('/api/system', localOnlyMiddleware, createSystemStatsRoutes());
-  app.use('/api/debug', localOnlyMiddleware, createDebugRoutes(processSupervisor, db, oneShotRuntime));
+  app.use('/api/debug', localOnlyMiddleware, createDebugRoutes(processSupervisor, db, oneShotRuntime, workflowEngine));
   app.use('/api', authMiddleware, createSystemTaskRoutes());
   app.use('/api/workspace', authMiddleware, createWorkspaceRoutes());
 

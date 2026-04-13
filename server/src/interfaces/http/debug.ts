@@ -9,6 +9,9 @@ import { DEFAULT_AI_REVIEW_CONFIG } from '@my-claudia/shared/interaction/permiss
 import type Database from 'better-sqlite3';
 import type { OneShotTaskRuntime } from '../../application/oneshot/types.js';
 import { AI_REVIEW_TASK_TYPE } from '../../application/oneshot/contract-registry.js';
+import type { WorkflowEngine } from '../../domains/workflows/engine.js';
+import { BUILTIN_WORKFLOW_TEMPLATES, PERMISSION_WORKFLOW_TEMPLATE_ID } from '../../domains/workflows/templates.js';
+import type { WorkflowRunEvent } from '../../domains/workflows/run-events.js';
 
 export interface PermissionLogEntry {
   id: string;
@@ -20,7 +23,7 @@ export interface PermissionLogEntry {
   created_at: number;
 }
 
-export function createDebugRoutes(processSupervisor?: ProcessSupervisor, db?: Database.Database, oneShotRuntime?: OneShotTaskRuntime): Router {
+export function createDebugRoutes(processSupervisor?: ProcessSupervisor, db?: Database.Database, oneShotRuntime?: OneShotTaskRuntime, workflowEngine?: WorkflowEngine): Router {
   const router = Router();
 
   router.get('/crashes', (_req: Request, res: Response) => {
@@ -125,7 +128,7 @@ export function createDebugRoutes(processSupervisor?: ProcessSupervisor, db?: Da
       cwd?: string;
       providerId?: string;
       confidenceThreshold?: number;
-      mode?: 'quick' | 'full' | 'runtime';
+      mode?: 'quick' | 'full' | 'runtime' | 'workflow';
     };
 
     if (!toolName || !detail || !cwd) {
@@ -224,6 +227,109 @@ export function createDebugRoutes(processSupervisor?: ProcessSupervisor, db?: Da
             providerType: providerRow.type,
             mode: 'runtime',
             telemetry: result.telemetry,
+          },
+        });
+        return;
+      }
+
+      if (mode === 'workflow') {
+        // Workflow mode: run the full permission_escalation workflow
+        if (!workflowEngine) {
+          res.status(500).json({
+            success: false,
+            error: { code: 'NO_ENGINE', message: 'WorkflowEngine not available' },
+          } satisfies ApiResponse<never>);
+          return;
+        }
+
+        const template = BUILTIN_WORKFLOW_TEMPLATES.find(t => t.id === PERMISSION_WORKFLOW_TEMPLATE_ID);
+        if (!template) {
+          res.status(500).json({
+            success: false,
+            error: { code: 'NO_TEMPLATE', message: 'Permission workflow template not found' },
+          } satisfies ApiResponse<never>);
+          return;
+        }
+
+        // Construct simulated permission.escalated event payload
+        const eventPayload: Record<string, unknown> = {
+          requestId: `debug-${Date.now()}`,
+          runId: 'debug-run',
+          sessionId: 'debug-session',
+          toolName,
+          toolInput: toolInput ?? { command: detail },
+          detail,
+          cwd,
+          category: 'unknown',
+          matchedRule: null,
+          isEscalateAlways: false,
+          sessionType: 'foreground',
+          aiInitiatedPlanMode: false,
+        };
+
+        // Wait for workflow run to complete
+        const run = await workflowEngine.startRun(
+          `debug-workflow-${Date.now()}`,
+          undefined,
+          template.definition,
+          'manual',
+          'Debug AI review simulation (workflow mode)',
+          { eventPayload },
+        );
+
+        // Poll for completion (engine runs async)
+        const result = await new Promise<{ run: typeof run; stepRuns: unknown[] }>((resolve, reject) => {
+          const timeoutId = setTimeout(() => {
+            cleanup();
+            reject(new Error('Workflow execution timed out after 180s'));
+          }, 180_000);
+
+          const handler = (event: WorkflowRunEvent) => {
+            if (event.runId !== run.id) return;
+            if (event.type === 'run_completed' || event.type === 'run_failed' || event.type === 'run_cancelled') {
+              cleanup();
+              resolve({ run: { ...run, status: event.type === 'run_completed' ? 'completed' : 'failed' }, stepRuns: [] });
+            }
+          };
+
+          const cleanup = () => {
+            clearTimeout(timeoutId);
+            // Remove handler (dispatcher doesn't have off(), so just track)
+          };
+
+          workflowEngine.dispatcher.onAny(handler);
+        });
+
+        // Read final step results from DB
+        const runDetail = db?.prepare(
+          `SELECT * FROM workflow_step_runs WHERE run_id = ? ORDER BY started_at ASC`
+        ).all(run.id) as Array<{ node_id: string; status: string; output: string | null }> | undefined;
+
+        const aiReviewStep = runDetail?.find(s => s.node_id === 'ai_review');
+        const aiReviewOutput = aiReviewStep?.output ? JSON.parse(aiReviewStep.output) as Record<string, unknown> : {};
+
+        const decideStep = runDetail?.find(s => s.node_id === 'decide_approve');
+        const decideOutput = decideStep?.output ? JSON.parse(decideStep.output) as Record<string, unknown> : {};
+
+        res.json({
+          success: true,
+          data: {
+            decision: (aiReviewOutput.decision as string) ?? 'uncertain',
+            reasoning: (aiReviewOutput.reasoning as string) ?? '',
+            confidence: (aiReviewOutput.confidence as number) ?? 0,
+            metadata: aiReviewOutput.metadata,
+            durationMs: Date.now() - startTime,
+            providerId: providerRow.id,
+            providerType: providerRow.type,
+            mode: 'workflow',
+            workflowRunId: run.id,
+            workflowStatus: result.run.status,
+            workflowDecision: decideOutput.decision ?? null,
+            steps: runDetail?.map(s => ({
+              nodeId: s.node_id,
+              status: s.status,
+              output: s.output ? JSON.parse(s.output) : null,
+            })),
           },
         });
         return;
