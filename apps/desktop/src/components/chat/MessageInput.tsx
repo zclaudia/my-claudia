@@ -87,7 +87,7 @@ export function MessageInput({
   projectRoot,
   disabled = false,
   isLoading = false,
-  placeholder = 'Type a message... (Enter to send)',
+  placeholder = 'Type a message...',
   initialValue,
   initialAttachments,
   advancedMode = false,
@@ -569,7 +569,13 @@ export function MessageInput({
 
     // Enter key behavior (guarded by IME composition state)
     if (e.key === 'Enter' && !isComposing && !e.nativeEvent.isComposing) {
-      if (advancedMode && !isMobile) {
+      if (isMobile) {
+        // Mobile composer should always treat Enter as a newline. Sending is
+        // intentionally limited to the explicit send button.
+        return;
+      }
+
+      if (advancedMode) {
         // Advanced + desktop: Cmd/Ctrl+Enter sends, plain Enter is newline
         if (e.metaKey || e.ctrlKey) {
           e.preventDefault();
@@ -920,7 +926,7 @@ export function MessageInput({
                 onClick={handleSend}
                 disabled={disabled || (!value.trim() && attachments.length === 0)}
                 className="h-10 w-10 flex-shrink-0 flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed rounded-full transition-colors"
-                title="Send message (Enter)"
+                title="Send message"
                 data-testid="send-button"
               >
                 <Send size={20} strokeWidth={1.75} />

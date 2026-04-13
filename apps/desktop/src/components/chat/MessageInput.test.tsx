@@ -4,8 +4,9 @@ import { MessageInput } from './MessageInput';
 import type { SlashCommand } from '@my-claudia/shared';
 
 // Mock hooks
+let mockIsMobile = false;
 vi.mock('../../hooks/useMediaQuery', () => ({
-  useIsMobile: () => false,
+  useIsMobile: () => mockIsMobile,
 }));
 
 // Mock chatStore
@@ -45,6 +46,7 @@ describe('MessageInput', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useRealTimers();
+    mockIsMobile = false;
   });
 
   // ── Basic rendering ─────────────────────────────────────────────────────
@@ -507,5 +509,21 @@ describe('MessageInput', () => {
     fireEvent.compositionStart(textarea);
     fireEvent.keyDown(textarea, { key: 'Enter' });
     expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('uses Enter for newline on mobile and only sends via button', () => {
+    mockIsMobile = true;
+    const onSend = vi.fn();
+    render(<MessageInput {...defaultProps} onSend={onSend} />);
+    const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: 'line 1' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.getByTitle('Send message')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle('Send message'));
+    expect(onSend).toHaveBeenCalledWith('line 1', undefined);
   });
 });
