@@ -77,6 +77,8 @@ function createCliReviewProvider(): AIReviewProvider {
  * with a CLI-backed AIReviewProvider.
  */
 export class AIRiskAnalysisAdapter implements AIRiskAnalysisPort {
+  constructor(private oneShotRuntime?: import('../../oneshot/types.js').OneShotTaskRuntime) {}
+
   async evaluate(ctx: {
     toolName: string;
     toolInput: unknown;
@@ -109,6 +111,8 @@ export class AIRiskAnalysisAdapter implements AIRiskAnalysisPort {
       detail: ctx.detail,
       cwd: ctx.cwd,
       analysisProvider: provider,
+      oneShotRuntime: this.oneShotRuntime,
+      providerType: 'claude',
     });
 
     return {

@@ -15,6 +15,7 @@ export type {
 
 export { DefaultContractRegistry, AI_REVIEW_TASK_TYPE, aiReviewContract, registerBuiltInContracts } from './contract-registry.js';
 export { CliBatchBridge } from './cli-batch-bridge.js';
+export { CliInteractiveBridge, type InteractivePromptProvider, type InteractiveToolHandler, type CliInteractiveBridgeOptions } from './cli-interactive-bridge.js';
 export { DefaultOneShotTaskRuntime, type OneShotTaskRuntimeDeps } from './runtime.js';
 
 // ── Convenience factory ────────────────────────────────────────

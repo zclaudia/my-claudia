@@ -159,7 +159,19 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
 
   // Permission bridge — connects workflow engine to conversation permission system
   const permissionBridge = new PermissionBridge();
-  const aiRiskAnalysisPort = new AIRiskAnalysisAdapter();
+
+  // --- OneShotTaskRuntime bootstrap (before AIRiskAnalysisAdapter which uses it) ---
+  const oneShotRuntime = createOneShotRuntime({
+    batchAdapters: [
+      claudeReviewAdapter,
+      codexReviewAdapter,
+      cursorReviewAdapter,
+      kimiReviewAdapter,
+      opencodeReviewAdapter,
+    ],
+  });
+
+  const aiRiskAnalysisPort = new AIRiskAnalysisAdapter(oneShotRuntime);
 
   const { workflowService, workflowEngine } = registerWorkflowDomain({
     db,
@@ -264,17 +276,6 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     activeRuns,
     clients,
     broadcastPluginState,
-  });
-
-  // --- OneShotTaskRuntime bootstrap ---
-  const oneShotRuntime = createOneShotRuntime({
-    batchAdapters: [
-      claudeReviewAdapter,
-      codexReviewAdapter,
-      cursorReviewAdapter,
-      kimiReviewAdapter,
-      opencodeReviewAdapter,
-    ],
   });
 
   return {

@@ -138,6 +138,10 @@ export interface AIReviewContext {
   analysisProvider?: AIReviewProvider;
   /** Shared session ID for session reuse (managed by AIReviewQueue) */
   sessionId?: string;
+  /** Optional OneShotTaskRuntime — when provided, AI review uses the runtime pipeline */
+  oneShotRuntime?: import('../../oneshot/types.js').OneShotTaskRuntime;
+  /** Provider type for runtime bridge selection (e.g. 'claude') */
+  providerType?: string;
 }
 
 // AIReviewResult is re-exported from @my-claudia/shared
@@ -290,8 +294,44 @@ export async function evaluateAIReview(
   }
 
   try {
-    console.log(`[AI Review] Running LLM analysis for: ${ctx.toolName} (sessionId=${ctx.sessionId || 'new'})`);
-    const llmResult = await analyzeLLMRisk(ctx);
+    let llmResult: AIReviewResultWithSession;
+
+    // Try runtime path first if available
+    if (ctx.oneShotRuntime && ctx.providerType) {
+      console.log(`[AI Review] Running via OneShotTaskRuntime for: ${ctx.toolName} (provider=${ctx.providerType})`);
+      const { AI_REVIEW_TASK_TYPE } = await import('../../oneshot/contract-registry.js');
+      const command = (ctx.toolInput as { command?: string } | undefined)?.command || ctx.detail || '';
+      const workspaceRoot = resolve(ctx.cwd || process.cwd());
+      const candidateScripts = collectCandidateScripts(command, workspaceRoot).slice(0, MAX_REVIEW_FILES);
+      const detailGuard = guardReviewText(ctx.detail);
+      const inputGuard = guardReviewText(JSON.stringify(ctx.toolInput, null, 2).slice(0, 800));
+      const runtimeResult = await ctx.oneShotRuntime.run<import('@my-claudia/shared/interaction/permissions').AIReviewResult>({
+        taskType: AI_REVIEW_TASK_TYPE,
+        providerType: ctx.providerType,
+        prompt: buildInitialReviewPrompt(ctx, candidateScripts, detailGuard.text, inputGuard.text),
+        cwd: workspaceRoot,
+        systemPrompt: 'You are a machine-only security review helper for a coding assistant. Follow the user prompt exactly. Do not add markdown, commentary, prose, or code fences. Return only the JSON object requested by the prompt.',
+        timeoutMs: 120000,
+      });
+      console.log(`[AI Review] Runtime result: ok=${runtimeResult.ok} stopReason=${runtimeResult.stopReason} fallback=${runtimeResult.usedFallback}`);
+
+      if (runtimeResult.ok && runtimeResult.result) {
+        llmResult = {
+          decision: runtimeResult.result.decision,
+          reasoning: runtimeResult.result.reasoning,
+          confidence: runtimeResult.result.confidence,
+          metadata: runtimeResult.result.metadata,
+        };
+      } else {
+        // Runtime failed — fall back to legacy path
+        console.log(`[AI Review] Runtime failed (${runtimeResult.stopReason}), falling back to analyzeLLMRisk`);
+        llmResult = await analyzeLLMRisk(ctx);
+      }
+    } else {
+      console.log(`[AI Review] Running LLM analysis for: ${ctx.toolName} (sessionId=${ctx.sessionId || 'new'})`);
+      llmResult = await analyzeLLMRisk(ctx);
+    }
+
     console.log(`[AI Review] LLM result: decision=${llmResult.decision} confidence=${llmResult.confidence} reasoning=${llmResult.reasoning?.slice(0, 100)}`);
 
     if (llmResult.confidence >= config.confidenceThreshold) {
