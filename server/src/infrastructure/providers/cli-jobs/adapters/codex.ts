@@ -85,8 +85,8 @@ export const codexReviewAdapter: CliProviderAdapter = {
     if (!codexCtx) return;
     try {
       rmSync(codexCtx.tempDir, { recursive: true, force: true });
-    } catch {
-      // ignore cleanup errors
+    } catch (err) {
+      console.warn(`[Codex] Failed to clean up temp dir ${codexCtx.tempDir}:`, err);
     }
   },
 };

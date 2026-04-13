@@ -123,6 +123,10 @@ export async function runCliJob<T>(
       );
     }
   } finally {
-    await cleanup();
+    try {
+      await cleanup();
+    } catch (cleanupErr) {
+      console.error(`[CliJob] Cleanup error for ${adapter.providerType}:`, cleanupErr);
+    }
   }
 }

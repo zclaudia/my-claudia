@@ -12,10 +12,17 @@ export function applyFallbackPolicy<T>(
           error: 'Fallback parser is not configured',
         };
       }
-      return {
-        source: 'fallback_text_json',
-        result: policy.parser(text),
-      };
+      try {
+        return {
+          source: 'fallback_text_json',
+          result: policy.parser(text),
+        };
+      } catch (err) {
+        return {
+          source: 'fallback_fail',
+          error: `Fallback parser threw: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
     case 'mark_uncertain':
       if (!policy.createUncertain) {
         return {
@@ -23,10 +30,17 @@ export function applyFallbackPolicy<T>(
           error: 'Fallback uncertain result factory is not configured',
         };
       }
-      return {
-        source: 'fallback_uncertain',
-        result: policy.createUncertain(),
-      };
+      try {
+        return {
+          source: 'fallback_uncertain',
+          result: policy.createUncertain(),
+        };
+      } catch (err) {
+        return {
+          source: 'fallback_fail',
+          error: `Fallback uncertain factory threw: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
     case 'fail':
     default:
       return {

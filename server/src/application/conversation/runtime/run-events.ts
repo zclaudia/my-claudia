@@ -343,7 +343,7 @@ export function handleProviderEvent({
           console.warn('[PluginEvents] Event emission failed:', err instanceof Error ? err.message : err);
         });
         broadcastHeartbeat();
-        notificationService.notify({
+        void notificationService.notify({
           type: 'run_completed',
           title: 'Run completed',
           body: `Session: ${sessionId}`,
@@ -388,7 +388,7 @@ export function handleProviderEvent({
           console.warn('[PluginEvents] Event emission failed:', err instanceof Error ? err.message : err);
         });
         broadcastHeartbeat();
-        notificationService.notify({
+        void notificationService.notify({
           type: 'run_failed',
           title: 'Run failed',
           body: errorMessage.slice(0, 200),

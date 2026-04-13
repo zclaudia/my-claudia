@@ -106,7 +106,7 @@ export async function handleRunException(input: HandleRunExceptionInput): Promis
   });
   activeRun.completed = true;
   broadcastHeartbeat();
-  notificationService.notify({
+  void notificationService.notify({
     type: 'run_failed',
     title: 'Run failed',
     body: formattedErrMsg.slice(0, 200),

@@ -68,6 +68,32 @@ function validateSchemaNode(
     return errors;
   }
 
+  if (expectedType === 'boolean') {
+    if (typeof value !== 'boolean') {
+      return [`${path} must be a boolean`];
+    }
+    return errors;
+  }
+
+  if (expectedType === 'array') {
+    if (!Array.isArray(value)) {
+      return [`${path} must be an array`];
+    }
+    const itemSchema = isPlainObject(schema.items) ? schema.items : undefined;
+    if (itemSchema) {
+      for (let i = 0; i < value.length; i++) {
+        errors.push(...validateSchemaNode(itemSchema, value[i], `${path}[${i}]`));
+      }
+    }
+    if (typeof schema.minItems === 'number' && value.length < schema.minItems) {
+      errors.push(`${path} must have at least ${schema.minItems} items`);
+    }
+    if (typeof schema.maxItems === 'number' && value.length > schema.maxItems) {
+      errors.push(`${path} must have at most ${schema.maxItems} items`);
+    }
+    return errors;
+  }
+
   return errors;
 }
 

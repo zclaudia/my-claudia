@@ -18,7 +18,11 @@ export class GatewayNotificationSender implements NotificationSender {
   constructor(private getGatewayClient: () => GatewayClient | null) {}
 
   async notify(event: NotifyEvent): Promise<void> {
-    this.getGatewayClient()?.sendPushNotificationRequest(event);
+    try {
+      await this.getGatewayClient()?.sendPushNotificationRequest(event);
+    } catch (err) {
+      console.error('[Notification] Failed to send push notification:', err);
+    }
   }
 }
 

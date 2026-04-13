@@ -91,16 +91,16 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
     setResolved('allow');
     clearFeedbackDraft(request.requestId);
     if (request.requiresCredential) {
-      onDecision(request.requestId, true, remember, credential || undefined);
+      onDecisionRef.current(request.requestId, true, remember, credential || undefined);
     } else {
-      onDecision(request.requestId, true, remember);
+      onDecisionRef.current(request.requestId, true, remember);
     }
   };
 
   const handleDeny = () => {
     setResolved('deny');
     clearFeedbackDraft(request.requestId);
-    onDecision(request.requestId, false, remember);
+    onDecisionRef.current(request.requestId, false, remember);
   };
 
   const handleDenyWithFeedback = () => {
@@ -109,7 +109,7 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
     setCountdownStopped(true);
     setResolved('deny');
     clearFeedbackDraft(request.requestId);
-    onDecision(request.requestId, false, remember, undefined, note);
+    onDecisionRef.current(request.requestId, false, remember, undefined, note);
   };
 
   const hasTimeout = request.timeoutSec > 0;

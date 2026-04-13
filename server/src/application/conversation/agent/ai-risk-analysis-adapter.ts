@@ -19,6 +19,7 @@ function createCliReviewProvider(): AIReviewProvider {
   return {
     runPrompt: async (prompt: string, _sessionId?: string): Promise<{ response: string; sessionId?: string }> => {
       return new Promise((resolve, reject) => {
+        let settled = false;
         const proc = spawn('claude', [
           '--print',
           '--output-format', 'text',
@@ -38,19 +39,30 @@ function createCliReviewProvider(): AIReviewProvider {
         proc.stdin?.end();
 
         const timeout = setTimeout(() => {
+          if (settled) return;
+          settled = true;
           proc.kill('SIGTERM');
           reject(new Error('CLI review provider timed out after 60s'));
         }, 60_000);
 
         proc.on('error', (err) => {
           clearTimeout(timeout);
+          if (settled) return;
+          settled = true;
           reject(err);
         });
 
         proc.on('close', (code) => {
           clearTimeout(timeout);
-          if (code !== 0 && !stdout) {
-            reject(new Error(`CLI review provider exited ${code}: ${stderr.slice(0, 200)}`));
+          if (settled) return;
+          settled = true;
+          if (code !== 0) {
+            if (!stdout) {
+              reject(new Error(`CLI review provider exited ${code}: ${stderr.slice(0, 200)}`));
+            } else {
+              console.warn(`[AIRiskAnalysis] CLI exited ${code} with output; stderr: ${stderr.slice(0, 200)}`);
+              resolve({ response: stdout });
+            }
           } else {
             resolve({ response: stdout });
           }

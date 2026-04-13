@@ -273,7 +273,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
             reason: `Permission needed: ${request.toolName}`,
           } as BackgroundTaskUpdateMessage);
 
-          notificationService.notify({
+          void notificationService.notify({
             type: 'background_permission',
             title: 'Background task needs attention',
             body: `${request.toolName}: ${request.detail.slice(0, 200)}`,
@@ -343,7 +343,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
             });
             sendRunEvent(askUserInteraction);
             const firstQuestion = (askUserInput.questions || [])[0] as { question?: string } | undefined;
-            notificationService.notify({
+            void notificationService.notify({
               type: 'interaction_prompt',
               title: 'Claude has a question',
               body: firstQuestion?.question?.slice(0, 200) || 'Interactive question',
@@ -366,7 +366,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
               workflowMode: true,
             } as import('@my-claudia/shared/protocol/messages').PermissionRequestMessage);
             console.log(`[Permission] Sent permission request ${request.requestId} to client`);
-            notificationService.notify({
+            void notificationService.notify({
               type: 'permission_request',
               title: 'Permission Required',
               body: `${matchedRule ? `[${matchedRule}] ` : ''}${request.toolName}: ${request.detail.slice(0, 200)}`,

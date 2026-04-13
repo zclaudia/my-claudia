@@ -250,6 +250,19 @@ export function createGatewayServer(config: GatewayConfig): Server {
         res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'Invalid notification config' } });
         return;
       }
+      // Validate ntfyUrl is a valid HTTP(S) URL to prevent SSRF
+      if (input.ntfyUrl) {
+        try {
+          const parsed = new URL(input.ntfyUrl);
+          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'ntfyUrl must use http or https protocol' } });
+            return;
+          }
+        } catch {
+          res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'ntfyUrl must be a valid URL' } });
+          return;
+        }
+      }
       pushNotificationService.saveConfig(input);
       res.json({ success: true });
     } catch (err) {

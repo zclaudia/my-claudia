@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, memo, type RefObject } from 'react';
+import { useRef, useEffect, useCallback, useMemo, memo, type RefObject } from 'react';
 import { Loader2, AlertTriangle, ArrowDown } from 'lucide-react';
 import { MessageList } from './MessageList';
 import { ToolCallList } from './ToolCallItem';
@@ -87,11 +87,12 @@ export const ChatMessagePane = memo(function ChatMessagePane({
   permissionRequests,
   onPermissionDecision,
 }: ChatMessagePaneProps) {
-  const promptInteractions = useInteractionStore((state) =>
-    Object.values(state.interactions)
-      .filter((interaction) => interaction.sessionId === sessionId)
-      .filter((interaction) => interaction.type === 'interaction_prompt' && interaction.source === 'provider_native')
-      .sort((a, b) => a.createdAt - b.createdAt)
+  const interactionsMap = useInteractionStore((state) => state.interactions);
+  const promptInteractions = useMemo(() =>
+    Object.values(interactionsMap)
+      .filter((interaction) => interaction.sessionId === sessionId && interaction.type === 'interaction_prompt' && interaction.source === 'provider_native')
+      .sort((a, b) => a.createdAt - b.createdAt),
+    [interactionsMap, sessionId],
   );
   const shouldStickToBottomRef = useRef(true);
   const hasSessionSnapshot = !!sessionPagination;
