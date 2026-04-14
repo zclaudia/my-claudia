@@ -1,3 +1,6 @@
+#[cfg(target_os = "android")]
+use serde::{Deserialize, Serialize};
+
 #[cfg(not(target_os = "android"))]
 use tauri::{LogicalPosition, Manager, Position, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 #[cfg(not(target_os = "android"))]
@@ -22,6 +25,106 @@ mod network_probe;
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! Welcome to MyClaudia!", name)
+}
+
+#[cfg(target_os = "android")]
+const NTFY_BRIDGE_URL: &str = "http://127.0.0.1:9595";
+
+#[cfg(target_os = "android")]
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+struct AndroidNotificationConfig {
+    enabled: bool,
+    ntfy_url: String,
+    ntfy_topic: String,
+}
+
+#[cfg(target_os = "android")]
+#[derive(Serialize)]
+struct AndroidNtfyBridgeStatus {
+    ok: bool,
+    uptime: Option<String>,
+    version: Option<String>,
+    subscriptions: serde_json::Value,
+}
+
+#[cfg(target_os = "android")]
+#[derive(Serialize)]
+struct AndroidBridgeSubscribeRequest {
+    id: String,
+    ntfy_url: String,
+    topic: String,
+    package: String,
+    receiver: String,
+}
+
+#[cfg(target_os = "android")]
+fn android_bridge_client() -> Result<reqwest::blocking::Client, String> {
+    reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn android_get_ntfy_bridge_status() -> Result<AndroidNtfyBridgeStatus, String> {
+    let response = android_bridge_client()?
+        .get(format!("{NTFY_BRIDGE_URL}/status"))
+        .send()
+        .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        return Err(format!("status failed: {}", response.status()));
+    }
+
+    let value = response.json::<serde_json::Value>().map_err(|e| e.to_string())?;
+    Ok(AndroidNtfyBridgeStatus {
+        ok: value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false),
+        uptime: value.get("uptime").and_then(|v| v.as_str()).map(ToOwned::to_owned),
+        version: value.get("version").and_then(|v| v.as_str()).map(ToOwned::to_owned),
+        subscriptions: value
+            .get("subscriptions")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({})),
+    })
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn android_sync_ntfy_bridge(config: AndroidNotificationConfig, package_id: String) -> Result<(), String> {
+    let client = android_bridge_client()?;
+
+    if config.enabled && !config.ntfy_url.trim().is_empty() && !config.ntfy_topic.trim().is_empty() {
+        let response = client
+            .post(format!("{NTFY_BRIDGE_URL}/subscribe"))
+            .json(&AndroidBridgeSubscribeRequest {
+                id: package_id.clone(),
+                ntfy_url: config.ntfy_url.trim().to_string(),
+                topic: config.ntfy_topic.trim().to_string(),
+                package: package_id,
+                receiver: "com.myClaudia.desktop.NotificationRenderService".to_string(),
+            })
+            .send()
+            .map_err(|e| e.to_string())?;
+
+        if !response.status().is_success() {
+            return Err(format!("ntfy-bridge register failed: {}", response.status()));
+        }
+        return Ok(());
+    }
+
+    let response = client
+        .delete(format!("{NTFY_BRIDGE_URL}/subscribe"))
+        .json(&serde_json::json!({ "id": package_id }))
+        .send()
+        .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        return Err(format!("ntfy-bridge unregister failed: {}", response.status()));
+    }
+
+    Ok(())
 }
 
 /// Focus a window by label (bring to front, unminimize if needed)
@@ -463,7 +566,11 @@ pub fn run() {
         ]);
 
     #[cfg(target_os = "android")]
-    let builder = builder.invoke_handler(tauri::generate_handler![greet]);
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        greet,
+        android_get_ntfy_bridge_status,
+        android_sync_ntfy_bridge,
+    ]);
 
     // Setup: initialize default shortcut and macOS permissions
     #[cfg(not(target_os = "android"))]

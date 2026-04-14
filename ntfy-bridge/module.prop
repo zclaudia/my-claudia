@@ -1,0 +1,6 @@
+id=ntfy-bridge
+name=ntfy Bridge
+version=0.1.0
+versionCode=1
+author=zhvala
+description=Background ntfy subscription daemon with app broadcast delivery

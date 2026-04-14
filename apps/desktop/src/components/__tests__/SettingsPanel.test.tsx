@@ -49,6 +49,7 @@ vi.mock('../../services/api', async (importOriginal) => {
   });
   stubbed.updateNotificationConfig = vi.fn().mockResolvedValue({});
   stubbed.sendTestNotification = vi.fn().mockResolvedValue({});
+  stubbed.getLocalNotificationBridgeStatus = vi.fn().mockResolvedValue({ ok: false, subscriptions: {} });
   stubbed.getManagedProcesses = vi.fn(() => new Promise(() => {}));
   stubbed.getCrashReports = vi.fn(() => new Promise(() => {}));
   return stubbed;
@@ -750,6 +751,32 @@ describe('SettingsPanel', () => {
         b.textContent === 'Send Test'
       );
       expect(testBtn).toBeTruthy();
+    });
+  });
+
+  it('shows local bridge status on Android', async () => {
+    (isAndroid as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (api.getNotificationConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
+      enabled: true, ntfyUrl: 'https://ntfy.sh', ntfyTopic: 'test-topic',
+      events: { permissionRequest: true, promptRequest: true, runCompleted: false, runFailed: false, backgroundPermission: false },
+    });
+    (api.getLocalNotificationBridgeStatus as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      subscriptions: {
+        'com.myClaudia.desktop': {
+          connected: true,
+          status: 'connected',
+        },
+      },
+    });
+
+    const { container } = await renderSettingsPanel();
+    const notifTab = container.querySelector('[data-testid="notifications-tab"]');
+    await clickAsync(notifTab!);
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Local bridge');
+      expect(container.textContent).toContain('Local ntfy-bridge connected.');
     });
   });
 

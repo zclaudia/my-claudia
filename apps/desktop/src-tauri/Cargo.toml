@@ -32,6 +32,9 @@ objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSString"] }
 objc2-app-kit = { version = "0.3", features = ["NSColor", "NSWindow"] }
 
+[target.'cfg(target_os = "android")'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json"] }
+
 [profile.release]
 panic = "abort"
 codegen-units = 1

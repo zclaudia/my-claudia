@@ -182,12 +182,144 @@ fi
 # --- Re-apply Android overrides ---
 echo "=== Syncing Android overrides ==="
 mkdir -p "$ANDROID_APP_DIR/java/com/myClaudia/desktop" "$ANDROID_APP_DIR/res/xml"
-# Skip AndroidManifest.xml - Tauri 2.x generates its own with required components
-# cp "$ANDROID_OVERRIDES_DIR/AndroidManifest.xml" "$ANDROID_APP_DIR/AndroidManifest.xml"
 cp "$ANDROID_OVERRIDES_DIR/java/com/myClaudia/desktop/MainActivity.kt" "$ANDROID_APP_DIR/java/com/myClaudia/desktop/MainActivity.kt"
 cp "$ANDROID_OVERRIDES_DIR/java/com/myClaudia/desktop/FileHelper.kt" "$ANDROID_APP_DIR/java/com/myClaudia/desktop/FileHelper.kt"
+cp "$ANDROID_OVERRIDES_DIR/java/com/myClaudia/desktop/NtfyReceiver.kt" "$ANDROID_APP_DIR/java/com/myClaudia/desktop/NtfyReceiver.kt"
+cp "$ANDROID_OVERRIDES_DIR/java/com/myClaudia/desktop/NotificationRenderer.kt" "$ANDROID_APP_DIR/java/com/myClaudia/desktop/NotificationRenderer.kt"
+cp "$ANDROID_OVERRIDES_DIR/java/com/myClaudia/desktop/NotificationRenderService.kt" "$ANDROID_APP_DIR/java/com/myClaudia/desktop/NotificationRenderService.kt"
 cp "$ANDROID_OVERRIDES_DIR/res/xml/file_paths.xml" "$ANDROID_APP_DIR/res/xml/file_paths.xml"
+cp "$ANDROID_OVERRIDES_DIR/res/xml/network_security_config.xml" "$ANDROID_APP_DIR/res/xml/network_security_config.xml"
 cp -R apps/desktop/src-tauri/icons/android/. "$ANDROID_RES_DIR/"
+
+ANDROID_MANIFEST="$ANDROID_APP_DIR/AndroidManifest.xml"
+if [ -f "$ANDROID_MANIFEST" ]; then
+  missing_notification_permission=0
+  missing_fgs_permission=0
+  missing_fgs_data_sync_permission=0
+  missing_install_permission=0
+
+  grep -q 'android.permission.POST_NOTIFICATIONS' "$ANDROID_MANIFEST" || missing_notification_permission=1
+  grep -q 'android.permission.FOREGROUND_SERVICE' "$ANDROID_MANIFEST" || missing_fgs_permission=1
+  grep -q 'android.permission.FOREGROUND_SERVICE_DATA_SYNC' "$ANDROID_MANIFEST" || missing_fgs_data_sync_permission=1
+  grep -q 'android.permission.REQUEST_INSTALL_PACKAGES' "$ANDROID_MANIFEST" || missing_install_permission=1
+
+  if [ "$missing_notification_permission" -eq 1 ] || [ "$missing_fgs_permission" -eq 1 ] || [ "$missing_fgs_data_sync_permission" -eq 1 ] || [ "$missing_install_permission" -eq 1 ]; then
+    echo "=== Patching AndroidManifest.xml for required permissions ==="
+    TMP_MANIFEST="$(mktemp)"
+    awk -v add_post="$missing_notification_permission" -v add_fgs="$missing_fgs_permission" -v add_fgs_data_sync="$missing_fgs_data_sync_permission" -v add_install="$missing_install_permission" '
+      /<uses-permission android:name="android.permission.INTERNET"/ {
+        print
+        if (add_post == 1) {
+          print "    <uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\" />"
+        }
+        if (add_fgs == 1) {
+          print "    <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE\" />"
+        }
+        if (add_fgs_data_sync == 1) {
+          print "    <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE_DATA_SYNC\" />"
+        }
+        if (add_install == 1) {
+          print "    <uses-permission android:name=\"android.permission.REQUEST_INSTALL_PACKAGES\" />"
+        }
+        next
+      }
+      { print }
+    ' "$ANDROID_MANIFEST" > "$TMP_MANIFEST"
+    mv "$TMP_MANIFEST" "$ANDROID_MANIFEST"
+    echo "  Added missing Android permissions"
+    echo ""
+  fi
+fi
+
+if [ -f "$ANDROID_MANIFEST" ] && ! grep -q 'android:networkSecurityConfig="@xml/network_security_config"' "$ANDROID_MANIFEST"; then
+  echo "=== Patching AndroidManifest.xml for network security config ==="
+  TMP_MANIFEST="$(mktemp)"
+  awk '
+    /android:theme="@style\/Theme.my_claudia"/ {
+      print
+      print "        android:networkSecurityConfig=\"@xml/network_security_config\""
+      next
+    }
+    { print }
+  ' "$ANDROID_MANIFEST" > "$TMP_MANIFEST"
+  mv "$TMP_MANIFEST" "$ANDROID_MANIFEST"
+  echo "  Added networkSecurityConfig"
+  echo ""
+fi
+
+if [ -f "$ANDROID_MANIFEST" ] && ! grep -q 'android:name=".NtfyReceiver"' "$ANDROID_MANIFEST"; then
+  echo "=== Patching AndroidManifest.xml for ntfy receiver ==="
+  TMP_MANIFEST="$(mktemp)"
+  awk '
+    /<\/application>/ {
+      print "        <receiver"
+      print "            android:name=\".NtfyReceiver\""
+      print "            android:enabled=\"true\""
+      print "            android:exported=\"true\" />"
+      print ""
+    }
+    { print }
+  ' "$ANDROID_MANIFEST" > "$TMP_MANIFEST"
+  mv "$TMP_MANIFEST" "$ANDROID_MANIFEST"
+  echo "  Added NtfyReceiver registration"
+  echo ""
+fi
+
+if [ -f "$ANDROID_MANIFEST" ] && ! grep -q 'android:name=".NotificationRenderService"' "$ANDROID_MANIFEST"; then
+  echo "=== Patching AndroidManifest.xml for notification render service ==="
+  TMP_MANIFEST="$(mktemp)"
+  awk '
+    /<\/application>/ {
+      print "        <service"
+      print "            android:name=\".NotificationRenderService\""
+      print "            android:enabled=\"true\""
+      print "            android:exported=\"true\""
+      print "            android:foregroundServiceType=\"dataSync\" />"
+      print ""
+    }
+    { print }
+  ' "$ANDROID_MANIFEST" > "$TMP_MANIFEST"
+  mv "$TMP_MANIFEST" "$ANDROID_MANIFEST"
+  echo "  Added NotificationRenderService registration"
+  echo ""
+fi
+
+if [ -f "$ANDROID_MANIFEST" ] && grep -q 'android:name=".NotificationRenderService"' "$ANDROID_MANIFEST" && ! grep -q 'android:name=".NotificationRenderService"[^>]*android:foregroundServiceType="dataSync"' "$ANDROID_MANIFEST"; then
+  echo "=== Patching AndroidManifest.xml for foreground service type ==="
+  TMP_MANIFEST="$(mktemp)"
+  awk '
+    /<service/ { in_service = 1 }
+    in_service == 1 && /android:name=".NotificationRenderService"/ { target_service = 1 }
+    target_service == 1 && /android:foregroundServiceType=/ { has_fgs_type = 1 }
+    target_service == 1 && /\/>/ && has_fgs_type == 0 {
+      sub(/\/>/, "            android:foregroundServiceType=\"dataSync\" />")
+      print
+      in_service = 0
+      target_service = 0
+      has_fgs_type = 0
+      next
+    }
+    target_service == 1 && /<\/service>/ && has_fgs_type == 0 {
+      print "            android:foregroundServiceType=\"dataSync\""
+      print
+      in_service = 0
+      target_service = 0
+      has_fgs_type = 0
+      next
+    }
+    {
+      print
+      if (target_service == 1 && /\/>/) {
+        in_service = 0
+        target_service = 0
+        has_fgs_type = 0
+      }
+    }
+  ' "$ANDROID_MANIFEST" > "$TMP_MANIFEST"
+  mv "$TMP_MANIFEST" "$ANDROID_MANIFEST"
+  echo "  Added foregroundServiceType to NotificationRenderService"
+  echo ""
+fi
 
 mkdir -p "$ANDROID_RES_DIR/mipmap-anydpi-v26"
 cat > "$ANDROID_RES_DIR/mipmap-anydpi-v26/ic_launcher_dev.xml" <<'EOF'

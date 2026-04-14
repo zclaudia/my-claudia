@@ -1,15 +1,24 @@
 package com.myClaudia.desktop
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 
 class MainActivity : TauriActivity() {
+  private val notificationPermissionRequestCode = 1001
+
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+
+    requestNotificationPermissionIfNeeded()
 
     // Register native file helper for WebView (save to Downloads, open files)
     // Tauri's WebView may not exist yet after one frame; retry until found.
@@ -45,6 +54,23 @@ class MainActivity : TauriActivity() {
         }
       }
     })
+  }
+
+  private fun requestNotificationPermissionIfNeeded() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+
+    val granted = ContextCompat.checkSelfPermission(
+      this,
+      Manifest.permission.POST_NOTIFICATIONS
+    ) == PackageManager.PERMISSION_GRANTED
+
+    if (!granted) {
+      ActivityCompat.requestPermissions(
+        this,
+        arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+        notificationPermissionRequestCode
+      )
+    }
   }
 
   private fun registerFileHelperWhenReady(attempt: Int = 0) {

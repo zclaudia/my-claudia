@@ -1,5 +1,7 @@
 import type { NotificationConfig } from '@my-claudia/shared';
+import type { NtfyBridgeStatusResponse } from '../ntfyBridge';
 import { resolveGatewayDirectUrl, getGatewayAuthHeaders } from '../gatewayProxy';
+import { getNtfyBridgeStatus, syncNtfyBridgeRegistration } from '../ntfyBridge';
 
 /**
  * Notification config lives on the gateway (not the backend).
@@ -34,6 +36,14 @@ export async function updateNotificationConfig(config: NotificationConfig): Prom
     method: 'PUT',
     body: JSON.stringify(config),
   });
+}
+
+export async function syncLocalNotificationBridge(config: NotificationConfig): Promise<void> {
+  await syncNtfyBridgeRegistration(config);
+}
+
+export async function getLocalNotificationBridgeStatus(): Promise<NtfyBridgeStatusResponse> {
+  return getNtfyBridgeStatus();
 }
 
 export async function sendTestNotification(): Promise<void> {
