@@ -1,4 +1,4 @@
-import type { NotificationConfig } from '@my-claudia/shared/interaction/notifications';
+import type { NotificationAuthMode, NotificationConfig } from '@my-claudia/shared/interaction/notifications';
 import type { PushNotificationRequestMessage } from '@my-claudia/shared/protocol/gateway';
 import { DEFAULT_NOTIFICATION_CONFIG } from '@my-claudia/shared/interaction/notifications';
 
@@ -24,6 +24,14 @@ export class GatewayPushNotificationService {
     return this.config;
   }
 
+  private normalizeAuthMode(mode: unknown): NotificationAuthMode {
+    return mode === 'bearer' || mode === 'basic' ? mode : 'none';
+  }
+
+  private normalizeString(value: unknown): string {
+    return typeof value === 'string' ? value.trim() : '';
+  }
+
   private normalizeConfig(config: Partial<NotificationConfig> = {}): NotificationConfig {
     const rawEvents = config.events as Record<string, unknown> | undefined;
     const legacyPromptRequest = rawEvents?.askUserQuestion;
@@ -44,8 +52,24 @@ export class GatewayPushNotificationService {
     return {
       ...DEFAULT_NOTIFICATION_CONFIG,
       ...config,
+      ntfyAuthMode: this.normalizeAuthMode(config.ntfyAuthMode),
+      ntfyPublishToken: this.normalizeString(config.ntfyPublishToken),
+      ntfySubscribeToken: this.normalizeString(config.ntfySubscribeToken),
+      ntfyUsername: this.normalizeString(config.ntfyUsername),
+      ntfyPassword: typeof config.ntfyPassword === 'string' ? config.ntfyPassword : '',
       events,
     };
+  }
+
+  private applyPublishAuth(headers: Record<string, string>): void {
+    const { ntfyAuthMode, ntfyPublishToken, ntfyUsername, ntfyPassword } = this.config;
+    if (ntfyAuthMode === 'bearer' && ntfyPublishToken) {
+      headers.Authorization = `Bearer ${ntfyPublishToken}`;
+      return;
+    }
+    if (ntfyAuthMode === 'basic' && ntfyUsername && ntfyPassword) {
+      headers.Authorization = `Basic ${Buffer.from(`${ntfyUsername}:${ntfyPassword}`).toString('base64')}`;
+    }
   }
 
   async notify(event: NotifyEvent): Promise<void> {
@@ -69,6 +93,7 @@ export class GatewayPushNotificationService {
     if (event.clickUrl) {
       headers.Click = event.clickUrl;
     }
+    this.applyPublishAuth(headers);
 
     try {
       await fetch(url, { method: 'POST', headers, body: event.body });
@@ -91,6 +116,11 @@ export class GatewayPushNotificationService {
         Title: 'MyClaudia - Test Notification',
         Priority: 'default',
         Tags: 'white_check_mark',
+        ...((): Record<string, string> => {
+          const authHeaders: Record<string, string> = {};
+          this.applyPublishAuth(authHeaders);
+          return authHeaders;
+        })(),
       },
       body: 'If you see this, notifications are working!',
     });

@@ -37,11 +37,13 @@ func TestHandleSubscribeAndStatus(t *testing.T) {
 	api := NewAPI(manager, log.New(bytes.NewBuffer(nil), "", 0))
 
 	payload := subscribeRequest{
-		ID:       "com.myClaudia.mobile",
-		NtfyURL:  "https://ntfy.sh",
-		Topic:    "my-topic",
-		Package:  "com.myClaudia.mobile",
-		Receiver: ".NtfyReceiver",
+		ID:        "com.myClaudia.mobile",
+		NtfyURL:   "https://ntfy.sh",
+		Topic:     "my-topic",
+		AuthMode:  "bearer",
+		AuthToken: "tk_subscribe",
+		Package:   "com.myClaudia.mobile",
+		Receiver:  ".NtfyReceiver",
 	}
 	data, _ := json.Marshal(payload)
 
@@ -70,6 +72,12 @@ func TestHandleSubscribeAndStatus(t *testing.T) {
 	}
 	if _, ok := status.Subscriptions["com.myClaudia.mobile"]; !ok {
 		t.Fatalf("expected subscription in status")
+	}
+	if status.Subscriptions["com.myClaudia.mobile"].AuthMode != "bearer" {
+		t.Fatalf("expected auth mode to be preserved")
+	}
+	if !status.Subscriptions["com.myClaudia.mobile"].AuthConfigured {
+		t.Fatalf("expected auth to be configured")
 	}
 
 	manager.Close()

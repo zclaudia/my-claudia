@@ -186,6 +186,10 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
               <p className="text-xs text-muted-foreground">Topic</p>
               <p className="text-sm break-all">{config.ntfyTopic || 'Not configured'}</p>
             </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Auth</p>
+              <p className="text-sm font-medium">{config.ntfyAuthMode || 'none'}</p>
+            </div>
             <p className="text-xs text-muted-foreground">
               Event types, enablement, and delivery policy are configured on the gateway, not on this device.
             </p>
@@ -305,6 +309,15 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
                 <p className="text-xs text-muted-foreground mt-1">
                   Use a unique, hard-to-guess topic name for privacy.
                 </p>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Auth Mode</label>
+                <input
+                  type="text"
+                  value={config.ntfyAuthMode}
+                  readOnly={true}
+                  className="w-full px-3 py-1.5 bg-secondary border border-border rounded text-sm opacity-60 cursor-not-allowed"
+                />
               </div>
             </div>
           </div>

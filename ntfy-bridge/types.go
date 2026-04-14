@@ -18,11 +18,15 @@ var (
 )
 
 type subscribeRequest struct {
-	ID       string `json:"id"`
-	NtfyURL  string `json:"ntfy_url"`
-	Topic    string `json:"topic"`
-	Package  string `json:"package"`
-	Receiver string `json:"receiver"`
+	ID        string `json:"id"`
+	NtfyURL   string `json:"ntfy_url"`
+	Topic     string `json:"topic"`
+	AuthMode  string `json:"auth_mode,omitempty"`
+	AuthToken string `json:"auth_token,omitempty"`
+	Username  string `json:"username,omitempty"`
+	Password  string `json:"password,omitempty"`
+	Package   string `json:"package"`
+	Receiver  string `json:"receiver"`
 }
 
 type deleteSubscriptionRequest struct {
@@ -55,16 +59,18 @@ type subscriptionCreatedResponse struct {
 }
 
 type subscriptionStatus struct {
-	NtfyURL       string `json:"ntfy_url"`
-	Topic         string `json:"topic"`
-	Package       string `json:"package"`
-	Receiver      string `json:"receiver"`
-	Status        string `json:"status"`
-	Connected     bool   `json:"connected"`
-	LastMessageAt string `json:"last_message_at,omitempty"`
-	LastConnectAt string `json:"last_connect_at,omitempty"`
-	LastError     string `json:"last_error,omitempty"`
-	RetryInMs     int64  `json:"retry_in_ms"`
+	NtfyURL        string `json:"ntfy_url"`
+	Topic          string `json:"topic"`
+	AuthMode       string `json:"auth_mode,omitempty"`
+	AuthConfigured bool   `json:"auth_configured"`
+	Package        string `json:"package"`
+	Receiver       string `json:"receiver"`
+	Status         string `json:"status"`
+	Connected      bool   `json:"connected"`
+	LastMessageAt  string `json:"last_message_at,omitempty"`
+	LastConnectAt  string `json:"last_connect_at,omitempty"`
+	LastError      string `json:"last_error,omitempty"`
+	RetryInMs      int64  `json:"retry_in_ms"`
 }
 
 type persistedSubscriptions struct {
@@ -73,11 +79,15 @@ type persistedSubscriptions struct {
 }
 
 type persistedSubscription struct {
-	ID       string `json:"id"`
-	NtfyURL  string `json:"ntfy_url"`
-	Topic    string `json:"topic"`
-	Package  string `json:"package"`
-	Receiver string `json:"receiver"`
+	ID        string `json:"id"`
+	NtfyURL   string `json:"ntfy_url"`
+	Topic     string `json:"topic"`
+	AuthMode  string `json:"auth_mode,omitempty"`
+	AuthToken string `json:"auth_token,omitempty"`
+	Username  string `json:"username,omitempty"`
+	Password  string `json:"password,omitempty"`
+	Package   string `json:"package"`
+	Receiver  string `json:"receiver"`
 }
 
 type subscriptionRuntimeStatus struct {
@@ -90,11 +100,15 @@ type subscriptionRuntimeStatus struct {
 }
 
 type Subscription struct {
-	ID       string
-	NtfyURL  string
-	Topic    string
-	Package  string
-	Receiver string
+	ID        string
+	NtfyURL   string
+	Topic     string
+	AuthMode  string
+	AuthToken string
+	Username  string
+	Password  string
+	Package   string
+	Receiver  string
 
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -113,13 +127,13 @@ type ntfyMessage struct {
 }
 
 type normalizedMessage struct {
-	Title     string
-	Body      string
-	Topic     string
-	Tags      string
-	Priority  string
-	MessageID string
-	Timestamp string
+	Title       string
+	Body        string
+	Topic       string
+	Tags        string
+	Priority    string
+	MessageID   string
+	Timestamp   string
 	OpenPayload string
 }
 
@@ -148,6 +162,26 @@ func validateSubscribeRequest(input subscribeRequest) error {
 	if _, err := normalizeBaseURL(input.NtfyURL); err != nil {
 		return err
 	}
+	authMode := strings.ToLower(strings.TrimSpace(input.AuthMode))
+	switch authMode {
+	case "", "none":
+	case "bearer":
+		if strings.TrimSpace(input.AuthToken) == "" {
+			return newValidationError("missing_auth_token", "auth_token is required when auth_mode=bearer")
+		}
+		if len(input.AuthToken) > 512 {
+			return newValidationError("invalid_auth_token", "auth_token must be 512 characters or fewer")
+		}
+	case "basic":
+		if strings.TrimSpace(input.Username) == "" || input.Password == "" {
+			return newValidationError("missing_basic_auth", "username and password are required when auth_mode=basic")
+		}
+		if len(input.Username) > 256 || len(input.Password) > 512 {
+			return newValidationError("invalid_basic_auth", "username/password are too long")
+		}
+	default:
+		return newValidationError("invalid_auth_mode", "auth_mode must be none, bearer, or basic")
+	}
 	return nil
 }
 
@@ -174,13 +208,17 @@ func newSubscription(input subscribeRequest) (*Subscription, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Subscription{
-		ID:       input.ID,
-		NtfyURL:  baseURL,
-		Topic:    input.Topic,
-		Package:  input.Package,
-		Receiver: input.Receiver,
-		ctx:      ctx,
-		cancel:   cancel,
+		ID:        input.ID,
+		NtfyURL:   baseURL,
+		Topic:     input.Topic,
+		AuthMode:  strings.ToLower(strings.TrimSpace(input.AuthMode)),
+		AuthToken: strings.TrimSpace(input.AuthToken),
+		Username:  strings.TrimSpace(input.Username),
+		Password:  input.Password,
+		Package:   input.Package,
+		Receiver:  input.Receiver,
+		ctx:       ctx,
+		cancel:    cancel,
 		status: subscriptionRuntimeStatus{
 			State:     "connecting",
 			Connected: false,
@@ -190,11 +228,15 @@ func newSubscription(input subscribeRequest) (*Subscription, error) {
 
 func (s *Subscription) persisted() persistedSubscription {
 	return persistedSubscription{
-		ID:       s.ID,
-		NtfyURL:  s.NtfyURL,
-		Topic:    s.Topic,
-		Package:  s.Package,
-		Receiver: s.Receiver,
+		ID:        s.ID,
+		NtfyURL:   s.NtfyURL,
+		Topic:     s.Topic,
+		AuthMode:  s.AuthMode,
+		AuthToken: s.AuthToken,
+		Username:  s.Username,
+		Password:  s.Password,
+		Package:   s.Package,
+		Receiver:  s.Receiver,
 	}
 }
 
@@ -243,14 +285,16 @@ func (s *Subscription) snapshot() subscriptionStatus {
 	defer s.statusMu.RUnlock()
 
 	snapshot := subscriptionStatus{
-		NtfyURL:   s.NtfyURL,
-		Topic:     s.Topic,
-		Package:   s.Package,
-		Receiver:  s.Receiver,
-		Status:    s.status.State,
-		Connected: s.status.Connected,
-		LastError: s.status.LastError,
-		RetryInMs: s.status.RetryInMs,
+		NtfyURL:        s.NtfyURL,
+		Topic:          s.Topic,
+		AuthMode:       s.AuthMode,
+		AuthConfigured: (s.AuthMode == "bearer" && s.AuthToken != "") || (s.AuthMode == "basic" && s.Username != "" && s.Password != ""),
+		Package:        s.Package,
+		Receiver:       s.Receiver,
+		Status:         s.status.State,
+		Connected:      s.status.Connected,
+		LastError:      s.status.LastError,
+		RetryInMs:      s.status.RetryInMs,
 	}
 	if !s.status.LastConnectAt.IsZero() {
 		snapshot.LastConnectAt = s.status.LastConnectAt.Format(time.RFC3339)

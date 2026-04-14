@@ -4,11 +4,13 @@ import "testing"
 
 func TestValidateSubscribeRequest(t *testing.T) {
 	valid := subscribeRequest{
-		ID:       "com.myClaudia.mobile",
-		NtfyURL:  "https://ntfy.sh",
-		Topic:    "my-claudia-alerts",
-		Package:  "com.myClaudia.mobile",
-		Receiver: ".NtfyReceiver",
+		ID:        "com.myClaudia.mobile",
+		NtfyURL:   "https://ntfy.sh",
+		Topic:     "my-claudia-alerts",
+		AuthMode:  "bearer",
+		AuthToken: "tk_valid",
+		Package:   "com.myClaudia.mobile",
+		Receiver:  ".NtfyReceiver",
 	}
 
 	if err := validateSubscribeRequest(valid); err != nil {
@@ -52,6 +54,43 @@ func TestValidateSubscribeRequest(t *testing.T) {
 				Receiver: ".NtfyReceiver",
 			},
 			code: "invalid_ntfy_url",
+		},
+		{
+			name: "missing bearer token",
+			req: subscribeRequest{
+				ID:       "com.myClaudia.mobile",
+				NtfyURL:  "https://ntfy.sh",
+				Topic:    "my-topic",
+				AuthMode: "bearer",
+				Package:  "com.myClaudia.mobile",
+				Receiver: ".NtfyReceiver",
+			},
+			code: "missing_auth_token",
+		},
+		{
+			name: "invalid auth mode",
+			req: subscribeRequest{
+				ID:       "com.myClaudia.mobile",
+				NtfyURL:  "https://ntfy.sh",
+				Topic:    "my-topic",
+				AuthMode: "digest",
+				Package:  "com.myClaudia.mobile",
+				Receiver: ".NtfyReceiver",
+			},
+			code: "invalid_auth_mode",
+		},
+		{
+			name: "missing basic auth credentials",
+			req: subscribeRequest{
+				ID:       "com.myClaudia.mobile",
+				NtfyURL:  "https://ntfy.sh",
+				Topic:    "my-topic",
+				AuthMode: "basic",
+				Username: "alice",
+				Package:  "com.myClaudia.mobile",
+				Receiver: ".NtfyReceiver",
+			},
+			code: "missing_basic_auth",
 		},
 	}
 

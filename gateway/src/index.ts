@@ -1,6 +1,6 @@
 import { createGatewayServer } from './server.js';
 import { DEFAULT_NOTIFICATION_CONFIG } from '@my-claudia/shared/interaction/notifications';
-import type { NotificationConfig } from '@my-claudia/shared/interaction/notifications';
+import type { NotificationAuthMode, NotificationConfig } from '@my-claudia/shared/interaction/notifications';
 
 const PORT = parseInt(process.env.GATEWAY_PORT || '3200', 10);
 if (isNaN(PORT) || PORT < 1 || PORT > 65535) {
@@ -22,6 +22,14 @@ function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean 
   return fallback;
 }
 
+function parseAuthModeEnv(value: string | undefined): NotificationAuthMode {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized || normalized === 'none') return 'none';
+  if (normalized === 'bearer' || normalized === 'basic') return normalized;
+  console.error(`Error: invalid NTFY_AUTH_MODE: ${value}. Expected none, bearer, or basic.`);
+  process.exit(1);
+}
+
 function parseNotificationConfigFromEnv(): Partial<NotificationConfig> {
   const ntfyUrl = process.env.NTFY_URL?.trim();
   if (ntfyUrl) {
@@ -37,10 +45,30 @@ function parseNotificationConfigFromEnv(): Partial<NotificationConfig> {
   }
 
   const eventDefaults = DEFAULT_NOTIFICATION_CONFIG.events;
+  const ntfyAuthMode = parseAuthModeEnv(process.env.NTFY_AUTH_MODE);
+  const ntfyPublishToken = process.env.NTFY_PUBLISH_TOKEN?.trim() ?? '';
+  const ntfySubscribeToken = process.env.NTFY_SUBSCRIBE_TOKEN?.trim() ?? ntfyPublishToken;
+  const ntfyUsername = process.env.NTFY_USERNAME?.trim() ?? '';
+  const ntfyPassword = process.env.NTFY_PASSWORD ?? '';
+
+  if (ntfyAuthMode === 'bearer' && !ntfyPublishToken) {
+    console.error('Error: NTFY_PUBLISH_TOKEN is required when NTFY_AUTH_MODE=bearer');
+    process.exit(1);
+  }
+  if (ntfyAuthMode === 'basic' && (!ntfyUsername || !ntfyPassword)) {
+    console.error('Error: NTFY_USERNAME and NTFY_PASSWORD are required when NTFY_AUTH_MODE=basic');
+    process.exit(1);
+  }
+
   return {
     enabled: parseBooleanEnv(process.env.NTFY_ENABLED, DEFAULT_NOTIFICATION_CONFIG.enabled),
     ntfyUrl: ntfyUrl ?? DEFAULT_NOTIFICATION_CONFIG.ntfyUrl,
     ntfyTopic: process.env.NTFY_TOPIC?.trim() ?? DEFAULT_NOTIFICATION_CONFIG.ntfyTopic,
+    ntfyAuthMode,
+    ntfyPublishToken,
+    ntfySubscribeToken,
+    ntfyUsername,
+    ntfyPassword,
     events: {
       permissionRequest: parseBooleanEnv(process.env.NTFY_NOTIFY_PERMISSION_REQUEST, eventDefaults.permissionRequest),
       promptRequest: parseBooleanEnv(process.env.NTFY_NOTIFY_PROMPT_REQUEST, eventDefaults.promptRequest),

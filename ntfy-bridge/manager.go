@@ -110,11 +110,15 @@ func (m *Manager) Load() error {
 
 	for id, item := range persisted.Subscriptions {
 		sub, err := newSubscription(subscribeRequest{
-			ID:       item.ID,
-			NtfyURL:  item.NtfyURL,
-			Topic:    item.Topic,
-			Package:  item.Package,
-			Receiver: item.Receiver,
+			ID:        item.ID,
+			NtfyURL:   item.NtfyURL,
+			Topic:     item.Topic,
+			AuthMode:  item.AuthMode,
+			AuthToken: item.AuthToken,
+			Username:  item.Username,
+			Password:  item.Password,
+			Package:   item.Package,
+			Receiver:  item.Receiver,
 		})
 		if err != nil {
 			return err

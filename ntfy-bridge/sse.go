@@ -60,6 +60,11 @@ func (s *Subscription) connectAndListen() error {
 	if err != nil {
 		return err
 	}
+	if s.AuthMode == "bearer" && s.AuthToken != "" {
+		req.Header.Set("Authorization", "Bearer "+s.AuthToken)
+	} else if s.AuthMode == "basic" && s.Username != "" && s.Password != "" {
+		req.SetBasicAuth(s.Username, s.Password)
+	}
 
 	client := &http.Client{
 		Timeout: 0,

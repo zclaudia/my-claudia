@@ -51,6 +51,9 @@ func (a *API) handleSubscribeCreate(w http.ResponseWriter, r *http.Request) {
 	input.ID = strings.TrimSpace(input.ID)
 	input.NtfyURL = strings.TrimSpace(input.NtfyURL)
 	input.Topic = strings.TrimSpace(input.Topic)
+	input.AuthMode = strings.TrimSpace(input.AuthMode)
+	input.AuthToken = strings.TrimSpace(input.AuthToken)
+	input.Username = strings.TrimSpace(input.Username)
 	input.Package = strings.TrimSpace(input.Package)
 	input.Receiver = strings.TrimSpace(input.Receiver)
 

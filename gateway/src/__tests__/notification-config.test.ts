@@ -39,6 +39,9 @@ describeIfLoopback('Notification Config', () => {
         enabled: true,
         ntfyUrl: 'https://ntfy.sh',
         ntfyTopic: 'static-topic',
+        ntfyAuthMode: 'bearer',
+        ntfyPublishToken: 'publish-token',
+        ntfySubscribeToken: 'subscribe-token',
         events: {
           permissionRequest: false,
           promptRequest: true,
@@ -69,6 +72,9 @@ describeIfLoopback('Notification Config', () => {
         enabled: true,
         ntfyUrl: 'https://ntfy.sh',
         ntfyTopic: 'static-topic',
+        ntfyAuthMode: 'bearer',
+        ntfyPublishToken: 'publish-token',
+        ntfySubscribeToken: 'subscribe-token',
       });
       expect(body.data.events.permissionRequest).toBe(false);
       expect(body.data.events.runFailed).toBe(false);

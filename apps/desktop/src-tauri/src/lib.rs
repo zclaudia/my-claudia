@@ -37,6 +37,14 @@ struct AndroidNotificationConfig {
     enabled: bool,
     ntfy_url: String,
     ntfy_topic: String,
+    #[serde(default)]
+    ntfy_auth_mode: String,
+    #[serde(default)]
+    ntfy_auth_token: String,
+    #[serde(default)]
+    ntfy_username: String,
+    #[serde(default)]
+    ntfy_password: String,
 }
 
 #[cfg(target_os = "android")]
@@ -54,6 +62,10 @@ struct AndroidBridgeSubscribeRequest {
     id: String,
     ntfy_url: String,
     topic: String,
+    auth_mode: String,
+    auth_token: String,
+    username: String,
+    password: String,
     package: String,
     receiver: String,
 }
@@ -102,6 +114,10 @@ fn android_sync_ntfy_bridge(config: AndroidNotificationConfig, package_id: Strin
                 id: package_id.clone(),
                 ntfy_url: config.ntfy_url.trim().to_string(),
                 topic: config.ntfy_topic.trim().to_string(),
+                auth_mode: config.ntfy_auth_mode.trim().to_string(),
+                auth_token: config.ntfy_auth_token.trim().to_string(),
+                username: config.ntfy_username.trim().to_string(),
+                password: config.ntfy_password.clone(),
                 package: package_id,
                 receiver: "com.myClaudia.mobile.NotificationRenderService".to_string(),
             })

@@ -25,14 +25,26 @@ export function isNtfyBridgeSupported(): boolean {
   return isAndroid();
 }
 
-export async function registerNtfySubscription(config: Pick<NotificationConfig, 'ntfyUrl' | 'ntfyTopic'>): Promise<void> {
+export async function registerNtfySubscription(config: Pick<NotificationConfig, 'ntfyUrl' | 'ntfyTopic' | 'ntfyAuthMode' | 'ntfySubscribeToken' | 'ntfyUsername' | 'ntfyPassword'>): Promise<void> {
   if (!isNtfyBridgeSupported()) return;
 
   const packageId = await getCurrentPackageId();
+  const authMode = config.ntfyAuthMode ?? 'none';
+  const subscribeToken = config.ntfySubscribeToken?.trim() ?? '';
+  const username = config.ntfyUsername?.trim() ?? '';
+  const password = config.ntfyPassword ?? '';
 
   if (isAndroid()) {
     await invoke('android_sync_ntfy_bridge', {
-      config: { enabled: true, ntfy_url: config.ntfyUrl, ntfy_topic: config.ntfyTopic },
+      config: {
+        enabled: true,
+        ntfy_url: config.ntfyUrl,
+        ntfy_topic: config.ntfyTopic,
+        ntfy_auth_mode: authMode,
+        ntfy_auth_token: subscribeToken,
+        ntfy_username: username,
+        ntfy_password: password,
+      },
       packageId,
     });
     return;
@@ -45,6 +57,10 @@ export async function registerNtfySubscription(config: Pick<NotificationConfig, 
       id: packageId,
       ntfy_url: config.ntfyUrl.trim(),
       topic: config.ntfyTopic.trim(),
+      auth_mode: authMode,
+      auth_token: subscribeToken,
+      username,
+      password,
       package: packageId,
       receiver: RECEIVER,
     }),
@@ -62,7 +78,15 @@ export async function unregisterNtfySubscription(): Promise<void> {
 
   if (isAndroid()) {
     await invoke('android_sync_ntfy_bridge', {
-      config: { enabled: false, ntfy_url: '', ntfy_topic: '' },
+      config: {
+        enabled: false,
+        ntfy_url: '',
+        ntfy_topic: '',
+        ntfy_auth_mode: 'none',
+        ntfy_auth_token: '',
+        ntfy_username: '',
+        ntfy_password: '',
+      },
       packageId,
     });
     return;
@@ -83,7 +107,14 @@ export async function syncNtfyBridgeRegistration(config: NotificationConfig): Pr
   if (!isNtfyBridgeSupported()) return;
 
   if (config.enabled && config.ntfyUrl.trim() && config.ntfyTopic.trim()) {
-    await registerNtfySubscription({ ntfyUrl: config.ntfyUrl, ntfyTopic: config.ntfyTopic });
+    await registerNtfySubscription({
+      ntfyUrl: config.ntfyUrl,
+      ntfyTopic: config.ntfyTopic,
+      ntfyAuthMode: config.ntfyAuthMode,
+      ntfySubscribeToken: config.ntfySubscribeToken,
+      ntfyUsername: config.ntfyUsername,
+      ntfyPassword: config.ntfyPassword,
+    });
     return;
   }
 
