@@ -30,6 +30,7 @@ import { useTerminalStore } from '../stores/terminalStore';
 import { xtermRegistry } from '../utils/xtermRegistry';
 import { useRecoveryStore } from '../stores/recoveryStore';
 import { appLifecycleManager } from '../services/appLifecycleManager';
+import { refreshNotificationConfig } from '../services/api/notifications';
 
 // Fix #21: use WeakRef-like pattern — clear on each facade lifecycle
 let facadeServerRuns = new Map<string, Set<string>>();
@@ -185,11 +186,25 @@ export function useBackendFacade(): void {
       syncToGatewayStore(event);
     });
 
+    const refreshNotifications = async () => {
+      try {
+        await refreshNotificationConfig();
+      } catch (err) {
+        console.warn('[Notifications] Failed to refresh notification config:', err);
+      }
+    };
+
     // Connect
     facade.connect();
 
+    // Refresh notification policy on startup so mobile picks up gateway changes
+    // even when the settings page was never opened in this session.
+    void refreshNotifications();
+
     // Start lifecycle manager for mobile background/foreground handling
-    appLifecycleManager.start(facade);
+    appLifecycleManager.start(facade, {
+      onResume: refreshNotifications,
+    });
 
     return () => {
       appLifecycleManager.stop();

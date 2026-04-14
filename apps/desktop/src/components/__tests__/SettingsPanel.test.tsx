@@ -47,7 +47,6 @@ vi.mock('../../services/api', async (importOriginal) => {
       processLeak: true,
     },
   });
-  stubbed.updateNotificationConfig = vi.fn().mockResolvedValue({});
   stubbed.sendTestNotification = vi.fn().mockResolvedValue({});
   stubbed.getLocalNotificationBridgeStatus = vi.fn().mockResolvedValue({ ok: false, subscriptions: {} });
   stubbed.getManagedProcesses = vi.fn(() => new Promise(() => {}));
@@ -688,28 +687,24 @@ describe('SettingsPanel', () => {
 
     await waitFor(() => {
       expect(container.textContent).toContain('Enable notifications');
+      expect(container.textContent).toContain('read-only here');
       expect(container.textContent).toContain('ntfy');
     });
   });
 
-  it('toggles notification enabled state', async () => {
+  it('shows notification policy as read-only', async () => {
     const { container } = await renderSettingsPanel();
     const notifTab = container.querySelector('[data-testid="notifications-tab"]');
 
     await clickAsync(notifTab!);
 
-    // Find the enable toggle
-    const toggleButtons = Array.from(container.querySelectorAll('button')).filter(b =>
-      b.className.includes('rounded-full') && b.className.includes('w-10')
-    );
-
-    if (toggleButtons.length > 0) {
-      await clickAsync(toggleButtons[0]);
-      // Should now show ntfy config fields
-      await waitFor(() => {
-        expect(container.textContent).toContain('ntfy Configuration');
-      });
-    }
+    await waitFor(() => {
+      const toggleButtons = Array.from(container.querySelectorAll('button')).filter(b =>
+        b.className.includes('rounded-full') && b.className.includes('w-10')
+      );
+      expect(toggleButtons[0]).toBeDisabled();
+      expect(container.textContent).toContain('Notification settings are configured statically on the gateway');
+    });
   });
 
   it('shows notification event toggles when enabled', async () => {
@@ -718,6 +713,7 @@ describe('SettingsPanel', () => {
       events: {
         permissionRequest: true, promptRequest: true, runCompleted: false,
         runFailed: false, backgroundPermission: false,
+        processLeak: true,
       },
     });
 
@@ -738,7 +734,7 @@ describe('SettingsPanel', () => {
   it('shows Send Test button for notifications', async () => {
     (api.getNotificationConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
       enabled: true, ntfyUrl: 'https://ntfy.sh', ntfyTopic: 'test-topic',
-      events: { permissionRequest: true, promptRequest: true, runCompleted: false, runFailed: false, backgroundPermission: false },
+      events: { permissionRequest: true, promptRequest: true, runCompleted: false, runFailed: false, backgroundPermission: false, processLeak: true },
     });
 
     const { container } = await renderSettingsPanel();

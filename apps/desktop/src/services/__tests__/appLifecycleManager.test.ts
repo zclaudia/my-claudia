@@ -54,6 +54,19 @@ describe('AppLifecycleManager', () => {
     expect(facade.probeHealth).toHaveBeenCalled();
   });
 
+  it('runs the resume hook on foreground return', () => {
+    const onResume = vi.fn();
+    appLifecycleManager.start(facade as any, { onResume });
+
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(onResume).toHaveBeenCalledOnce();
+  });
+
   it('runs health probe at 25s intervals', () => {
     appLifecycleManager.start(facade as any);
 
@@ -82,6 +95,16 @@ describe('AppLifecycleManager', () => {
     window.dispatchEvent(new Event('online'));
 
     expect(facade.forceReconnect).toHaveBeenCalledOnce();
+  });
+
+  it('runs the resume hook on network online when visible', () => {
+    const onResume = vi.fn();
+    appLifecycleManager.start(facade as any, { onResume });
+
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    window.dispatchEvent(new Event('online'));
+
+    expect(onResume).toHaveBeenCalledOnce();
   });
 
   it('does not trigger reconnect on network online when hidden', () => {

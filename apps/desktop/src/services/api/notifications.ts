@@ -31,11 +31,11 @@ export async function getNotificationConfig(): Promise<NotificationConfig> {
   return gatewayFetch<NotificationConfig>('/api/notifications/config');
 }
 
-export async function updateNotificationConfig(config: NotificationConfig): Promise<void> {
-  await gatewayFetch<void>('/api/notifications/config', {
-    method: 'PUT',
-    body: JSON.stringify(config),
-  });
+export async function refreshNotificationConfig(): Promise<NotificationConfig | null> {
+  if (!isNotificationConfigAvailable()) return null;
+  const config = await getNotificationConfig();
+  await syncLocalNotificationBridge(config);
+  return config;
 }
 
 export async function syncLocalNotificationBridge(config: NotificationConfig): Promise<void> {

@@ -47,7 +47,6 @@ import {
   getAgentConfig,
   updateAgentConfig,
   getNotificationConfig,
-  updateNotificationConfig,
   sendTestNotification,
   getMcpServers,
   createMcpServer,
@@ -743,15 +742,6 @@ describe('api', () => {
       mockResponse({ enabled: true });
       const result = await getNotificationConfig();
       expect(result.enabled).toBe(true);
-    });
-
-    it('updateNotificationConfig', async () => {
-      mockResponse(undefined);
-      await updateNotificationConfig({ enabled: false } as any);
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('/api/notifications/config'),
-        expect.objectContaining({ method: 'PUT' })
-      );
     });
 
     it('sendTestNotification', async () => {

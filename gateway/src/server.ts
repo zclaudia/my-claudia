@@ -42,6 +42,7 @@ import type {
   GatewayHttpProxyResponseEnd,
   PushNotificationRequestMessage,
 } from '@my-claudia/shared';
+import type { NotificationConfig } from '@my-claudia/shared/interaction/notifications';
 import { GatewayStorage } from './storage.js';
 import { GatewayState, type PeerSession } from './state.js';
 import { encodeProxyRequestBody } from './proxy-body.js';
@@ -53,6 +54,7 @@ import { GatewayPushNotificationService } from './push-notification.js';
 
 interface GatewayConfig {
   gatewaySecret: string;
+  notificationConfig?: Partial<NotificationConfig>;
   authTimeoutMs?: number;
   proxyRequestTimeoutMs?: number;
   proxyStreamingTimeoutMs?: number;
@@ -112,7 +114,7 @@ function validatePeerHelloMessage(message: unknown): string | null {
 
 export function createGatewayServer(config: GatewayConfig): Server {
   const storage = new GatewayStorage();
-  const pushNotificationService = new GatewayPushNotificationService(storage);
+  const pushNotificationService = new GatewayPushNotificationService(config.notificationConfig);
   const state = new GatewayState();
   const recoveryTokens = new Map<string, string>();
   const authTimeoutMs = config.authTimeoutMs ?? 10_000;
@@ -236,35 +238,6 @@ export function createGatewayServer(config: GatewayConfig): Server {
     try {
       const cfg = pushNotificationService.getConfig();
       res.json({ success: true, data: cfg });
-    } catch (err) {
-      res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: err instanceof Error ? err.message : 'Unknown error' } });
-    }
-  });
-
-  app.put('/api/notifications/config', requireGatewayAuth, (req: Request, res: Response) => {
-    try {
-      const input = req.body;
-      if (!input || typeof input !== 'object' || typeof input.enabled !== 'boolean'
-        || typeof input.ntfyUrl !== 'string' || typeof input.ntfyTopic !== 'string'
-        || !input.events || typeof input.events !== 'object') {
-        res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'Invalid notification config' } });
-        return;
-      }
-      // Validate ntfyUrl is a valid HTTP(S) URL to prevent SSRF
-      if (input.ntfyUrl) {
-        try {
-          const parsed = new URL(input.ntfyUrl);
-          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-            res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'ntfyUrl must use http or https protocol' } });
-            return;
-          }
-        } catch {
-          res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'ntfyUrl must be a valid URL' } });
-          return;
-        }
-      }
-      pushNotificationService.saveConfig(input);
-      res.json({ success: true });
     } catch (err) {
       res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: err instanceof Error ? err.message : 'Unknown error' } });
     }

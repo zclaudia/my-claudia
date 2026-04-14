@@ -20,12 +20,10 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
   const android = isAndroid();
   const [config, setConfig] = useState<NotificationConfig>(DEFAULT_NOTIFICATION_CONFIG);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [syncingBridge, setSyncingBridge] = useState(false);
-  const [dirty, setDirty] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
-  const [saveResult, setSaveResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [statusResult, setStatusResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [bridgeStatus, setBridgeStatus] = useState<BridgeStatus>({ ok: false, subscriptions: {} });
   const [packageId, setPackageId] = useState('com.myClaudia.mobile');
 
@@ -92,58 +90,15 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
     };
   }, [android, loading, config]);
 
-  const update = useCallback((patch: Partial<NotificationConfig>) => {
-    setConfig(prev => ({ ...prev, ...patch }));
-    setDirty(true);
-    setTestResult(null);
-    setSaveResult(null);
-  }, []);
-
-  const updateEvent = useCallback((key: keyof NotificationConfig['events'], value: boolean) => {
-    setConfig(prev => ({
-      ...prev,
-      events: { ...prev.events, [key]: value },
-    }));
-    setDirty(true);
-    setTestResult(null);
-    setSaveResult(null);
-  }, []);
-
-  const handleSave = useCallback(async () => {
-    setSaving(true);
-    setSaveResult(null);
-    try {
-      await api.updateNotificationConfig(config);
-      try {
-        await api.syncLocalNotificationBridge(config);
-        setBridgeStatus(await api.getLocalNotificationBridgeStatus());
-        setSaveResult({ ok: true, message: 'Notification settings saved.' });
-      } catch (err) {
-        setSaveResult({
-          ok: false,
-          message: err instanceof Error
-            ? `Gateway config saved, but local ntfy-bridge sync failed: ${err.message}`
-            : 'Gateway config saved, but local ntfy-bridge sync failed.',
-        });
-      }
-      setDirty(false);
-    } catch (err) {
-      console.error('[Notifications] Failed to save:', err);
-      setSaveResult({ ok: false, message: err instanceof Error ? err.message : 'Failed to save notification settings' });
-    } finally {
-      setSaving(false);
-    }
-  }, [config]);
-
   const handleResyncDevice = useCallback(async () => {
     setSyncingBridge(true);
-    setSaveResult(null);
+    setStatusResult(null);
     try {
       await api.syncLocalNotificationBridge(config);
       setBridgeStatus(await api.getLocalNotificationBridgeStatus());
-      setSaveResult({ ok: true, message: 'This device is synced to the gateway notification policy.' });
+      setStatusResult({ ok: true, message: 'This device is synced to the gateway notification policy.' });
     } catch (err) {
-      setSaveResult({
+      setStatusResult({
         ok: false,
         message: err instanceof Error ? err.message : 'Failed to sync this device to the local bridge.',
       });
@@ -156,14 +111,8 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
     setTesting(true);
     setTestResult(null);
     try {
-      if (!android) {
-        await api.updateNotificationConfig(config);
-      }
       await api.syncLocalNotificationBridge(config);
       setBridgeStatus(await api.getLocalNotificationBridgeStatus());
-      if (!android) {
-        setDirty(false);
-      }
       await api.sendTestNotification();
       setTestResult({ ok: true, message: 'Test notification sent. Check this device for delivery.' });
     } catch (err) {
@@ -171,7 +120,7 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
     } finally {
       setTesting(false);
     }
-  }, [android, config]);
+  }, [config]);
 
   if (loading) {
     return <div className="text-sm text-muted-foreground">Loading...</div>;
@@ -181,7 +130,7 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
     return (
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Push notifications require a gateway connection. Connect to a gateway to configure ntfy notifications.
+          Push notifications require a gateway connection. Connect to a gateway to view the active ntfy notification policy.
         </p>
       </div>
     );
@@ -210,7 +159,7 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
     return (
       <div className="space-y-6">
         <p className="text-sm text-muted-foreground">
-          This device consumes notification policy from the gateway. Event rules are managed on the gateway; Android only handles local delivery and status.
+          This device consumes notification policy from the gateway. Event rules are configured statically on the gateway; Android only handles local delivery and status.
         </p>
 
         <div className="p-3 bg-secondary/40 rounded-lg border border-border/60 space-y-1">
@@ -238,18 +187,18 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
               <p className="text-sm break-all">{config.ntfyTopic || 'Not configured'}</p>
             </div>
             <p className="text-xs text-muted-foreground">
-              Event types, enablement, and delivery policy are managed in gateway settings, not on this device.
+              Event types, enablement, and delivery policy are configured on the gateway, not on this device.
             </p>
           </div>
         </div>
 
-        {saveResult && (
+        {statusResult && (
           <div className={`p-3 rounded-lg text-sm ${
-            saveResult.ok
+            statusResult.ok
               ? 'bg-success/10 border border-success/30 text-success'
               : 'bg-destructive/10 border border-destructive/30 text-destructive'
           }`}>
-            {saveResult.message}
+            {statusResult.message}
           </div>
         )}
 
@@ -291,6 +240,13 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
         Receive push notifications on your phone via <a href="https://ntfy.sh" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">ntfy</a>. Install the ntfy app and subscribe to the same topic configured below.
       </p>
 
+      <div className="p-3 bg-secondary/40 rounded-lg border border-border/60">
+        <p className="text-sm font-medium">Gateway policy</p>
+        <p className="text-xs text-muted-foreground mt-1">
+          Notification settings are configured statically on the gateway and are read-only here.
+        </p>
+      </div>
+
       <div className="p-3 bg-secondary/40 rounded-lg border border-border/60 space-y-1">
         <p className="text-sm font-medium">Local bridge</p>
         <p className="text-xs text-muted-foreground">{bridgeStatusText}</p>
@@ -308,11 +264,10 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
           </p>
         </div>
         <button
-          onClick={() => !readOnly && update({ enabled: !config.enabled })}
-          disabled={readOnly}
+          disabled={true}
           className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${
             config.enabled ? 'bg-primary' : 'bg-muted'
-          } ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
+          } opacity-60 cursor-not-allowed`}
         >
           <span
             className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
@@ -333,10 +288,9 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
                 <input
                   type="text"
                   value={config.ntfyUrl}
-                  onChange={(e) => update({ ntfyUrl: e.target.value })}
                   placeholder="https://ntfy.sh"
-                  readOnly={readOnly}
-                  className={`w-full px-3 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  readOnly={true}
+                  className="w-full px-3 py-1.5 bg-secondary border border-border rounded text-sm opacity-60 cursor-not-allowed"
                 />
               </div>
               <div>
@@ -344,10 +298,9 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
                 <input
                   type="text"
                   value={config.ntfyTopic}
-                  onChange={(e) => update({ ntfyTopic: e.target.value })}
                   placeholder="my-claudia-alerts"
-                  readOnly={readOnly}
-                  className={`w-full px-3 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  readOnly={true}
+                  className="w-full px-3 py-1.5 bg-secondary border border-border rounded text-sm opacity-60 cursor-not-allowed"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
                   Use a unique, hard-to-guess topic name for privacy.
@@ -367,11 +320,10 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
                     <p className="text-xs text-muted-foreground">{description}</p>
                   </div>
                   <button
-                    onClick={() => !readOnly && updateEvent(key, !config.events[key])}
-                    disabled={readOnly}
+                    disabled={true}
                     className={`relative w-8 h-4 rounded-full transition-colors flex-shrink-0 ${
                       config.events[key] ? 'bg-primary' : 'bg-muted'
-                    } ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    } opacity-60 cursor-not-allowed`}
                   >
                     <span
                       className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${
@@ -385,16 +337,6 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
           </div>
 
           {/* Test result */}
-          {saveResult && (
-            <div className={`p-3 rounded-lg text-sm ${
-              saveResult.ok
-                ? 'bg-success/10 border border-success/30 text-success'
-                : 'bg-destructive/10 border border-destructive/30 text-destructive'
-            }`}>
-              {saveResult.message}
-            </div>
-          )}
-
           {testResult && (
             <div className={`p-3 rounded-lg text-sm ${
               testResult.ok
@@ -406,6 +348,16 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
           )}
 
           {/* Action buttons */}
+          {statusResult && (
+            <div className={`p-3 rounded-lg text-sm ${
+              statusResult.ok
+                ? 'bg-success/10 border border-success/30 text-success'
+                : 'bg-destructive/10 border border-destructive/30 text-destructive'
+            }`}>
+              {statusResult.message}
+            </div>
+          )}
+
           {!readOnly && (
           <div className="flex gap-2">
             <button
@@ -415,31 +367,9 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
             >
               {testing ? 'Sending...' : 'Send Test'}
             </button>
-            {dirty && (
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 font-medium shadow-apple-sm transition-colors"
-              >
-                {saving ? 'Saving...' : 'Save Changes'}
-              </button>
-            )}
           </div>
           )}
         </>
-      )}
-
-      {/* Save when only toggling enabled/disabled */}
-      {!readOnly && dirty && !config.enabled && (
-        <div className="flex justify-end">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 font-medium shadow-apple-sm transition-colors"
-          >
-            {saving ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
       )}
     </div>
   );

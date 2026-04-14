@@ -91,12 +91,6 @@ export function initDatabase(dbPath: string = getDbPath()): Database.Database {
     INSERT OR IGNORE INTO counters (key, value) VALUES ('max_epoch', 0);
     INSERT OR IGNORE INTO counters (key, value) VALUES ('registry_revision', 0);
 
-    -- Push notification config (ntfy)
-    CREATE TABLE IF NOT EXISTS notification_config (
-      id TEXT PRIMARY KEY,
-      config TEXT NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
   `);
 
   return db;
@@ -349,27 +343,6 @@ export class GatewayStorage {
       SELECT value FROM counters WHERE key = 'max_epoch'
     `).get() as { value: number };
     return row.value;
-  }
-
-  // =========================================================================
-  // Notification config
-  // =========================================================================
-
-  getNotificationConfig(): string | undefined {
-    if (this.memoryState) return undefined;
-    const row = this.sqlite.prepare(
-      'SELECT config FROM notification_config WHERE id = ?'
-    ).get('default') as { config: string } | undefined;
-    return row?.config;
-  }
-
-  saveNotificationConfig(configJson: string): void {
-    if (this.memoryState) return;
-    this.sqlite.prepare(`
-      INSERT INTO notification_config (id, config, updated_at)
-      VALUES ('default', ?, ?)
-      ON CONFLICT(id) DO UPDATE SET config = excluded.config, updated_at = excluded.updated_at
-    `).run(configJson, Date.now());
   }
 
   /**

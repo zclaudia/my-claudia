@@ -22,6 +22,7 @@ const HEARTBEAT_STALE_THRESHOLD_MS = 75_000;
 
 class AppLifecycleManager {
   private facade: BackendFacade | null = null;
+  private onResume: (() => void | Promise<void>) | null = null;
   private backgroundSince: number | null = null;
   private healthProbeTimer: ReturnType<typeof setInterval> | null = null;
   private started = false;
@@ -41,11 +42,13 @@ class AppLifecycleManager {
     if (document.visibilityState !== 'visible') return;
     console.log('[AppLifecycleManager] Network online — triggering reconnect');
     this.facade?.forceReconnect?.();
+    this.runResumeHooks();
   };
 
-  start(facade: BackendFacade): void {
+  start(facade: BackendFacade, options?: { onResume?: () => void | Promise<void> }): void {
     if (this.started) this.stop();
     this.facade = facade;
+    this.onResume = options?.onResume ?? null;
     this.started = true;
 
     document.addEventListener('visibilitychange', this.handleVisibilityChange);
@@ -61,6 +64,7 @@ class AppLifecycleManager {
 
     this.stopHealthProbe();
     this.facade = null;
+    this.onResume = null;
     this.backgroundSince = null;
   }
 
@@ -79,10 +83,24 @@ class AppLifecycleManager {
     console.log(`[AppLifecycleManager] App returned to foreground (background for ${Math.round(wasBackgroundMs / 1000)}s)`);
 
     this.facade?.forceReconnect?.();
+    this.runResumeHooks();
 
     // Restart health probe and run one immediately
     this.startHealthProbe();
     this.facade?.probeHealth?.();
+  }
+
+  private runResumeHooks(): void {
+    try {
+      const result = this.onResume?.();
+      if (result && typeof (result as Promise<void>).catch === 'function') {
+        void (result as Promise<void>).catch((err) => {
+          console.warn('[AppLifecycleManager] Resume hook failed:', err);
+        });
+      }
+    } catch (err) {
+      console.warn('[AppLifecycleManager] Resume hook failed:', err);
+    }
   }
 
   private startHealthProbe(): void {
@@ -104,6 +122,7 @@ class AppLifecycleManager {
         // Don't go through onForeground() — backgroundSince may be null if
         // visibilitychange never fired. Force reconnect unconditionally.
         this.facade?.forceReconnect?.();
+        this.runResumeHooks();
         this.facade?.probeHealth?.();
         return;
       }

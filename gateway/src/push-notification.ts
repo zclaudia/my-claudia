@@ -1,4 +1,3 @@
-import type { GatewayStorage } from './storage.js';
 import type { NotificationConfig } from '@my-claudia/shared/interaction/notifications';
 import type { PushNotificationRequestMessage } from '@my-claudia/shared/protocol/gateway';
 import { DEFAULT_NOTIFICATION_CONFIG } from '@my-claudia/shared/interaction/notifications';
@@ -15,33 +14,17 @@ const EVENT_KEY_MAP: Record<NotifyEvent['type'], keyof NotificationConfig['event
 };
 
 export class GatewayPushNotificationService {
-  private configCache: NotificationConfig | null = null;
+  private readonly config: NotificationConfig;
 
-  constructor(private storage: GatewayStorage) {}
+  constructor(config?: Partial<NotificationConfig>) {
+    this.config = this.normalizeConfig(config);
+  }
 
   getConfig(): NotificationConfig {
-    if (this.configCache) return this.configCache;
-
-    const raw = this.storage.getNotificationConfig();
-    if (raw) {
-      try {
-        this.configCache = this.normalizeConfig(JSON.parse(raw));
-        return this.configCache;
-      } catch {
-        // Fall through to default
-      }
-    }
-
-    return DEFAULT_NOTIFICATION_CONFIG;
+    return this.config;
   }
 
-  saveConfig(config: NotificationConfig): void {
-    const normalized = this.normalizeConfig(config);
-    this.storage.saveNotificationConfig(JSON.stringify(normalized));
-    this.configCache = normalized;
-  }
-
-  private normalizeConfig(config: Partial<NotificationConfig>): NotificationConfig {
+  private normalizeConfig(config: Partial<NotificationConfig> = {}): NotificationConfig {
     const rawEvents = config.events as Record<string, unknown> | undefined;
     const legacyPromptRequest = rawEvents?.askUserQuestion;
 
@@ -66,7 +49,7 @@ export class GatewayPushNotificationService {
   }
 
   async notify(event: NotifyEvent): Promise<void> {
-    const config = this.getConfig();
+    const config = this.config;
     if (!config.enabled || !config.ntfyTopic) return;
 
     const eventKey = EVENT_KEY_MAP[event.type];
@@ -95,7 +78,7 @@ export class GatewayPushNotificationService {
   }
 
   async sendTest(): Promise<void> {
-    const config = this.getConfig();
+    const config = this.config;
     if (!config.ntfyTopic) {
       throw new Error('ntfy topic is not configured');
     }
