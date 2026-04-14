@@ -238,15 +238,24 @@ export async function* runCursor(
 
   const rl = createInterface({ input: proc.stdout!, crlfDelay: Infinity });
 
-  // Log stderr for debugging
+  // Collect stderr error messages to surface to the user if stdout produces no useful output
+  const stderrErrors: string[] = [];
   proc.stderr!.on('data', (chunk: Buffer) => {
     const text = chunk.toString().trim();
     if (text) {
       console.error('[Cursor SDK] stderr:', text);
+      // Capture CLI-level error/warning/info messages (e.g. usage cap, model blocked)
+      for (const line of text.split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('I:') || trimmed.startsWith('E:') || trimmed.startsWith('W:')) {
+          stderrErrors.push(trimmed);
+        }
+      }
     }
   });
 
   let inThinkBlock = false;
+  let hasUsefulOutput = false;
 
   try {
     for await (const line of rl) {
@@ -272,6 +281,9 @@ export async function* runCursor(
       const msgs = mapCursorEvent(event, inThinkBlock);
       for (const { msg, updateThink } of msgs) {
         if (updateThink !== undefined) inThinkBlock = updateThink;
+        if (msg.type === 'assistant' || msg.type === 'tool_use' || msg.type === 'result') {
+          hasUsefulOutput = true;
+        }
         yield msg;
       }
     }
@@ -291,6 +303,14 @@ export async function* runCursor(
         };
       } else {
         yield { type: 'error', error: `cursor-agent error: ${err.message}` };
+      }
+    }
+
+    // Surface stderr errors if cursor-agent produced no useful output
+    // (e.g. usage cap hit, model blocked — these only appear on stderr)
+    if (!hasUsefulOutput && stderrErrors.length > 0) {
+      for (const errMsg of stderrErrors) {
+        yield { type: 'error', error: errMsg } as ClaudeMessage;
       }
     }
   } catch (err: unknown) {

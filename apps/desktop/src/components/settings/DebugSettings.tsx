@@ -545,11 +545,12 @@ export function DebugSettings({ isConnected, sendMessage, embeddedServerStatus }
           </div>
 
           <div className="space-y-2">
+            {/* Row 1: Tool + Command */}
             <div className="flex gap-2">
               <select
                 value={simToolName}
                 onChange={(e) => setSimToolName(e.target.value)}
-                className="px-2 py-1 text-xs bg-background border border-border rounded-lg w-24"
+                className="px-2 py-1 text-xs bg-background border border-border rounded-lg w-20 shrink-0"
               >
                 <option value="Bash">Bash</option>
                 <option value="Write">Write</option>
@@ -560,11 +561,12 @@ export function DebugSettings({ isConnected, sendMessage, embeddedServerStatus }
                 type="text"
                 value={simDetail}
                 onChange={(e) => setSimDetail(e.target.value)}
-                placeholder="Command or detail (e.g. rm -rf /tmp/test)"
-                className="flex-1 px-2 py-1 text-xs bg-background border border-border rounded-lg"
+                placeholder={simToolName === 'Bash' ? 'Command (e.g. rm -rf /tmp/test)' : 'File path or content'}
+                className="flex-1 min-w-0 px-2 py-1 text-xs bg-background border border-border rounded-lg"
               />
             </div>
 
+            {/* Row 2: Working directory */}
             <input
               type="text"
               value={simCwd}
@@ -573,11 +575,12 @@ export function DebugSettings({ isConnected, sendMessage, embeddedServerStatus }
               className="w-full px-2 py-1 text-xs bg-background border border-border rounded-lg"
             />
 
-            <div className="flex gap-2 items-center">
+            {/* Row 3: Provider + Threshold + Mode in a grid */}
+            <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-center">
               <select
                 value={simProviderId}
                 onChange={(e) => setSimProviderId(e.target.value)}
-                className="px-2 py-1 text-xs bg-background border border-border rounded-lg flex-1"
+                className="px-2 py-1 text-xs bg-background border border-border rounded-lg min-w-0"
               >
                 {simProviders.length === 0 && <option value="">No providers</option>}
                 {simProviders.map((p) => (
@@ -585,34 +588,28 @@ export function DebugSettings({ isConnected, sendMessage, embeddedServerStatus }
                 ))}
               </select>
 
-              <div className="flex items-center gap-1">
-                <span className="text-[11px] text-muted-foreground">Threshold:</span>
-                <input
-                  type="number"
-                  value={simThreshold}
-                  onChange={(e) => setSimThreshold(parseFloat(e.target.value) || 0.8)}
-                  min={0}
-                  max={1}
-                  step={0.1}
-                  className="w-14 px-1 py-1 text-xs bg-background border border-border rounded-lg text-center"
-                />
-              </div>
+              <input
+                type="number"
+                value={simThreshold}
+                onChange={(e) => setSimThreshold(parseFloat(e.target.value) || 0.8)}
+                min={0}
+                max={1}
+                step={0.1}
+                title="Confidence threshold"
+                className="w-14 px-1 py-1 text-xs bg-background border border-border rounded-lg text-center"
+              />
 
-              <div className="flex items-center bg-secondary/80 rounded-lg p-0.5 gap-0.5">
-                {(['quick', 'full', 'runtime', 'workflow'] as const).map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => setSimMode(m)}
-                    className={`px-2 py-0.5 text-[11px] rounded-md transition-colors ${
-                      simMode === m
-                        ? 'bg-card text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    {{ quick: 'Quick', full: 'Full', runtime: 'Runtime', workflow: 'Workflow' }[m]}
-                  </button>
-                ))}
-              </div>
+              <select
+                value={simMode}
+                onChange={(e) => setSimMode(e.target.value as 'quick' | 'full' | 'runtime' | 'workflow')}
+                title="Evaluation mode"
+                className="px-2 py-1 text-xs bg-background border border-border rounded-lg"
+              >
+                <option value="quick">Quick — single-pass, no rate limit</option>
+                <option value="full">Full — multi-turn with file reading</option>
+                <option value="runtime">Runtime — oneshot task runtime</option>
+                <option value="workflow">Workflow — full permission pipeline</option>
+              </select>
             </div>
           </div>
 
@@ -630,6 +627,7 @@ export function DebugSettings({ isConnected, sendMessage, embeddedServerStatus }
 
           {simResult && (
             <div className="p-3 bg-background/70 rounded-lg space-y-2">
+              {/* Decision header */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className={`px-1.5 py-0.5 text-[11px] font-medium rounded ${
@@ -646,7 +644,7 @@ export function DebugSettings({ isConnected, sendMessage, embeddedServerStatus }
                   </span>
                 </div>
                 <span className="text-[11px] text-muted-foreground">
-                  {simResult.durationMs}ms • {simResult.providerType} • {simResult.mode}
+                  {simResult.durationMs}ms · {simResult.providerType} · {simResult.mode}
                 </span>
               </div>
 
@@ -662,15 +660,85 @@ export function DebugSettings({ isConnected, sendMessage, embeddedServerStatus }
                 />
               </div>
 
+              {/* Reasoning */}
               <div className="text-xs text-muted-foreground whitespace-pre-wrap break-words">
                 {simResult.reasoning}
               </div>
 
+              {/* Workflow steps (only for workflow mode) */}
+              {simResult.steps && simResult.steps.length > 0 && (
+                <div className="space-y-1.5 pt-1 border-t border-border/50">
+                  <div className="text-[11px] font-medium text-muted-foreground">
+                    Workflow Steps
+                    {simResult.workflowStatus && (
+                      <span className={`ml-1.5 px-1 py-0.5 rounded text-[10px] ${
+                        simResult.workflowStatus === 'completed'
+                          ? 'bg-green-500/15 text-green-600 dark:text-green-400'
+                          : 'bg-red-500/15 text-red-600 dark:text-red-400'
+                      }`}>
+                        {simResult.workflowStatus}
+                      </span>
+                    )}
+                    {simResult.workflowDecision && (
+                      <span className="ml-1 text-[10px] text-muted-foreground">
+                        → {simResult.workflowDecision}
+                      </span>
+                    )}
+                  </div>
+                  {simResult.steps.map((step, i) => {
+                    const stepOutput = step.output as Record<string, unknown> | null;
+                    return (
+                      <div key={i} className="flex items-start gap-2 text-[11px]">
+                        <span className={`shrink-0 mt-0.5 w-1.5 h-1.5 rounded-full ${
+                          step.status === 'completed' ? 'bg-green-500'
+                            : step.status === 'failed' ? 'bg-red-500'
+                              : step.status === 'running' ? 'bg-blue-500'
+                                : 'bg-muted-foreground/40'
+                        }`} />
+                        <span className="font-mono text-foreground/80 shrink-0">{step.nodeId}</span>
+                        <span className="text-muted-foreground/60">{step.status}</span>
+                        {stepOutput?.decision != null && (
+                          <span className={`px-1 rounded text-[10px] ${
+                            String(stepOutput.decision) === 'approve'
+                              ? 'bg-green-500/15 text-green-600 dark:text-green-400'
+                              : String(stepOutput.decision) === 'deny'
+                                ? 'bg-red-500/15 text-red-600 dark:text-red-400'
+                                : 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400'
+                          }`}>
+                            {String(stepOutput.decision)}
+                          </span>
+                        )}
+                        {stepOutput?.confidence != null && (
+                          <span className="text-muted-foreground/50">
+                            {Math.round(Number(stepOutput.confidence) * 100)}%
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Telemetry (runtime mode) */}
+              {simResult.telemetry && Object.keys(simResult.telemetry).length > 0 && (
+                <div className="pt-1 border-t border-border/50">
+                  <div className="text-[11px] font-medium text-muted-foreground mb-1">Runtime Telemetry</div>
+                  <div className="text-[11px] text-muted-foreground flex flex-wrap gap-x-3 gap-y-0.5">
+                    {Object.entries(simResult.telemetry).map(([k, v]) => (
+                      <span key={k}><span className="text-foreground/60">{k}:</span> {String(v)}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Metadata */}
               {simResult.metadata && Object.keys(simResult.metadata).length > 0 && (
-                <div className="text-[11px] text-muted-foreground">
-                  {Object.entries(simResult.metadata).map(([k, v]) => (
-                    <span key={k} className="mr-2">{k}: {String(v)}</span>
-                  ))}
+                <div className="pt-1 border-t border-border/50">
+                  <div className="text-[11px] text-muted-foreground flex flex-wrap gap-x-3 gap-y-0.5">
+                    {Object.entries(simResult.metadata).map(([k, v]) => (
+                      <span key={k}><span className="text-foreground/60">{k}:</span> {String(v)}</span>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

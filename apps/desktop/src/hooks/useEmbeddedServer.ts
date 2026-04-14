@@ -133,7 +133,7 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
 
       // In tauri dev, beforeDevCommand starts the workspace server on port 3100 in parallel.
       // Vite may become ready first, so give the existing dev server a short window to finish booting
-      // before falling back to spawning a sidecar on the same fixed port.
+      // before falling back to spawning a sidecar on a random port.
       for (let attempt = 0; attempt <= DEV_HEALTHCHECK_RETRY_DELAYS_MS.length; attempt++) {
         try {
           const resp = await fetch(DEV_HEALTHCHECK_URL);
@@ -178,7 +178,7 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
       const command = Command.sidecar('binaries/node', [serverPath], {
         cwd: DEV_REPO_ROOT,
         env: {
-          PORT: '3100',
+          PORT: '0',
           SERVER_HOST: '127.0.0.1',
           MY_CLAUDIA_DATA_DIR: dataDir,
           MY_CLAUDIA_CHANNEL: 'dev',
@@ -215,25 +215,34 @@ export function useEmbeddedServer(options?: { disabled?: boolean }): EmbeddedSer
         if (!mountedRef.current) return;
         // Before marking as error, check if server is still reachable
         // (handles React StrictMode double-mount: old process dies but new one is running)
-        fetch(DEV_HEALTHCHECK_URL).then(resp => {
-          if (resp.ok && mountedRef.current) {
-            console.log('[EmbeddedServer] Process exited but server still reachable, recovering');
-            setState({ port: 3100, status: 'ready', error: null });
-          } else if (mountedRef.current) {
-            setState(prev => {
-              if (prev.status === 'ready') return { ...prev, status: 'error', error: 'Server process exited unexpectedly' };
-              if (prev.status === 'starting') return { ...prev, status: 'error', error: `Server process crashed on startup (code=${data.code})` };
-              return prev;
-            });
+        setState(prev => {
+          const recoveryPort = prev.port;
+          if (!recoveryPort) {
+            if (prev.status === 'ready') return { ...prev, status: 'error', error: 'Server process exited unexpectedly' };
+            if (prev.status === 'starting') return { ...prev, status: 'error', error: `Server process crashed on startup (code=${data.code})` };
+            return prev;
           }
-        }).catch(() => {
-          if (mountedRef.current) {
-            setState(prev => {
-              if (prev.status === 'ready') return { ...prev, status: 'error', error: 'Server process exited unexpectedly' };
-              if (prev.status === 'starting') return { ...prev, status: 'error', error: `Server process crashed on startup (code=${data.code})` };
-              return prev;
-            });
-          }
+          fetch(`http://127.0.0.1:${recoveryPort}/health`).then(resp => {
+            if (resp.ok && mountedRef.current) {
+              console.log(`[EmbeddedServer] Process exited but server still reachable on port ${recoveryPort}, recovering`);
+              setState({ port: recoveryPort, status: 'ready', error: null });
+            } else if (mountedRef.current) {
+              setState(p => {
+                if (p.status === 'ready') return { ...p, status: 'error', error: 'Server process exited unexpectedly' };
+                if (p.status === 'starting') return { ...p, status: 'error', error: `Server process crashed on startup (code=${data.code})` };
+                return p;
+              });
+            }
+          }).catch(() => {
+            if (mountedRef.current) {
+              setState(p => {
+                if (p.status === 'ready') return { ...p, status: 'error', error: 'Server process exited unexpectedly' };
+                if (p.status === 'starting') return { ...p, status: 'error', error: `Server process crashed on startup (code=${data.code})` };
+                return p;
+              });
+            }
+          });
+          return prev;
         });
       });
 

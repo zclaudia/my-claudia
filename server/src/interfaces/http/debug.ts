@@ -251,6 +251,22 @@ export function createDebugRoutes(processSupervisor?: ProcessSupervisor, db?: Da
           return;
         }
 
+        // Create a temporary workflow record to satisfy FK constraint
+        const debugWorkflowId = `debug-workflow-${Date.now()}`;
+        const now = Date.now();
+        db!.prepare(`INSERT INTO workflows (
+          id, project_id, name, description, status, definition, template_id,
+          source_plugin_id, source_type, authoring_mode, created_at, updated_at
+        ) VALUES (?, NULL, ?, ?, 'active', ?, ?, NULL, 'system', 'graph', ?, ?)`).run(
+          debugWorkflowId,
+          'Debug AI Review',
+          'Temporary workflow for debug simulation',
+          JSON.stringify(template.definition),
+          template.id,
+          now,
+          now,
+        );
+
         // Construct simulated permission.escalated event payload
         const eventPayload: Record<string, unknown> = {
           requestId: `debug-${Date.now()}`,
@@ -269,7 +285,7 @@ export function createDebugRoutes(processSupervisor?: ProcessSupervisor, db?: Da
 
         // Wait for workflow run to complete
         const run = await workflowEngine.startRun(
-          `debug-workflow-${Date.now()}`,
+          debugWorkflowId,
           undefined,
           template.definition,
           'manual',
@@ -310,6 +326,9 @@ export function createDebugRoutes(processSupervisor?: ProcessSupervisor, db?: Da
 
         const decideStep = runDetail?.find(s => s.node_id === 'decide_approve');
         const decideOutput = decideStep?.output ? JSON.parse(decideStep.output) as Record<string, unknown> : {};
+
+        // Clean up temporary workflow record (CASCADE deletes runs & step_runs)
+        db!.prepare('DELETE FROM workflows WHERE id = ?').run(debugWorkflowId);
 
         res.json({
           success: true,
