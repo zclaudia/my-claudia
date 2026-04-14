@@ -1,4 +1,4 @@
-package com.myClaudia.desktop
+package com.myClaudia.mobile
 
 import android.app.NotificationChannel
 import android.app.NotificationManager

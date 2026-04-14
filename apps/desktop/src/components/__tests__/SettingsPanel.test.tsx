@@ -758,12 +758,12 @@ describe('SettingsPanel', () => {
     (isAndroid as ReturnType<typeof vi.fn>).mockReturnValue(true);
     (api.getNotificationConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
       enabled: true, ntfyUrl: 'https://ntfy.sh', ntfyTopic: 'test-topic',
-      events: { permissionRequest: true, promptRequest: true, runCompleted: false, runFailed: false, backgroundPermission: false },
+      events: { permissionRequest: true, promptRequest: true, runCompleted: false, runFailed: false, backgroundPermission: false, processLeak: true },
     });
     (api.getLocalNotificationBridgeStatus as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,
       subscriptions: {
-        'com.myClaudia.desktop': {
+        'com.myClaudia.mobile': {
           connected: true,
           status: 'connected',
         },
@@ -777,6 +777,24 @@ describe('SettingsPanel', () => {
     await waitFor(() => {
       expect(container.textContent).toContain('Local bridge');
       expect(container.textContent).toContain('Local ntfy-bridge connected.');
+      expect(container.textContent).toContain('Gateway policy');
+      expect(container.textContent).toContain('Event types, enablement, and delivery policy are managed in gateway settings');
+    });
+  });
+
+  it('syncs local bridge automatically on Android when gateway policy loads', async () => {
+    (isAndroid as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (api.getNotificationConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
+      enabled: true, ntfyUrl: 'https://ntfy.sh', ntfyTopic: 'test-topic',
+      events: { permissionRequest: true, promptRequest: true, runCompleted: false, runFailed: false, backgroundPermission: false, processLeak: true },
+    });
+
+    const { container } = await renderSettingsPanel();
+    const notifTab = container.querySelector('[data-testid="notifications-tab"]');
+    await clickAsync(notifTab!);
+
+    await waitFor(() => {
+      expect(api.syncLocalNotificationBridge).toHaveBeenCalled();
     });
   });
 

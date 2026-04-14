@@ -4,10 +4,10 @@ import "testing"
 
 func TestValidateSubscribeRequest(t *testing.T) {
 	valid := subscribeRequest{
-		ID:       "com.myClaudia.desktop",
+		ID:       "com.myClaudia.mobile",
 		NtfyURL:  "https://ntfy.sh",
 		Topic:    "my-claudia-alerts",
-		Package:  "com.myClaudia.desktop",
+		Package:  "com.myClaudia.mobile",
 		Receiver: ".NtfyReceiver",
 	}
 
@@ -26,7 +26,7 @@ func TestValidateSubscribeRequest(t *testing.T) {
 				ID:       "a",
 				NtfyURL:  "https://ntfy.sh",
 				Topic:    "my-topic",
-				Package:  "com.myClaudia.desktop",
+				Package:  "com.myClaudia.mobile",
 				Receiver: ".NtfyReceiver",
 			},
 			code: "id_package_mismatch",
@@ -34,10 +34,10 @@ func TestValidateSubscribeRequest(t *testing.T) {
 		{
 			name: "invalid topic",
 			req: subscribeRequest{
-				ID:       "com.myClaudia.desktop",
+				ID:       "com.myClaudia.mobile",
 				NtfyURL:  "https://ntfy.sh",
 				Topic:    "bad topic",
-				Package:  "com.myClaudia.desktop",
+				Package:  "com.myClaudia.mobile",
 				Receiver: ".NtfyReceiver",
 			},
 			code: "invalid_topic",
@@ -45,10 +45,10 @@ func TestValidateSubscribeRequest(t *testing.T) {
 		{
 			name: "invalid url with path",
 			req: subscribeRequest{
-				ID:       "com.myClaudia.desktop",
+				ID:       "com.myClaudia.mobile",
 				NtfyURL:  "https://ntfy.sh/root",
 				Topic:    "my-topic",
-				Package:  "com.myClaudia.desktop",
+				Package:  "com.myClaudia.mobile",
 				Receiver: ".NtfyReceiver",
 			},
 			code: "invalid_ntfy_url",
@@ -101,10 +101,10 @@ func TestNormalizeMessage(t *testing.T) {
 }
 
 func TestFullyQualifiedReceiver(t *testing.T) {
-	if got := fullyQualifiedReceiver("com.myClaudia.desktop", ".NtfyReceiver"); got != "com.myClaudia.desktop/com.myClaudia.desktop.NtfyReceiver" {
+	if got := fullyQualifiedReceiver("com.myClaudia.mobile", ".NtfyReceiver"); got != "com.myClaudia.mobile/com.myClaudia.mobile.NtfyReceiver" {
 		t.Fatalf("unexpected relative receiver %q", got)
 	}
-	if got := fullyQualifiedReceiver("com.myClaudia.desktop", "com.myClaudia.desktop.NtfyReceiver"); got != "com.myClaudia.desktop/com.myClaudia.desktop.NtfyReceiver" {
+	if got := fullyQualifiedReceiver("com.myClaudia.mobile", "com.myClaudia.mobile.NtfyReceiver"); got != "com.myClaudia.mobile/com.myClaudia.mobile.NtfyReceiver" {
 		t.Fatalf("unexpected absolute receiver %q", got)
 	}
 }

@@ -103,7 +103,7 @@ fn android_sync_ntfy_bridge(config: AndroidNotificationConfig, package_id: Strin
                 ntfy_url: config.ntfy_url.trim().to_string(),
                 topic: config.ntfy_topic.trim().to_string(),
                 package: package_id,
-                receiver: "com.myClaudia.desktop.NotificationRenderService".to_string(),
+                receiver: "com.myClaudia.mobile.NotificationRenderService".to_string(),
             })
             .send()
             .map_err(|e| e.to_string())?;

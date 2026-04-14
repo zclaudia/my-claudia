@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { isAndroid } from '../utils/platform';
 
 const BRIDGE_URL = 'http://127.0.0.1:9595';
-const RECEIVER = 'com.myClaudia.desktop.NotificationRenderService';
+const RECEIVER = 'com.myClaudia.mobile.NotificationRenderService';
 
 export interface NtfyBridgeStatusResponse {
   ok: boolean;

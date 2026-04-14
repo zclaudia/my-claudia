@@ -17,15 +17,17 @@ const EVENT_LABELS: { key: keyof NotificationConfig['events']; label: string; de
 ];
 
 export function NotificationSettingsInline({ readOnly = false }: { readOnly?: boolean }) {
+  const android = isAndroid();
   const [config, setConfig] = useState<NotificationConfig>(DEFAULT_NOTIFICATION_CONFIG);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [syncingBridge, setSyncingBridge] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [saveResult, setSaveResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [bridgeStatus, setBridgeStatus] = useState<BridgeStatus>({ ok: false, subscriptions: {} });
-  const [packageId, setPackageId] = useState('com.myClaudia.desktop');
+  const [packageId, setPackageId] = useState('com.myClaudia.mobile');
 
   useEffect(() => {
     api.getNotificationConfig()
@@ -34,7 +36,7 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
   }, []);
 
   useEffect(() => {
-    if (!isAndroid()) return;
+    if (!android) return;
 
     import('@tauri-apps/api/app')
       .then(({ getIdentifier }) => getIdentifier())
@@ -58,7 +60,37 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [android]);
+
+  useEffect(() => {
+    if (!android || loading) return;
+
+    let cancelled = false;
+    const syncRegistration = async () => {
+      try {
+        await api.syncLocalNotificationBridge(config);
+      } catch {
+        // Surface bridge failures via status polling instead of blocking the page.
+      }
+
+      try {
+        const next = await api.getLocalNotificationBridgeStatus();
+        if (!cancelled) {
+          setBridgeStatus(next);
+        }
+      } catch {
+        if (!cancelled) {
+          setBridgeStatus({ ok: false, subscriptions: {} });
+        }
+      }
+    };
+
+    void syncRegistration();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [android, loading, config]);
 
   const update = useCallback((patch: Partial<NotificationConfig>) => {
     setConfig(prev => ({ ...prev, ...patch }));
@@ -103,23 +135,43 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
     }
   }, [config]);
 
+  const handleResyncDevice = useCallback(async () => {
+    setSyncingBridge(true);
+    setSaveResult(null);
+    try {
+      await api.syncLocalNotificationBridge(config);
+      setBridgeStatus(await api.getLocalNotificationBridgeStatus());
+      setSaveResult({ ok: true, message: 'This device is synced to the gateway notification policy.' });
+    } catch (err) {
+      setSaveResult({
+        ok: false,
+        message: err instanceof Error ? err.message : 'Failed to sync this device to the local bridge.',
+      });
+    } finally {
+      setSyncingBridge(false);
+    }
+  }, [config]);
+
   const handleTest = useCallback(async () => {
     setTesting(true);
     setTestResult(null);
     try {
-      // Save first so server uses latest config
-      await api.updateNotificationConfig(config);
+      if (!android) {
+        await api.updateNotificationConfig(config);
+      }
       await api.syncLocalNotificationBridge(config);
       setBridgeStatus(await api.getLocalNotificationBridgeStatus());
-      setDirty(false);
+      if (!android) {
+        setDirty(false);
+      }
       await api.sendTestNotification();
-      setTestResult({ ok: true, message: 'Test notification sent! Check your ntfy app.' });
+      setTestResult({ ok: true, message: 'Test notification sent. Check this device for delivery.' });
     } catch (err) {
       setTestResult({ ok: false, message: err instanceof Error ? err.message : 'Failed to send' });
     } finally {
       setTesting(false);
     }
-  }, [config]);
+  }, [android, config]);
 
   if (loading) {
     return <div className="text-sm text-muted-foreground">Loading...</div>;
@@ -153,6 +205,85 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
           : localSubscription?.status === 'connecting'
             ? 'Local ntfy-bridge connecting.'
             : 'Local ntfy-bridge idle.';
+
+  if (android) {
+    return (
+      <div className="space-y-6">
+        <p className="text-sm text-muted-foreground">
+          This device consumes notification policy from the gateway. Event rules are managed on the gateway; Android only handles local delivery and status.
+        </p>
+
+        <div className="p-3 bg-secondary/40 rounded-lg border border-border/60 space-y-1">
+          <p className="text-sm font-medium">This device</p>
+          <p className="text-xs text-muted-foreground">{bridgeStatusText}</p>
+          <p className="text-xs text-muted-foreground">Package: {packageId}</p>
+          {localSubscription?.last_error && (
+            <p className="text-xs text-destructive">Last error: {localSubscription.last_error}</p>
+          )}
+        </div>
+
+        <div className="space-y-3">
+          <h3 className="text-sm font-medium">Gateway policy</h3>
+          <div className="space-y-3 p-3 bg-secondary/50 rounded-lg border border-border/60">
+            <div>
+              <p className="text-xs text-muted-foreground">Status</p>
+              <p className="text-sm font-medium">{config.enabled ? 'Enabled' : 'Disabled'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Server URL</p>
+              <p className="text-sm break-all">{config.ntfyUrl || 'Not configured'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Topic</p>
+              <p className="text-sm break-all">{config.ntfyTopic || 'Not configured'}</p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Event types, enablement, and delivery policy are managed in gateway settings, not on this device.
+            </p>
+          </div>
+        </div>
+
+        {saveResult && (
+          <div className={`p-3 rounded-lg text-sm ${
+            saveResult.ok
+              ? 'bg-success/10 border border-success/30 text-success'
+              : 'bg-destructive/10 border border-destructive/30 text-destructive'
+          }`}>
+            {saveResult.message}
+          </div>
+        )}
+
+        {testResult && (
+          <div className={`p-3 rounded-lg text-sm ${
+            testResult.ok
+              ? 'bg-success/10 border border-success/30 text-success'
+              : 'bg-destructive/10 border border-destructive/30 text-destructive'
+          }`}>
+            {testResult.message}
+          </div>
+        )}
+
+        {!readOnly && (
+          <div className="flex gap-2">
+            <button
+              onClick={handleResyncDevice}
+              disabled={syncingBridge}
+              className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-secondary disabled:opacity-50 font-medium transition-colors"
+            >
+              {syncingBridge ? 'Syncing...' : 'Sync Device'}
+            </button>
+            <button
+              onClick={handleTest}
+              disabled={testing || !config.enabled || !config.ntfyTopic}
+              className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 font-medium shadow-apple-sm transition-colors"
+            >
+              {testing ? 'Sending...' : 'Send Test'}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

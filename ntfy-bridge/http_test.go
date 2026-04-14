@@ -37,10 +37,10 @@ func TestHandleSubscribeAndStatus(t *testing.T) {
 	api := NewAPI(manager, log.New(bytes.NewBuffer(nil), "", 0))
 
 	payload := subscribeRequest{
-		ID:       "com.myClaudia.desktop",
+		ID:       "com.myClaudia.mobile",
 		NtfyURL:  "https://ntfy.sh",
 		Topic:    "my-topic",
-		Package:  "com.myClaudia.desktop",
+		Package:  "com.myClaudia.mobile",
 		Receiver: ".NtfyReceiver",
 	}
 	data, _ := json.Marshal(payload)
@@ -68,7 +68,7 @@ func TestHandleSubscribeAndStatus(t *testing.T) {
 	if err := json.Unmarshal(statusRec.Body.Bytes(), &status); err != nil {
 		t.Fatalf("failed to decode status: %v", err)
 	}
-	if _, ok := status.Subscriptions["com.myClaudia.desktop"]; !ok {
+	if _, ok := status.Subscriptions["com.myClaudia.mobile"]; !ok {
 		t.Fatalf("expected subscription in status")
 	}
 

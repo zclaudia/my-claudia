@@ -153,6 +153,9 @@ ANDROID_GEN_DIR="apps/desktop/src-tauri/gen/android"
 ANDROID_APP_DIR="$ANDROID_GEN_DIR/app/src/main"
 ANDROID_RES_DIR="$ANDROID_APP_DIR/res"
 ANDROID_OVERRIDES_DIR="apps/desktop/src-tauri/android-overrides/app/src/main"
+ANDROID_APP_ID="com.myClaudia.mobile"
+ANDROID_APP_PACKAGE_PATH="com/myClaudia/mobile"
+ANDROID_SOURCE_PACKAGE_PATH="com/myClaudia/desktop"
 
 # --- Install / update dependencies ---
 if [ "$INSTALL_ONLY" = false ]; then
@@ -181,12 +184,13 @@ fi
 
 # --- Re-apply Android overrides ---
 echo "=== Syncing Android overrides ==="
-mkdir -p "$ANDROID_APP_DIR/java/com/myClaudia/desktop" "$ANDROID_APP_DIR/res/xml"
-cp "$ANDROID_OVERRIDES_DIR/java/com/myClaudia/desktop/MainActivity.kt" "$ANDROID_APP_DIR/java/com/myClaudia/desktop/MainActivity.kt"
-cp "$ANDROID_OVERRIDES_DIR/java/com/myClaudia/desktop/FileHelper.kt" "$ANDROID_APP_DIR/java/com/myClaudia/desktop/FileHelper.kt"
-cp "$ANDROID_OVERRIDES_DIR/java/com/myClaudia/desktop/NtfyReceiver.kt" "$ANDROID_APP_DIR/java/com/myClaudia/desktop/NtfyReceiver.kt"
-cp "$ANDROID_OVERRIDES_DIR/java/com/myClaudia/desktop/NotificationRenderer.kt" "$ANDROID_APP_DIR/java/com/myClaudia/desktop/NotificationRenderer.kt"
-cp "$ANDROID_OVERRIDES_DIR/java/com/myClaudia/desktop/NotificationRenderService.kt" "$ANDROID_APP_DIR/java/com/myClaudia/desktop/NotificationRenderService.kt"
+mkdir -p "$ANDROID_APP_DIR/java/$ANDROID_APP_PACKAGE_PATH" "$ANDROID_APP_DIR/res/xml"
+rm -rf "$ANDROID_APP_DIR/java/com/myClaudia/desktop"
+cp "$ANDROID_OVERRIDES_DIR/java/$ANDROID_SOURCE_PACKAGE_PATH/MainActivity.kt" "$ANDROID_APP_DIR/java/$ANDROID_APP_PACKAGE_PATH/MainActivity.kt"
+cp "$ANDROID_OVERRIDES_DIR/java/$ANDROID_SOURCE_PACKAGE_PATH/FileHelper.kt" "$ANDROID_APP_DIR/java/$ANDROID_APP_PACKAGE_PATH/FileHelper.kt"
+cp "$ANDROID_OVERRIDES_DIR/java/$ANDROID_SOURCE_PACKAGE_PATH/NtfyReceiver.kt" "$ANDROID_APP_DIR/java/$ANDROID_APP_PACKAGE_PATH/NtfyReceiver.kt"
+cp "$ANDROID_OVERRIDES_DIR/java/$ANDROID_SOURCE_PACKAGE_PATH/NotificationRenderer.kt" "$ANDROID_APP_DIR/java/$ANDROID_APP_PACKAGE_PATH/NotificationRenderer.kt"
+cp "$ANDROID_OVERRIDES_DIR/java/$ANDROID_SOURCE_PACKAGE_PATH/NotificationRenderService.kt" "$ANDROID_APP_DIR/java/$ANDROID_APP_PACKAGE_PATH/NotificationRenderService.kt"
 cp "$ANDROID_OVERRIDES_DIR/res/xml/file_paths.xml" "$ANDROID_APP_DIR/res/xml/file_paths.xml"
 cp "$ANDROID_OVERRIDES_DIR/res/xml/network_security_config.xml" "$ANDROID_APP_DIR/res/xml/network_security_config.xml"
 cp -R apps/desktop/src-tauri/icons/android/. "$ANDROID_RES_DIR/"
@@ -244,6 +248,22 @@ if [ -f "$ANDROID_MANIFEST" ] && ! grep -q 'android:networkSecurityConfig="@xml/
   ' "$ANDROID_MANIFEST" > "$TMP_MANIFEST"
   mv "$TMP_MANIFEST" "$ANDROID_MANIFEST"
   echo "  Added networkSecurityConfig"
+  echo ""
+fi
+
+if [ -f "$ANDROID_MANIFEST" ] && ! grep -q 'manifestPlaceholders\["appIcon"\]' "$ANDROID_MANIFEST" && grep -q 'android:icon="@mipmap/ic_launcher"' "$ANDROID_MANIFEST"; then
+  echo "=== Patching AndroidManifest.xml for launcher icon placeholders ==="
+  TMP_MANIFEST="$(mktemp)"
+  awk '
+    /android:icon="@mipmap\/ic_launcher"/ {
+      print "        android:icon=\"${appIcon}\""
+      print "        android:roundIcon=\"${appRoundIcon}\""
+      next
+    }
+    { print }
+  ' "$ANDROID_MANIFEST" > "$TMP_MANIFEST"
+  mv "$TMP_MANIFEST" "$ANDROID_MANIFEST"
+  echo "  Added appIcon/appRoundIcon placeholders"
   echo ""
 fi
 
@@ -347,7 +367,7 @@ if [ -f "$GRADLE_FILE" ] && ! grep -q "pickFirsts" "$GRADLE_FILE"; then
   # Use a temp file so this works on both GNU sed (Linux CI) and BSD sed (macOS).
   TMP_GRADLE_FILE="$(mktemp)"
   awk '
-    /namespace = "com.myClaudia.desktop"/ {
+    /namespace = "/ {
       print
       print "    packaging {"
       print "        jniLibs.pickFirsts.add(\"lib/**/libc++_shared.so\")"
@@ -358,6 +378,50 @@ if [ -f "$GRADLE_FILE" ] && ! grep -q "pickFirsts" "$GRADLE_FILE"; then
   ' "$GRADLE_FILE" > "$TMP_GRADLE_FILE"
   mv "$TMP_GRADLE_FILE" "$GRADLE_FILE"
   echo "  Added pickFirsts for libc++_shared.so"
+  echo ""
+fi
+
+# --- Patch Android build.gradle.kts (launcher icon placeholders) ---
+if [ -f "$GRADLE_FILE" ] && ! grep -q 'manifestPlaceholders\["appIcon"\]' "$GRADLE_FILE"; then
+  echo "=== Patching Android build.gradle.kts for launcher icon placeholders ==="
+  TMP_GRADLE_FILE="$(mktemp)"
+  awk '
+    /manifestPlaceholders\["usesCleartextTraffic"\] = "false"/ {
+      print
+      print "        manifestPlaceholders[\"appIcon\"] = \"@mipmap/ic_launcher\""
+      print "        manifestPlaceholders[\"appRoundIcon\"] = \"@mipmap/ic_launcher_round\""
+      next
+    }
+    /resValue\("string", "app_name", "MyClaudia Dev"\)/ {
+      print
+      print "                manifestPlaceholders[\"appIcon\"] = \"@mipmap/ic_launcher_dev\""
+      print "                manifestPlaceholders[\"appRoundIcon\"] = \"@mipmap/ic_launcher_dev_round\""
+      next
+    }
+    { print }
+  ' "$GRADLE_FILE" > "$TMP_GRADLE_FILE"
+  mv "$TMP_GRADLE_FILE" "$GRADLE_FILE"
+  echo "  Added dev/release launcher icon placeholders"
+  echo ""
+fi
+
+# --- Patch Android build.gradle.kts (force mobile app id for Android only) ---
+if [ -f "$GRADLE_FILE" ] && ! grep -q "com.myClaudia.mobile" "$GRADLE_FILE"; then
+  echo "=== Patching Android build.gradle.kts for mobile app id ==="
+  TMP_GRADLE_FILE="$(mktemp)"
+  awk -v android_app_id="$ANDROID_APP_ID" '
+    /namespace = "/ {
+      print "    namespace = \"" android_app_id "\""
+      next
+    }
+    /applicationId = "/ {
+      print "        applicationId = \"" android_app_id "\""
+      next
+    }
+    { print }
+  ' "$GRADLE_FILE" > "$TMP_GRADLE_FILE"
+  mv "$TMP_GRADLE_FILE" "$GRADLE_FILE"
+  echo "  Set namespace/applicationId to $ANDROID_APP_ID"
   echo ""
 fi
 
@@ -400,7 +464,7 @@ if [ "$INSTALL_ONLY" = false ]; then
   # Android doesn't use embedded server — override tauri config to skip
   # sidecar binaries, server bundle resources, and server bundle step.
   # Also inject version so no files need to be modified.
-  pnpm tauri android build --apk --config "{\"version\":\"${VERSION:-0.0.0}\",\"build\":{\"beforeBuildCommand\":\"\"},\"bundle\":{\"externalBin\":[],\"resources\":null}}" || {
+  pnpm tauri android build --apk --config "{\"identifier\":\"$ANDROID_APP_ID\",\"version\":\"${VERSION:-0.0.0}\",\"build\":{\"beforeBuildCommand\":\"\"},\"bundle\":{\"externalBin\":[],\"resources\":null}}" || {
     echo "ERROR: Tauri Android build failed"
     exit 1
   }

@@ -1,4 +1,4 @@
-package com.myClaudia.desktop
+package com.myClaudia.mobile
 
 import android.Manifest
 import android.content.pm.PackageManager

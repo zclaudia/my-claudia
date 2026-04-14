@@ -338,7 +338,7 @@ func truncateString(value string, max int) string {
 }
 
 func fallbackTitleForPackage(pkg string) string {
-	if pkg == "com.myClaudia.desktop" {
+	if pkg == "com.myClaudia.desktop" || pkg == "com.myClaudia.mobile" {
 		return "MyClaudia"
 	}
 	if idx := strings.LastIndex(pkg, "."); idx >= 0 && idx+1 < len(pkg) {
