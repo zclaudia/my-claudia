@@ -323,38 +323,56 @@ export function createDebugRoutes(
           aiInitiatedPlanMode: false,
         };
 
-        // Wait for workflow run to complete
-        const run = await workflowEngine.startRun(
-          debugWorkflowId,
-          undefined,
-          template.definition,
-          'manual',
-          'Debug AI review simulation (workflow mode)',
-          { eventPayload },
-        );
-
-        // Poll for completion (engine runs async)
-        const result = await new Promise<{ run: typeof run; stepRuns: unknown[] }>((resolve, reject) => {
+        // Register listener BEFORE startRun to avoid race with fast-completing workflows.
+        // Buffer events until we know the runId, then replay to check for completion.
+        const result = await new Promise<{ run: { id: string; status: string }; stepRuns: unknown[] }>((resolve, reject) => {
           const timeoutId = setTimeout(() => {
-            cleanup();
             reject(new Error('Workflow execution timed out after 180s'));
           }, 180_000);
 
-          const handler = (event: WorkflowRunEvent) => {
-            if (event.runId !== run.id) return;
+          let runId: string | null = null;
+          let settled = false;
+          const bufferedEvents: WorkflowRunEvent[] = [];
+
+          const tryResolve = (event: WorkflowRunEvent) => {
+            if (settled) return;
             if (event.type === 'run_completed' || event.type === 'run_failed' || event.type === 'run_cancelled') {
-              cleanup();
-              resolve({ run: { ...run, status: event.type === 'run_completed' ? 'completed' : 'failed' }, stepRuns: [] });
+              settled = true;
+              clearTimeout(timeoutId);
+              resolve({
+                run: { id: event.runId, status: event.type === 'run_completed' ? 'completed' : 'failed' },
+                stepRuns: [],
+              });
             }
           };
 
-          const cleanup = () => {
-            clearTimeout(timeoutId);
-            // Remove handler (dispatcher doesn't have off(), so just track)
-          };
+          workflowEngine.dispatcher.onAny((event: WorkflowRunEvent) => {
+            if (runId && event.runId === runId) {
+              tryResolve(event);
+            } else {
+              bufferedEvents.push(event);
+            }
+          });
 
-          workflowEngine.dispatcher.onAny(handler);
+          workflowEngine.startRun(
+            debugWorkflowId,
+            undefined,
+            template.definition,
+            'manual',
+            'Debug AI review simulation (workflow mode)',
+            { eventPayload },
+          ).then((startedRun: { id: string }) => {
+            runId = startedRun.id;
+            // Replay buffered events that arrived before runId was known
+            for (const event of bufferedEvents) {
+              if (event.runId === runId) tryResolve(event);
+            }
+          }).catch((err: unknown) => {
+            clearTimeout(timeoutId);
+            reject(err);
+          });
         });
+        const run = result.run;
 
         // Read final step results from DB
         const runDetail = db?.prepare(

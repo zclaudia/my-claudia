@@ -307,6 +307,27 @@ export function createWorkflowRoutes(
     }
   });
 
+  // GET /api/workflow-runs — list runs across all workflows for a project
+  router.get('/workflow-runs', (req: Request, res: Response) => {
+    try {
+      const projectId = typeof req.query.projectId === 'string' ? req.query.projectId : undefined;
+      const limit = parseInt(req.query.limit as string) || 50;
+      if (!projectId) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'projectId query parameter is required' },
+        });
+      }
+      const runs = service.getRunsByProject(projectId, limit);
+      res.json({ success: true, data: runs });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : String(error) },
+      });
+    }
+  });
+
   // GET /api/workflow-runs/:runId
   router.get('/workflow-runs/:runId', (req: Request, res: Response) => {
     try {
