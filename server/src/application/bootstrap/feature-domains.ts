@@ -17,6 +17,7 @@ import { registerNotificationDomain } from '../../domains/notification-feed/inde
 import { registerSupervisionDomain, type SupervisionAiRunPort, type SupervisionProjectPort, type SupervisionSessionPort, type SupervisionSessionModelPort } from '../../domains/supervision/index.js';
 import { registerLocalPRDomain, type LocalPRAiSessionPort, type LocalPRSchedulingPort } from '../../domains/local-pr/index.js';
 import { registerWorkflowDomain, type WorkflowAiRunPort, type WorkflowSchedulingPort } from '../../domains/workflows/index.js';
+import { PermissionWorkflowResolver } from '../../domains/workflows/index.js';
 import { registerPluginsDomain } from '../plugins/register.js';
 import { toolRegistry, workflowStepRegistry, workflowTriggerRegistry } from '../plugins/index.js';
 import { createAutomationRoutes } from '../../interfaces/http/automations.js';
@@ -59,6 +60,7 @@ export interface FeatureDomainsResult {
   permissionBridge: PermissionBridge;
   cancelWorkflowRun: (runId: string) => void;
   oneShotRuntime: import('../oneshot/types.js').OneShotTaskRuntime;
+  permissionWorkflowResolver: PermissionWorkflowResolver;
 }
 
 function broadcastToAuthenticatedClients(
@@ -186,6 +188,7 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     permissionBridge,
     aiRiskAnalysisPort,
   });
+  const permissionWorkflowResolver = new PermissionWorkflowResolver(db, workflowService);
   app.use('/api/automations', authMiddleware, createAutomationRoutes(workflowService));
 
   // ── Permission workflow progress broadcasting ──
@@ -286,5 +289,6 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     permissionBridge,
     cancelWorkflowRun,
     oneShotRuntime,
+    permissionWorkflowResolver,
   };
 }

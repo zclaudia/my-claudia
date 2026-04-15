@@ -1296,6 +1296,23 @@ function runMigrations(db: Database.Database): void {
         CREATE INDEX IF NOT EXISTS idx_managed_processes_source ON managed_processes(source);
         CREATE INDEX IF NOT EXISTS idx_managed_processes_exited_at ON managed_processes(exited_at);
       `
+    },
+    {
+      name: '061_system_permission_workflow',
+      sql: `
+        ALTER TABLE workflows ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE workflows ADD COLUMN system_key TEXT;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_system_key
+          ON workflows(system_key)
+          WHERE system_key IS NOT NULL;
+      `
+    },
+    {
+      name: '062_permission_workflow_overrides',
+      sql: `
+        ALTER TABLE projects ADD COLUMN permission_workflow_override_id TEXT REFERENCES workflows(id) ON DELETE SET NULL;
+        ALTER TABLE agent_config ADD COLUMN permission_workflow_override_id TEXT REFERENCES workflows(id) ON DELETE SET NULL;
+      `
     }
   ];
 
@@ -1321,14 +1338,19 @@ function runMigrations(db: Database.Database): void {
           message.includes('duplicate column name: branch_action') ||
           message.includes('duplicate column name: context_reset') ||
           message.includes('duplicate column name: response_text') ||
-          message.includes('duplicate column name: tool_count');
+          message.includes('duplicate column name: tool_count') ||
+          message.includes('duplicate column name: is_system') ||
+          message.includes('duplicate column name: system_key') ||
+          message.includes('duplicate column name: permission_workflow_override_id');
         const isKnownLocalPrColumnMigration =
           migration.name === '036_local_pr_status_message' ||
           migration.name === '037_local_pr_merge_commit_sha' ||
           migration.name === '048_agent_trigger_schedule_fields' ||
           migration.name === '049_orchestrator_task_initiator' ||
           migration.name === '053_claudia_branches' ||
-          migration.name === '055_claudia_task_metadata';
+          migration.name === '055_claudia_task_metadata' ||
+          migration.name === '061_system_permission_workflow' ||
+          migration.name === '062_permission_workflow_overrides';
 
         if (!(isKnownLocalPrColumnMigration && isDuplicateColumnError)) {
           throw error;

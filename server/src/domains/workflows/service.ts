@@ -21,7 +21,18 @@ import { WorkflowScheduleRepository } from './workflow-schedule-repository.js';
 import type { WorkflowEngine } from './engine.js';
 import { computeNextCronRun } from '../../utils/cron.js';
 import { pluginEvents } from '../../infrastructure/events/index.js';
-import { BUILTIN_WORKFLOW_TEMPLATES, PERMISSION_WORKFLOW_TEMPLATE_ID } from './templates.js';
+import {
+  BUILTIN_WORKFLOW_TEMPLATES,
+  PERMISSION_WORKFLOW_TEMPLATE_ID,
+  SYSTEM_PERMISSION_ESCALATION_FALLBACK_KEY,
+} from './templates.js';
+
+export class ImmutableSystemWorkflowError extends Error {
+  constructor(message = 'System workflow is immutable') {
+    super(message);
+    this.name = 'ImmutableSystemWorkflowError';
+  }
+}
 
 export class WorkflowService {
   private workflowRepo: WorkflowRepository;
@@ -49,22 +60,65 @@ export class WorkflowService {
   }
 
   private ensureBuiltinWorkflows(): void {
-    const existing = this.workflowRepo.findGlobalByTemplate(PERMISSION_WORKFLOW_TEMPLATE_ID);
-    if (!existing) {
-      const template = BUILTIN_WORKFLOW_TEMPLATES.find(t => t.id === PERMISSION_WORKFLOW_TEMPLATE_ID);
-      if (template) {
-        this.workflowRepo.create({
-          projectId: undefined,
-          name: template.name,
-          description: template.description,
+    const template = BUILTIN_WORKFLOW_TEMPLATES.find(t => t.id === PERMISSION_WORKFLOW_TEMPLATE_ID);
+    if (!template) return;
+
+    const systemWorkflow = this.workflowRepo.findBySystemKey(SYSTEM_PERMISSION_ESCALATION_FALLBACK_KEY);
+    if (!systemWorkflow) {
+      const legacyGlobal = this.workflowRepo.findGlobalByTemplate(PERMISSION_WORKFLOW_TEMPLATE_ID);
+      if (legacyGlobal) {
+        this.workflowRepo.update(legacyGlobal.id, {
           status: 'active',
           definition: template.definition,
-          templateId: template.id,
+          isSystem: true,
+          systemKey: SYSTEM_PERMISSION_ESCALATION_FALLBACK_KEY,
           sourceType: 'template',
         });
-        console.log(`[Workflow] Auto-created builtin workflow: ${template.name}`);
+        console.log(`[Workflow] Adopted global builtin workflow as system fallback: ${template.name}`);
+        return;
       }
+
+      this.workflowRepo.create({
+        projectId: undefined,
+        name: template.name,
+        description: template.description,
+        status: 'active',
+        definition: template.definition,
+        templateId: template.id,
+        isSystem: true,
+        systemKey: SYSTEM_PERMISSION_ESCALATION_FALLBACK_KEY,
+        sourceType: 'template',
+      });
+      console.log(`[Workflow] Auto-created system fallback workflow: ${template.name}`);
+      return;
     }
+
+    const needsRepair = systemWorkflow.status !== 'active'
+      || systemWorkflow.templateId !== PERMISSION_WORKFLOW_TEMPLATE_ID
+      || !systemWorkflow.isSystem
+      || JSON.stringify(systemWorkflow.definition) !== JSON.stringify(template.definition);
+
+    if (needsRepair) {
+      this.workflowRepo.update(systemWorkflow.id, {
+        name: template.name,
+        description: template.description,
+        status: 'active',
+        definition: template.definition,
+        templateId: template.id,
+        isSystem: true,
+        systemKey: SYSTEM_PERMISSION_ESCALATION_FALLBACK_KEY,
+        sourceType: 'template',
+      });
+      console.log(`[Workflow] Repaired system fallback workflow: ${template.name}`);
+    }
+  }
+
+  getSystemPermissionFallback(): Workflow {
+    const workflow = this.workflowRepo.findBySystemKey(SYSTEM_PERMISSION_ESCALATION_FALLBACK_KEY);
+    if (!workflow) {
+      throw new Error('System permission fallback workflow is missing');
+    }
+    return workflow;
   }
 
   // ── Workflow CRUD ─────────────────────────────────────────────
@@ -115,6 +169,10 @@ export class WorkflowService {
   }
 
   updateWorkflow(workflowId: string, data: Partial<Omit<Workflow, 'id' | 'projectId' | 'createdAt'>>): Workflow {
+    const existing = this.workflowRepo.findById(workflowId);
+    if (existing?.isSystem) {
+      throw new ImmutableSystemWorkflowError();
+    }
     const workflow = this.workflowRepo.update(workflowId, data);
 
     // Re-sync schedule
@@ -126,6 +184,10 @@ export class WorkflowService {
   }
 
   deleteWorkflow(workflowId: string, projectId?: string): boolean {
+    const existing = this.workflowRepo.findById(workflowId);
+    if (existing?.isSystem) {
+      throw new ImmutableSystemWorkflowError();
+    }
     this.scheduleRepo.deleteByWorkflow(workflowId);
     const deleted = this.workflowRepo.delete(workflowId);
     if (deleted) {
@@ -146,6 +208,9 @@ export class WorkflowService {
   }
 
   createFromTemplate(projectId: string | undefined, templateId: string): Workflow {
+    if (templateId === PERMISSION_WORKFLOW_TEMPLATE_ID) {
+      throw new ImmutableSystemWorkflowError('Permission escalation template is managed by the system');
+    }
     const template = BUILTIN_WORKFLOW_TEMPLATES.find(t => t.id === templateId);
     if (!template) throw new Error(`Template not found: ${templateId}`);
 

@@ -36,7 +36,7 @@ import type { NotificationSender } from '../../../infrastructure/push/notificati
 import { writePermissionLog } from '../agent/permission-log-writer.js';
 import type { PermissionBridge } from '../agent/permission-bridge.js';
 import type { PermissionEscalationContext } from '../../../domains/workflows/ports/step-executor.js';
-import { pluginEvents } from '../../../infrastructure/events/index.js';
+import type { PermissionWorkflowResolver } from '../../../domains/workflows/index.js';
 
 interface SessionContext {
   project_id: string;
@@ -63,6 +63,7 @@ export interface CreatePermissionCallbackInput {
   sessionType: 'regular' | 'background' | 'agent';
   /** Permission bridge for workflow-based permission handling */
   permissionBridge: PermissionBridge;
+  permissionWorkflowResolver: PermissionWorkflowResolver;
 }
 
 export function createPermissionCallback(input: CreatePermissionCallbackInput) {
@@ -76,6 +77,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
     modeValue,
     notificationService,
     permissionBridge,
+    permissionWorkflowResolver,
     providerType,
     runId,
     sendRunEvent,
@@ -326,9 +328,23 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
         db.prepare('UPDATE sessions SET last_run_status = ?, updated_at = ? WHERE id = ?')
           .run('waiting', Date.now(), activeRun.sessionId);
 
-        // Emit event to trigger the permission workflow
-        pluginEvents.emit('permission.escalated', escalationContext as unknown as Record<string, unknown>);
-        console.log(`[Permission] Delegated ${request.requestId} (${request.toolName}) to permission workflow`);
+        void permissionWorkflowResolver.triggerPermissionEscalation(session.project_id, {
+          eventPayload: escalationContext as unknown as Record<string, unknown>,
+          triggerContext: {
+            type: 'event',
+            event: 'permission.escalated',
+          },
+        }).then(({ resolved, run }) => {
+          permissionBridge.setWorkflowRunId(request.requestId, run.id);
+          console.log(
+            `[Permission] Delegated ${request.requestId} (${request.toolName}) to ${resolved.source} workflow ${resolved.workflowId} run=${run.id}`,
+          );
+        }).catch((error) => {
+          console.error(
+            `[Permission] Failed to trigger permission workflow for ${request.requestId} (${request.toolName}):`,
+            error,
+          );
+        });
 
         // Send request to frontend (user can still manually approve/deny)
         if (sessionType !== 'background') {

@@ -9,6 +9,8 @@ import { WorkflowRunViewer } from './WorkflowRunViewer';
 import { isDesktopTauri } from '../../../utils/platform';
 import { openPopoutWindow } from '../../../utils/popoutWindow';
 import { useOwnershipStore } from '../../../stores/ownershipStore';
+import { useProjectStore } from '../../../stores/projectStore';
+import { useAgentConfigStore } from '../../../stores/agentConfigStore';
 
 async function openEditorInNewWindow(projectId: string, workflow?: Workflow) {
   const backendId = useOwnershipStore.getState().getProjectBackendId(projectId);
@@ -37,6 +39,8 @@ type ViewState =
 
 export function WorkflowsPanel({ projectId, onViewModeChange, onOpenAutomations }: WorkflowsPanelProps) {
   const isMobile = useIsMobile();
+  const project = useProjectStore((state) => state.projects.find((item) => item.id === projectId));
+  const globalPermissionWorkflowOverrideId = useAgentConfigStore((state) => state.config?.permissionWorkflowOverrideId ?? null);
   const {
     workflows,
     runs,
@@ -82,6 +86,17 @@ export function WorkflowsPanel({ projectId, onViewModeChange, onOpenAutomations 
 
   const getLatestRun = (workflowId: string): WorkflowRun | undefined => {
     return (runs[workflowId] ?? [])[0];
+  };
+
+  const getBindingBadges = (workflow: Workflow) => {
+    const badges: Array<{ label: string; tone?: 'primary' | 'success' | 'muted' }> = [];
+    if (project?.permissionWorkflowOverrideId === workflow.id) {
+      badges.push({ label: 'Project override', tone: 'primary' });
+    }
+    if (globalPermissionWorkflowOverrideId === workflow.id) {
+      badges.push({ label: 'Global override', tone: 'success' });
+    }
+    return badges;
   };
 
   // ── Render sub-views ──────────────────────────────────
@@ -154,6 +169,7 @@ export function WorkflowsPanel({ projectId, onViewModeChange, onOpenAutomations 
                       key={wf.id}
                       workflow={wf}
                       latestRun={getLatestRun(wf.id)}
+                      bindingBadges={getBindingBadges(wf)}
                       onTrigger={async () => {
                         const run = await triggerWorkflow(wf.id);
                         setView({ type: 'run-viewer', runId: run.id });
@@ -186,6 +202,7 @@ export function WorkflowsPanel({ projectId, onViewModeChange, onOpenAutomations 
                       key={wf.id}
                       workflow={wf}
                       latestRun={getLatestRun(wf.id)}
+                      bindingBadges={getBindingBadges(wf)}
                       onTrigger={() => {}}
                       onEdit={isMobile ? undefined : () => setView({ type: 'editor', workflow: wf })}
                       onToggle={isMobile ? undefined : () => updateWorkflow(wf.id, projectId, { status: 'active' })}

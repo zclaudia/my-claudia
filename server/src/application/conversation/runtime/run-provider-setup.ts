@@ -5,6 +5,7 @@ import type { ActiveRun, ConnectedClient } from '../transport/types.js';
 import type { NotificationSender } from '../../../infrastructure/push/notification-sender.js';
 import type { ProviderConfig } from '@my-claudia/shared/core/provider';
 import type { PermissionBridge } from '../agent/permission-bridge.js';
+import type { PermissionWorkflowResolver } from '../../../domains/workflows/index.js';
 
 interface PrepareProviderRunInput {
   activeRun: ActiveRun;
@@ -29,6 +30,7 @@ interface PrepareProviderRunInput {
   sessionType: 'regular' | 'background' | 'agent';
   markPendingResolutionResumed: () => void;
   permissionBridge?: PermissionBridge;
+  permissionWorkflowResolver?: PermissionWorkflowResolver;
 }
 
 export interface PreparedProviderRun {
@@ -90,6 +92,7 @@ export function prepareProviderRun(input: PrepareProviderRunInput): PreparedProv
     },
     sessionType,
     permissionBridge: input.permissionBridge!,
+    permissionWorkflowResolver: input.permissionWorkflowResolver!,
   });
 
   return {

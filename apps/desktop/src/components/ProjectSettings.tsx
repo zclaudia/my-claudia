@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import type { Project, ProviderConfig, UnifiedPermissionPolicy, PermissionCategory, CategoryAction, CategoryProfile } from '@my-claudia/shared';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import type { Project, ProviderConfig, UnifiedPermissionPolicy, PermissionCategory, CategoryAction, CategoryProfile, Workflow } from '@my-claudia/shared';
 import { useServerStore } from '../stores/serverStore';
 import { useFacadeStore } from '../stores/facadeStore';
 import { useProjectStore } from '../stores/projectStore';
@@ -28,6 +28,8 @@ const ACTION_OPTIONS: Array<{ value: CategoryAction | 'inherit'; label: string }
   { value: 'ask', label: 'Ask' },
   { value: 'block', label: 'Block' },
 ];
+
+const PERMISSION_FALLBACK_TEMPLATE_ID = 'permission-escalation-default';
 
 interface ProjectSettingsProps {
   project: Project | null;
@@ -65,7 +67,9 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
   const [rootPath, setRootPath] = useState('');
   const [providerId, setProviderId] = useState<string>('');
   const [reviewProviderId, setReviewProviderId] = useState<string>('');
+  const [permissionWorkflowOverrideId, setPermissionWorkflowOverrideId] = useState<string>('');
   const [systemPrompt, setSystemPrompt] = useState('');
+  const [workflowOptions, setWorkflowOptions] = useState<Workflow[]>([]);
 
   // Permission override state
   const [hasOverride, setHasOverride] = useState(false);
@@ -112,6 +116,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
     setRootPath(project.rootPath || '');
     setProviderId(project.providerId || '');
     setReviewProviderId(project.reviewProviderId || '');
+    setPermissionWorkflowOverrideId(project.permissionWorkflowOverrideId || '');
     setSystemPrompt(project.systemPrompt || '');
     if (project.agentPermissionOverride) {
       setHasOverride(true);
@@ -126,6 +131,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
     project?.rootPath,
     project?.providerId,
     project?.reviewProviderId,
+    project?.permissionWorkflowOverrideId,
     project?.systemPrompt,
     project?.agentPermissionOverride,
   ]);
@@ -171,6 +177,29 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
     }
   };
 
+  const loadPermissionWorkflowOptions = useCallback(async () => {
+    if (!project?.id) return;
+    try {
+      const workflows = await api.listAllWorkflows();
+      setWorkflowOptions(
+        workflows.filter((workflow) =>
+          workflow.status === 'active'
+          && !workflow.isSystem
+          && workflow.templateId !== PERMISSION_FALLBACK_TEMPLATE_ID
+          && (!workflow.projectId || workflow.projectId === project.id)
+        ),
+      );
+    } catch (error) {
+      console.error('Failed to load permission workflows:', error);
+      setWorkflowOptions([]);
+    }
+  }, [project?.id]);
+
+  useEffect(() => {
+    if (!isOpen || !project?.id || !isConnected) return;
+    void loadPermissionWorkflowOptions();
+  }, [isOpen, project?.id, isConnected, loadPermissionWorkflowOptions]);
+
   const handleSave = async () => {
     if (!project || !name.trim()) return;
 
@@ -182,6 +211,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
         rootPath: rootPath.trim() || undefined,
         providerId: providerId || undefined,
         reviewProviderId: reviewProviderId || undefined,
+        permissionWorkflowOverrideId: permissionWorkflowOverrideId || undefined,
         systemPrompt: systemPrompt.trim() || undefined,
         agentPermissionOverride: hasOverride ? permOverride : undefined,
       };
@@ -345,6 +375,27 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
             />
             <p className="text-xs text-muted-foreground mt-1">
               Custom instructions to prepend to every conversation
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-muted-foreground mb-1">
+              Permission Workflow Override
+            </label>
+            <select
+              value={permissionWorkflowOverrideId}
+              onChange={(e) => setPermissionWorkflowOverrideId(e.target.value)}
+              className="w-full h-[38px] px-3 bg-input border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary"
+            >
+              <option value="">Inherit global or system fallback</option>
+              {workflowOptions.map((workflow) => (
+                <option key={workflow.id} value={workflow.id}>
+                  {workflow.projectId ? `[Project] ${workflow.name}` : `[Global] ${workflow.name}`}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground mt-1">
+              Project override takes precedence over the global override. If unavailable, the system fallback still runs.
             </p>
           </div>
 

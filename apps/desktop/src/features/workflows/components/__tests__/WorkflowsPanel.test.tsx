@@ -3,6 +3,8 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { WorkflowsPanel } from '../WorkflowsPanel';
 import type { Workflow, WorkflowRun } from '@my-claudia/shared';
+import { useProjectStore } from '../../../../stores/projectStore';
+import { useAgentConfigStore } from '../../../../stores/agentConfigStore';
 
 vi.mock('../../../../hooks/useMediaQuery', () => ({
   useIsMobile: () => false,
@@ -34,6 +36,9 @@ vi.mock('../WorkflowCard', () => ({
   WorkflowCard: (props: any) => (
     <div data-testid={`workflow-card-${props.workflow.id}`}>
       <span>{props.workflow.name}</span>
+      {props.bindingBadges?.map((badge: { label: string }) => (
+        <span key={badge.label}>{badge.label}</span>
+      ))}
       {props.onEdit && <button onClick={props.onEdit}>Edit</button>}
       {props.onTrigger && <button onClick={props.onTrigger}>Trigger</button>}
       {props.onDelete && <button onClick={props.onDelete}>Delete</button>}
@@ -89,6 +94,8 @@ beforeEach(() => {
   mockDeleteWorkflow.mockResolvedValue(undefined);
   mockCreateFromTemplate.mockResolvedValue(undefined);
   mockLoadRuns.mockResolvedValue(undefined);
+  useProjectStore.setState({ projects: [], updateProject: vi.fn() } as any);
+  useAgentConfigStore.setState({ config: null } as any);
 });
 
 function createWorkflow(overrides: Partial<Workflow> = {}): Workflow {
@@ -161,6 +168,33 @@ describe('WorkflowsPanel', () => {
       expect(screen.getByText('Disabled')).toBeInTheDocument();
     });
     expect(screen.getByText('Disabled WF')).toBeInTheDocument();
+  });
+
+  it('shows override badges for bound workflows', async () => {
+    useProjectStore.setState({
+      projects: [{ id: 'proj-1', name: 'Project 1', permissionWorkflowOverrideId: 'wf-1' }],
+      updateProject: vi.fn(),
+    } as any);
+    useAgentConfigStore.setState({
+      config: {
+        enabled: true,
+        projectId: null,
+        sessionId: null,
+        providerId: null,
+        permissionWorkflowOverrideId: 'wf-1',
+        permissionPolicy: null,
+      },
+    } as any);
+    mockWorkflows = {
+      'proj-1': [createWorkflow({ id: 'wf-1', name: 'Bound Workflow', status: 'active' })],
+    };
+
+    await renderPanel({ projectId: 'proj-1' });
+
+    await vi.waitFor(() => {
+      expect(screen.getByText('Project override')).toBeInTheDocument();
+      expect(screen.getByText('Global override')).toBeInTheDocument();
+    });
   });
 
   it('shows workflow count badge', async () => {

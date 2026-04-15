@@ -41,22 +41,35 @@ export class PluginManagementService {
   }
 
   listPlugins() {
-    return this.loader.getPlugins().map((plugin) => ({
-      id: plugin.manifest.id,
-      name: plugin.manifest.name,
-      version: plugin.manifest.version,
-      description: plugin.manifest.description,
-      author: plugin.manifest.author,
-      status: plugin.isActive ? 'active' : plugin.error ? 'error' : 'inactive',
-      enabled: plugin.isActive,
-      error: plugin.error,
-      permissions: plugin.manifest.permissions || [],
-      grantedPermissions: this.permissions.getGrantedPermissions(plugin.manifest.id),
-      pendingPermissions: plugin.pendingPermissions || [],
-      tools: this.tools.getByPlugin(plugin.manifest.id).map((tool) => tool.definition.function.name),
-      commands: this.commands.getByPlugin(plugin.manifest.id).map((command) => command.command),
-      path: plugin.path,
-    }));
+    return this.loader.getPlugins().map((plugin) => {
+      const contributes = plugin.manifest.contributes || {};
+      const panels = (contributes.panels || []).map((panel: { id: string; label: string; icon?: string; order?: number; frontend?: string }) => ({
+        id: panel.id,
+        label: panel.label,
+        icon: panel.icon,
+        order: panel.order,
+        iframeUrl: panel.frontend
+          ? `/api/plugins/${plugin.manifest.id}/frontend/${panel.frontend}`
+          : undefined,
+      }));
+      return {
+        id: plugin.manifest.id,
+        name: plugin.manifest.name,
+        version: plugin.manifest.version,
+        description: plugin.manifest.description,
+        author: plugin.manifest.author,
+        status: plugin.isActive ? 'active' : plugin.error ? 'error' : 'inactive',
+        enabled: plugin.isActive,
+        error: plugin.error,
+        permissions: plugin.manifest.permissions || [],
+        grantedPermissions: this.permissions.getGrantedPermissions(plugin.manifest.id),
+        pendingPermissions: plugin.pendingPermissions || [],
+        tools: this.tools.getByPlugin(plugin.manifest.id).map((tool) => tool.definition.function.name),
+        commands: this.commands.getByPlugin(plugin.manifest.id).map((command) => command.command),
+        path: plugin.path,
+        panels,
+      };
+    });
   }
 
   async activatePlugin(id: string): Promise<{ activated: true }> {

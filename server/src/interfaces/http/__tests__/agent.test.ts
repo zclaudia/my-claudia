@@ -15,6 +15,7 @@ function createTestDb(): Database.Database {
       project_id TEXT,
       session_id TEXT,
       provider_id TEXT,
+      permission_workflow_override_id TEXT,
       permission_policy TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
@@ -63,6 +64,11 @@ function createTestDb(): Database.Database {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS workflows (
+      id TEXT PRIMARY KEY,
+      is_system INTEGER NOT NULL DEFAULT 0
+    );
   `);
 
   return db;
@@ -100,6 +106,7 @@ describe('agent routes', () => {
     db.exec('DELETE FROM sessions');
     db.exec('DELETE FROM projects');
     db.exec('DELETE FROM providers');
+    db.exec('DELETE FROM workflows');
     db.exec('DELETE FROM agent_config');
   });
 
@@ -126,6 +133,7 @@ describe('agent routes', () => {
         projectId: null,
         sessionId: null,
         providerId: null,
+        permissionWorkflowOverrideId: null,
         permissionPolicy: null,
       });
       expect(res.body.data.createdAt).toBeDefined();
@@ -149,6 +157,7 @@ describe('agent routes', () => {
         projectId: 'proj-1',
         sessionId: 'sess-1',
         providerId: 'prov-1',
+        permissionWorkflowOverrideId: null,
         permissionPolicy: '{"trustLevel":"aggressive"}',
       });
     });
@@ -339,6 +348,53 @@ describe('agent routes', () => {
       expect(res.body.data.enabled).toBe(false);
       expect(res.body.data.providerId).toBe('new-provider');
       expect(res.body.data.permissionPolicy).toBe(JSON.stringify({ trustLevel: 'strict' }));
+    });
+
+    it('updates permissionWorkflowOverrideId', async () => {
+      db.prepare(`INSERT INTO workflows (id, is_system) VALUES (?, 0)`).run('wf-user');
+
+      const res = await request(app)
+        .put('/api/agent/config')
+        .send({ permissionWorkflowOverrideId: 'wf-user' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.permissionWorkflowOverrideId).toBe('wf-user');
+      const row = db.prepare('SELECT permission_workflow_override_id FROM agent_config WHERE id = 1').get() as any;
+      expect(row.permission_workflow_override_id).toBe('wf-user');
+    });
+
+    it('clears permissionWorkflowOverrideId when set to null', async () => {
+      db.prepare(`INSERT INTO workflows (id, is_system) VALUES (?, 0)`).run('wf-user');
+      db.prepare(`UPDATE agent_config SET permission_workflow_override_id = 'wf-user' WHERE id = 1`).run();
+
+      const res = await request(app)
+        .put('/api/agent/config')
+        .send({ permissionWorkflowOverrideId: null });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.permissionWorkflowOverrideId).toBeNull();
+      const row = db.prepare('SELECT permission_workflow_override_id FROM agent_config WHERE id = 1').get() as any;
+      expect(row.permission_workflow_override_id).toBeNull();
+    });
+
+    it('rejects unknown permissionWorkflowOverrideId', async () => {
+      const res = await request(app)
+        .put('/api/agent/config')
+        .send({ permissionWorkflowOverrideId: 'wf-missing' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('rejects system fallback as global override', async () => {
+      db.prepare(`INSERT INTO workflows (id, is_system) VALUES (?, 1)`).run('wf-system');
+
+      const res = await request(app)
+        .put('/api/agent/config')
+        .send({ permissionWorkflowOverrideId: 'wf-system' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('rejects permissionPolicy when aiReview.analysisProviderId does not support cli-jobs', async () => {

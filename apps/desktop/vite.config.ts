@@ -64,7 +64,7 @@ export default defineConfig({
   },
   server: {
     host: '127.0.0.1',
-    port: 1420,
+    port: Number(process.env.VITE_DEV_SERVER_PORT || process.env.PORT || '1420'),
     strictPort: true,
     watch: {
       ignored: ['**/src-tauri/**'],

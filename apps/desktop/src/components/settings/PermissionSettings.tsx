@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchApi } from '../../services/api';
+import { getAgentConfig, updateAgentConfig } from '../../services/api/servers';
+import { listAllWorkflows } from '../../features/workflows/api';
 import * as providersApi from '../../services/api/providers';
 import { useProviderMetaStore } from '../../stores/providerMetaStore';
 import { useServerStore } from '../../stores/serverStore';
@@ -9,17 +10,14 @@ import type {
   PermissionCategory,
   GlobalGuards,
   AIReviewConfig,
+  Workflow,
 } from '@my-claudia/shared';
 import {
   DEFAULT_UNIFIED_POLICY,
   normalizeToUnifiedPolicy,
 } from '@my-claudia/shared';
 
-interface AgentConfigResponse {
-  id: number;
-  enabled: boolean;
-  permissionPolicy: string | null;
-}
+const PERMISSION_FALLBACK_TEMPLATE_ID = 'permission-escalation-default';
 
 const CATEGORY_LABELS: Record<PermissionCategory, { label: string; description: string }> = {
   fileRead: { label: 'File Read', description: 'Read, Glob, Grep, WebFetch, WebSearch' },
@@ -144,6 +142,8 @@ function AIReviewProviderSelector({ value, onChange, disabled }: {
 
 export function PermissionSettings() {
   const [policy, setPolicy] = useState<UnifiedPermissionPolicy>(DEFAULT_UNIFIED_POLICY);
+  const [workflowOptions, setWorkflowOptions] = useState<Workflow[]>([]);
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -152,10 +152,25 @@ export function PermissionSettings() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchApi<AgentConfigResponse>('/api/agent/config');
-      if (res.success && res.data?.permissionPolicy) {
-        const raw = JSON.parse(res.data.permissionPolicy);
+      const [config, workflows] = await Promise.all([
+        getAgentConfig(),
+        listAllWorkflows(),
+      ]);
+
+      setSelectedWorkflowId(config.permissionWorkflowOverrideId ?? '');
+      setWorkflowOptions(
+        workflows.filter((workflow) =>
+          workflow.status === 'active'
+          && !workflow.isSystem
+          && workflow.templateId !== PERMISSION_FALLBACK_TEMPLATE_ID
+        ),
+      );
+
+      if (config.permissionPolicy) {
+        const raw = JSON.parse(config.permissionPolicy);
         setPolicy(normalizeToUnifiedPolicy(raw));
+      } else {
+        setPolicy(DEFAULT_UNIFIED_POLICY);
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load');
@@ -169,11 +184,23 @@ export function PermissionSettings() {
   const savePolicy = useCallback(async (updated: UnifiedPermissionPolicy) => {
     setSaving(true);
     try {
-      await fetchApi('/api/agent/config', {
-        method: 'PUT',
-        body: JSON.stringify({ permissionPolicy: JSON.stringify(updated) }),
-      });
+      await updateAgentConfig({ permissionPolicy: JSON.stringify(updated) });
       setPolicy(updated);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
+  const updatePermissionWorkflowOverride = useCallback(async (workflowId: string) => {
+    setSaving(true);
+    setError(null);
+    try {
+      const config = await updateAgentConfig({
+        permissionWorkflowOverrideId: workflowId || null,
+      });
+      setSelectedWorkflowId(config.permissionWorkflowOverrideId ?? '');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to save');
     } finally {
@@ -353,6 +380,36 @@ export function PermissionSettings() {
           </div>
         </div>
       )}
+
+      <div>
+        <h3 className="text-sm font-medium mb-3">Permission Workflow</h3>
+        <div className="p-3 bg-secondary/50 rounded-lg space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <span className="text-xs font-medium">Global override</span>
+              <p className="text-[10px] text-muted-foreground">
+                Optional workflow override. If unavailable, the system fallback workflow is still used.
+              </p>
+            </div>
+            <select
+              value={selectedWorkflowId}
+              onChange={(e) => { void updatePermissionWorkflowOverride(e.target.value); }}
+              disabled={saving || loading}
+              className="h-7 min-w-[220px] px-2 text-[11px] bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              <option value="">System fallback only</option>
+              {workflowOptions.map((workflow) => (
+                <option key={workflow.id} value={workflow.id}>
+                  {workflow.projectId ? `[Project] ${workflow.name}` : `[Global] ${workflow.name}`}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            Resolution order: project override, then global override, then immutable system fallback.
+          </p>
+        </div>
+      </div>
 
       {/* Global guards */}
       {policy.enabled && (

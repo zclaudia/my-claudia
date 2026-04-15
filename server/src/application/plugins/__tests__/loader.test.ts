@@ -1154,7 +1154,7 @@ describe('PluginLoader', () => {
       expect(plugin!.pendingPermissions).toBeUndefined();
     });
 
-    it('should request permissions and return true if granted', async () => {
+    it('should return false (non-blocking) when permissions are not granted', async () => {
       const manifest = makeManifest({ permissions: ['storage'] });
       setupSinglePlugin(mockPluginDir, 'test-plugin', manifest);
       await loader.discover();
@@ -1163,33 +1163,28 @@ describe('PluginLoader', () => {
       await loader.activate('com.test.plugin');
       logSpy.mockRestore();
 
-      // Mock request to return true
-      const requestSpy = vi.spyOn(permissionManager, 'request').mockResolvedValueOnce(true);
-
-      const result = await loader.checkPermissions('com.test.plugin');
-      expect(result).toBe(true);
-      expect(requestSpy).toHaveBeenCalled();
-
-      const plugin = loader.getPlugin('com.test.plugin');
-      expect(plugin!.pendingPermissions).toBeUndefined();
-    });
-
-    it('should return false if permission request is denied', async () => {
-      const manifest = makeManifest({ permissions: ['storage'] });
-      setupSinglePlugin(mockPluginDir, 'test-plugin', manifest);
-      await loader.discover();
-
-      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-      await loader.activate('com.test.plugin');
-      logSpy.mockRestore();
-
-      // Mock request to return false
-      vi.spyOn(permissionManager, 'request').mockResolvedValueOnce(false);
-
+      // checkPermissions no longer calls permissionManager.request — returns false immediately
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const result = await loader.checkPermissions('com.test.plugin');
       expect(result).toBe(false);
       warnSpy.mockRestore();
+
+      // pendingPermissions remain (not cleared since not granted)
+      const plugin = loader.getPlugin('com.test.plugin');
+      expect(plugin!.pendingPermissions).toEqual(['storage']);
+    });
+
+    it('should expose pending permissions via getPendingPermissions', async () => {
+      const manifest = makeManifest({ permissions: ['storage', 'notification'] });
+      setupSinglePlugin(mockPluginDir, 'test-plugin', manifest);
+      await loader.discover();
+
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      await loader.activate('com.test.plugin');
+      logSpy.mockRestore();
+
+      expect(loader.getPendingPermissions('com.test.plugin')).toEqual(['storage', 'notification']);
+      expect(loader.getPendingPermissions('nonexistent')).toBeUndefined();
     });
   });
 

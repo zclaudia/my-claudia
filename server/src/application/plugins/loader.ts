@@ -448,19 +448,18 @@ export class PluginLoader {
       return true;
     }
 
-    // Request permissions now (UI should be available at this point)
-    const granted = await permissionManager.request(
-      pluginId,
-      instance.pendingPermissions as Permission[],
-      instance.manifest
-    );
-    if (granted) {
-      instance.pendingPermissions = undefined;
-      return true;
-    }
-
-    console.warn(`[PluginLoader] Plugin ${pluginId} permissions denied at use time`);
+    // Non-blocking: don't wait for UI response.
+    // Caller should inspect getPendingPermissions() and surface to the user.
+    console.warn(`[PluginLoader] Plugin ${pluginId} has ungranted permissions: ${instance.pendingPermissions.join(', ')}`);
     return false;
+  }
+
+  /**
+   * Get the pending (ungranted) permissions for a plugin, if any.
+   */
+  getPendingPermissions(pluginId: string): string[] | undefined {
+    const instance = this.plugins.get(pluginId);
+    return instance?.pendingPermissions as string[] | undefined;
   }
 
   /**

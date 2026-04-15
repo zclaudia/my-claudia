@@ -223,6 +223,10 @@ export interface Workflow {
   status: WorkflowStatus;
   definition: WorkflowDefinition;
   templateId?: string;
+  /** System-owned workflows are immutable via normal CRUD. */
+  isSystem?: boolean;
+  /** Stable identifier for system-owned workflows. */
+  systemKey?: string;
   /** Plugin that created/owns this workflow */
   sourcePluginId?: string;
   /** How this workflow was created */

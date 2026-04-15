@@ -12,6 +12,7 @@ import { AI_REVIEW_TASK_TYPE } from '../../application/oneshot/contract-registry
 import type { WorkflowEngine } from '../../domains/workflows/engine.js';
 import { BUILTIN_WORKFLOW_TEMPLATES, PERMISSION_WORKFLOW_TEMPLATE_ID } from '../../domains/workflows/templates.js';
 import type { WorkflowRunEvent } from '../../domains/workflows/run-events.js';
+import type { PermissionWorkflowResolver } from '../../domains/workflows/permission-workflow-resolver.js';
 
 export interface PermissionLogEntry {
   id: string;
@@ -23,8 +24,47 @@ export interface PermissionLogEntry {
   created_at: number;
 }
 
-export function createDebugRoutes(processSupervisor?: ProcessSupervisor, db?: Database.Database, oneShotRuntime?: OneShotTaskRuntime, workflowEngine?: WorkflowEngine): Router {
+export function createDebugRoutes(
+  processSupervisor?: ProcessSupervisor,
+  db?: Database.Database,
+  oneShotRuntime?: OneShotTaskRuntime,
+  workflowEngine?: WorkflowEngine,
+  permissionWorkflowResolver?: PermissionWorkflowResolver,
+): Router {
   const router = Router();
+
+  router.post('/resolve-permission-workflow', (req: Request, res: Response) => {
+    if (!permissionWorkflowResolver) {
+      res.status(500).json({
+        success: false,
+        error: { code: 'NO_RESOLVER', message: 'PermissionWorkflowResolver not available' },
+      } satisfies ApiResponse<never>);
+      return;
+    }
+
+    const projectId = typeof req.body?.projectId === 'string' && req.body.projectId.trim()
+      ? req.body.projectId.trim()
+      : undefined;
+
+    const resolved = permissionWorkflowResolver.resolve(projectId);
+    res.json({
+      success: true,
+      data: {
+        projectId: projectId ?? null,
+        source: resolved.source,
+        workflowId: resolved.workflowId,
+        fallbackReason: resolved.fallbackReason ?? null,
+        workflow: {
+          id: resolved.workflow.id,
+          name: resolved.workflow.name,
+          projectId: resolved.workflow.projectId ?? null,
+          status: resolved.workflow.status,
+          isSystem: resolved.workflow.isSystem === true,
+          systemKey: resolved.workflow.systemKey ?? null,
+        },
+      },
+    } satisfies ApiResponse<unknown>);
+  });
 
   router.get('/crashes', (_req: Request, res: Response) => {
     res.json({
@@ -487,4 +527,3 @@ function parseProviderEnv(envJson: string | null, providerId: string): Record<st
     return {};
   }
 }
-

@@ -4,15 +4,20 @@
  * Replaces playwright.config.ts webServer configuration.
  * Starts gateway → server → desktop in order, waits for ports to be ready.
  */
-import { spawn, type ChildProcess } from 'child_process';
+import { spawn, spawnSync, type ChildProcess } from 'child_process';
 import { createConnection } from 'net';
 import * as path from 'path';
+import * as fs from 'fs';
 
 const ROOT_DIR = path.resolve(import.meta.dirname, '../..');
+const E2E_DATA_DIR = path.join(ROOT_DIR, '.tmp', 'e2e-data');
+const E2E_GATEWAY_PORT = 3320;
+const E2E_SERVER_PORT = 3310;
+const E2E_DESKTOP_PORT = 1421;
 
 interface ServiceConfig {
   name: string;
-  command: string;
+  command: string[];
   cwd: string;
   port: number;
   timeout: number;
@@ -22,36 +27,63 @@ interface ServiceConfig {
 const SERVICES: ServiceConfig[] = [
   {
     name: 'Gateway',
-    command: 'pnpm run dev',
+    command: ['bash', path.join(ROOT_DIR, 'scripts/with-project-node.sh'), 'node', 'dist/index.js'],
     cwd: path.join(ROOT_DIR, 'gateway'),
-    port: 3200,
+    port: E2E_GATEWAY_PORT,
     timeout: 120000,
     env: {
+      GATEWAY_PORT: String(E2E_GATEWAY_PORT),
       GATEWAY_SECRET: 'test-secret-my-claudia-2026',
+      MY_CLAUDIA_DATA_DIR: E2E_DATA_DIR,
     },
   },
   {
     name: 'Server',
-    command: 'pnpm run dev',
+    command: ['bash', path.join(ROOT_DIR, 'scripts/with-project-node.sh'), 'node', 'dist/index.js'],
     cwd: path.join(ROOT_DIR, 'server'),
-    port: 3100,
+    port: E2E_SERVER_PORT,
     timeout: 120000,
     env: {
-      GATEWAY_URL: 'ws://localhost:3200',
+      PORT: String(E2E_SERVER_PORT),
+      GATEWAY_URL: `ws://localhost:${E2E_GATEWAY_PORT}`,
       GATEWAY_SECRET: 'test-secret-my-claudia-2026',
       GATEWAY_NAME: 'TestBackend',
+      MY_CLAUDIA_DATA_DIR: E2E_DATA_DIR,
     },
   },
   {
     name: 'Desktop',
-    command: 'pnpm run dev',
+    command: ['bash', path.join(ROOT_DIR, 'scripts/with-project-node.sh'), 'pnpm', 'exec', 'vite'],
     cwd: path.join(ROOT_DIR, 'apps/desktop'),
-    port: 1420,
+    port: E2E_DESKTOP_PORT,
     timeout: 120000,
+    env: {
+      VITE_DEV_SERVER_PORT: String(E2E_DESKTOP_PORT),
+      VITE_LOCAL_SERVER_PORT: String(E2E_SERVER_PORT),
+    },
   },
 ];
 
 const processes: ChildProcess[] = [];
+
+function runSetupCommand(name: string, args: string[], cwd = ROOT_DIR): void {
+  const result = spawnSync(args[0], args.slice(1), {
+    cwd,
+    env: process.env,
+    stdio: 'pipe',
+    shell: false,
+    encoding: 'utf8',
+  });
+
+  if (result.status === 0) return;
+
+  const stderr = result.stderr?.trim();
+  const stdout = result.stdout?.trim();
+  throw new Error(
+    `[Setup] ${name} failed with code ${result.status ?? 'unknown'}`
+    + (stderr ? `\n${stderr}` : stdout ? `\n${stdout}` : '')
+  );
+}
 
 /**
  * Check if a port is already in use (service already running)
@@ -88,7 +120,7 @@ async function waitForPort(port: number, timeout: number): Promise<void> {
  * Start a service as a child process
  */
 function startService(config: ServiceConfig): ChildProcess {
-  const [cmd, ...args] = config.command.split(' ');
+  const [cmd, ...args] = config.command;
   const child = spawn(cmd, args, {
     cwd: config.cwd,
     env: {
@@ -96,7 +128,7 @@ function startService(config: ServiceConfig): ChildProcess {
       ...config.env,
     },
     stdio: 'pipe',
-    shell: true,
+    shell: false,
   });
 
   child.stdout?.on('data', (data) => {
@@ -106,13 +138,21 @@ function startService(config: ServiceConfig): ChildProcess {
   });
 
   child.stderr?.on('data', (data) => {
-    if (process.env.DEBUG) {
-      console.error(`[${config.name}] ${data.toString().trim()}`);
-    }
+    console.error(`[${config.name}] ${data.toString().trim()}`);
   });
 
   child.on('error', (err) => {
     console.error(`[${config.name}] Process error:`, err);
+  });
+
+  child.on('exit', (code, signal) => {
+    if (code !== null && code !== 0) {
+      console.error(`[${config.name}] exited with code ${code}`);
+      return;
+    }
+    if (signal) {
+      console.error(`[${config.name}] exited via signal ${signal}`);
+    }
   });
 
   return child;
@@ -122,9 +162,29 @@ function startService(config: ServiceConfig): ChildProcess {
  * Vitest globalSetup entry point
  */
 export async function setup() {
+  fs.mkdirSync(E2E_DATA_DIR, { recursive: true });
+  process.env.MY_CLAUDIA_DATA_DIR = E2E_DATA_DIR;
+  process.env.E2E_GATEWAY_PORT = String(E2E_GATEWAY_PORT);
+  process.env.E2E_SERVER_PORT = String(E2E_SERVER_PORT);
+  process.env.E2E_DESKTOP_PORT = String(E2E_DESKTOP_PORT);
+  process.env.E2E_SERVER_URL = `http://localhost:${E2E_SERVER_PORT}`;
+  process.env.E2E_GATEWAY_URL = `http://localhost:${E2E_GATEWAY_PORT}`;
+  process.env.E2E_BASE_URL = `http://localhost:${E2E_DESKTOP_PORT}`;
+  const skipDesktop = process.env.E2E_SKIP_DESKTOP === '1';
+
+  console.log('[Setup] Building shared, gateway, and server artifacts for E2E...');
+  runSetupCommand('shared build', ['bash', path.join(ROOT_DIR, 'scripts/with-project-node.sh'), 'pnpm', '--filter', '@my-claudia/shared', 'build']);
+  runSetupCommand('gateway build', ['bash', path.join(ROOT_DIR, 'scripts/with-project-node.sh'), 'pnpm', '--filter', '@my-claudia/gateway', 'build']);
+  runSetupCommand('server build', ['bash', path.join(ROOT_DIR, 'scripts/with-project-node.sh'), 'pnpm', '--filter', '@my-claudia/server', 'build']);
+
   const reuseExisting = !process.env.CI;
 
   for (const service of SERVICES) {
+    if (skipDesktop && service.name === 'Desktop') {
+      console.log('[Setup] Skipping Desktop startup (E2E_SKIP_DESKTOP=1)');
+      continue;
+    }
+
     const alreadyRunning = await isPortInUse(service.port);
 
     if (alreadyRunning && reuseExisting) {

@@ -18,7 +18,6 @@ import { initWorkspace } from './application/services/workspace.js';
 import type { GatewayConfig, GatewayStatus } from './interfaces/http/gateway.js';
 import { TerminalManager } from './terminal-manager.js';
 import { generateKeyPair, getPublicKeyPem } from './utils/crypto.js';
-import { pluginLoader } from './application/plugins/loader.js';
 import type { ProcessMonitor } from './utils/process-monitor.js';
 import type { NotificationSender } from './infrastructure/push/notification-sender.js';
 import { GatewayNotificationSender } from './infrastructure/push/notification-sender.js';
@@ -147,6 +146,7 @@ let serverPort: number | null = null;
 let notificationsService: import('./domains/notification-feed/index.js').NotificationService | undefined;
 let permissionBridge: import('./application/conversation/agent/permission-bridge.js').PermissionBridge | undefined;
 let cancelWorkflowRun: ((runId: string) => void) | undefined;
+let permissionWorkflowResolver: import('./domains/workflows/index.js').PermissionWorkflowResolver | undefined;
 let taskOrchestrator: import('./application/orchestration/types.js').TaskOrchestrator | undefined;
 let branchAllocator: ClaudiaBranchService | undefined;
 let facadeHubRef: import('./infrastructure/gateway/ws-hub.js').FacadeWsHub | null = null;
@@ -218,6 +218,7 @@ function getRunHandlerContext(): RunHandlerContext {
     serverPort,
     broadcastHeartbeat,
     permissionBridge,
+    permissionWorkflowResolver,
     sessionSync: getSessionSync(),
     providerRegistry,
   };
@@ -299,6 +300,7 @@ export async function createServer(): Promise<ServerContext> {
   notificationsService = setup.notificationsService;
   permissionBridge = setup.permissionBridge;
   cancelWorkflowRun = setup.cancelWorkflowRun;
+  permissionWorkflowResolver = setup.permissionWorkflowResolver;
   taskOrchestrator = setup.orchestrator;
 
   // Error handling middleware (must be after routes)
@@ -441,10 +443,8 @@ export async function createServer(): Promise<ServerContext> {
               sendMessage(ws, claudiaSnapshot);
             }
 
-            if (pluginLoader.getPlugins().length > 0) {
-              const pluginState = buildPluginStateMessage();
-              sendMessage(ws, pluginState);
-            }
+            // Always send plugin_state so the client can clear stale cached plugins
+            sendMessage(ws, buildPluginStateMessage());
             return;
           }
 

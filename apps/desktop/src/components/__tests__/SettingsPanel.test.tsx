@@ -15,6 +15,9 @@ vi.mock('../ImportDialog', () => ({ ImportDialog: ({ isOpen, onClose }: any) => 
 vi.mock('../ImportOpenCodeDialog', () => ({ ImportOpenCodeDialog: ({ isOpen, onClose }: any) => isOpen ? <div data-testid="import-opencode-dialog"><button onClick={onClose}>close-opencode</button></div> : null }));
 vi.mock('../PluginSettings', () => ({ PluginSettings: () => <div data-testid="plugin-settings">PluginSettings</div> }));
 vi.mock('../McpServerSettings', () => ({ McpServerSettings: () => <div data-testid="mcp-settings">McpServerSettings</div> }));
+vi.mock('../../features/workflows/api', () => ({
+  listAllWorkflows: vi.fn().mockResolvedValue([]),
+}));
 
 // Mock hooks
 vi.mock('../../hooks/useMediaQuery', () => ({ useIsMobile: () => false }));
@@ -281,7 +284,18 @@ describe('SettingsPanel', () => {
     const { container } = await renderSettingsPanel();
     expect(container.textContent).toContain('Providers');
     expect(container.textContent).toContain('MCP Servers');
-    expect(container.textContent).toContain('Notifications');
+    expect(container.textContent).not.toContain('Notifications');
+  });
+
+  it('hides Notifications tab on desktop', async () => {
+    const { container } = await renderSettingsPanel();
+    expect(container.querySelector('[data-testid="notifications-tab"]')).toBeNull();
+  });
+
+  it('shows Notifications tab on Android', async () => {
+    vi.mocked(isAndroid).mockReturnValue(true);
+    const { container } = await renderSettingsPanel();
+    expect(container.querySelector('[data-testid="notifications-tab"]')).toBeTruthy();
   });
 
 
@@ -342,7 +356,8 @@ describe('SettingsPanel', () => {
     expect(container.textContent).toContain('MCP Servers');
   });
 
-  it('switches to Notifications tab', async () => {
+  it('switches to Notifications tab on Android', async () => {
+    vi.mocked(isAndroid).mockReturnValue(true);
     const { container } = await renderSettingsPanel();
     const notifTab = container.querySelector('[data-testid="notifications-tab"]');
     expect(notifTab).toBeTruthy();
@@ -680,6 +695,7 @@ describe('SettingsPanel', () => {
   // ---- Notifications tab ----
 
   it('renders notification settings when tab is selected', async () => {
+    vi.mocked(isAndroid).mockReturnValue(true);
     const { container } = await renderSettingsPanel();
     const notifTab = container.querySelector('[data-testid="notifications-tab"]');
 
@@ -693,6 +709,7 @@ describe('SettingsPanel', () => {
   });
 
   it('shows notification policy as read-only', async () => {
+    vi.mocked(isAndroid).mockReturnValue(true);
     const { container } = await renderSettingsPanel();
     const notifTab = container.querySelector('[data-testid="notifications-tab"]');
 
@@ -708,6 +725,7 @@ describe('SettingsPanel', () => {
   });
 
   it('shows notification event toggles when enabled', async () => {
+    vi.mocked(isAndroid).mockReturnValue(true);
     (api.getNotificationConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
       enabled: true, ntfyUrl: 'https://ntfy.sh', ntfyTopic: 'test-topic',
       events: {
@@ -732,6 +750,7 @@ describe('SettingsPanel', () => {
   });
 
   it('shows Send Test button for notifications', async () => {
+    vi.mocked(isAndroid).mockReturnValue(true);
     (api.getNotificationConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
       enabled: true, ntfyUrl: 'https://ntfy.sh', ntfyTopic: 'test-topic',
       events: { permissionRequest: true, promptRequest: true, runCompleted: false, runFailed: false, backgroundPermission: false, processLeak: true },

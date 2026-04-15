@@ -13,7 +13,7 @@ import {
   Globe, FolderOpen, Plus, Pencil, ChevronDown,
   CheckCircle2, XCircle,
 } from 'lucide-react';
-import type { Workflow, WorkflowTemplate, SystemTaskInfo } from '@my-claudia/shared';
+import type { Workflow, WorkflowTemplate, SystemTaskInfo, Project } from '@my-claudia/shared';
 import { isDesktopTauri } from '../../utils/platform';
 import { buildPopoutUrl, openPopoutWindow } from '../../utils/popoutWindow';
 import { getAuthHeadersForBackend, getBaseUrlForBackend } from '../../services/api/base';
@@ -25,6 +25,8 @@ import {
   type AutomationBackendOption,
 } from './useAutomationBackendOptions';
 
+const PERMISSION_FALLBACK_TEMPLATE_ID = 'permission-escalation-default';
+
 interface AutomationWindowProps {
   serverUrl: string;
   authToken: string;
@@ -33,9 +35,10 @@ interface AutomationWindowProps {
 
 type Tab = 'workflows' | 'automations' | 'system';
 
-interface ProjectInfo {
-  id: string;
-  name: string;
+type ProjectInfo = Pick<Project, 'id' | 'name' | 'permissionWorkflowOverrideId'>;
+
+interface AgentConfigInfo {
+  permissionWorkflowOverrideId: string | null;
 }
 
 // ── HTTP API helper ──────────────────────────────────────────
@@ -199,9 +202,17 @@ export function AutomationWindow({ serverUrl, authToken, serverId }: AutomationW
   const api = useApi(selectedBackend?.backendId ?? null, serverUrl, authToken);
 
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
+  const [globalPermissionWorkflowOverrideId, setGlobalPermissionWorkflowOverrideId] = useState<string | null>(null);
   useEffect(() => {
     setProjects([]);
-    api.get('/api/projects').then(setProjects).catch(() => {});
+    setGlobalPermissionWorkflowOverrideId(null);
+    Promise.all([
+      api.get('/api/projects'),
+      api.get('/api/agent/config').catch(() => null),
+    ]).then(([projectData, agentConfig]) => {
+      setProjects(projectData);
+      setGlobalPermissionWorkflowOverrideId((agentConfig as AgentConfigInfo | null)?.permissionWorkflowOverrideId ?? null);
+    }).catch(() => {});
   }, [api]);
 
   const projectName = useCallback((projectId?: string) => {
@@ -263,6 +274,7 @@ export function AutomationWindow({ serverUrl, authToken, serverId }: AutomationW
             key={`workflows-${scopeKey}`}
             api={api}
             projects={projects}
+            globalPermissionWorkflowOverrideId={globalPermissionWorkflowOverrideId}
             projectName={projectName}
             serverUrl={serverUrl}
             selectedBackendId={selectedBackendId}
@@ -572,8 +584,13 @@ function AutomationCard({ item, projectName, onToggle, onTrigger, onDelete }: {
 
 // ── Workflows Tab ────────────────────────────────────────────
 
-function WorkflowsTab({ api, projects, projectName, serverUrl, selectedBackendId }: {
-  api: ApiType; projects: ProjectInfo[]; projectName: (id?: string) => string; serverUrl: string; selectedBackendId: string | null;
+function WorkflowsTab({ api, projects, globalPermissionWorkflowOverrideId, projectName, serverUrl, selectedBackendId }: {
+  api: ApiType;
+  projects: ProjectInfo[];
+  globalPermissionWorkflowOverrideId: string | null;
+  projectName: (id?: string) => string;
+  serverUrl: string;
+  selectedBackendId: string | null;
 }) {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
@@ -583,6 +600,21 @@ function WorkflowsTab({ api, projects, projectName, serverUrl, selectedBackendId
   const effectiveProjectId = createProjectId || projects[0]?.id || '';
   const selectedProject = projects.find(p => p.id === effectiveProjectId);
   const selectedIsGlobal = selectedProject ? isInternalProject(selectedProject.name) : false;
+
+  const getBindingBadges = useCallback((workflow: Workflow) => {
+    const badges: Array<{ label: string; className: string }> = [];
+    const boundProjects = projects.filter((project) => project.permissionWorkflowOverrideId === workflow.id);
+    const projectBinding = boundProjects.find((project) => project.id === workflow.projectId);
+    if (projectBinding) {
+      badges.push({ label: 'Project override', className: 'bg-primary/10 text-primary border-primary/20' });
+    } else if (boundProjects.length > 0) {
+      badges.push({ label: `${boundProjects.length} project override${boundProjects.length === 1 ? '' : 's'}`, className: 'bg-primary/10 text-primary border-primary/20' });
+    }
+    if (globalPermissionWorkflowOverrideId === workflow.id) {
+      badges.push({ label: 'Global override', className: 'bg-success/10 text-success border-success/20' });
+    }
+    return badges;
+  }, [globalPermissionWorkflowOverrideId, projects]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -594,7 +626,7 @@ function WorkflowsTab({ api, projects, projectName, serverUrl, selectedBackendId
       ]);
       // Filter out simple automations — they belong in Automations tab
       setWorkflows(wfs.filter((w: Workflow) => w.authoringMode !== 'simple'));
-      setTemplates(tpls);
+      setTemplates(tpls.filter((template: WorkflowTemplate) => template.id !== PERMISSION_FALLBACK_TEMPLATE_ID));
     } catch { /* ignore */ }
     setLoading(false);
   }, [api, effectiveProjectId]);
@@ -729,7 +761,17 @@ function WorkflowsTab({ api, projects, projectName, serverUrl, selectedBackendId
             >
               <span className={`w-2 h-2 rounded-full flex-shrink-0 ${w.status === 'active' ? 'bg-green-500' : 'bg-muted-foreground'}`} />
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">{w.name}</div>
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="text-sm font-medium truncate">{w.name}</div>
+                  {getBindingBadges(w).map((badge) => (
+                    <span
+                      key={`${w.id}-${badge.label}`}
+                      className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium shrink-0 ${badge.className}`}
+                    >
+                      {badge.label}
+                    </span>
+                  ))}
+                </div>
                 <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
                   <span className="flex items-center gap-1">
                     {w.projectId ? <FolderOpen size={10} /> : <Globe size={10} />}

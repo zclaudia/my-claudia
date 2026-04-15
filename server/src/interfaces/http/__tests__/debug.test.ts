@@ -3,6 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
 import { createDebugRoutes } from '../debug.js';
+import type { PermissionWorkflowResolver } from '../../../domains/workflows/permission-workflow-resolver.js';
 
 vi.mock('../../../application/conversation/agent/delegation-evaluator.js', () => ({
   evaluateAIReview: vi.fn(),
@@ -30,7 +31,56 @@ function createTestDb(): Database.Database {
       output TEXT,
       started_at INTEGER NOT NULL
     );
+
+    CREATE TABLE workflows (
+      id TEXT PRIMARY KEY,
+      project_id TEXT,
+      name TEXT NOT NULL,
+      description TEXT,
+      status TEXT NOT NULL,
+      definition TEXT NOT NULL,
+      template_id TEXT,
+      is_system INTEGER NOT NULL DEFAULT 0,
+      system_key TEXT,
+      source_plugin_id TEXT,
+      source_type TEXT,
+      authoring_mode TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      provider_id TEXT,
+      root_path TEXT,
+      system_prompt TEXT,
+      permission_policy TEXT,
+      agent_permission_override TEXT,
+      agent TEXT,
+      context_sync_status TEXT NOT NULL DEFAULT 'synced',
+      review_provider_id TEXT,
+      permission_workflow_override_id TEXT,
+      is_internal INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE agent_config (
+      id INTEGER PRIMARY KEY CHECK(id = 1),
+      enabled INTEGER NOT NULL DEFAULT 1,
+      project_id TEXT,
+      session_id TEXT,
+      provider_id TEXT,
+      permission_workflow_override_id TEXT,
+      permission_policy TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `);
+  db.prepare('INSERT INTO agent_config (id, enabled, created_at, updated_at) VALUES (1, 1, 1, 1)').run();
   return db;
 }
 
@@ -68,6 +118,50 @@ describe('debug routes', () => {
     expect(res.body).toMatchObject({
       success: false,
       error: { code: 'NO_RUNTIME' },
+    });
+  });
+
+  it('resolves the effective permission workflow for a project', async () => {
+    db.prepare(`
+      INSERT INTO workflows (id, project_id, name, status, definition, is_system, created_at, updated_at)
+      VALUES ('wf-project', NULL, 'Project Workflow', 'active', '{"triggers":[],"nodes":[],"edges":[],"entryNodeId":""}', 0, 1, 1)
+    `).run();
+    db.prepare(`
+      INSERT INTO projects (id, name, type, permission_workflow_override_id, created_at, updated_at)
+      VALUES ('project-1', 'Project', 'code', 'wf-project', 1, 1)
+    `).run();
+    const permissionWorkflowResolver = {
+      resolve: vi.fn(() => ({
+        workflowId: 'wf-project',
+        source: 'project_override',
+        workflow: {
+          id: 'wf-project',
+          name: 'Project Workflow',
+          projectId: null,
+          status: 'active',
+          isSystem: false,
+        },
+      })),
+    } as unknown as PermissionWorkflowResolver;
+    const app = createTestApp(db, [undefined, db, undefined, undefined, permissionWorkflowResolver]);
+
+    const res = await request(app)
+      .post('/api/debug/resolve-permission-workflow')
+      .send({ projectId: 'project-1' });
+
+    expect(res.status).toBe(200);
+    expect(permissionWorkflowResolver.resolve).toHaveBeenCalledWith('project-1');
+    expect(res.body.data).toMatchObject({
+      projectId: 'project-1',
+      source: 'project_override',
+      workflowId: 'wf-project',
+      fallbackReason: null,
+      workflow: {
+        id: 'wf-project',
+        name: 'Project Workflow',
+        status: 'active',
+        isSystem: false,
+      },
     });
   });
 

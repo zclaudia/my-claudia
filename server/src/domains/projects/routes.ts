@@ -24,6 +24,14 @@ export function createProjectRoutes(
   const repo = new ProjectRepository(db);
   const worktreeService = new ProjectWorktreeService(db);
 
+  function validatePermissionWorkflowOverride(permissionWorkflowOverrideId: string | undefined): string | null {
+    if (!permissionWorkflowOverrideId) return null;
+    const workflow = db.prepare('SELECT id, is_system FROM workflows WHERE id = ?').get(permissionWorkflowOverrideId) as { id: string; is_system?: number } | undefined;
+    if (!workflow) return 'permissionWorkflowOverrideId must reference an existing workflow';
+    if (workflow.is_system === 1) return 'System fallback workflow cannot be used as a project override';
+    return null;
+  }
+
   router.get('/', (_req: Request, res: Response) => {
     try {
       res.json({ success: true, data: repo.findAllOrdered() } as ApiResponse<Project[]>);
@@ -63,7 +71,16 @@ export function createProjectRoutes(
   router.post('/', (req: Request, res: Response) => {
     try {
       const sortOrder = repo.findNextSortOrder();
-      const project = repo.create(buildProjectCreateState(req.body ?? {}, sortOrder));
+      const createState = buildProjectCreateState(req.body ?? {}, sortOrder);
+      const overrideError = validatePermissionWorkflowOverride(createState.permissionWorkflowOverrideId);
+      if (overrideError) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: overrideError },
+        });
+        return;
+      }
+      const project = repo.create(createState);
 
       onProjectChanged?.({ type: 'project_upsert', project });
       res.status(201).json({ success: true, data: project } as ApiResponse<Project>);
@@ -93,6 +110,14 @@ export function createProjectRoutes(
       }
 
       const nextState = applyProjectPatch(existing, patch);
+      const overrideError = validatePermissionWorkflowOverride(nextState.permissionWorkflowOverrideId);
+      if (overrideError) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: overrideError },
+        });
+        return;
+      }
       const updatedProjectState = {
         ...existing,
         ...nextState,

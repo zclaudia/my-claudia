@@ -1,6 +1,7 @@
 import type { WorkflowTemplate } from '@my-claudia/shared/features/workflows';
 
 export const PERMISSION_WORKFLOW_TEMPLATE_ID = 'permission-escalation-default';
+export const SYSTEM_PERMISSION_ESCALATION_FALLBACK_KEY = 'permission_escalation_fallback';
 
 export const BUILTIN_WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
   {

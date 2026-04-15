@@ -70,10 +70,12 @@ export async function ensureAgent(): Promise<{ projectId: string; sessionId: str
 }
 
 export interface AgentConfig {
+  id?: number;
   enabled: boolean;
   projectId: string | null;
   sessionId: string | null;
   providerId: string | null;
+  permissionWorkflowOverrideId: string | null;
   permissionPolicy: string | null;
 }
 
@@ -89,6 +91,7 @@ export async function getAgentConfig(): Promise<AgentConfig> {
 export async function updateAgentConfig(config: {
   enabled?: boolean;
   providerId?: string | null;
+  permissionWorkflowOverrideId?: string | null;
   permissionPolicy?: string | null;
 }): Promise<AgentConfig> {
   const { fetchLocalApi } = await import('./base');

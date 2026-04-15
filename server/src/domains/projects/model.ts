@@ -3,7 +3,7 @@ import type { Project, PermissionPolicy, ProjectType } from '@my-claudia/shared/
 type ProjectStateFields = Pick<
   Project,
   'name' | 'type' | 'providerId' | 'rootPath' | 'systemPrompt' |
-  'reviewProviderId' | 'agent' | 'permissionPolicy' | 'agentPermissionOverride' |
+  'reviewProviderId' | 'permissionWorkflowOverrideId' | 'agent' | 'permissionPolicy' | 'agentPermissionOverride' |
   'sortOrder'
 >;
 
@@ -40,7 +40,7 @@ function assertRequiredProjectFields(project: Pick<Project, 'name' | 'type'>): v
 }
 
 export function assertValidProjectState(
-  project: Pick<Project, 'name' | 'type' | 'reviewProviderId' | 'agent' | 'permissionPolicy' | 'agentPermissionOverride'>,
+  project: Pick<Project, 'name' | 'type' | 'reviewProviderId' | 'permissionWorkflowOverrideId' | 'agent' | 'permissionPolicy' | 'agentPermissionOverride'>,
 ): void {
   assertRequiredProjectFields(project);
   assertJsonObject(project.permissionPolicy, 'permissionPolicy');
@@ -89,6 +89,7 @@ export function buildProjectCreateState(
     permissionPolicy: (body.permissionPolicy as PermissionPolicy | undefined) ?? undefined,
     agentPermissionOverride: (body.agentPermissionOverride as Project['agentPermissionOverride'] | undefined) ?? undefined,
     reviewProviderId: typeof body.reviewProviderId === 'string' ? body.reviewProviderId : undefined,
+    permissionWorkflowOverrideId: typeof body.permissionWorkflowOverrideId === 'string' ? body.permissionWorkflowOverrideId : undefined,
     agent: (body.agent as Project['agent'] | undefined) ?? undefined,
     sortOrder,
   };
@@ -108,6 +109,7 @@ export function buildProjectPatch(body: Record<string, unknown>): ProjectPatch {
   if (hasOwn(body, 'permissionPolicy')) patch.permissionPolicy = (body.permissionPolicy ?? null) as PermissionPolicy | null;
   if (hasOwn(body, 'agentPermissionOverride')) patch.agentPermissionOverride = (body.agentPermissionOverride ?? null) as Project['agentPermissionOverride'] | null;
   if (hasOwn(body, 'reviewProviderId')) patch.reviewProviderId = body.reviewProviderId == null ? null : String(body.reviewProviderId);
+  if (hasOwn(body, 'permissionWorkflowOverrideId')) patch.permissionWorkflowOverrideId = body.permissionWorkflowOverrideId == null ? null : String(body.permissionWorkflowOverrideId);
   if (hasOwn(body, 'agent')) patch.agent = (body.agent ?? null) as Project['agent'] | null;
 
   return patch;
@@ -126,6 +128,7 @@ export function applyProjectPatch(
     permissionPolicy: patch.permissionPolicy === undefined ? existing.permissionPolicy : patch.permissionPolicy ?? undefined,
     agentPermissionOverride: patch.agentPermissionOverride === undefined ? existing.agentPermissionOverride : patch.agentPermissionOverride ?? undefined,
     reviewProviderId: patch.reviewProviderId === undefined ? existing.reviewProviderId : patch.reviewProviderId ?? undefined,
+    permissionWorkflowOverrideId: patch.permissionWorkflowOverrideId === undefined ? existing.permissionWorkflowOverrideId : patch.permissionWorkflowOverrideId ?? undefined,
     agent: patch.agent === undefined ? existing.agent : patch.agent ?? undefined,
     sortOrder: existing.sortOrder,
   };

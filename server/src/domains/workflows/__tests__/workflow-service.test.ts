@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockWorkflowRepo = {
   findByProject: vi.fn().mockReturnValue([]),
   findById: vi.fn(),
+  findBySystemKey: vi.fn(),
   findGlobalByTemplate: vi.fn().mockReturnValue({ id: 'existing' }),
   create: vi.fn(),
   update: vi.fn(),
@@ -53,12 +54,14 @@ vi.mock('../../../infrastructure/events/index.js', () => ({
 }));
 vi.mock('../templates.js', () => ({
   PERMISSION_WORKFLOW_TEMPLATE_ID: 'permission-escalation-default',
+  SYSTEM_PERMISSION_ESCALATION_FALLBACK_KEY: 'permission_escalation_fallback',
   BUILTIN_WORKFLOW_TEMPLATES: [
+    { id: 'permission-escalation-default', name: 'Template 1', description: 'desc', definition: { triggers: [], nodes: [], edges: [], entryNodeId: '' } },
     { id: 'tpl1', name: 'Template 1', description: 'desc', definition: { triggers: [], nodes: [], edges: [], entryNodeId: '' } },
   ],
 }));
 
-import { WorkflowService } from '../service.js';
+import { ImmutableSystemWorkflowError, WorkflowService } from '../service.js';
 import { pluginEvents } from '../../../infrastructure/events/index.js';
 
 const emptyDefinition = { triggers: [], nodes: [], edges: [], entryNodeId: '' };
@@ -71,6 +74,8 @@ describe('WorkflowService', () => {
     vi.clearAllMocks();
     // Re-set defaults after clearAllMocks
     mockWorkflowRepo.findByProject.mockReturnValue([]);
+    mockWorkflowRepo.findById.mockReturnValue(undefined);
+    mockWorkflowRepo.findBySystemKey.mockReturnValue(null);
     mockWorkflowRepo.findAllActive.mockReturnValue([]);
     mockRunRepo.findByWorkflow.mockReturnValue([]);
     mockStepRunRepo.findByRun.mockReturnValue([]);
@@ -137,6 +142,11 @@ describe('WorkflowService', () => {
       expect(result).toEqual(updated);
       expect(mockBroadcast).toHaveBeenCalled();
     });
+
+    it('rejects updates to system workflows', () => {
+      mockWorkflowRepo.findById.mockReturnValue({ id: 'sys-1', isSystem: true });
+      expect(() => service.updateWorkflow('sys-1', { name: 'new name' })).toThrow(ImmutableSystemWorkflowError);
+    });
   });
 
   describe('deleteWorkflow', () => {
@@ -152,13 +162,17 @@ describe('WorkflowService', () => {
       mockWorkflowRepo.delete.mockReturnValue(false);
       expect(service.deleteWorkflow('w1', 'p1')).toBe(false);
     });
+
+    it('rejects deletes of system workflows', () => {
+      mockWorkflowRepo.findById.mockReturnValue({ id: 'sys-1', isSystem: true });
+      expect(() => service.deleteWorkflow('sys-1', 'p1')).toThrow(ImmutableSystemWorkflowError);
+    });
   });
 
   describe('getTemplates', () => {
     it('returns builtin templates', () => {
       const templates = service.getTemplates();
-      expect(templates).toHaveLength(1);
-      expect(templates[0].id).toBe('tpl1');
+      expect(templates.map((t) => t.id)).toEqual(['permission-escalation-default', 'tpl1']);
     });
   });
 
@@ -167,9 +181,14 @@ describe('WorkflowService', () => {
       expect(() => service.createFromTemplate('p1', 'nonexistent')).toThrow('Template not found');
     });
 
+    it('rejects permission escalation template instantiation', () => {
+      expect(() => service.createFromTemplate('p1', 'permission-escalation-default')).toThrow(ImmutableSystemWorkflowError);
+    });
+
     it('toggles existing workflow from active to disabled', () => {
       const existing = { id: 'w1', status: 'active', projectId: 'p1', definition: { triggers: [] } };
       mockWorkflowRepo.findByProjectAndTemplate.mockReturnValue(existing);
+      mockWorkflowRepo.findById.mockReturnValue(undefined);
       mockWorkflowRepo.update.mockReturnValue({ ...existing, status: 'disabled' });
 
       service.createFromTemplate('p1', 'tpl1');
@@ -179,6 +198,7 @@ describe('WorkflowService', () => {
     it('toggles existing workflow from disabled to active', () => {
       const existing = { id: 'w1', status: 'disabled', projectId: 'p1', definition: { triggers: [] } };
       mockWorkflowRepo.findByProjectAndTemplate.mockReturnValue(existing);
+      mockWorkflowRepo.findById.mockReturnValue(undefined);
       mockWorkflowRepo.update.mockReturnValue({ ...existing, status: 'active' });
 
       service.createFromTemplate('p1', 'tpl1');
@@ -353,6 +373,51 @@ describe('WorkflowService', () => {
       mockWorkflowRepo.findAllActive.mockReturnValue([]);
       service.initialize();
       expect(mockWorkflowRepo.findAllActive).toHaveBeenCalled();
+    });
+
+    it('creates system fallback when missing', () => {
+      mockWorkflowRepo.findBySystemKey.mockReturnValue(null);
+      mockWorkflowRepo.findGlobalByTemplate.mockReturnValue(null);
+
+      service.initialize();
+
+      expect(mockWorkflowRepo.create).toHaveBeenCalledWith(expect.objectContaining({
+        templateId: 'permission-escalation-default',
+        isSystem: true,
+        systemKey: 'permission_escalation_fallback',
+        status: 'active',
+      }));
+    });
+
+    it('adopts legacy global fallback when system fallback is missing', () => {
+      mockWorkflowRepo.findBySystemKey.mockReturnValue(null);
+      mockWorkflowRepo.findGlobalByTemplate.mockReturnValue({ id: 'legacy-1', status: 'disabled' });
+
+      service.initialize();
+
+      expect(mockWorkflowRepo.update).toHaveBeenCalledWith('legacy-1', expect.objectContaining({
+        status: 'active',
+        isSystem: true,
+        systemKey: 'permission_escalation_fallback',
+      }));
+    });
+
+    it('repairs disabled system fallback', () => {
+      mockWorkflowRepo.findBySystemKey.mockReturnValue({
+        id: 'sys-1',
+        status: 'disabled',
+        templateId: 'permission-escalation-default',
+        isSystem: true,
+        definition: { broken: true },
+      });
+
+      service.initialize();
+
+      expect(mockWorkflowRepo.update).toHaveBeenCalledWith('sys-1', expect.objectContaining({
+        status: 'active',
+        isSystem: true,
+        systemKey: 'permission_escalation_fallback',
+      }));
     });
 
     it('sets up event subscriptions for active workflows with event triggers', () => {

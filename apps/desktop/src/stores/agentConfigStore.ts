@@ -11,6 +11,7 @@ interface AgentConfigState {
   updateConfig: (updates: {
     enabled?: boolean;
     providerId?: string | null;
+    permissionWorkflowOverrideId?: string | null;
     permissionPolicy?: string | null;
   }) => Promise<boolean>;
 }

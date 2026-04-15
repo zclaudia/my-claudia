@@ -9,8 +9,25 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 
-const DB_PATH = path.join(os.homedir(), '.my-claudia', 'data.db');
-const AUTH_PATH = path.join(os.homedir(), '.my-claudia', 'auth.json');
+export function getServerBaseUrl(): string {
+  return process.env.E2E_SERVER_URL || `http://localhost:${process.env.E2E_SERVER_PORT || '3100'}`;
+}
+
+export function getGatewayBaseUrl(): string {
+  return process.env.E2E_GATEWAY_URL || `http://localhost:${process.env.E2E_GATEWAY_PORT || '3200'}`;
+}
+
+function getDataRoot(): string {
+  return process.env.MY_CLAUDIA_DATA_DIR || path.join(os.homedir(), '.my-claudia');
+}
+
+function getDbPath(): string {
+  return path.join(getDataRoot(), 'data.db');
+}
+
+function getAuthPath(): string {
+  return path.join(getDataRoot(), 'auth.json');
+}
 
 // ─── API Client Interfaces ──────────────────────────────────
 
@@ -30,7 +47,7 @@ export interface GatewayApiClient extends ApiClient {
  */
 export async function setupCleanDB(): Promise<void> {
   try {
-    const db = new Database(DB_PATH);
+    const db = new Database(getDbPath());
 
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>;
     const tableNames = tables.map(t => t.name);
@@ -63,7 +80,7 @@ export async function setupCleanDB(): Promise<void> {
  * Returns the project ID.
  */
 export async function setupTestProject(): Promise<string> {
-  const db = new Database(DB_PATH);
+  const db = new Database(getDbPath());
   const projectId = 'test-project-' + Date.now();
 
   db.prepare(`
@@ -79,7 +96,7 @@ export async function setupTestProject(): Promise<string> {
  * Read API key from auth.json
  */
 export function readApiKey(): string {
-  const config = JSON.parse(fs.readFileSync(AUTH_PATH, 'utf-8'));
+  const config = JSON.parse(fs.readFileSync(getAuthPath(), 'utf-8'));
   return config.apiKey as string;
 }
 
@@ -89,7 +106,7 @@ export function readApiKey(): string {
 export function createApiClient(apiKey: string): ApiClient {
   return {
     async fetch(apiPath: string, options?: RequestInit) {
-      return globalThis.fetch(`http://localhost:3100${apiPath}`, {
+      return globalThis.fetch(`${getServerBaseUrl()}${apiPath}`, {
         ...options,
         headers: {
           'Content-Type': 'application/json',
@@ -110,7 +127,7 @@ export async function createGatewayApiClient(apiKey: string): Promise<GatewayApi
 
   for (let i = 0; i < 30; i++) {
     try {
-      const resp = await globalThis.fetch('http://localhost:3100/api/server/gateway/status');
+      const resp = await globalThis.fetch(`${getServerBaseUrl()}/api/server/gateway/status`);
       const data = await resp.json();
       if (data.data?.backendId) {
         backendId = data.data.backendId;
@@ -127,7 +144,7 @@ export async function createGatewayApiClient(apiKey: string): Promise<GatewayApi
   return {
     backendId,
     async fetch(apiPath: string, options?: RequestInit) {
-      return globalThis.fetch(`http://localhost:3200/api/proxy/${backendId}${apiPath}`, {
+      return globalThis.fetch(`${getGatewayBaseUrl()}/api/proxy/${backendId}${apiPath}`, {
         ...options,
         headers: {
           'Content-Type': 'application/json',

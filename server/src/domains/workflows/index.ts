@@ -12,3 +12,5 @@ export { registerWorkflowDomain, type WorkflowDomainDeps, type WorkflowDomainRes
 export { WorkflowRunAggregate } from './run-aggregate.js';
 export { assertRunTransition, assertStepTransition } from './status-machine.js';
 export type { WorkflowRunEvent } from './run-events.js';
+export { PermissionWorkflowResolver } from './permission-workflow-resolver.js';
+export type { ResolvedPermissionWorkflow } from './permission-workflow-resolver.js';

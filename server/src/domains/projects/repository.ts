@@ -24,6 +24,7 @@ export class ProjectRepository extends BaseRepository<
       agentPermissionOverride: row.agent_permission_override ? JSON.parse(row.agent_permission_override) : undefined,
       isInternal: row.is_internal === 1,
       reviewProviderId: row.review_provider_id || undefined,
+      permissionWorkflowOverrideId: row.permission_workflow_override_id || undefined,
       sortOrder: row.sort_order ?? undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -41,9 +42,9 @@ export class ProjectRepository extends BaseRepository<
         INSERT INTO projects (
           id, name, type, provider_id, root_path, system_prompt,
           permission_policy, agent_permission_override, agent, context_sync_status,
-          review_provider_id, sort_order, created_at, updated_at
+          review_provider_id, permission_workflow_override_id, sort_order, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       params: [
         id,
@@ -57,6 +58,7 @@ export class ProjectRepository extends BaseRepository<
         data.agent ? JSON.stringify(data.agent) : null,
         data.contextSyncStatus || 'synced',
         data.reviewProviderId || null,
+        data.permissionWorkflowOverrideId || null,
         data.sortOrder ?? null,
         now,
         now,
@@ -107,6 +109,10 @@ export class ProjectRepository extends BaseRepository<
     if (data.reviewProviderId !== undefined) {
       updates.push('review_provider_id = ?');
       params.push(data.reviewProviderId || null);
+    }
+    if (data.permissionWorkflowOverrideId !== undefined) {
+      updates.push('permission_workflow_override_id = ?');
+      params.push(data.permissionWorkflowOverrideId || null);
     }
     if (data.sortOrder !== undefined) {
       updates.push('sort_order = ?');

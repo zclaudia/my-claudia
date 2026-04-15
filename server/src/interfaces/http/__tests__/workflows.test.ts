@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { createWorkflowRoutes } from '../../../domains/workflows/index.js';
+import { ImmutableSystemWorkflowError } from '../../../domains/workflows/service.js';
 
 // Mock cron
 vi.mock('../../../utils/cron.js', () => ({
@@ -317,6 +318,13 @@ describe('workflow routes', () => {
       const res = await request(app).patch('/api/workflows/wf-1').send({ name: 'X' });
       expect(res.status).toBe(500);
     });
+
+    it('returns 403 for immutable system workflows', async () => {
+      service.updateWorkflow.mockImplementation(() => { throw new ImmutableSystemWorkflowError(); });
+      const res = await request(app).patch('/api/workflows/wf-1').send({ name: 'X' });
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('FORBIDDEN');
+    });
   });
 
   // ── DELETE /api/workflows/:workflowId ──
@@ -341,6 +349,13 @@ describe('workflow routes', () => {
       const res = await request(app).delete('/api/workflows/wf-1');
       expect(res.status).toBe(500);
     });
+
+    it('returns 403 for immutable system workflows', async () => {
+      service.deleteWorkflow.mockImplementation(() => { throw new ImmutableSystemWorkflowError(); });
+      const res = await request(app).delete('/api/workflows/wf-1');
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('FORBIDDEN');
+    });
   });
 
   // ── GET /api/workflow-templates ──
@@ -361,6 +376,13 @@ describe('workflow routes', () => {
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
       expect(service.createFromTemplate).toHaveBeenCalledWith('proj-1', 'tmpl-1');
+    });
+
+    it('returns 403 for immutable permission escalation template', async () => {
+      service.createFromTemplate.mockImplementation(() => { throw new ImmutableSystemWorkflowError(); });
+      const res = await request(app).post('/api/projects/proj-1/workflows/from-template/permission-escalation-default');
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('FORBIDDEN');
     });
 
     it('returns 500 on error', async () => {

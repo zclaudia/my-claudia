@@ -19,6 +19,7 @@ vi.mock('../../utils/platform', async (importOriginal) => {
 
 vi.mock('../../services/api', () => ({
   getProviders: vi.fn(() => new Promise(() => {})),
+  listAllWorkflows: vi.fn().mockResolvedValue([]),
   updateProject: vi.fn().mockResolvedValue({}),
   getSupervisionAgent: vi.fn(() => new Promise(() => {})),
   initSupervisionAgent: vi.fn().mockResolvedValue({
@@ -41,6 +42,7 @@ const mockProject = {
   rootPath: '/home/user/test',
   providerId: 'prov-1',
   reviewProviderId: '',
+  permissionWorkflowOverrideId: '',
   systemPrompt: 'Be helpful',
   isInternal: false,
   agentPermissionOverride: null,
@@ -142,6 +144,7 @@ describe('ProjectSettings', () => {
     expect(screen.getByText('Working Directory')).toBeTruthy();
     expect(screen.getByText('Provider')).toBeTruthy();
     expect(screen.getByText('Review Provider')).toBeTruthy();
+    expect(screen.getByText('Permission Workflow Override')).toBeTruthy();
     expect(screen.getByText('System Prompt')).toBeTruthy();
     expect(screen.getByText('Agent Permission Override')).toBeTruthy();
   });
@@ -214,6 +217,27 @@ describe('ProjectSettings', () => {
     const textarea = screen.getByDisplayValue('Be helpful') as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: 'New prompt' } });
     expect(textarea.value).toBe('New prompt');
+  });
+
+  it('loads active non-system workflows for permission override', async () => {
+    const api = await import('../../services/api');
+    vi.mocked(api.listAllWorkflows).mockResolvedValueOnce([
+      { id: 'wf-global', name: 'Global Review', status: 'active', definition: { nodes: [], edges: [], entryNodeId: '', triggers: [] } } as any,
+      { id: 'wf-project', name: 'Project Review', projectId: 'proj-1', status: 'active', definition: { nodes: [], edges: [], entryNodeId: '', triggers: [] } } as any,
+      { id: 'wf-other', name: 'Other Project Review', projectId: 'proj-2', status: 'active', definition: { nodes: [], edges: [], entryNodeId: '', triggers: [] } } as any,
+      { id: 'wf-system', name: 'System Fallback', status: 'active', isSystem: true, definition: { nodes: [], edges: [], entryNodeId: '', triggers: [] } } as any,
+    ]);
+
+    await renderProjectSettings();
+
+    await waitFor(() => {
+      expect(api.listAllWorkflows).toHaveBeenCalled();
+    });
+
+    expect(screen.getByRole('option', { name: '[Global] Global Review' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '[Project] Project Review' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: '[Project] Other Project Review' })).toBeNull();
+    expect(screen.queryByRole('option', { name: '[Global] System Fallback' })).toBeNull();
   });
 
   it('does not load providers when backend is not ready', async () => {
@@ -379,6 +403,25 @@ describe('ProjectSettings', () => {
     await renderProjectSettings({ project: projectWithOverride as any });
     // Permission override section should be visible since override is enabled
     expect(screen.getByText('Agent Permission Override')).toBeTruthy();
+  });
+
+  it('saves permission workflow override', async () => {
+    const api = await import('../../services/api');
+    vi.mocked(api.listAllWorkflows).mockResolvedValueOnce([
+      { id: 'wf-project', name: 'Project Review', projectId: 'proj-1', status: 'active', definition: { nodes: [], edges: [], entryNodeId: '', triggers: [] } } as any,
+    ]);
+
+    await renderProjectSettings();
+
+    fireEvent.change(screen.getByDisplayValue('Inherit global or system fallback'), {
+      target: { value: 'wf-project' },
+    });
+    await clickAsync(screen.getByText('Save'));
+
+    expect(api.updateProject).toHaveBeenCalledWith(
+      'proj-1',
+      expect.objectContaining({ permissionWorkflowOverrideId: 'wf-project' }),
+    );
   });
 
   it('shows disconnected state properly', async () => {

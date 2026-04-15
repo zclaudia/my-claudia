@@ -14,6 +14,7 @@ interface AgentConfig {
   projectId: string | null;
   sessionId: string | null;
   providerId: string | null;
+  permissionWorkflowOverrideId: string | null;
   permissionPolicy: string | null;
   createdAt: number;
   updatedAt: number;
@@ -25,6 +26,7 @@ interface AgentConfigRow {
   project_id: string | null;
   session_id: string | null;
   provider_id: string | null;
+  permission_workflow_override_id: string | null;
   permission_policy: string | null;
   created_at: number;
   updated_at: number;
@@ -42,6 +44,7 @@ function rowToConfig(row: AgentConfigRow): AgentConfig {
     projectId: row.project_id,
     sessionId: row.session_id,
     providerId: row.provider_id,
+    permissionWorkflowOverrideId: row.permission_workflow_override_id,
     permissionPolicy: row.permission_policy,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -211,7 +214,7 @@ export function createAgentRoutes(db: Database.Database): Router {
   // PUT /api/agent/config — Update agent configuration
   router.put('/config', (req: Request, res: Response) => {
     try {
-      const { enabled, permissionPolicy, providerId } = req.body;
+      const { enabled, permissionPolicy, providerId, permissionWorkflowOverrideId } = req.body;
       const now = Date.now();
       const serializedPermissionPolicy = permissionPolicy !== undefined
         ? (typeof permissionPolicy === 'string' ? permissionPolicy : JSON.stringify(permissionPolicy))
@@ -229,17 +232,41 @@ export function createAgentRoutes(db: Database.Database): Router {
         }
       }
 
+      if (permissionWorkflowOverrideId !== undefined && permissionWorkflowOverrideId !== null) {
+        const workflow = db.prepare('SELECT id, is_system FROM workflows WHERE id = ?').get(permissionWorkflowOverrideId) as { id: string; is_system?: number } | undefined;
+        if (!workflow) {
+          res.status(400).json({
+            success: false,
+            error: { code: 'VALIDATION_ERROR', message: 'permissionWorkflowOverrideId must reference an existing workflow' },
+          });
+          return;
+        }
+        if (workflow.is_system === 1) {
+          res.status(400).json({
+            success: false,
+            error: { code: 'VALIDATION_ERROR', message: 'System fallback workflow cannot be used as an override' },
+          });
+          return;
+        }
+      }
+
       db.prepare(`
         UPDATE agent_config SET
           enabled = COALESCE(?, enabled),
           permission_policy = ?,
           provider_id = COALESCE(?, provider_id),
+          permission_workflow_override_id = CASE
+            WHEN ? = 1 THEN ?
+            ELSE permission_workflow_override_id
+          END,
           updated_at = ?
         WHERE id = 1
       `).run(
         enabled !== undefined ? (enabled ? 1 : 0) : null,
         serializedPermissionPolicy,
         providerId !== undefined ? providerId : null,
+        permissionWorkflowOverrideId !== undefined ? 1 : 0,
+        permissionWorkflowOverrideId !== undefined ? permissionWorkflowOverrideId : null,
         now
       );
 

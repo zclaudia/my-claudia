@@ -8,7 +8,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { usePluginStore, selectPluginPanels } from '../stores/pluginStore';
 import type { InstalledPlugin, PluginStatus, UIExtension } from '../stores/pluginStore';
-import { getBaseUrl } from '../services/api';
+import { getBaseUrl, fetchAndSyncPlugins } from '../services/api';
 
 /** Plugin IDs hardcoded in builtinPanels.ts — only these count as built-in */
 const BUILTIN_PLUGIN_IDS = new Set([
@@ -54,6 +54,11 @@ export function PluginSettings({ onOpenPluginSettings }: PluginSettingsProps) {
 
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Fetch plugins from server on mount
+  useEffect(() => {
+    fetchAndSyncPlugins().catch(() => {});
+  }, []);
+
   const togglePlugin = useCallback(async (pluginId: string) => {
     const plugin = plugins.find(p => p.manifest.id === pluginId);
     if (!plugin) return;
@@ -68,8 +73,9 @@ export function PluginSettings({ onOpenPluginSettings }: PluginSettingsProps) {
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setError(data.error?.message || `Failed to ${action} plugin`);
+      } else {
+        await fetchAndSyncPlugins();
       }
-      // Server will broadcast updated plugin_state via WebSocket
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to toggle plugin');
     }
@@ -85,6 +91,8 @@ export function PluginSettings({ onOpenPluginSettings }: PluginSettingsProps) {
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setError(data.error?.message || 'Failed to reload plugin');
+      } else {
+        await fetchAndSyncPlugins();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to reload plugin');
@@ -491,6 +499,9 @@ function PluginDirsManager() {
       if (data.success) {
         setAllDirs(data.data.dirs);
         setExtraDirs(dirs);
+        // Refresh plugin list after directory change.
+        // Server discovers and activates plugins asynchronously, so delay slightly.
+        setTimeout(() => fetchAndSyncPlugins().catch(() => {}), 500);
       } else {
         setError(data.error?.message || 'Failed to save');
       }

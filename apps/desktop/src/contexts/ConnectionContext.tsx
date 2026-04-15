@@ -74,6 +74,16 @@ export function ConnectionProvider({
     }
   }, [embeddedServer.port]);
 
+  // Browser/dev mode has no embedded server. Allow E2E to inject the backend port
+  // so the app doesn't silently fall back to localhost:3100.
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const configuredPort = Number(import.meta.env.VITE_LOCAL_SERVER_PORT || '');
+    if (Number.isFinite(configuredPort) && configuredPort > 0) {
+      useServerStore.getState().setLocalServerPort(configuredPort);
+    }
+  }, []);
+
   // For standalone windows, pre-configure the server port from the provided URL
   useEffect(() => {
     if (!standaloneServerUrl) return;

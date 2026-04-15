@@ -12,6 +12,7 @@ const mockConfig = {
   projectId: 'project-1',
   sessionId: 'session-1',
   providerId: 'provider-1',
+  permissionWorkflowOverrideId: null,
   permissionPolicy: null,
 };
 
@@ -59,18 +60,21 @@ describe('agentConfigStore', () => {
       ...mockConfig,
       enabled: false,
       providerId: null,
+      permissionWorkflowOverrideId: 'wf-1',
     };
     vi.mocked(updateAgentConfig).mockResolvedValue(updatedConfig);
 
     const result = await useAgentConfigStore.getState().updateConfig({
       enabled: false,
       providerId: null,
+      permissionWorkflowOverrideId: 'wf-1',
     });
 
     expect(result).toBe(true);
     expect(updateAgentConfig).toHaveBeenCalledWith({
       enabled: false,
       providerId: null,
+      permissionWorkflowOverrideId: 'wf-1',
     });
     expect(useAgentConfigStore.getState()).toMatchObject({
       config: updatedConfig,

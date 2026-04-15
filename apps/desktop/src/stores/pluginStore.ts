@@ -254,19 +254,17 @@ export const usePluginStore = create<PluginStoreState>()(
     {
       name: 'claudia-plugin-store',
       partialize: (state) => ({
-        // Persist user preferences and plugin states
+        // Only persist user preferences — plugin list is server-authoritative
         settings: state.settings,
         disabledBuiltinPanels: state.disabledBuiltinPanels,
-        plugins: state.plugins, // 持久化插件列表
       }),
       merge: (persistedState, currentState) => {
         const persisted = (persistedState as Partial<PluginStoreState> | undefined) ?? {};
         return {
           ...currentState,
-          ...persisted,
+          // Only restore user preferences — ignore stale plugins from old localStorage data
           settings: persisted.settings ?? currentState.settings,
           disabledBuiltinPanels: normalizeDisabledBuiltinPanels(persisted.disabledBuiltinPanels),
-          plugins: persisted.plugins ?? currentState.plugins, // 恢复插件列表
         };
       },
     }

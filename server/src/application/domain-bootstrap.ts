@@ -53,6 +53,7 @@ export interface BootstrapResult {
   orchestrator: import('../application/orchestration/types.js').TaskOrchestrator;
   permissionBridge: import('./conversation/agent/permission-bridge.js').PermissionBridge;
   cancelWorkflowRun: (runId: string) => void;
+  permissionWorkflowResolver: import('../domains/workflows/index.js').PermissionWorkflowResolver;
 }
 
 export function bootstrapDomains(deps: BootstrapDeps): BootstrapResult {
@@ -111,6 +112,7 @@ export function bootstrapDomains(deps: BootstrapDeps): BootstrapResult {
     permissionBridge,
     cancelWorkflowRun,
     oneShotRuntime,
+    permissionWorkflowResolver,
   } = registerFeatureDomains({
     db,
     app,
@@ -139,6 +141,7 @@ export function bootstrapDomains(deps: BootstrapDeps): BootstrapResult {
     getServerPort,
     oneShotRuntime,
     workflowEngine,
+    permissionWorkflowResolver,
   });
 
   registerInteractionTools({
@@ -185,5 +188,6 @@ export function bootstrapDomains(deps: BootstrapDeps): BootstrapResult {
     orchestrator,
     permissionBridge,
     cancelWorkflowRun,
+    permissionWorkflowResolver,
   };
 }

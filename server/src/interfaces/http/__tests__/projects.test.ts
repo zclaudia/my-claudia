@@ -27,10 +27,16 @@ function createTestDb(): Database.Database {
       agent TEXT,
       context_sync_status TEXT NOT NULL DEFAULT 'synced',
       review_provider_id TEXT,
+      permission_workflow_override_id TEXT,
       is_internal INTEGER NOT NULL DEFAULT 0,
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workflows (
+      id TEXT PRIMARY KEY,
+      is_system INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS sessions (
@@ -94,6 +100,7 @@ describe('projects routes', () => {
     db.exec('DELETE FROM messages');
     db.exec('DELETE FROM sessions');
     db.exec('DELETE FROM projects');
+    db.exec('DELETE FROM workflows');
   });
 
   describe('POST /api/projects', () => {
@@ -168,6 +175,39 @@ describe('projects routes', () => {
       expect(row).toBeDefined();
       expect(row.name).toBe('DB Check');
       expect(row.type).toBe('code');
+    });
+
+    it('creates project with permissionWorkflowOverrideId', async () => {
+      db.prepare(`INSERT INTO workflows (id, is_system) VALUES (?, 0)`).run('wf-user');
+
+      const res = await request(app)
+        .post('/api/projects')
+        .send({ name: 'Override Project', permissionWorkflowOverrideId: 'wf-user' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.permissionWorkflowOverrideId).toBe('wf-user');
+      const row = db.prepare('SELECT permission_workflow_override_id FROM projects WHERE id = ?').get(res.body.data.id) as any;
+      expect(row.permission_workflow_override_id).toBe('wf-user');
+    });
+
+    it('rejects unknown permissionWorkflowOverrideId on create', async () => {
+      const res = await request(app)
+        .post('/api/projects')
+        .send({ name: 'Bad Override', permissionWorkflowOverrideId: 'wf-missing' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('rejects system fallback as project override on create', async () => {
+      db.prepare(`INSERT INTO workflows (id, is_system) VALUES (?, 1)`).run('wf-system');
+
+      const res = await request(app)
+        .post('/api/projects')
+        .send({ name: 'Bad Override', permissionWorkflowOverrideId: 'wf-system' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('assigns new projects to the end of the current sort order', async () => {
@@ -915,6 +955,73 @@ describe('projects routes', () => {
       expect(res.status).toBe(200);
       const row = db.prepare('SELECT review_provider_id FROM projects WHERE id = ?').get('p1') as any;
       expect(row.review_provider_id).toBeNull();
+    });
+  });
+
+  describe('PUT /api/projects/:id with permissionWorkflowOverrideId', () => {
+    it('updates permissionWorkflowOverrideId', async () => {
+      const now = Date.now();
+      db.prepare(`INSERT INTO workflows (id, is_system) VALUES (?, 0)`).run('wf-user');
+      db.prepare(`
+        INSERT INTO projects (id, name, type, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('p1', 'Project', 'code', now, now);
+
+      const res = await request(app)
+        .put('/api/projects/p1')
+        .send({ permissionWorkflowOverrideId: 'wf-user' });
+
+      expect(res.status).toBe(200);
+      const row = db.prepare('SELECT permission_workflow_override_id FROM projects WHERE id = ?').get('p1') as any;
+      expect(row.permission_workflow_override_id).toBe('wf-user');
+    });
+
+    it('rejects unknown permissionWorkflowOverrideId', async () => {
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO projects (id, name, type, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('p1', 'Project', 'code', now, now);
+
+      const res = await request(app)
+        .put('/api/projects/p1')
+        .send({ permissionWorkflowOverrideId: 'wf-missing' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('rejects system fallback as project override', async () => {
+      const now = Date.now();
+      db.prepare(`INSERT INTO workflows (id, is_system) VALUES (?, 1)`).run('wf-system');
+      db.prepare(`
+        INSERT INTO projects (id, name, type, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('p1', 'Project', 'code', now, now);
+
+      const res = await request(app)
+        .put('/api/projects/p1')
+        .send({ permissionWorkflowOverrideId: 'wf-system' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('clears permissionWorkflowOverrideId when set to null', async () => {
+      const now = Date.now();
+      db.prepare(`INSERT INTO workflows (id, is_system) VALUES (?, 0)`).run('wf-user');
+      db.prepare(`
+        INSERT INTO projects (id, name, type, permission_workflow_override_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('p1', 'Project', 'code', 'wf-user', now, now);
+
+      const res = await request(app)
+        .put('/api/projects/p1')
+        .send({ permissionWorkflowOverrideId: null });
+
+      expect(res.status).toBe(200);
+      const row = db.prepare('SELECT permission_workflow_override_id FROM projects WHERE id = ?').get('p1') as any;
+      expect(row.permission_workflow_override_id).toBeNull();
     });
   });
 

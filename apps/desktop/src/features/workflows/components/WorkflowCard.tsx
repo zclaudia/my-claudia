@@ -1,9 +1,15 @@
 import { Play, Pencil, Pause, Zap, Trash2, Loader2, CheckCircle2, XCircle, Clock, Timer, Activity, ExternalLink } from 'lucide-react';
 import type { Workflow, WorkflowRun } from '@my-claudia/shared';
 
+type WorkflowBindingBadge = {
+  label: string;
+  tone?: 'primary' | 'success' | 'muted';
+};
+
 interface WorkflowCardProps {
   workflow: Workflow;
   latestRun?: WorkflowRun;
+  bindingBadges?: WorkflowBindingBadge[];
   onTrigger?: () => void;
   onEdit?: () => void;
   onToggle?: () => void;
@@ -56,11 +62,17 @@ function timeAgo(timestamp?: number): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-export function WorkflowCard({ workflow, latestRun, onTrigger, onEdit, onToggle, onDelete, onViewRuns, onPopOut }: WorkflowCardProps) {
+export function WorkflowCard({ workflow, latestRun, bindingBadges = [], onTrigger, onEdit, onToggle, onDelete, onViewRuns, onPopOut }: WorkflowCardProps) {
   const isActive = workflow.status === 'active';
   const { icon: triggerIcon, label: triggerLabel } = getTriggerLabel(workflow);
   const def = workflow.definition;
   const stepCount = def.nodes.length;
+
+  const badgeToneClass: Record<NonNullable<WorkflowBindingBadge['tone']>, string> = {
+    primary: 'bg-primary/10 text-primary border-primary/20',
+    success: 'bg-success/10 text-success border-success/20',
+    muted: 'bg-muted text-muted-foreground border-border',
+  };
 
   return (
     <div
@@ -78,6 +90,18 @@ export function WorkflowCard({ workflow, latestRun, onTrigger, onEdit, onToggle,
             >
               {workflow.name}
             </button>
+            {bindingBadges.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1">
+                {bindingBadges.map((badge) => (
+                  <span
+                    key={badge.label}
+                    className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${badgeToneClass[badge.tone ?? 'muted']}`}
+                  >
+                    {badge.label}
+                  </span>
+                ))}
+              </div>
+            )}
             {workflow.description && (
               <p className="text-xs text-muted-foreground truncate mt-0.5">{workflow.description}</p>
             )}

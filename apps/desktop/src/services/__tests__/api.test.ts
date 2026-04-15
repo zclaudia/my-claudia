@@ -722,14 +722,21 @@ describe('api', () => {
     });
 
     it('getAgentConfig', async () => {
-      mockResponse({ maxConcurrent: 3 });
+      mockResponse({
+        enabled: true,
+        projectId: 'p1',
+        sessionId: 's1',
+        providerId: null,
+        permissionWorkflowOverrideId: 'wf-1',
+        permissionPolicy: null,
+      });
       const result = await getAgentConfig();
-      expect(result.maxConcurrent).toBe(3);
+      expect(result.permissionWorkflowOverrideId).toBe('wf-1');
     });
 
     it('updateAgentConfig', async () => {
-      mockResponse({ enabled: true, projectId: 'p1', sessionId: 's1', providerId: null, permissionPolicy: null });
-      await updateAgentConfig({ maxConcurrent: 5 } as any);
+      mockResponse({ enabled: true, projectId: 'p1', sessionId: 's1', providerId: null, permissionWorkflowOverrideId: null, permissionPolicy: null });
+      await updateAgentConfig({ permissionWorkflowOverrideId: 'wf-1' });
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('/api/agent/config'),
         expect.objectContaining({ method: 'PUT' })

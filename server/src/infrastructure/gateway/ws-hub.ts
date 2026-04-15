@@ -194,6 +194,10 @@ export class FacadeWsHub {
     for (const id of toRemove) this.clients.delete(id);
   }
 
+  /**
+   * Broadcast an arbitrary message (e.g. plugin_state) to all subscribed facade clients.
+   * Used for messages that originate outside the facade event system.
+   */
   private sendTo(ws: WebSocket, msg: FacadeToUiMessage): void {
     try {
       if (ws.readyState === 1 /* WebSocket.OPEN */) {

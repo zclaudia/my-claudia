@@ -6,6 +6,7 @@
  */
 import type { BrowserAdapter } from './browser-adapter';
 import type { ModeConfig } from './modes';
+import { getServerBaseUrl } from './setup';
 
 /**
  * Switch to a specific connection mode in the UI
@@ -253,13 +254,13 @@ export async function deleteServerByName(name: string, apiKey?: string): Promise
       headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
-    const listRes = await globalThis.fetch('http://localhost:3100/api/servers', { headers });
+    const listRes = await globalThis.fetch(`${getServerBaseUrl()}/api/servers`, { headers });
     const listData = await listRes.json();
 
     if (listData.success && Array.isArray(listData.data)) {
       for (const server of listData.data) {
         if (server.name === name && !server.isDefault) {
-          await globalThis.fetch(`http://localhost:3100/api/servers/${server.id}`, {
+          await globalThis.fetch(`${getServerBaseUrl()}/api/servers/${server.id}`, {
             method: 'DELETE',
             headers,
           });
@@ -283,7 +284,7 @@ export async function fetchGatewayBackendId(apiKey?: string): Promise<string> {
         headers['Authorization'] = `Bearer ${apiKey}`;
       }
 
-      const response = await globalThis.fetch('http://localhost:3100/api/server/gateway/status', {
+      const response = await globalThis.fetch(`${getServerBaseUrl()}/api/server/gateway/status`, {
         headers,
       });
       const data = await response.json();

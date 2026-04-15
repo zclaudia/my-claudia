@@ -98,7 +98,12 @@ export class ToolRegistry {
       if (tool.pluginId) {
         const permitted = await pluginLoader.checkPermissions(tool.pluginId);
         if (!permitted) {
-          return JSON.stringify({ error: `Plugin "${tool.pluginId}" permissions denied` });
+          const pending = pluginLoader.getPendingPermissions(tool.pluginId);
+          return JSON.stringify({
+            error: 'permissions_required',
+            pluginId: tool.pluginId,
+            permissions: pending || [],
+          });
         }
       }
 

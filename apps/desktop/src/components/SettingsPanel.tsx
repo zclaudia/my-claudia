@@ -23,7 +23,7 @@ import { PermissionSettings } from './settings/PermissionSettings';
 import { NotificationSettingsInline } from './settings/NotificationSettings';
 import { MobileGatewayConfig } from './settings/MobileGatewayConfig';
 import { DebugSettings } from './settings/DebugSettings';
-import { isMacOS } from '../utils/platform';
+import { isAndroid, isMacOS } from '../utils/platform';
 
 import {
   getMobileBackendViewState,
@@ -63,6 +63,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const [serverPickerOpen, setServerPickerOpen] = useState(false);
   const [mobileShowContent, setMobileShowContent] = useState(false);
   const isMobile = useIsMobile();
+  const android = isAndroid();
   const pluginSettingsTabs = usePluginStore(selectPluginSettingsTabs);
 
   const {
@@ -168,7 +169,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         </svg>
       )
     },
-    {
+    ...(android ? [{
       id: 'notifications' as SettingsTab,
       label: 'Notifications',
       icon: (
@@ -176,7 +177,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
         </svg>
       )
-    },
+    }] : []),
     ...(isMobile ? [{
       id: 'gateway' as SettingsTab,
       label: 'Gateway',

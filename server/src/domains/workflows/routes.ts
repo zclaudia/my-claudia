@@ -6,6 +6,7 @@
 
 import { Router, Request, Response } from 'express';
 import type { WorkflowService } from './service.js';
+import { ImmutableSystemWorkflowError } from './service.js';
 import type { WorkflowGeneratorService } from './generator.js';
 import { normalizeWorkflowDefinition } from '@my-claudia/shared/features/workflows';
 import type { WorkflowStepTypeMeta, WorkflowDefinition, WorkflowNodeDef } from '@my-claudia/shared/features/workflows';
@@ -161,6 +162,12 @@ export function createWorkflowRoutes(
       const workflow = service.createFromTemplate(undefined, req.params.templateId);
       res.status(201).json({ success: true, data: workflow });
     } catch (error) {
+      if (error instanceof ImmutableSystemWorkflowError) {
+        return res.status(403).json({
+          success: false,
+          error: { code: 'FORBIDDEN', message: error.message },
+        });
+      }
       res.status(500).json({
         success: false,
         error: { code: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : String(error) },
@@ -210,6 +217,12 @@ export function createWorkflowRoutes(
       const workflow = service.updateWorkflow(req.params.workflowId, req.body);
       res.json({ success: true, data: workflow });
     } catch (error) {
+      if (error instanceof ImmutableSystemWorkflowError) {
+        return res.status(403).json({
+          success: false,
+          error: { code: 'FORBIDDEN', message: error.message },
+        });
+      }
       res.status(500).json({
         success: false,
         error: { code: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : String(error) },
@@ -230,6 +243,12 @@ export function createWorkflowRoutes(
       service.deleteWorkflow(req.params.workflowId, workflow.projectId);
       res.json({ success: true, data: null });
     } catch (error) {
+      if (error instanceof ImmutableSystemWorkflowError) {
+        return res.status(403).json({
+          success: false,
+          error: { code: 'FORBIDDEN', message: error.message },
+        });
+      }
       res.status(500).json({
         success: false,
         error: { code: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : String(error) },
@@ -248,6 +267,12 @@ export function createWorkflowRoutes(
       const workflow = service.createFromTemplate(req.params.projectId, req.params.templateId);
       res.status(201).json({ success: true, data: workflow });
     } catch (error) {
+      if (error instanceof ImmutableSystemWorkflowError) {
+        return res.status(403).json({
+          success: false,
+          error: { code: 'FORBIDDEN', message: error.message },
+        });
+      }
       res.status(500).json({
         success: false,
         error: { code: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : String(error) },

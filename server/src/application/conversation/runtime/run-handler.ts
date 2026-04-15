@@ -27,6 +27,7 @@ export interface RunHandlerContext {
   sessionSync?: SessionSyncPort;
   providerRegistry: ProviderRegistryPort;
   permissionBridge?: import('../agent/permission-bridge.js').PermissionBridge;
+  permissionWorkflowResolver?: import('../../../domains/workflows/index.js').PermissionWorkflowResolver;
 }
 
 export async function handleRunStart(
@@ -146,6 +147,7 @@ export async function handleRunStart(
       session,
       sessionType,
       permissionBridge: ctx?.permissionBridge,
+      permissionWorkflowResolver: ctx?.permissionWorkflowResolver,
     });
 
     const { providerRunner } = await launchProviderRun({
