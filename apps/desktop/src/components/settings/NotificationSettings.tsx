@@ -19,6 +19,8 @@ const EVENT_LABELS: { key: keyof NotificationConfig['events']; label: string; de
 export function NotificationSettingsInline({ readOnly = false }: { readOnly?: boolean }) {
   const android = isAndroid();
   const [config, setConfig] = useState<NotificationConfig>(DEFAULT_NOTIFICATION_CONFIG);
+  const [configLoaded, setConfigLoaded] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
   const [syncingBridge, setSyncingBridge] = useState(false);
@@ -29,8 +31,17 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
 
   useEffect(() => {
     api.getNotificationConfig()
-      .then((c) => { setConfig(c); setLoading(false); })
-      .catch(() => setLoading(false));
+      .then((c) => {
+        setConfig(c);
+        setConfigLoaded(true);
+        setConfigError(null);
+        setLoading(false);
+      })
+      .catch((err) => {
+        setConfigLoaded(false);
+        setConfigError(err instanceof Error ? err.message : 'Failed to load gateway notification policy.');
+        setLoading(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -61,7 +72,7 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
   }, [android]);
 
   useEffect(() => {
-    if (!android || loading) return;
+    if (!android || loading || !configLoaded || configError) return;
 
     let cancelled = false;
     const syncRegistration = async () => {
@@ -88,13 +99,19 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
     return () => {
       cancelled = true;
     };
-  }, [android, loading, config]);
+  }, [android, loading, config, configLoaded, configError]);
 
   const handleResyncDevice = useCallback(async () => {
     setSyncingBridge(true);
     setStatusResult(null);
     try {
-      await api.syncLocalNotificationBridge(config);
+      const refreshed = await api.refreshNotificationConfig();
+      if (!refreshed) {
+        throw new Error('No gateway connection — notification config is not available');
+      }
+      setConfig(refreshed);
+      setConfigLoaded(true);
+      setConfigError(null);
       setBridgeStatus(await api.getLocalNotificationBridgeStatus());
       setStatusResult({ ok: true, message: 'This device is synced to the gateway notification policy.' });
     } catch (err) {
@@ -105,13 +122,19 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
     } finally {
       setSyncingBridge(false);
     }
-  }, [config]);
+  }, []);
 
   const handleTest = useCallback(async () => {
     setTesting(true);
     setTestResult(null);
     try {
-      await api.syncLocalNotificationBridge(config);
+      const refreshed = await api.refreshNotificationConfig();
+      if (!refreshed) {
+        throw new Error('No gateway connection — notification config is not available');
+      }
+      setConfig(refreshed);
+      setConfigLoaded(true);
+      setConfigError(null);
       setBridgeStatus(await api.getLocalNotificationBridgeStatus());
       await api.sendTestNotification();
       setTestResult({ ok: true, message: 'Test notification sent. Check this device for delivery.' });
@@ -120,7 +143,7 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
     } finally {
       setTesting(false);
     }
-  }, [config]);
+  }, []);
 
   if (loading) {
     return <div className="text-sm text-muted-foreground">Loading...</div>;
@@ -142,6 +165,7 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
     last_error?: string;
     retry_in_ms?: number;
   } | undefined;
+  const gatewayPolicyAvailable = configLoaded && !configError;
 
   const bridgeStatusText = !isAndroid()
     ? 'Local ntfy-bridge applies on Android only.'
@@ -176,20 +200,25 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
           <div className="space-y-3 p-3 bg-secondary/50 rounded-lg border border-border/60">
             <div>
               <p className="text-xs text-muted-foreground">Status</p>
-              <p className="text-sm font-medium">{config.enabled ? 'Enabled' : 'Disabled'}</p>
+              <p className="text-sm font-medium">
+                {gatewayPolicyAvailable ? (config.enabled ? 'Enabled' : 'Disabled') : 'Unavailable'}
+              </p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Server URL</p>
-              <p className="text-sm break-all">{config.ntfyUrl || 'Not configured'}</p>
+              <p className="text-sm break-all">{gatewayPolicyAvailable ? (config.ntfyUrl || 'Not configured') : 'Unavailable'}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Topic</p>
-              <p className="text-sm break-all">{config.ntfyTopic || 'Not configured'}</p>
+              <p className="text-sm break-all">{gatewayPolicyAvailable ? (config.ntfyTopic || 'Not configured') : 'Unavailable'}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Auth</p>
-              <p className="text-sm font-medium">{config.ntfyAuthMode || 'none'}</p>
+              <p className="text-sm font-medium">{gatewayPolicyAvailable ? (config.ntfyAuthMode || 'none') : 'Unavailable'}</p>
             </div>
+            {configError && (
+              <p className="text-xs text-destructive">{configError}</p>
+            )}
             <p className="text-xs text-muted-foreground">
               Event types, enablement, and delivery policy are configured on the gateway, not on this device.
             </p>
@@ -227,7 +256,7 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
             </button>
             <button
               onClick={handleTest}
-              disabled={testing || !config.enabled || !config.ntfyTopic}
+              disabled={testing}
               className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 font-medium shadow-apple-sm transition-colors"
             >
               {testing ? 'Sending...' : 'Send Test'}

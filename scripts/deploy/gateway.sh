@@ -66,6 +66,10 @@ echo ""
 # Check .env
 [[ -f "$ENV_FILE" ]] || die "Missing $ENV_FILE — create it with: echo 'GATEWAY_SECRET=your-secret' > $ENV_FILE"
 grep -q '^GATEWAY_SECRET=' "$ENV_FILE" || die "GATEWAY_SECRET not found in $ENV_FILE"
+if grep -q '^NTFY_ENABLED=true' "$ENV_FILE"; then
+  grep -q '^NTFY_URL=' "$ENV_FILE" || die "NTFY_URL not found in $ENV_FILE"
+  grep -q '^NTFY_TOPIC=' "$ENV_FILE" || die "NTFY_TOPIC not found in $ENV_FILE"
+fi
 ok ".env OK"
 
 # Build

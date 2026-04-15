@@ -794,6 +794,69 @@ describe('SettingsPanel', () => {
     });
   });
 
+  it('shows gateway policy as unavailable when loading notification config fails', async () => {
+    (isAndroid as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (api.getNotificationConfig as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Gateway API call failed'));
+
+    const { container } = await renderSettingsPanel();
+    const notifTab = container.querySelector('[data-testid="notifications-tab"]');
+    await clickAsync(notifTab!);
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Gateway policy');
+      expect(container.textContent).toContain('Unavailable');
+      expect(container.textContent).toContain('Gateway API call failed');
+    });
+
+    expect(api.syncLocalNotificationBridge).not.toHaveBeenCalled();
+  });
+
+  it('refreshes gateway notification config before syncing device on Android', async () => {
+    (isAndroid as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (api.getNotificationConfig as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Initial load failed'));
+    (api.refreshNotificationConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
+      enabled: true,
+      ntfyUrl: 'https://ntfy.zhvala.space:28443',
+      ntfyTopic: 'mc-topic',
+      ntfyAuthMode: 'bearer',
+      events: {
+        permissionRequest: true,
+        promptRequest: true,
+        runCompleted: false,
+        runFailed: true,
+        backgroundPermission: true,
+        processLeak: true,
+      },
+    });
+    (api.getLocalNotificationBridgeStatus as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      subscriptions: {
+        'com.myClaudia.mobile': {
+          connected: true,
+          status: 'connected',
+        },
+      },
+    });
+
+    const { container, getByText } = await renderSettingsPanel();
+    const notifTab = container.querySelector('[data-testid="notifications-tab"]');
+    await clickAsync(notifTab!);
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Initial load failed');
+    });
+
+    await clickAsync(getByText('Sync Device'));
+
+    await waitFor(() => {
+      expect(api.refreshNotificationConfig).toHaveBeenCalled();
+      expect(container.textContent).toContain('https://ntfy.zhvala.space:28443');
+      expect(container.textContent).toContain('mc-topic');
+      expect(container.textContent).toContain('bearer');
+      expect(container.textContent).toContain('This device is synced to the gateway notification policy.');
+    });
+  });
+
   // ---- Server picker ----
 
   it('opens server picker dropdown', async () => {
