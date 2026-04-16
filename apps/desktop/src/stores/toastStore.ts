@@ -1,4 +1,7 @@
 import { create } from 'zustand';
+import { useNotchPanelStore } from './notchPanelStore';
+
+export type ToastIcon = 'system' | 'permission' | 'task' | 'error';
 
 export interface Toast {
   id: string;
@@ -8,6 +11,14 @@ export interface Toast {
   createdAt: number;
   /** Optional callback when toast is clicked */
   onClick?: () => void;
+  /** Project this toast relates to — used by NotchPanel to render project avatar/name. */
+  projectId?: string;
+  /** Session this toast relates to — used for click-to-navigate. */
+  sessionId?: string;
+  /** Owning backend — for cross-gateway project lookup. */
+  serverId?: string;
+  /** Icon category when there is no project context. */
+  icon?: ToastIcon;
 }
 
 const MAX_TOASTS = 3;
@@ -30,6 +41,10 @@ export const useToastStore = create<ToastState>((set) => ({
       toasts: [entry, ...state.toasts].slice(0, MAX_TOASTS),
     }));
 
+    // Mirror title into the NotchPanel closed-pill preview so users see the
+    // latest event even if they don't have the panel open.
+    useNotchPanelStore.getState().setPreviewTitle(entry.title);
+
     // Auto-dismiss
     setTimeout(() => {
       set((state) => ({
@@ -42,3 +57,8 @@ export const useToastStore = create<ToastState>((set) => ({
     toasts: state.toasts.filter((t) => t.id !== id),
   })),
 }));
+
+// Dev-only: expose store on window for manual testing (e.g. NotchPanel demo)
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  (window as any).__toastStore = useToastStore;
+}

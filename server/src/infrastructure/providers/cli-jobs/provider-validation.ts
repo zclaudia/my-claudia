@@ -7,7 +7,7 @@ interface ProviderRow {
   type: string;
 }
 
-export function validateCliJobProviderId(
+export function validateAIReviewProviderId(
   db: Database.Database,
   providerId: string | undefined,
 ): string | null {
@@ -24,7 +24,7 @@ export function validateCliJobProviderId(
   }
 
   if (!supportsAIReviewCliJob(row.type)) {
-    return `Provider "${row.name}" (${row.type}) does not support cli-jobs and cannot be used for AI review.`;
+    return `Provider "${row.name}" (${row.type}) does not support AI review and cannot be used here.`;
   }
 
   return null;

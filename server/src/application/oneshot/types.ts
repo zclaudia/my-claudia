@@ -19,6 +19,8 @@ export interface OneShotTaskRequest<T = unknown> {
   providerType: string;
   prompt: string;
   cwd: string;
+  cliPath?: string;
+  env?: Record<string, string>;
 
   systemPrompt?: string;
   model?: string;
@@ -66,6 +68,8 @@ export interface OneShotTaskResult<T = unknown> {
 export interface ProviderBridgeRequest {
   prompt: string;
   cwd: string;
+  cliPath?: string;
+  env?: Record<string, string>;
   systemPrompt?: string;
   model?: string;
   mode?: string;

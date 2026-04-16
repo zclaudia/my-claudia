@@ -737,6 +737,45 @@ describe('ToolCallItem', () => {
       expect(screen.queryByText('Raw plan')).not.toBeInTheDocument();
     });
 
+    it('renders prompt interaction for running AskUserQuestion in the active session', () => {
+      mockInteractionState.interactions['interaction-question-1'] = {
+        type: 'interaction_prompt',
+        interactionId: 'interaction-question-1',
+        sessionId: 's1',
+        source: 'provider_native',
+        createdAt: Date.now(),
+        title: 'Question',
+        variant: 'question',
+        responseMode: 'prompt_answer',
+        submitLabel: 'Submit',
+        cancelLabel: 'Skip',
+        fields: [{
+          id: 'question_0',
+          label: '是否立刻开工？',
+          type: 'select',
+          options: [{ value: 'yes', label: 'Yes' }],
+          allowCustomValue: true,
+        }],
+      };
+      mockProjectState.selectedSessionId = 's1';
+
+      render(<ToolCallItem toolCall={createToolCall({
+        toolName: 'AskUserQuestion',
+        toolInput: {
+          questions: [{
+            header: '推进 Phase 2',
+            question: '只读旧卡片',
+            options: [{ label: 'A' }],
+          }],
+        },
+        status: 'running',
+      })} />);
+
+      expect(screen.getByText('Question')).toBeInTheDocument();
+      expect(screen.getByText('是否立刻开工？')).toBeInTheDocument();
+      expect(screen.queryByText('只读旧卡片')).not.toBeInTheDocument();
+    });
+
     it('sends optional feedback when approving a plan review', () => {
       mockInteractionState.interactions['interaction-plan-1'] = {
         type: 'interaction_plan_review',

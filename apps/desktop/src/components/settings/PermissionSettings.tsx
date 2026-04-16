@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { getAgentConfig, updateAgentConfig } from '../../services/api/servers';
 import { listAllWorkflows } from '../../features/workflows/api';
 import * as providersApi from '../../services/api/providers';
+import type { ProviderConfig } from '@my-claudia/shared/core/provider';
 import { useProviderMetaStore } from '../../stores/providerMetaStore';
 import { useServerStore } from '../../stores/serverStore';
 import type {
@@ -76,8 +77,29 @@ function AIReviewProviderSelector({ value, onChange, disabled }: {
   disabled: boolean;
 }) {
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const providers = useProviderMetaStore((s) => s.getProviders(activeServerId));
+  const storeProviders = useProviderMetaStore((s) => s.getProviders(activeServerId));
+  const [providers, setProviders] = useState<ProviderConfig[]>(storeProviders);
   const [eligibleProviderIds, setEligibleProviderIds] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (storeProviders.length > 0) {
+      setProviders(storeProviders);
+      return;
+    }
+
+    let cancelled = false;
+    void providersApi.getProviders()
+      .then((loadedProviders) => {
+        if (cancelled) return;
+        setProviders(loadedProviders);
+        useProviderMetaStore.getState().setProviders(loadedProviders, activeServerId);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeServerId, storeProviders]);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,7 +108,7 @@ function AIReviewProviderSelector({ value, onChange, disabled }: {
       const results = await Promise.all(providers.map(async (provider) => {
         try {
           const capabilities = await providersApi.getProviderCapabilities(provider.id);
-          return [provider.id, capabilities.supportsCliJobs === true] as const;
+          return [provider.id, capabilities.supportsAIReview === true] as const;
         } catch {
           return [provider.id, false] as const;
         }
@@ -111,7 +133,7 @@ function AIReviewProviderSelector({ value, onChange, disabled }: {
     <div className="flex items-center justify-between">
       <div>
         <span className="text-xs font-medium">Review provider</span>
-        <p className="text-[10px] text-muted-foreground">Only providers that support cli-jobs can run AI review</p>
+        <p className="text-[10px] text-muted-foreground">Only providers that support AI review are shown here</p>
       </div>
       <div className="flex flex-col items-end gap-1">
         <select
@@ -132,7 +154,7 @@ function AIReviewProviderSelector({ value, onChange, disabled }: {
         </select>
         {selectedProvider && !selectedProviderSupported && (
           <p className="text-[10px] text-amber-600">
-            The selected provider does not support cli-jobs and cannot be used for AI review.
+            The selected provider does not support AI review and cannot be used here.
           </p>
         )}
       </div>

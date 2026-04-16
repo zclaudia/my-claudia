@@ -465,7 +465,7 @@ describe('providers routes', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveProperty('modes');
       expect(res.body.data).toHaveProperty('models');
-      expect(res.body.data.supportsCliJobs).toBe(true);
+      expect(res.body.data.supportsAIReview).toBe(true);
       expect(res.body.data.modeLabel).toBe('Mode');
     });
 
@@ -485,7 +485,7 @@ describe('providers routes', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveProperty('modes');
       expect(res.body.data).toHaveProperty('models');
-      expect(res.body.data.supportsCliJobs).toBe(true);
+      expect(res.body.data.supportsAIReview).toBe(true);
     });
   });
 

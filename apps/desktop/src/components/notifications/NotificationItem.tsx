@@ -3,14 +3,7 @@ import { extractThinking } from '../chat/MessageList';
 import { useNotificationFeedStore } from '../../stores/notificationFeedStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useSelectionCoordinator } from '../../hooks/useSelectionCoordinator';
-
-function timeAgo(timestamp: number): string {
-  const diff = Date.now() - timestamp;
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return new Date(timestamp).toLocaleDateString();
-}
+import { timeAgo } from '../../utils/timeAgo';
 
 const STATUS_STYLES: Record<string, { dot: string }> = {
   running: { dot: 'bg-amber-500 animate-pulse' },

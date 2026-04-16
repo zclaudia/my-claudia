@@ -397,7 +397,7 @@ describe('agent routes', () => {
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
 
-    it('rejects permissionPolicy when aiReview.analysisProviderId does not support cli-jobs', async () => {
+    it('rejects permissionPolicy when aiReview.analysisProviderId does not support AI review', async () => {
       seedDefaultConfig(db);
       const now = Date.now();
       db.prepare(`
@@ -427,7 +427,7 @@ describe('agent routes', () => {
 
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
-      expect(res.body.error.message).toContain('does not support cli-jobs');
+      expect(res.body.error.message).toContain('does not support AI review');
     });
 
     it('preserves unchanged fields when only updating one field', async () => {

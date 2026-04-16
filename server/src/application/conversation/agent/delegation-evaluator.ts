@@ -136,6 +136,10 @@ export interface AIReviewContext {
   cwd?: string;
   /** Provider to use for LLM analysis */
   analysisProvider?: AIReviewProvider;
+  /** Resolved provider CLI path override for OneShotTaskRuntime */
+  providerCliPath?: string;
+  /** Resolved provider env override for OneShotTaskRuntime */
+  providerEnv?: Record<string, string>;
   /** Shared session ID for session reuse (managed by AIReviewQueue) */
   sessionId?: string;
   /** Optional OneShotTaskRuntime — when provided, AI review uses the runtime pipeline */
@@ -310,6 +314,8 @@ export async function evaluateAIReview(
         providerType: ctx.providerType,
         prompt: buildInitialReviewPrompt(ctx, candidateScripts, detailGuard.text, inputGuard.text),
         cwd: workspaceRoot,
+        cliPath: ctx.providerCliPath,
+        env: ctx.providerEnv,
         systemPrompt: 'You are a machine-only security review helper for a coding assistant. Follow the user prompt exactly. Do not add markdown, commentary, prose, or code fences. Return only the JSON object requested by the prompt.',
         timeoutMs: 120000,
       });

@@ -27,6 +27,7 @@ import { useBackgroundTaskStore } from '../stores/backgroundTaskStore';
 import { useProcessMonitorStore } from '../stores/processMonitorStore';
 import { useClaudiaStore } from '../stores/claudiaStore';
 import { useToastStore } from '../stores/toastStore';
+import { useNotchPanelStore } from '../stores/notchPanelStore';
 import { downloadPushedFile } from './fileDownload';
 import { eagerSyncCurrentSession, recoverCurrentSessionTail } from './sessionSync';
 import { getProjectsForBackend } from './api/projects';
@@ -518,7 +519,12 @@ export function handleServerMessage(
         title: 'Permission required',
         message: `${permMsg.toolName} needs approval`,
         type: 'info',
+        icon: 'permission',
+        sessionId: permMsg.sessionId,
+        serverId,
       });
+      // Auto-expand NotchPanel for permission requests (high-value, needs human attention).
+      useNotchPanelStore.getState().open({ auto: true, previewTitle: 'Permission required' });
       break;
     }
 
@@ -535,6 +541,8 @@ export function handleServerMessage(
           title: 'Permission auto-approved',
           message: autoResolveToast,
           type: 'success',
+          icon: 'permission',
+          serverId,
         });
       }
       usePermissionStore.getState().clearRequestById(msg.requestId);
@@ -555,6 +563,8 @@ export function handleServerMessage(
           title: 'AI review completed',
           message: toastMessage,
           type: aiMsg.decision === 'deny' ? 'error' : 'info',
+          icon: 'permission',
+          serverId,
         });
       }
       break;
@@ -887,8 +897,14 @@ export function handleServerMessage(
             title: item.title,
             message: item.status === 'completed' ? (item.summary?.slice(0, 100) || 'Task completed') : (item.error?.slice(0, 100) || 'Task failed'),
             type: item.status === 'completed' ? 'success' : 'error',
+            projectId: item.projectId,
+            sessionId: item.sessionId,
+            serverId,
+            icon: item.status === 'completed' ? 'task' : 'error',
           });
         });
+        // Auto-expand NotchPanel with 5s auto-collapse for task results.
+        useNotchPanelStore.getState().open({ auto: true, previewTitle: item.title });
       }
       break;
     }
@@ -1279,6 +1295,8 @@ export function handleServerMessage(
           title: pluginMsg.title,
           message: pluginMsg.body,
           type: 'info',
+          icon: 'system',
+          serverId,
         });
       });
       break;

@@ -44,7 +44,7 @@ describe('delegation routes', () => {
     db.exec('DELETE FROM providers');
   });
 
-  it('rejects analysisProviderId when the provider does not support cli-jobs', async () => {
+  it('rejects analysisProviderId when the provider does not support AI review', async () => {
     const now = Date.now();
     db.prepare(`
       INSERT INTO providers (id, name, type, created_at, updated_at)
@@ -57,6 +57,6 @@ describe('delegation routes', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('VALIDATION_ERROR');
-    expect(res.body.error.message).toContain('does not support cli-jobs');
+    expect(res.body.error.message).toContain('does not support AI review');
   });
 });

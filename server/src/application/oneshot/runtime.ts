@@ -71,6 +71,8 @@ export class DefaultOneShotTaskRuntime implements OneShotTaskRuntime {
       const bridgeResult = await bridge.run({
         prompt: request.prompt,
         cwd: request.cwd,
+        cliPath: request.cliPath,
+        env: request.env,
         systemPrompt: request.systemPrompt,
         model: request.model,
         mode: request.mode,

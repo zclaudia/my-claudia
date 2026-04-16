@@ -6,7 +6,7 @@ import { normalizeToUnifiedPolicy } from '@my-claudia/shared/interaction/permiss
 import { toolRegistry } from '../../application/plugins/tool-registry.js';
 import { getDiscoveredSkills } from '../../application/plugins/skill-tools.js';
 import { CONTEXT_TEMPLATES } from '../../application/conversation/context/types.js';
-import { validateCliJobProviderId } from '../../infrastructure/providers/cli-jobs/provider-validation.js';
+import { validateAIReviewProviderId } from '../../infrastructure/providers/cli-jobs/provider-validation.js';
 
 interface AgentConfig {
   id: number;
@@ -222,7 +222,7 @@ export function createAgentRoutes(db: Database.Database): Router {
 
       if (serializedPermissionPolicy !== null) {
         const normalizedPolicy = normalizeToUnifiedPolicy(JSON.parse(serializedPermissionPolicy));
-        const providerValidationError = validateCliJobProviderId(db, normalizedPolicy.aiReview.analysisProviderId);
+        const providerValidationError = validateAIReviewProviderId(db, normalizedPolicy.aiReview.analysisProviderId);
         if (providerValidationError) {
           res.status(400).json({
             success: false,

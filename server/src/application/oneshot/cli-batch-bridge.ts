@@ -27,6 +27,8 @@ export class CliBatchBridge implements OneShotTaskProviderBridge {
     const input = {
       prompt: request.prompt,
       cwd: request.cwd,
+      cliPath: request.cliPath,
+      env: request.env,
       systemPrompt: augmentedSystemPrompt,
       model: request.model,
       timeoutMs: request.timeoutMs,

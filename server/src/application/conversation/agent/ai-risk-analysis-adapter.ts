@@ -1,83 +1,108 @@
 /**
- * AIRiskAnalysisPort adapter — wraps evaluateAIReview with a CLI-backed provider.
+ * AIRiskAnalysisPort adapter — wraps evaluateAIReview with a provider resolved
+ * from configured MyClaudia providers.
  *
  * Used by the permission workflow's ai_risk_analysis step to run AI-assisted
  * safety analysis of escalated tool calls.
  */
 
-import { spawn } from 'child_process';
+import type Database from 'better-sqlite3';
 import type { AIRiskAnalysisPort } from '../../../domains/workflows/ports/step-executor.js';
 import { evaluateAIReview, type AIReviewProvider } from './delegation-evaluator.js';
 import type { AIReviewConfig } from '@my-claudia/shared/interaction/permissions';
+import type { ProviderConfig } from '@my-claudia/shared/core/provider';
+import type { CliJobInput, CliProviderAdapter, CliJobRawResult, CliAdapterPreparedContext } from '../../../infrastructure/providers/cli-jobs/types.js';
+import { runCliJob } from '../../../infrastructure/providers/cli-jobs/runner.js';
+import { claudeReviewAdapter } from '../../../infrastructure/providers/cli-jobs/adapters/claude.js';
+import { codexReviewAdapter } from '../../../infrastructure/providers/cli-jobs/adapters/codex.js';
+import { cursorReviewAdapter } from '../../../infrastructure/providers/cli-jobs/adapters/cursor.js';
+import { kimiReviewAdapter } from '../../../infrastructure/providers/cli-jobs/adapters/kimi.js';
+import { opencodeReviewAdapter } from '../../../infrastructure/providers/cli-jobs/adapters/opencode.js';
 
-/**
- * Creates an AIReviewProvider backed by the Claude CLI.
- * Each call spawns `claude --print` and pipes the prompt via stdin
- * (avoids command-line argument length limits and special character issues).
- */
-function createCliReviewProvider(): AIReviewProvider {
+interface ProviderRow {
+  id: string;
+  name: string;
+  type: ProviderConfig['type'];
+  cli_path: string | null;
+  env: string | null;
+  is_default: number;
+  created_at: number;
+  updated_at: number;
+}
+
+const REVIEW_ADAPTERS: Partial<Record<ProviderConfig['type'], CliProviderAdapter>> = {
+  claude: claudeReviewAdapter,
+  codex: codexReviewAdapter,
+  cursor: cursorReviewAdapter,
+  kimi: kimiReviewAdapter,
+  opencode: opencodeReviewAdapter,
+};
+
+function rowToProviderConfig(row: ProviderRow): ProviderConfig {
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type,
+    cliPath: row.cli_path || undefined,
+    env: row.env ? JSON.parse(row.env) as Record<string, string> : undefined,
+    isDefault: row.is_default === 1,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function createCliReviewProvider(provider: ProviderConfig): AIReviewProvider | undefined {
+  const adapter = REVIEW_ADAPTERS[provider.type];
+  if (!adapter) return undefined;
+
   return {
     runPrompt: async (prompt: string, _sessionId?: string): Promise<{ response: string; sessionId?: string }> => {
-      return new Promise((resolve, reject) => {
-        let settled = false;
-        const proc = spawn('claude', [
-          '--print',
-          '--output-format', 'text',
-          '--no-session-persistence',
-          '--permission-mode', 'bypassPermissions',
-        ], {
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
+      const input: CliJobInput = {
+        prompt,
+        cwd: process.cwd(),
+        cliPath: provider.cliPath,
+        env: provider.env,
+        timeoutMs: 60_000,
+      };
 
-        let stdout = '';
-        let stderr = '';
-        proc.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
-        proc.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+      const result = await runCliJob(
+        adapter,
+        input,
+        (assistantText: string, _raw: CliJobRawResult, _ctx?: CliAdapterPreparedContext) => assistantText,
+      );
 
-        // Write prompt via stdin to avoid shell argument limits
-        proc.stdin?.write(prompt);
-        proc.stdin?.end();
-
-        const timeout = setTimeout(() => {
-          if (settled) return;
-          settled = true;
-          proc.kill('SIGTERM');
-          reject(new Error('CLI review provider timed out after 60s'));
-        }, 60_000);
-
-        proc.on('error', (err) => {
-          clearTimeout(timeout);
-          if (settled) return;
-          settled = true;
-          reject(err);
-        });
-
-        proc.on('close', (code) => {
-          clearTimeout(timeout);
-          if (settled) return;
-          settled = true;
-          if (code !== 0) {
-            if (!stdout) {
-              reject(new Error(`CLI review provider exited ${code}: ${stderr.slice(0, 200)}`));
-            } else {
-              console.warn(`[AIRiskAnalysis] CLI exited ${code} with output; stderr: ${stderr.slice(0, 200)}`);
-              resolve({ response: stdout });
-            }
-          } else {
-            resolve({ response: stdout });
-          }
-        });
-      });
+      return { response: result };
     },
   };
 }
 
 /**
  * AIRiskAnalysisPort implementation that wraps evaluateAIReview()
- * with a CLI-backed AIReviewProvider.
+ * with a provider resolved from configured providers.
  */
 export class AIRiskAnalysisAdapter implements AIRiskAnalysisPort {
-  constructor(private oneShotRuntime?: import('../../oneshot/types.js').OneShotTaskRuntime) {}
+  constructor(
+    private readonly db: Database.Database,
+    private readonly oneShotRuntime?: import('../../oneshot/types.js').OneShotTaskRuntime,
+  ) {}
+
+  private resolveProvider(analysisProviderId?: string): ProviderConfig | undefined {
+    const row = analysisProviderId
+      ? this.db.prepare(`
+          SELECT id, name, type, cli_path, env, is_default, created_at, updated_at
+          FROM providers
+          WHERE id = ?
+        `).get(analysisProviderId) as ProviderRow | undefined
+      : this.db.prepare(`
+          SELECT id, name, type, cli_path, env, is_default, created_at, updated_at
+          FROM providers
+          WHERE is_default = 1
+          ORDER BY updated_at DESC
+          LIMIT 1
+        `).get() as ProviderRow | undefined;
+
+    return row ? rowToProviderConfig(row) : undefined;
+  }
 
   async evaluate(ctx: {
     toolName: string;
@@ -95,7 +120,8 @@ export class AIRiskAnalysisAdapter implements AIRiskAnalysisPort {
     confidence: number;
     metadata?: Record<string, unknown>;
   }> {
-    const provider = createCliReviewProvider();
+    const resolvedProvider = this.resolveProvider(ctx.config.analysisProviderId);
+    const reviewProvider = resolvedProvider ? createCliReviewProvider(resolvedProvider) : undefined;
 
     const config: AIReviewConfig = {
       enabled: true,
@@ -110,9 +136,11 @@ export class AIRiskAnalysisAdapter implements AIRiskAnalysisPort {
       toolInput: ctx.toolInput,
       detail: ctx.detail,
       cwd: ctx.cwd,
-      analysisProvider: provider,
+      analysisProvider: reviewProvider,
+      providerCliPath: resolvedProvider?.cliPath,
+      providerEnv: resolvedProvider?.env,
       oneShotRuntime: this.oneShotRuntime,
-      providerType: 'claude',
+      providerType: resolvedProvider?.type,
     });
 
     return {

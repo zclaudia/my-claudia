@@ -173,7 +173,7 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     ],
   });
 
-  const aiRiskAnalysisPort = new AIRiskAnalysisAdapter(oneShotRuntime);
+  const aiRiskAnalysisPort = new AIRiskAnalysisAdapter(db, oneShotRuntime);
 
   const { workflowService, workflowEngine } = registerWorkflowDomain({
     db,

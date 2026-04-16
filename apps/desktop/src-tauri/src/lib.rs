@@ -314,6 +314,150 @@ fn create_claudia_ball(
     Ok(())
 }
 
+// Dimensions for the independent NotchPanel window.
+// Closed state: a small notch-extending strip flush with the top of the screen
+// (flat top, rounded bottom, pure black — visually "extends" the physical notch
+// on MacBook Pro 14"/16").
+// Opened state: a wider panel that drops down from the notch.
+#[cfg(not(target_os = "android"))]
+const NOTCH_CLOSED_WIDTH: f64 = 220.0;
+#[cfg(not(target_os = "android"))]
+const NOTCH_CLOSED_HEIGHT: f64 = 32.0;
+#[cfg(not(target_os = "android"))]
+const NOTCH_OPENED_WIDTH: f64 = 460.0;
+#[cfg(not(target_os = "android"))]
+const NOTCH_OPENED_HEIGHT: f64 = 600.0;
+
+/// macOS: raise the notch window ABOVE the menu bar, pin it across all Spaces, and
+/// force its top edge to the physical screen top (not the menu-bar-excluded visibleFrame).
+/// Cocoa uses a bottom-left origin, so we use `setFrameTopLeftPoint` with y = screen
+/// full height — otherwise Tauri's logical (x, 0) gets clamped below the menu bar.
+#[cfg(target_os = "macos")]
+fn make_notch_above_menu_bar(window: &WebviewWindow) {
+    let _ = window.with_webview(|webview| unsafe {
+        use objc2::msg_send;
+        use objc2::runtime::{AnyObject, Bool};
+        use objc2_foundation::{NSPoint, NSRect};
+
+        let win: *mut AnyObject = webview.ns_window() as _;
+        if win.is_null() {
+            return;
+        }
+
+        // NSStatusWindowLevel = 25. Keeps us above the menu bar (which is level 20-24)
+        // but below system-critical overlays (screen-saver = 1000, etc.).
+        let status_level: i64 = 25;
+        let _: () = msg_send![win, setLevel: status_level];
+
+        // NSWindowCollectionBehavior:
+        //   canJoinAllSpaces     (1 << 0)  — follow user to every Space
+        //   stationary           (1 << 4)  — don't animate during Mission Control
+        //   fullScreenAuxiliary  (1 << 8)  — stay visible when another app is fullscreen
+        //   ignoresCycle         (1 << 6)  — exclude from Cmd-` window cycling
+        let collection_behavior: u64 = (1u64 << 0) | (1u64 << 4) | (1u64 << 6) | (1u64 << 8);
+        let _: () = msg_send![win, setCollectionBehavior: collection_behavior];
+
+        // Pin the window's TOP edge to the physical screen top (above menu bar).
+        let screen: *mut AnyObject = msg_send![win, screen];
+        if !screen.is_null() {
+            let screen_frame: NSRect = msg_send![screen, frame];
+            let window_frame: NSRect = msg_send![win, frame];
+            let screen_top_y = screen_frame.origin.y + screen_frame.size.height;
+            let top_left = NSPoint {
+                x: window_frame.origin.x,
+                y: screen_top_y,
+            };
+            let _: () = msg_send![win, setFrameTopLeftPoint: top_left];
+        }
+
+        // Re-disable the native NSWindow drop shadow AFTER moving the frame:
+        // `setFrameTopLeftPoint` / level changes can re-enable it on some macOS
+        // versions, leaving a rectangular grey halo visible outside the CSS-
+        // rounded notch shape.
+        let no = Bool::from(false);
+        let _: () = msg_send![win, setHasShadow: no];
+        let _: () = msg_send![win, invalidateShadow];
+    });
+}
+
+/// Create the always-on-top notch window (Dynamic Island-style notification surface).
+/// The underlying OS window is always sized for the fully-opened panel; the visible
+/// notch shape is CSS-animated inside the (transparent) window. This avoids timing
+/// issues between React state changes and asynchronous `set_size` calls.
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn create_notch_window(app: tauri::AppHandle, notch_url: String) -> Result<(), String> {
+    if app.get_webview_window("notch").is_some() {
+        return Ok(());
+    }
+
+    // Position at top-center of primary monitor. y=0 is the absolute top edge
+    // of the screen. We'll raise the window level above the menu bar below so
+    // this actually renders on top of it.
+    let (x, y) = {
+        let primary = app.primary_monitor().ok().flatten();
+        if let Some(monitor) = primary {
+            let scale = monitor.scale_factor().max(1e-3);
+            let screen_w = monitor.size().width as f64 / scale;
+            let x = (screen_w - NOTCH_OPENED_WIDTH) / 2.0;
+            (x.max(0.0), 0.0)
+        } else {
+            (0.0, 0.0)
+        }
+    };
+
+    let builder = WebviewWindowBuilder::new(&app, "notch", claudia_window_url(&notch_url)?)
+        .title("")
+        .inner_size(NOTCH_OPENED_WIDTH, NOTCH_OPENED_HEIGHT)
+        .position(x, y)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .focused(false);
+
+    let notch = builder.build().map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "macos")]
+    {
+        make_ball_transparent(&notch);
+        make_notch_above_menu_bar(&notch);
+    }
+
+    Ok(())
+}
+
+/// Resize the notch window smoothly. Used when the panel expands or collapses.
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn resize_notch_window(app: tauri::AppHandle, expanded: bool) -> Result<(), String> {
+    let window = app
+        .get_webview_window("notch")
+        .ok_or_else(|| "notch window not found".to_string())?;
+
+    let (w, h) = if expanded {
+        (NOTCH_OPENED_WIDTH, NOTCH_OPENED_HEIGHT)
+    } else {
+        (NOTCH_CLOSED_WIDTH, NOTCH_CLOSED_HEIGHT)
+    };
+
+    window
+        .set_size(tauri::Size::Logical(tauri::LogicalSize { width: w, height: h }))
+        .map_err(|e| e.to_string())?;
+
+    // Re-center horizontally after resize to keep the pill centered.
+    if let Ok(Some(monitor)) = window.current_monitor() {
+        let scale = monitor.scale_factor().max(1e-3);
+        let screen_w = monitor.size().width as f64 / scale;
+        let x = (screen_w - w) / 2.0;
+        let _ = window.set_position(Position::Logical(LogicalPosition::new(x.max(0.0), 0.0)));
+    }
+
+    Ok(())
+}
+
 // Global shortcut state
 #[cfg(not(target_os = "android"))]
 const DEFAULT_CLAUDIA_SHORTCUT: &str = "CmdOrCtrl+Shift+.";
@@ -579,6 +723,8 @@ pub fn run() {
             hide_claudia_chat,
             preload_claudia_chat,
             update_global_shortcut,
+            create_notch_window,
+            resize_notch_window,
         ]);
 
     #[cfg(target_os = "android")]

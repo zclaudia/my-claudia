@@ -200,6 +200,15 @@ describe('classify', () => {
     expect(isInternalInteractionTool('EnterPlanMode')).toBe(true);
     expect(isInternalInteractionTool('SomeUnknownTool')).toBe(false);
   });
+
+  it('should NOT treat Claude SDK built-in ExitPlanMode as internal (must escalate for user approval)', () => {
+    // ExitPlanMode (PascalCase, SDK built-in) has no custom handler — auto-approving
+    // it at the permission layer would exit plan mode silently without approval.
+    expect(isInternalInteractionTool('ExitPlanMode')).toBe(false);
+    // The snake_case MCP variant keeps its handler-driven approval flow.
+    expect(isInternalInteractionTool('exit_plan_mode')).toBe(true);
+    expect(isInternalInteractionTool('mcp__claudia-plugins__exit_plan_mode')).toBe(true);
+  });
 });
 
 // ============================================

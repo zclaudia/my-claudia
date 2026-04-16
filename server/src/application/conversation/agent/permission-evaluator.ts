@@ -84,14 +84,20 @@ function hasToolNameSuffix(toolName: string, suffix: string): boolean {
 }
 
 export function isInternalInteractionTool(toolName: string): boolean {
+  // NOTE: ExitPlanMode (Claude SDK built-in, PascalCase) is intentionally NOT
+  // listed here. The built-in has no custom handler — if we auto-approve it at
+  // the permission layer, plan mode exits silently with no user approval.
+  // It must escalate through the normal permission flow so the frontend can
+  // render the plan-review UI (see InlinePermissionRequest.tsx).
+  // The snake_case `exit_plan_mode` MCP tool stays in the list because its
+  // handler (interaction-tools.ts) dispatches its own approval interaction.
   return hasToolNameSuffix(toolName, 'update_todo_list')
     || hasToolNameSuffix(toolName, 'ask_user_form')
     || hasToolNameSuffix(toolName, 'request_approval')
     || hasToolNameSuffix(toolName, 'push_file')
     || hasToolNameSuffix(toolName, 'enter_plan_mode')
     || hasToolNameSuffix(toolName, 'exit_plan_mode')
-    || toolName === 'EnterPlanMode'
-    || toolName === 'ExitPlanMode';
+    || toolName === 'EnterPlanMode';
 }
 
 function isBlockingInteractionTool(toolName: string): boolean {

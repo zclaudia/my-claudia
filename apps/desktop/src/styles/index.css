@@ -238,6 +238,23 @@ body.claudia-chat-window {
   overflow: hidden;
 }
 
+/* Independent Dynamic Island notch window: fully transparent so only the
+   black notch-shaped surface rendered by NotchWindow is visible. */
+html.notch-window,
+body.notch-window,
+html.notch-window #root {
+  width: 100%;
+  height: 100%;
+  background: transparent !important;
+  margin: 0;
+  padding: 0;
+}
+
+body.notch-window {
+  min-height: 100%;
+  overflow: hidden;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

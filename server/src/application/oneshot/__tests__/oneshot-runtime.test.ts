@@ -231,6 +231,27 @@ describe('DefaultOneShotTaskRuntime', () => {
     expect(result.telemetry.resultType).toBe('ai_review_v1');
     expect(typeof result.telemetry.durationMs).toBe('number');
   });
+
+  test('passes cliPath and env through to the provider bridge', async () => {
+    const bridge = createMockBridge('claude', {
+      rawText: JSON.stringify({ decision: 'approve', reasoning: 'Safe', confidence: 0.9 }),
+    });
+    const runtime = createTestRuntime(bridge);
+
+    await runtime.run({
+      taskType: AI_REVIEW_TASK_TYPE,
+      providerType: 'claude',
+      prompt: 'test',
+      cwd: '/tmp',
+      cliPath: '/custom/claude',
+      env: { CLAUDE_CONFIG_DIR: '/tmp/claude-config' },
+    });
+
+    expect(bridge.run).toHaveBeenCalledWith(expect.objectContaining({
+      cliPath: '/custom/claude',
+      env: { CLAUDE_CONFIG_DIR: '/tmp/claude-config' },
+    }));
+  });
 });
 
 // ── Factory ──────────────────────────────────────────────────

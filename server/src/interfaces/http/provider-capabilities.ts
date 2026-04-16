@@ -517,8 +517,12 @@ async function getProviderCapabilities(
       break;
   }
 
-  return {
-    ...capabilities,
-    supportsCliJobs: supportsAIReviewCliJob(providerType),
+  const supportsAIReview = supportsAIReviewCliJob(providerType);
+  const result = capabilities as ProviderCapabilities & {
+    supportsAIReview?: boolean;
+    supportsCliJobs?: boolean;
   };
+  result.supportsAIReview = supportsAIReview;
+  result.supportsCliJobs = supportsAIReview;
+  return result;
 }

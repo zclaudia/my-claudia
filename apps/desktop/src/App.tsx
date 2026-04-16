@@ -10,6 +10,9 @@ import { ClaudiaChat } from './components/claudia/ClaudiaChat';
 import { NotificationsPanel } from './components/notifications/NotificationsPanel';
 import { useNotificationFeedStore } from './stores/notificationFeedStore';
 import { ToastContainer } from './components/ToastContainer';
+import { useNotchBridgeHost } from './hooks/useNotchBridgeHost';
+import { emit as emitTauri } from '@tauri-apps/api/event';
+import { NOTCH_EVENT } from './services/notchBridge';
 
 // Lazy-loaded popout windows (only loaded when the specific window type is opened)
 const FileViewerWindow = lazy(() => import('./components/fileviewer/FileViewerWindow').then(m => ({ default: m.FileViewerWindow })));
@@ -20,6 +23,7 @@ const TerminalWindow = lazy(() => import('./components/terminal/TerminalWindow')
 const DraftWindow = lazy(() => import('./components/draft/DraftWindow').then(m => ({ default: m.DraftWindow })));
 const PluginWindow = lazy(() => import('./components/PluginWindow').then(m => ({ default: m.PluginWindow })));
 const ClaudiaBallWindow = lazy(() => import('./components/claudia/ClaudiaBallWindow').then(m => ({ default: m.ClaudiaBallWindow })));
+const NotchWindowLazy = lazy(() => import('./components/NotchWindow').then(m => ({ default: m.NotchWindow })));
 const ClaudiaChatWindow = lazy(() => import('./components/claudia/ClaudiaChatWindow').then(m => ({ default: m.ClaudiaChatWindow })));
 
 // Lazy-loaded heavy feature components
@@ -177,6 +181,8 @@ function AppContent() {
   const disabledBuiltinPanels = usePluginStore((s) => s.disabledBuiltinPanels);
   const notificationUnreadCount = useNotificationFeedStore((s) => s.unreadCount);
   const [isFeedOpen, setFeedOpen] = useState(false);
+  // Host bridge: on desktop, spawn the independent notch window and keep it in sync.
+  useNotchBridgeHost({ enabled: !isMobile });
   const fileViewerFullscreen = useFileViewerStore((s) => s.fullscreen);
   const fileViewerFilePath = useFileViewerStore((s) => s.filePath);
   const fileViewerProjectRoot = useFileViewerStore((s) => s.projectRoot);
@@ -652,15 +658,13 @@ function AppContent() {
           ) : isMobile ? null : (
             <>
               <ServerSelector />
-              {/* Feed toggle + inline dropdown */}
+              {/* Feed toggle — desktop routes through the independent notch window */}
               {!disabledBuiltinPanels.includes('notifications') && (
                 <div className="relative">
                   <button
-                    onClick={() => setFeedOpen(!isFeedOpen)}
-                    className={`relative p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors ${
-                      isFeedOpen ? 'bg-secondary text-foreground' : ''
-                    }`}
-                    title={isFeedOpen ? 'Close Notifications' : 'Notifications'}
+                    onClick={() => { void emitTauri(NOTCH_EVENT.toggle, {}); }}
+                    className="relative p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                    title="Notifications"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
@@ -697,9 +701,13 @@ function AppContent() {
           hideHeader={true}
           onOpenNotifications={() => {
             setAgentExpanded(false);
-            setFeedOpen((current) => !current);
+            if (isMobile) {
+              setFeedOpen((current) => !current);
+            } else {
+              void emitTauri(NOTCH_EVENT.toggle, {});
+            }
           }}
-          isNotificationsOpen={isFeedOpen}
+          isNotificationsOpen={isMobile ? isFeedOpen : false}
           onOpenDashboard={(projectId) => {
             selectProject(projectId);
             selectSession(null);
@@ -711,9 +719,9 @@ function AppContent() {
 
         {/* Main Content */}
         <main ref={swipeOpenClaudiaRef} className="flex-1 flex flex-col overflow-hidden relative">
-          {!isMobile && (
-            <ToastContainer className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex flex-col gap-2 pointer-events-none" />
-          )}
+          {/* Desktop: NotchPanel lives in the independent top-of-screen `notch` window.
+              Mobile: keep the in-window NotchPanel as a fallback since Tauri mobile
+              does not support an independent always-on-top window. */}
 
           {/* Chat Area */}
           <div className="flex-1 overflow-hidden relative">
@@ -821,17 +829,8 @@ function AppContent() {
 
         </main>
 
-        {/* Desktop: Feed dropdown panel (anchored below header) */}
-        {!isMobile && isFeedOpen && (
-          <>
-            <div className="fixed inset-0 z-30" onClick={() => setFeedOpen(false)} />
-            <div className="fixed left-1/2 -translate-x-1/2 top-[3.5rem] w-[420px] max-h-[60vh] z-40 bg-card border border-border rounded-lg shadow-lg flex flex-col overflow-hidden">
-              <NotificationsPanel />
-            </div>
-          </>
-        )}
-
-        {/* Desktop: Claudia is now a floating ball window — no side panel */}
+        {/* Desktop: Claudia is now a floating ball window — no side panel.
+            Notifications dropdown is handled by NotchPanel at top-center (灵动岛). */}
       </div>
 
       {/* Toast notifications */}
@@ -1028,6 +1027,13 @@ function App() {
   // Check if this window is the Claudia floating ball
   if (params.get('claudiaBall')) {
     return <Suspense fallback={<LazyFallback />}><ClaudiaBallWindow /></Suspense>;
+  }
+
+  // Check if this window is the independent NotchPanel (Dynamic Island).
+  // Renders *only* NotchWindow — no connection, no backend, no stores bootstrapped.
+  // State is mirrored from the main window via Tauri events.
+  if (params.get('notchWindow')) {
+    return <Suspense fallback={<LazyFallback />}><NotchWindowLazy /></Suspense>;
   }
 
   // Check if this window is the standalone Claudia chat

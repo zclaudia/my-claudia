@@ -29,6 +29,21 @@ function normalizeToolInput(input: unknown): unknown {
   return input;
 }
 
+// Safely extract questions array from AskUserQuestion input
+function extractQuestions(raw: unknown): Array<{
+  question: string;
+  header: string;
+  options: Array<{ label: string; description: string }>;
+  multiSelect?: boolean;
+  allowCustomValue?: boolean;
+  customValuePlaceholder?: string;
+}> {
+  const normalized = normalizeToolInput(raw);
+  if (Array.isArray(normalized)) return normalized;
+  if (typeof normalized === 'object' && normalized !== null) return [normalized as any];
+  return [];
+}
+
 function extractInteractionId(result: unknown): string | null {
   const normalized = normalizeToolInput(result);
   if (!normalized || typeof normalized !== 'object') return null;
@@ -67,6 +82,10 @@ function isApprovalTool(toolName: string): boolean {
   return hasInteractionToolSuffix(toolName, 'request_approval');
 }
 
+function isAskUserQuestionTool(toolName: string): boolean {
+  return toolName === 'AskUserQuestion';
+}
+
 // Check if tool is a push_file tool (MCP)
 function isPushFileTool(toolName: string): boolean {
   return hasInteractionToolSuffix(toolName, 'push_file');
@@ -82,7 +101,12 @@ function isPlanModeTool(toolName: string): boolean {
 
 // Check if tool is any MCP interaction tool
 function isInteractionTool(toolName: string): boolean {
-  return isTodoTool(toolName) || isAskUserFormTool(toolName) || isApprovalTool(toolName) || isPushFileTool(toolName) || isPlanModeTool(toolName);
+  return isTodoTool(toolName)
+    || isAskUserFormTool(toolName)
+    || isAskUserQuestionTool(toolName)
+    || isApprovalTool(toolName)
+    || isPushFileTool(toolName)
+    || isPlanModeTool(toolName);
 }
 
 type TodoItem = {
@@ -162,7 +186,7 @@ function formatToolInput(toolName: string, input: unknown): string {
     case 'WebSearch':
       return obj.query as string || JSON.stringify(input);
     case 'AskUserQuestion': {
-      const questions = (obj.questions as Array<{ question: string }>) || [];
+      const questions = extractQuestions(obj.questions);
       return `${questions.length} question${questions.length !== 1 ? 's' : ''}`;
     }
     case 'ExitPlanMode': {
@@ -463,14 +487,7 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
 
   // AskUserQuestion: readonly rendering; interactive answering is unified via InteractionItem
   if (toolName === 'AskUserQuestion' && input?.questions) {
-    const questions = input.questions as Array<{
-      question: string;
-      header: string;
-      options: Array<{ label: string; description: string }>;
-      multiSelect?: boolean;
-      allowCustomValue?: boolean;
-      customValuePlaceholder?: string;
-    }>;
+    const questions = extractQuestions(input.questions);
 
     return (
       <div className="px-3 pb-3 border-t border-border/50">
@@ -484,7 +501,7 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
                 <span className="text-xs text-foreground">{q.question}</span>
               </div>
               <div className="ml-2 space-y-1">
-                {q.options.map((opt) => (
+                {(Array.isArray(q.options) ? q.options : []).map((opt) => (
                   <div key={opt.label} className="flex items-start gap-2 text-xs">
                     <span className="text-muted-foreground flex-shrink-0">{q.multiSelect ? '☐' : '○'}</span>
                     <div>
@@ -715,6 +732,17 @@ export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallIte
     if (selectedSessionId && status === 'running' && (toolName === 'ExitPlanMode' || hasInteractionToolSuffix(toolName, 'exit_plan_mode'))) {
       return Object.values(s.interactions)
         .filter((item) => item.sessionId === selectedSessionId && item.type === 'interaction_plan_review')
+        .sort((a, b) => b.createdAt - a.createdAt)[0];
+    }
+
+    if (selectedSessionId && status === 'running' && toolName === 'AskUserQuestion') {
+      return Object.values(s.interactions)
+        .filter((item) =>
+          item.sessionId === selectedSessionId
+          && item.type === 'interaction_prompt'
+          && item.source === 'provider_native'
+          && item.variant === 'question',
+        )
         .sort((a, b) => b.createdAt - a.createdAt)[0];
     }
 

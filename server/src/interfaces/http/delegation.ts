@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import type Database from 'better-sqlite3';
 import { getDelegationConfig, saveDelegationConfig } from '../../application/conversation/agent/delegation-evaluator.js';
 import { DEFAULT_DELEGATION_CONFIG } from '@my-claudia/shared/features/delegation';
-import { validateCliJobProviderId } from '../../infrastructure/providers/cli-jobs/provider-validation.js';
+import { validateAIReviewProviderId } from '../../infrastructure/providers/cli-jobs/provider-validation.js';
 
 export function createDelegationRoutes(db: Database.Database): Router {
   const router = Router();
@@ -49,7 +49,7 @@ export function createDelegationRoutes(db: Database.Database): Router {
       if (typeof updated.analysisProviderId === 'string' && updated.analysisProviderId.trim() === '') {
         updated.analysisProviderId = undefined;
       }
-      const providerValidationError = validateCliJobProviderId(db, updated.analysisProviderId);
+      const providerValidationError = validateAIReviewProviderId(db, updated.analysisProviderId);
       if (providerValidationError) {
         res.status(400).json({
           success: false,

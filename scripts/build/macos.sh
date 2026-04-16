@@ -384,6 +384,15 @@ if [ "${SKIP_SIGNING:-}" != "1" ]; then
     for disk in $(hdiutil info 2>/dev/null | grep -A20 "image-path.*$BUNDLE_DIR" | grep '/dev/disk' | awk '{print $1}' | grep -o '/dev/disk[0-9]*' | sort -u); do
       hdiutil detach "$disk" -force 2>/dev/null || true
     done
+    # Force-unmount any lingering /Volumes/MyClaudia* before creating (catches cases
+    # where hdiutil info parsing missed a stale mount, which causes "Resource busy")
+    for vol in /Volumes/MyClaudia*; do
+      if [ -d "$vol" ]; then
+        echo "  Force unmounting volume: $vol"
+        hdiutil detach "$vol" -force 2>/dev/null || diskutil unmount force "$vol" 2>/dev/null || true
+      fi
+    done
+    sleep 1
     # Create new DMG
     DMG_NAME="MyClaudia_${VERSION}_$(uname -m).dmg"
     DMG_PATH="$DMG_DIR/$DMG_NAME"
