@@ -46,6 +46,7 @@ export function useNotchBridgeHost(params: { enabled: boolean }): void {
         const params = new URLSearchParams({ notchWindow: '1' });
         const notchUrl = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
         await invoke('create_notch_window', { notchUrl });
+        await invoke('resize_notch_window', { expanded: false });
       } catch (err) {
         // eslint-disable-next-line no-console
         console.warn('[NotchBridge] create_notch_window failed:', err);

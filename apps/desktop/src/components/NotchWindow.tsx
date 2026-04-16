@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { emit, listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import {
   OpenedRow,
   CloseIcon,
@@ -43,10 +44,13 @@ export function NotchWindow() {
   const [isOpen, setIsOpen] = useState(false);
   const [isAutoExpanded, setIsAutoExpanded] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const autoCollapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverExpandTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverCollapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevSnapshotRef = useRef<NotchStateSnapshot | null>(null);
+  const surfacePathRef = useRef<SVGPathElement | null>(null);
+  const [closedVisualOffset, setClosedVisualOffset] = useState(0);
 
   // Mark the document so the shared CSS knows to make html/body/#root transparent
   // — otherwise the light-mode `--background` color paints the whole window white
@@ -58,6 +62,12 @@ export function NotchWindow() {
       document.documentElement.classList.remove('notch-window');
       document.body.classList.remove('notch-window');
     };
+  }, []);
+
+  useEffect(() => {
+    const syncViewportWidth = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', syncViewportWidth);
+    return () => window.removeEventListener('resize', syncViewportWidth);
   }, []);
 
   // Listen for state snapshots from the main window.
@@ -99,9 +109,38 @@ export function NotchWindow() {
     return () => { un.then((u) => u()).catch(() => undefined); };
   }, []);
 
-  // Note: the OS window keeps its full opened size at all times. Only the CSS
-  // `shape` box animates width/height — this avoids any clipping while the
-  // asynchronous `set_size` round-trip is in flight.
+  // Keep the native notch window sized to the visible surface so transparent
+  // regions do not intercept clicks when the panel is collapsed.
+  useEffect(() => {
+    invoke('resize_notch_window', { expanded: isOpen }).catch(() => undefined);
+  }, [isOpen]);
+
+  // Closed state should visually center the rendered black surface inside the
+  // native window. Adjust the React layer itself instead of nudging the window.
+  useEffect(() => {
+    if (isOpen) {
+      setClosedVisualOffset(0);
+      return;
+    }
+
+    const node = surfacePathRef.current;
+    if (!node) return;
+
+    const raf = window.requestAnimationFrame(async () => {
+      try {
+        const rect = node.getBoundingClientRect();
+        const surfaceCenterX = rect.left + rect.width / 2;
+        const viewportCenterX = viewportWidth / 2;
+        const delta = viewportCenterX - surfaceCenterX;
+        if (Math.abs(delta) < 0.25) return;
+        setClosedVisualOffset((prev) => prev + delta);
+      } catch {
+        // ignore centering measurement failures
+      }
+    });
+
+    return () => window.cancelAnimationFrame(raf);
+  }, [closedVisualOffset, isOpen, viewportWidth]);
 
   // Auto-collapse for toast-driven auto-open (skipped while hovered / manual).
   useEffect(() => {
@@ -269,9 +308,25 @@ export function NotchWindow() {
   const shapeWidth = isOpen ? SHAPE_OPENED_W : SHAPE_CLOSED_W;
   const shapeHeight = isOpen ? SHAPE_OPENED_H : SHAPE_CLOSED_H;
 
-  // ping-island shape: top is FLAT against the screen edge (no top radius),
-  // bottom has standard rounded corners. Simplest possible geometry.
+  // Draw the visible shape around a true center line so closed/opened states
+  // share the same geometric centering basis.
+  const topOuterRadius = isOpen ? 16 : 12;
+  const halfBodyWidth = shapeWidth / 2;
+  const outerHalfWidth = halfBodyWidth + topOuterRadius;
+  const canvasWidth = outerHalfWidth * 2;
   const bottomRadius = isOpen ? 26 : 20;
+  const islandPath = [
+    `M ${-halfBodyWidth} ${topOuterRadius}`,
+    `Q ${-halfBodyWidth} 0 ${-outerHalfWidth} 0`,
+    `H ${outerHalfWidth}`,
+    `Q ${halfBodyWidth} 0 ${halfBodyWidth} ${topOuterRadius}`,
+    `V ${shapeHeight - bottomRadius}`,
+    `Q ${halfBodyWidth} ${shapeHeight} ${halfBodyWidth - bottomRadius} ${shapeHeight}`,
+    `H ${-(halfBodyWidth - bottomRadius)}`,
+    `Q ${-halfBodyWidth} ${shapeHeight} ${-halfBodyWidth} ${shapeHeight - bottomRadius}`,
+    `V ${topOuterRadius}`,
+    'Z',
+  ].join(' ');
 
   return (
     // Root: fills the entire transparent Tauri window. The notch shape itself is
@@ -283,24 +338,32 @@ export function NotchWindow() {
       <div
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
-        className="absolute left-1/2 top-0 -translate-x-1/2
+        className="absolute left-1/2 top-0
                    transition-[width,height] duration-[320ms]
                    ease-[cubic-bezier(0.32,0.72,0,1)]"
-        style={{ width: shapeWidth, height: shapeHeight }}
+        style={{
+          width: canvasWidth,
+          height: shapeHeight,
+          transform: `translateX(calc(-50% + ${closedVisualOffset}px))`,
+        }}
       >
-        {/* The shape itself: rounded rectangle with smaller top radii and larger
-            bottom radii. Apple Dynamic Island style. */}
-        <div
-          className="absolute inset-0 bg-black overflow-hidden
-                     shadow-[0_12px_28px_-10px_rgba(0,0,0,0.45)]
-                     transition-[border-radius] duration-[320ms]
-                     ease-[cubic-bezier(0.32,0.72,0,1)]"
+        <svg
+          aria-hidden
+          className="absolute inset-0 z-0 text-black"
+          viewBox={`${-outerHalfWidth} 0 ${canvasWidth} ${shapeHeight}`}
+          preserveAspectRatio="none"
           style={{
-            borderTopLeftRadius: 0,
-            borderTopRightRadius: 0,
-            borderBottomLeftRadius: bottomRadius,
-            borderBottomRightRadius: bottomRadius,
+            filter: isOpen
+              ? 'drop-shadow(0 6px 10px rgba(0,0,0,0.12))'
+              : 'drop-shadow(0 12px 28px rgba(0,0,0,0.42))',
           }}
+        >
+          <path ref={surfacePathRef} d={islandPath} fill="currentColor" />
+        </svg>
+
+        <div
+          className="absolute top-0 left-1/2 z-10 overflow-hidden -translate-x-1/2"
+          style={{ width: shapeWidth, height: shapeHeight }}
         >
         {/* Closed content — centered inside the ~32px notch strip */}
         {!isOpen && (
@@ -317,17 +380,17 @@ export function NotchWindow() {
         {isOpen && (
           <div className="absolute inset-0 flex flex-col">
             {/* Header */}
-            <div className="flex items-center justify-between px-3 pt-1.5 pb-1.5 border-b border-white/[0.06] flex-shrink-0">
-              <div className="flex items-center gap-2">
-                <img src="/logo.png" alt="" className="w-4 h-4 rounded-full ring-1 ring-white/15 object-cover" draggable={false} />
-                <span className="text-[13px] font-semibold tracking-tight text-white">Notifications</span>
+            <div className="relative flex items-center justify-end px-3 pt-1.5 pb-1.5 border-b border-white/[0.06] flex-shrink-0">
+              <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2">
+                <img src="/logo.png" alt="" className="relative top-px w-4 h-4 rounded-full ring-1 ring-white/15 object-cover" draggable={false} />
+                <span className="text-[13px] leading-none font-semibold tracking-tight text-white">Notifications</span>
                 {snapshot.unreadCount > 0 && (
                   <span className="px-1.5 h-4 flex items-center justify-center text-[10px] font-semibold tabular-nums bg-white/15 text-white rounded-full">
                     {snapshot.unreadCount > 99 ? '99+' : snapshot.unreadCount}
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 relative z-10">
                 {hasReadItems && (
                   <button
                     onClick={clearRead}

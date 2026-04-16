@@ -320,13 +320,17 @@ fn create_claudia_ball(
 // on MacBook Pro 14"/16").
 // Opened state: a wider panel that drops down from the notch.
 #[cfg(not(target_os = "android"))]
-const NOTCH_CLOSED_WIDTH: f64 = 220.0;
+const NOTCH_WINDOW_WIDTH: f64 = 620.0;
+#[cfg(not(target_os = "android"))]
+const NOTCH_WINDOW_HEIGHT: f64 = 600.0;
+#[cfg(not(target_os = "android"))]
+const NOTCH_CLOSED_WIDTH: f64 = 244.0;
 #[cfg(not(target_os = "android"))]
 const NOTCH_CLOSED_HEIGHT: f64 = 32.0;
 #[cfg(not(target_os = "android"))]
-const NOTCH_OPENED_WIDTH: f64 = 460.0;
+const NOTCH_OPENED_WIDTH: f64 = NOTCH_WINDOW_WIDTH;
 #[cfg(not(target_os = "android"))]
-const NOTCH_OPENED_HEIGHT: f64 = 600.0;
+const NOTCH_OPENED_HEIGHT: f64 = NOTCH_WINDOW_HEIGHT;
 
 /// macOS: raise the notch window ABOVE the menu bar, pin it across all Spaces, and
 /// force its top edge to the physical screen top (not the menu-bar-excluded visibleFrame).
@@ -399,7 +403,7 @@ fn create_notch_window(app: tauri::AppHandle, notch_url: String) -> Result<(), S
         if let Some(monitor) = primary {
             let scale = monitor.scale_factor().max(1e-3);
             let screen_w = monitor.size().width as f64 / scale;
-            let x = (screen_w - NOTCH_OPENED_WIDTH) / 2.0;
+            let x = (screen_w - NOTCH_WINDOW_WIDTH) / 2.0;
             (x.max(0.0), 0.0)
         } else {
             (0.0, 0.0)
@@ -408,7 +412,7 @@ fn create_notch_window(app: tauri::AppHandle, notch_url: String) -> Result<(), S
 
     let builder = WebviewWindowBuilder::new(&app, "notch", claudia_window_url(&notch_url)?)
         .title("")
-        .inner_size(NOTCH_OPENED_WIDTH, NOTCH_OPENED_HEIGHT)
+        .inner_size(NOTCH_WINDOW_WIDTH, NOTCH_WINDOW_HEIGHT)
         .position(x, y)
         .decorations(false)
         .transparent(true)
