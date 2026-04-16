@@ -355,7 +355,7 @@ export function NotchWindow() {
           style={{
             filter: isOpen
               ? 'drop-shadow(0 6px 10px rgba(0,0,0,0.12))'
-              : 'drop-shadow(0 12px 28px rgba(0,0,0,0.42))',
+              : 'drop-shadow(0 4px 10px rgba(0,0,0,0.18))',
           }}
         >
           <path ref={surfacePathRef} d={islandPath} fill="currentColor" />
