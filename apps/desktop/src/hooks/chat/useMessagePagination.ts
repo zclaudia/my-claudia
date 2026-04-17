@@ -181,12 +181,13 @@ export function useMessagePagination({
         }
 
         setInitialLoadDone(true);
-        setTimeout(() => {
+        // Use rAF to ensure the DOM has rendered the new messages before scrolling
+        requestAnimationFrame(() => {
           if (pendingMessageJump?.sessionId === sessionId) {
             return;
           }
           scrollToBottom(true);
-        }, 0);
+        });
       }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {

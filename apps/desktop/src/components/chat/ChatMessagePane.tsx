@@ -95,6 +95,12 @@ export const ChatMessagePane = memo(function ChatMessagePane({
     [interactionsMap, sessionId],
   );
   const shouldStickToBottomRef = useRef(true);
+
+  // Reset sticky-to-bottom on session switch so the new session always scrolls to bottom
+  useEffect(() => {
+    shouldStickToBottomRef.current = true;
+  }, [sessionId]);
+
   const hasSessionSnapshot = !!sessionPagination;
   const isInitialMessageLoading = !loadError && (!initialLoadDone || !hasSessionSnapshot);
 
