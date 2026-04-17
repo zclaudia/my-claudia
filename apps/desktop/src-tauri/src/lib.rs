@@ -221,7 +221,7 @@ fn claudia_window_url(raw_url: &str) -> Result<WebviewUrl, String> {
 /// macOS: make window fully transparent (for floating ball — no shadow, no background).
 #[cfg(target_os = "macos")]
 fn make_ball_transparent(window: &WebviewWindow) {
-    let _ = window.with_webview(|webview| unsafe {
+    let _ = window.with_webview(move |webview| unsafe {
         use objc2::msg_send;
         use objc2::runtime::{AnyClass, AnyObject, Bool};
 
@@ -384,6 +384,43 @@ fn make_notch_above_menu_bar(window: &WebviewWindow) {
     });
 }
 
+#[cfg(target_os = "macos")]
+fn set_notch_frame(window: &WebviewWindow, x: f64, width: f64, height: f64) {
+    let _ = window.with_webview(move |webview| unsafe {
+        use objc2::msg_send;
+        use objc2::runtime::{AnyObject, Bool};
+        use objc2_foundation::{NSPoint, NSRect, NSSize};
+
+        let win: *mut AnyObject = webview.ns_window() as _;
+        if win.is_null() {
+            return;
+        }
+
+        let screen: *mut AnyObject = msg_send![win, screen];
+        if screen.is_null() {
+            return;
+        }
+
+        let screen_frame: NSRect = msg_send![screen, frame];
+        let screen_top_y = screen_frame.origin.y + screen_frame.size.height;
+        let frame = NSRect {
+            origin: NSPoint {
+                x,
+                y: screen_top_y - height,
+            },
+            size: NSSize {
+                width,
+                height,
+            },
+        };
+
+        let _: () = msg_send![win, setFrame: frame, display: Bool::from(true)];
+        let no = Bool::from(false);
+        let _: () = msg_send![win, setHasShadow: no];
+        let _: () = msg_send![win, invalidateShadow];
+    });
+}
+
 /// Create the always-on-top notch window (Dynamic Island-style notification surface).
 /// The underlying OS window is always sized for the fully-opened panel; the visible
 /// notch shape is CSS-animated inside the (transparent) window. This avoids timing
@@ -447,16 +484,27 @@ fn resize_notch_window(app: tauri::AppHandle, expanded: bool) -> Result<(), Stri
         (NOTCH_CLOSED_WIDTH, NOTCH_CLOSED_HEIGHT)
     };
 
-    window
-        .set_size(tauri::Size::Logical(tauri::LogicalSize { width: w, height: h }))
-        .map_err(|e| e.to_string())?;
-
-    // Re-center horizontally after resize to keep the pill centered.
     if let Ok(Some(monitor)) = window.current_monitor() {
         let scale = monitor.scale_factor().max(1e-3);
         let screen_w = monitor.size().width as f64 / scale;
         let x = (screen_w - w) / 2.0;
-        let _ = window.set_position(Position::Logical(LogicalPosition::new(x.max(0.0), 0.0)));
+
+        #[cfg(target_os = "macos")]
+        {
+            set_notch_frame(&window, x.max(0.0), w, h);
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            window
+                .set_size(tauri::Size::Logical(tauri::LogicalSize { width: w, height: h }))
+                .map_err(|e| e.to_string())?;
+            let _ = window.set_position(Position::Logical(LogicalPosition::new(x.max(0.0), 0.0)));
+        }
+    } else {
+        window
+            .set_size(tauri::Size::Logical(tauri::LogicalSize { width: w, height: h }))
+            .map_err(|e| e.to_string())?;
     }
 
     Ok(())
