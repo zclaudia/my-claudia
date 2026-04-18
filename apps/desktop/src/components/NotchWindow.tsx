@@ -19,6 +19,43 @@ import type { Toast } from '../stores/toastStore';
 const AUTO_COLLAPSE_MS = 5000;
 const HOVER_EXPAND_DELAY = 300;
 const HOVER_COLLAPSE_DELAY = 200;
+const ANIM_DURATION_MS = 360;
+
+const SHAPE_CLOSED_W = 220;
+const SHAPE_CLOSED_H = 32;
+const SHAPE_OPENED_W = 460;
+const SHAPE_OPENED_H = 600;
+const TOP_R_CLOSED = 12;
+const TOP_R_OPENED = 16;
+const BOT_R_CLOSED = 20;
+const BOT_R_OPENED = 26;
+
+/** cubic-bezier(0.32, 0.72, 0, 1) approximation — fast start, gentle settle. */
+function easeOut(t: number): number {
+  const inv = 1 - t;
+  return 1 - inv * inv * inv;
+}
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+function buildIslandPath(w: number, h: number, topR: number, botR: number): string {
+  const hw = w / 2;
+  const ohw = hw + topR;
+  return [
+    `M ${-hw} ${topR}`,
+    `Q ${-hw} 0 ${-ohw} 0`,
+    `H ${ohw}`,
+    `Q ${hw} 0 ${hw} ${topR}`,
+    `V ${h - botR}`,
+    `Q ${hw} ${h} ${hw - botR} ${h}`,
+    `H ${-(hw - botR)}`,
+    `Q ${-hw} ${h} ${-hw} ${h - botR}`,
+    `V ${topR}`,
+    'Z',
+  ].join(' ');
+}
 
 /**
  * Standalone React entry for the independent `notch` Tauri window.
@@ -44,13 +81,11 @@ export function NotchWindow() {
   const [isOpen, setIsOpen] = useState(false);
   const [isAutoExpanded, setIsAutoExpanded] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
-  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const autoCollapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverExpandTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverCollapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevSnapshotRef = useRef<NotchStateSnapshot | null>(null);
   const surfacePathRef = useRef<SVGPathElement | null>(null);
-  const [closedVisualOffset, setClosedVisualOffset] = useState(0);
 
   // Mark the document so the shared CSS knows to make html/body/#root transparent
   // — otherwise the light-mode `--background` color paints the whole window white
@@ -62,12 +97,6 @@ export function NotchWindow() {
       document.documentElement.classList.remove('notch-window');
       document.body.classList.remove('notch-window');
     };
-  }, []);
-
-  useEffect(() => {
-    const syncViewportWidth = () => setViewportWidth(window.innerWidth);
-    window.addEventListener('resize', syncViewportWidth);
-    return () => window.removeEventListener('resize', syncViewportWidth);
   }, []);
 
   // Listen for state snapshots from the main window.
@@ -109,38 +138,105 @@ export function NotchWindow() {
     return () => { un.then((u) => u()).catch(() => undefined); };
   }, []);
 
-  // Keep the native notch window sized to the visible surface so transparent
-  // regions do not intercept clicks when the panel is collapsed.
+  // Escape key or window blur collapses the panel.
   useEffect(() => {
-    invoke('resize_notch_window', { expanded: isOpen }).catch(() => undefined);
+    if (!isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsOpen(false);
+        setIsAutoExpanded(false);
+      }
+    };
+    const onBlur = () => {
+      setIsOpen(false);
+      setIsAutoExpanded(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('blur', onBlur);
+    };
   }, [isOpen]);
 
-  // Closed state should visually center the rendered black surface inside the
-  // native window. Adjust the React layer itself instead of nudging the window.
+  // --- Shape animation driven by requestAnimationFrame ---
+  // `progress` goes 0 (closed) → 1 (open). All shape values are interpolated.
+  const [progress, setProgress] = useState(0);
+  const progressRef = useRef(0);
+  const rafRef = useRef<number | null>(null);
+  const hoverPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Enable click pass-through and start polling cursor position.
+  // When cursor enters the pill area, disable pass-through so the webview
+  // receives hover/click events and triggers expansion.
+  const startPassthroughPolling = () => {
+    invoke('set_notch_passthrough', { passthrough: true }).catch(() => undefined);
+    if (hoverPollRef.current) clearInterval(hoverPollRef.current);
+    hoverPollRef.current = setInterval(async () => {
+      try {
+        const inPill = await invoke<boolean>('check_notch_hover');
+        if (inPill) {
+          if (hoverPollRef.current) clearInterval(hoverPollRef.current);
+          hoverPollRef.current = null;
+          await invoke('set_notch_passthrough', { passthrough: false });
+          // Cursor is already inside — mouseEnter won't fire, so expand directly.
+          setIsHovering(true);
+          hoverExpandTimer.current = setTimeout(() => {
+            setIsOpen(true);
+            setIsAutoExpanded(true);
+          }, HOVER_EXPAND_DELAY);
+        }
+      } catch { /* ignore */ }
+    }, 50);
+  };
+
+  // On mount: window is at full size, enable pass-through for collapsed state.
   useEffect(() => {
+    startPassthroughPolling();
+    return () => { if (hoverPollRef.current) clearInterval(hoverPollRef.current); };
+  }, []);
+
+  // Shape animation.
+  useEffect(() => {
+    const target = isOpen ? 1 : 0;
+    const from = progressRef.current;
+    if (from === target) return;
+
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+
     if (isOpen) {
-      setClosedVisualOffset(0);
-      return;
+      // Expanding — stop polling, ensure pass-through is off.
+      if (hoverPollRef.current) { clearInterval(hoverPollRef.current); hoverPollRef.current = null; }
+      invoke('set_notch_passthrough', { passthrough: false }).catch(() => undefined);
+      // Non-macOS: resize window.
+      invoke('resize_notch_window', { expanded: true }).catch(() => undefined);
     }
 
-    const node = surfacePathRef.current;
-    if (!node) return;
+    const startTime = performance.now();
+    const duration = ANIM_DURATION_MS * Math.abs(target - from);
 
-    const raf = window.requestAnimationFrame(async () => {
-      try {
-        const rect = node.getBoundingClientRect();
-        const surfaceCenterX = rect.left + rect.width / 2;
-        const viewportCenterX = viewportWidth / 2;
-        const delta = viewportCenterX - surfaceCenterX;
-        if (Math.abs(delta) < 0.25) return;
-        setClosedVisualOffset((prev) => prev + delta);
-      } catch {
-        // ignore centering measurement failures
+    const tick = (now: number) => {
+      const t = Math.min((now - startTime) / duration, 1);
+      const v = from + (target - from) * easeOut(t);
+      progressRef.current = v;
+      setProgress(v);
+
+      if (t < 1) {
+        rafRef.current = requestAnimationFrame(tick);
+      } else {
+        rafRef.current = null;
+        if (!isOpen) {
+          // Collapse finished — enable pass-through and start polling.
+          // Non-macOS: resize window.
+          invoke('resize_notch_window', { expanded: false }).catch(() => undefined);
+          startPassthroughPolling();
+        }
       }
-    });
+    };
 
-    return () => window.cancelAnimationFrame(raf);
-  }, [closedVisualOffset, isOpen, viewportWidth]);
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [isOpen]);
 
   // Auto-collapse for toast-driven auto-open (skipped while hovered / manual).
   useEffect(() => {
@@ -185,7 +281,7 @@ export function NotchWindow() {
   const handleMouseLeave = () => {
     setIsHovering(false);
     clearHoverTimers();
-    if (isOpen && isAutoExpanded) {
+    if (isOpen) {
       hoverCollapseTimer.current = setTimeout(() => {
         setIsOpen(false);
         setIsAutoExpanded(false);
@@ -298,53 +394,41 @@ export function NotchWindow() {
     </span>
   ) : null;
 
-  // Explicit shape dimensions — the black notch is centered horizontally inside
-  // the (possibly wider) Tauri window, keeping the shape symmetric regardless of
-  // what size the OS actually gave the window.
-  const SHAPE_CLOSED_W = 220;
-  const SHAPE_CLOSED_H = 32;
-  const SHAPE_OPENED_W = 460;
-  const SHAPE_OPENED_H = 600;
-  const shapeWidth = isOpen ? SHAPE_OPENED_W : SHAPE_CLOSED_W;
-  const shapeHeight = isOpen ? SHAPE_OPENED_H : SHAPE_CLOSED_H;
-
-  // Draw the visible shape around a true center line so closed/opened states
-  // share the same geometric centering basis.
-  const topOuterRadius = isOpen ? 16 : 12;
+  // --- Interpolated shape geometry (driven by `progress`) ---
+  const p = progress;
+  const shapeWidth = lerp(SHAPE_CLOSED_W, SHAPE_OPENED_W, p);
+  const shapeHeight = lerp(SHAPE_CLOSED_H, SHAPE_OPENED_H, p);
+  const topOuterRadius = lerp(TOP_R_CLOSED, TOP_R_OPENED, p);
+  const bottomRadius = lerp(BOT_R_CLOSED, BOT_R_OPENED, p);
   const halfBodyWidth = shapeWidth / 2;
   const outerHalfWidth = halfBodyWidth + topOuterRadius;
   const canvasWidth = outerHalfWidth * 2;
-  const bottomRadius = isOpen ? 26 : 20;
-  const islandPath = [
-    `M ${-halfBodyWidth} ${topOuterRadius}`,
-    `Q ${-halfBodyWidth} 0 ${-outerHalfWidth} 0`,
-    `H ${outerHalfWidth}`,
-    `Q ${halfBodyWidth} 0 ${halfBodyWidth} ${topOuterRadius}`,
-    `V ${shapeHeight - bottomRadius}`,
-    `Q ${halfBodyWidth} ${shapeHeight} ${halfBodyWidth - bottomRadius} ${shapeHeight}`,
-    `H ${-(halfBodyWidth - bottomRadius)}`,
-    `Q ${-halfBodyWidth} ${shapeHeight} ${-halfBodyWidth} ${shapeHeight - bottomRadius}`,
-    `V ${topOuterRadius}`,
-    'Z',
-  ].join(' ');
+  const islandPath = buildIslandPath(shapeWidth, shapeHeight, topOuterRadius, bottomRadius);
+
+  // Content opacity driven by progress.
+  // Opened content uses conditional rendering to avoid WebKit ghost artifacts
+  // from invisible DOM elements in the large transparent window.
+  const closedOpacity = p < 0.15 ? 1 : Math.max(0, 1 - (p - 0.15) / 0.15);
+  const openedOpacity = p > 0.6 ? 1 : Math.max(0, (p - 0.4) / 0.2);
+
+  // Click on transparent area (outside the panel shape) collapses the panel.
+  const handleBackdropMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isOpen && e.target === e.currentTarget) {
+      setIsOpen(false);
+      setIsAutoExpanded(false);
+    }
+  };
 
   return (
-    // Root: fills the entire transparent Tauri window. The notch shape itself is
-    // an absolutely-positioned box with explicit width — centered at the top —
-    // so its geometry is independent of the underlying window size.
-    <div className="w-full h-full relative">
-      {/* Positioning wrapper holds the single notch-shaped surface. Hover
-          handlers live here so the entire notch reacts. */}
+    <div className="w-full h-full relative" style={{ contain: 'strict' }} onMouseDown={handleBackdropMouseDown}>
       <div
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
-        className="absolute left-1/2 top-0
-                   transition-[width,height] duration-[320ms]
-                   ease-[cubic-bezier(0.32,0.72,0,1)]"
+        className="absolute left-1/2 top-0"
         style={{
           width: canvasWidth,
           height: shapeHeight,
-          transform: `translateX(calc(-50% + ${closedVisualOffset}px))`,
+          transform: 'translateX(-50%)',
         }}
       >
         <svg
@@ -353,9 +437,11 @@ export function NotchWindow() {
           viewBox={`${-outerHalfWidth} 0 ${canvasWidth} ${shapeHeight}`}
           preserveAspectRatio="none"
           style={{
-            filter: isOpen
-              ? 'drop-shadow(0 6px 10px rgba(0,0,0,0.12))'
-              : 'drop-shadow(0 4px 10px rgba(0,0,0,0.18))',
+            filter: p > 0.01
+              ? (p > 0.5
+                ? 'drop-shadow(0 6px 10px rgba(0,0,0,0.12))'
+                : 'drop-shadow(0 4px 10px rgba(0,0,0,0.18))')
+              : 'none',
           }}
         >
           <path ref={surfacePathRef} d={islandPath} fill="currentColor" />
@@ -365,25 +451,33 @@ export function NotchWindow() {
           className="absolute top-0 left-1/2 z-10 overflow-hidden -translate-x-1/2"
           style={{ width: shapeWidth, height: shapeHeight }}
         >
-        {/* Closed content — centered inside the ~32px notch strip */}
-        {!isOpen && (
-          <div className="absolute inset-0 flex items-center justify-center gap-2 px-3">
-            {closedLeading}
-            <span className="text-[11px] font-medium tracking-tight text-white/90 truncate max-w-[150px]">
-              {pillPreview?.title ?? 'MyClaudia'}
-            </span>
-            {closedTrailing}
-          </div>
-        )}
+        {/* Closed content — always rendered, opacity driven by progress */}
+        <div
+          className="absolute inset-0 flex items-center justify-center gap-2 px-3"
+          style={{
+            opacity: closedOpacity,
+            pointerEvents: closedOpacity > 0 ? 'auto' : 'none',
+            visibility: closedOpacity > 0 ? 'visible' : 'hidden',
+          }}
+        >
+          {closedLeading}
+          <span className="text-[13px] font-semibold tracking-tight text-white truncate max-w-[150px]">
+            {pillPreview?.title ?? 'MyClaudia'}
+          </span>
+          {closedTrailing}
+        </div>
 
-        {/* Opened content — header + list, fills the resized window */}
-        {isOpen && (
-          <div className="absolute inset-0 flex flex-col">
+        {/* Opened content — conditionally rendered to avoid ghost artifacts */}
+        {openedOpacity > 0 && (
+        <div
+          className="absolute inset-0 flex flex-col"
+          style={{ opacity: openedOpacity }}
+        >
             {/* Header */}
             <div className="relative flex items-center justify-end px-3 pt-1.5 pb-1.5 border-b border-white/[0.06] flex-shrink-0">
               <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2">
-                <img src="/logo.png" alt="" className="relative top-px w-4 h-4 rounded-full ring-1 ring-white/15 object-cover" draggable={false} />
-                <span className="text-[13px] leading-none font-semibold tracking-tight text-white">Notifications</span>
+                <img src="/logo.png" alt="" className="w-4 h-4 rounded-full ring-1 ring-white/15 object-cover" draggable={false} />
+                <span className="text-[13px] font-semibold tracking-tight text-white">MyClaudia</span>
                 {snapshot.unreadCount > 0 && (
                   <span className="px-1.5 h-4 flex items-center justify-center text-[10px] font-semibold tabular-nums bg-white/15 text-white rounded-full">
                     {snapshot.unreadCount > 99 ? '99+' : snapshot.unreadCount}

@@ -255,6 +255,7 @@ body.notch-window {
   overflow: hidden;
 }
 
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

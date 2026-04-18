@@ -40,6 +40,7 @@ const FONT_CONFIGS: Record<FontSizePreset, FontSizeConfig> = {
 
 const STORAGE_KEY = 'my-claudia-font-size';
 const ADV_INPUT_KEY = 'my-claudia-advanced-input';
+const NOTCH_PANEL_KEY = 'my-claudia-show-notch-panel';
 
 function loadFontSize(): FontSizePreset {
   try {
@@ -76,6 +77,8 @@ interface UIState {
   pendingMessageJump: { sessionId: string; messageId: string } | null;
   requestMessageJump: (sessionId: string, messageId: string) => void;
   clearMessageJump: (sessionId: string, messageId: string) => void;
+  showNotchPanel: boolean;
+  setShowNotchPanel: (show: boolean) => void;
   // Tracks sessions that have been popped out to standalone windows: sessionId → windowLabel
   poppedOutSessions: Map<string, string>;
   addPoppedOutSession: (sessionId: string, windowLabel: string) => void;
@@ -90,12 +93,23 @@ export const useUIStore = create<UIState>((set) => {
   let advInitial = false;
   try { advInitial = localStorage.getItem(ADV_INPUT_KEY) === 'true'; } catch { /* ignore */ }
 
+  let notchInitial = true;
+  try {
+    const saved = localStorage.getItem(NOTCH_PANEL_KEY);
+    if (saved !== null) notchInitial = saved !== 'false';
+  } catch { /* ignore */ }
+
   return {
     fontSize: initial,
     setFontSize: (size) => {
       localStorage.setItem(STORAGE_KEY, size);
       applyFontVars(size);
       set({ fontSize: size });
+    },
+    showNotchPanel: notchInitial,
+    setShowNotchPanel: (show) => {
+      localStorage.setItem(NOTCH_PANEL_KEY, String(show));
+      set({ showNotchPanel: show });
     },
     advancedInput: advInitial,
     setAdvancedInput: (enabled) => {

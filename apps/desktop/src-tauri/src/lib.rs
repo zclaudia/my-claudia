@@ -327,9 +327,9 @@ const NOTCH_WINDOW_HEIGHT: f64 = 600.0;
 const NOTCH_CLOSED_WIDTH: f64 = 244.0;
 #[cfg(not(target_os = "android"))]
 const NOTCH_CLOSED_HEIGHT: f64 = 32.0;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "macos")))]
 const NOTCH_OPENED_WIDTH: f64 = NOTCH_WINDOW_WIDTH;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "macos")))]
 const NOTCH_OPENED_HEIGHT: f64 = NOTCH_WINDOW_HEIGHT;
 
 /// macOS: raise the notch window ABOVE the menu bar, pin it across all Spaces, and
@@ -385,6 +385,7 @@ fn make_notch_above_menu_bar(window: &WebviewWindow) {
 }
 
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 fn set_notch_frame(window: &WebviewWindow, x: f64, width: f64, height: f64) {
     let _ = window.with_webview(move |webview| unsafe {
         use objc2::msg_send;
@@ -414,10 +415,11 @@ fn set_notch_frame(window: &WebviewWindow, x: f64, width: f64, height: f64) {
             },
         };
 
+        // display:YES ensures the webview viewport updates immediately so CSS
+        // layout stays consistent with the new window size.
+        // Shadow is already disabled by make_ball_transparent — no need to
+        // re-set or invalidate it here.
         let _: () = msg_send![win, setFrame: frame, display: Bool::from(true)];
-        let no = Bool::from(false);
-        let _: () = msg_send![win, setHasShadow: no];
-        let _: () = msg_send![win, invalidateShadow];
     });
 }
 
@@ -470,44 +472,95 @@ fn create_notch_window(app: tauri::AppHandle, notch_url: String) -> Result<(), S
     Ok(())
 }
 
-/// Resize the notch window smoothly. Used when the panel expands or collapses.
+/// Resize the notch window when the panel expands or collapses.
+///
+/// macOS: no-op. The window stays at full size (620×600) permanently to avoid
+/// the compositing flash caused by `setFrame`. Click pass-through is handled
+/// by `set_notch_passthrough` + `check_notch_hover` instead.
+///
+/// Other platforms: resize the native window so transparent regions do not
+/// intercept clicks.
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
 fn resize_notch_window(app: tauri::AppHandle, expanded: bool) -> Result<(), String> {
-    let window = app
-        .get_webview_window("notch")
-        .ok_or_else(|| "notch window not found".to_string())?;
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (app, expanded);
+        return Ok(());
+    }
 
-    let (w, h) = if expanded {
-        (NOTCH_OPENED_WIDTH, NOTCH_OPENED_HEIGHT)
-    } else {
-        (NOTCH_CLOSED_WIDTH, NOTCH_CLOSED_HEIGHT)
-    };
+    #[cfg(not(target_os = "macos"))]
+    {
+        let window = app
+            .get_webview_window("notch")
+            .ok_or_else(|| "notch window not found".to_string())?;
 
-    if let Ok(Some(monitor)) = window.current_monitor() {
-        let scale = monitor.scale_factor().max(1e-3);
-        let screen_w = monitor.size().width as f64 / scale;
-        let x = (screen_w - w) / 2.0;
+        let (w, h) = if expanded {
+            (NOTCH_OPENED_WIDTH, NOTCH_OPENED_HEIGHT)
+        } else {
+            (NOTCH_CLOSED_WIDTH, NOTCH_CLOSED_HEIGHT)
+        };
 
-        #[cfg(target_os = "macos")]
-        {
-            set_notch_frame(&window, x.max(0.0), w, h);
-        }
-
-        #[cfg(not(target_os = "macos"))]
-        {
+        if let Ok(Some(monitor)) = window.current_monitor() {
+            let scale = monitor.scale_factor().max(1e-3);
+            let screen_w = monitor.size().width as f64 / scale;
+            let x = (screen_w - w) / 2.0;
             window
                 .set_size(tauri::Size::Logical(tauri::LogicalSize { width: w, height: h }))
                 .map_err(|e| e.to_string())?;
             let _ = window.set_position(Position::Logical(LogicalPosition::new(x.max(0.0), 0.0)));
+        } else {
+            window
+                .set_size(tauri::Size::Logical(tauri::LogicalSize { width: w, height: h }))
+                .map_err(|e| e.to_string())?;
         }
-    } else {
-        window
-            .set_size(tauri::Size::Logical(tauri::LogicalSize { width: w, height: h }))
-            .map_err(|e| e.to_string())?;
-    }
 
-    Ok(())
+        Ok(())
+    }
+}
+
+/// Toggle click pass-through on the notch window.
+/// When `passthrough` is true, the window ignores all mouse events (clicks
+/// and hovers pass through to whatever is below).
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn set_notch_passthrough(app: tauri::AppHandle, passthrough: bool) -> Result<(), String> {
+    let window = app
+        .get_webview_window("notch")
+        .ok_or_else(|| "notch window not found".to_string())?;
+    window
+        .set_ignore_cursor_events(passthrough)
+        .map_err(|e| e.to_string())
+}
+
+/// Check whether the cursor is currently hovering over the collapsed notch
+/// pill area.  Returns `true` if the cursor falls inside a 240×40 logical-
+/// pixel hit box centred at the top of the notch window.
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn check_notch_hover(app: tauri::AppHandle) -> Result<bool, String> {
+    let window = app
+        .get_webview_window("notch")
+        .ok_or_else(|| "notch window not found".to_string())?;
+
+    let cursor = window.cursor_position().map_err(|e| e.to_string())?;
+    let win_pos = window.outer_position().map_err(|e| e.to_string())?;
+    let win_size = window.outer_size().map_err(|e| e.to_string())?;
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+
+    // Relative position inside window (physical pixels).
+    let rel_x = cursor.x - win_pos.x as f64;
+    let rel_y = cursor.y - win_pos.y as f64;
+
+    // Pill hit-box in physical pixels (slightly larger than visual for comfort).
+    let pill_w = 240.0 * scale;
+    let pill_h = 40.0 * scale;
+    let pill_x = (win_size.width as f64 - pill_w) / 2.0;
+
+    Ok(rel_x >= pill_x
+        && rel_x <= pill_x + pill_w
+        && rel_y >= 0.0
+        && rel_y <= pill_h)
 }
 
 // Global shortcut state
@@ -777,6 +830,8 @@ pub fn run() {
             update_global_shortcut,
             create_notch_window,
             resize_notch_window,
+            set_notch_passthrough,
+            check_notch_hover,
         ]);
 
     #[cfg(target_os = "android")]

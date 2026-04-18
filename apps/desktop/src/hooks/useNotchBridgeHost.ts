@@ -5,6 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useToastStore } from '../stores/toastStore';
 import { useNotificationFeedStore } from '../stores/notificationFeedStore';
 import { useProjectStore } from '../stores/projectStore';
+import { useUIStore } from '../stores/uiStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { useSelectionCoordinator } from './useSelectionCoordinator';
 import {
@@ -28,6 +29,8 @@ const SPAWN_DEBOUNCE_MS = 40;
  */
 export function useNotchBridgeHost(params: { enabled: boolean }): void {
   const { enabled } = params;
+  const showNotchPanel = useUIStore((s) => s.showNotchPanel);
+  const shouldEnable = enabled && showNotchPanel;
   const { sendMessage } = useConnection();
   const { selectSession } = useSelectionCoordinator();
 
@@ -38,7 +41,7 @@ export function useNotchBridgeHost(params: { enabled: boolean }): void {
   // Spawn the notch window once.
   const spawnedRef = useRef(false);
   useEffect(() => {
-    if (!enabled || spawnedRef.current) return;
+    if (!shouldEnable || spawnedRef.current) return;
     spawnedRef.current = true;
 
     (async () => {
@@ -52,11 +55,11 @@ export function useNotchBridgeHost(params: { enabled: boolean }): void {
         console.warn('[NotchBridge] create_notch_window failed:', err);
       }
     })();
-  }, [enabled]);
+  }, [shouldEnable]);
 
   // Publish state to the notch window whenever source stores change.
   useEffect(() => {
-    if (!enabled) return;
+    if (!shouldEnable) return;
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -98,11 +101,11 @@ export function useNotchBridgeHost(params: { enabled: boolean }): void {
       if (debounceTimer) clearTimeout(debounceTimer);
       unsubs.forEach((u) => u());
     };
-  }, [enabled]);
+  }, [shouldEnable]);
 
   // Listen for notch-initiated actions.
   useEffect(() => {
-    if (!enabled) return;
+    if (!shouldEnable) return;
     const unlisteners: Array<Promise<() => void>> = [];
 
     unlisteners.push(
@@ -157,5 +160,5 @@ export function useNotchBridgeHost(params: { enabled: boolean }): void {
     return () => {
       unlisteners.forEach((p) => p.then((u) => u()).catch(() => undefined));
     };
-  }, [enabled]);
+  }, [shouldEnable]);
 }
