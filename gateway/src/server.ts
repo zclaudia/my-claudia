@@ -697,7 +697,13 @@ export function createGatewayServer(config: GatewayConfig): Server {
     // redundant full snapshots that get broadcast to all existing subscribers.
     if (!alreadySubscribed) {
       const bp = findBackendPeer(msg.backendId);
-      if (bp) sendToWs(bp.ws, { type: 'request_backend_data_snapshot', backendId: msg.backendId } satisfies RequestBackendDataSnapshotMessage);
+      if (bp) {
+        sendToWs(bp.ws, {
+          type: 'request_backend_data_snapshot',
+          backendId: msg.backendId,
+          targetPeerSessionId: peer.peerSessionId,
+        } satisfies RequestBackendDataSnapshotMessage);
+      }
     }
   }
 

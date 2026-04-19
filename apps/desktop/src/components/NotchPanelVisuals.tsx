@@ -1,5 +1,6 @@
 import type { Toast, ToastIcon } from '../stores/toastStore';
 import { timeAgo } from '../utils/timeAgo';
+import { NOTCH_TABS, NOTCH_TAB_LABELS, type NotchTab } from '../utils/notchTabCategory';
 
 // ---------------------------------------------------------------------------
 // Pure visual building blocks used by both:
@@ -233,6 +234,44 @@ export interface OpenedRowProps {
   isUnread?: boolean;
   onClick?: () => void;
   onDismiss?: () => void;
+}
+
+// ---- Tab bar ---------------------------------------------------------------
+
+export interface NotchTabBarProps {
+  activeTab: NotchTab;
+  onTabChange: (tab: NotchTab) => void;
+  unreadCounts: Record<NotchTab, number>;
+}
+
+export function NotchTabBar({ activeTab, onTabChange, unreadCounts }: NotchTabBarProps) {
+  return (
+    <div className="flex items-center gap-0.5 mx-2 my-1.5 p-0.5 rounded-lg bg-white/[0.06]">
+      {NOTCH_TABS.map((tab) => {
+        const isActive = tab === activeTab;
+        const count = unreadCounts[tab];
+        return (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => onTabChange(tab)}
+            className={`flex-1 flex items-center justify-center gap-1 h-7 rounded-md text-[11.5px] tracking-tight transition-all duration-150
+                        ${isActive
+                          ? 'bg-white/[0.1] text-white font-semibold shadow-[0_1px_2px_rgba(0,0,0,0.2)]'
+                          : 'text-white/50 hover:text-white/70'}`}
+          >
+            {NOTCH_TAB_LABELS[tab]}
+            {count > 0 && (
+              <span className={`min-w-[14px] h-3.5 px-1 flex items-center justify-center rounded-full text-[9px] font-semibold leading-none tabular-nums
+                               ${isActive ? 'bg-white/15 text-white' : 'bg-white/10 text-white/50'}`}>
+                {count > 99 ? '99+' : count}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 export function OpenedRow({

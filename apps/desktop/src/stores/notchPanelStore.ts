@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { NotchTab } from '../utils/notchTabCategory';
 
 /**
  * Always-resident NotchPanel (Dynamic Island-style) state.
@@ -16,12 +17,18 @@ interface NotchPanelState {
   isAutoExpanded: boolean;
   /** Last title shown in the closed pill (for a compact preview). */
   lastPreviewTitle: string | null;
+  /** Currently selected tab in the opened panel. */
+  activeTab: NotchTab;
+  /** Which tab received the most recent toast/event — used on pill click. */
+  lastActivityTab: NotchTab;
 
-  open: (opts?: { auto?: boolean; previewTitle?: string }) => void;
+  open: (opts?: { auto?: boolean; previewTitle?: string; tab?: NotchTab }) => void;
   close: () => void;
   toggle: () => void;
   setHovering: (hovering: boolean) => void;
   setPreviewTitle: (title: string | null) => void;
+  setActiveTab: (tab: NotchTab) => void;
+  setLastActivityTab: (tab: NotchTab) => void;
 }
 
 const AUTO_COLLAPSE_MS = 5000;
@@ -40,6 +47,8 @@ export const useNotchPanelStore = create<NotchPanelState>((set, get) => ({
   isHovering: false,
   isAutoExpanded: false,
   lastPreviewTitle: null,
+  activeTab: 'sessions',
+  lastActivityTab: 'sessions',
 
   open: (opts) => {
     clearAutoCollapse();
@@ -48,6 +57,7 @@ export const useNotchPanelStore = create<NotchPanelState>((set, get) => ({
       isOpen: true,
       isAutoExpanded: auto,
       ...(opts?.previewTitle ? { lastPreviewTitle: opts.previewTitle } : {}),
+      ...(opts?.tab ? { activeTab: opts.tab } : {}),
     });
 
     if (auto) {
@@ -66,11 +76,11 @@ export const useNotchPanelStore = create<NotchPanelState>((set, get) => ({
   },
 
   toggle: () => {
-    const { isOpen } = get();
+    const { isOpen, lastActivityTab } = get();
     if (isOpen) {
       get().close();
     } else {
-      get().open({ auto: false });
+      get().open({ auto: false, tab: lastActivityTab });
     }
   },
 
@@ -90,6 +100,8 @@ export const useNotchPanelStore = create<NotchPanelState>((set, get) => ({
   },
 
   setPreviewTitle: (title) => set({ lastPreviewTitle: title }),
+  setActiveTab: (tab) => set({ activeTab: tab }),
+  setLastActivityTab: (tab) => set({ lastActivityTab: tab }),
 }));
 
 // Dev-only: expose for manual testing.

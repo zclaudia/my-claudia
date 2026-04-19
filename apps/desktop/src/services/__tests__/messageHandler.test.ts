@@ -100,6 +100,7 @@ const mockInteractionStore = {
   upsertInteraction: vi.fn(),
   resolveInteraction: vi.fn(),
   clearSession: vi.fn(),
+  has: vi.fn(() => false),
 };
 const mockEagerSyncCurrentSession = vi.fn(() => Promise.resolve());
 const mockRecoverCurrentSessionTail = vi.fn(() => Promise.resolve());
@@ -863,8 +864,48 @@ describe('handleServerMessage', () => {
           type: 'interaction_prompt',
           interactionId: 'q1',
           sessionId: 's1',
+          source: 'provider_native',
+          responseMode: 'prompt_answer',
+          variant: 'question',
+          submitLabel: 'Submit',
+          cancelLabel: 'Skip',
+          fields: [expect.objectContaining({
+            id: 'question_0',
+            label: 'Confirm?',
+            description: 'Question',
+            type: 'select',
+            placeholder: 'Type your answer...',
+            allowCustomValue: true,
+            customValuePlaceholder: 'Other',
+            options: [{ value: 'Yes', label: 'Yes', description: 'Proceed' }],
+          })],
         }),
       );
+    });
+
+    it('does not recreate an existing interaction from heartbeat replay', () => {
+      mockInteractionStore.has.mockReturnValue(true);
+
+      handleServerMessage(makeHeartbeat({
+        pendingQuestions: [{
+          requestId: 'q-existing',
+          sessionId: 's1',
+          questions: [{
+            question: 'Keep existing prompt?',
+            header: 'Existing',
+            options: [{ label: 'Yes', description: 'Keep it' }],
+          }],
+        }],
+      }), makeCtx({ backendId: 'b1' }));
+
+      expect(mockPromptRequestStore.setPendingRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestId: 'q-existing',
+          sessionId: 's1',
+          serverId: 'server-1',
+        }),
+      );
+      expect(mockInteractionStore.upsertInteraction).not.toHaveBeenCalled();
     });
 
     it('gateway: reconciles active sessions', () => {

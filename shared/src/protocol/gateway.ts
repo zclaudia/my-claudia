@@ -155,6 +155,8 @@ export type BackendDataEventMessage =
 export interface RequestBackendDataSnapshotMessage {
   type: 'request_backend_data_snapshot';
   backendId: BackendId;
+  /** Optional requesting subscriber so the backend can send immediate state only to that peer. */
+  targetPeerSessionId?: string;
 }
 
 // ============================================================================

@@ -51,8 +51,10 @@ vi.mock('../gateway-client.js', () => ({
     public onIncomingClosed?: (channelId: string) => void;
     public onCatchUp?: (sessionId: string, afterOffset: number) => Promise<unknown[]>;
     public outgoingEvents?: { onConnectionStateChanged?: (connected: boolean) => void };
+    public config?: Record<string, unknown>;
 
-    constructor(..._args: unknown[]) {
+    constructor(...args: unknown[]) {
+      this.config = (args[0] as Record<string, unknown> | undefined) ?? {};
       gatewayClientInstances.push(this);
     }
   },
@@ -226,5 +228,26 @@ describe('GatewayManager', () => {
 
     expect(run.clientId).toBe('old-channel');
     expect(run.client).toBe(orphanedClient);
+  });
+
+  it('passes getStateHeartbeat to GatewayClient config for targeted state replay', async () => {
+    const { manager, serverContext } = createManager();
+
+    await manager.connect({
+      id: 1,
+      enabled: true,
+      gatewayUrl: 'ws://gateway.example.com',
+      gatewaySecret: 'secret',
+      backendName: 'backend',
+      gatewayBackendId: null,
+      registerAsBackend: true,
+      createdAt: 0,
+      updatedAt: 0,
+    });
+
+    const client = gatewayClientInstances.at(-1)!;
+    expect(typeof client.config?.getStateHeartbeat).toBe('function');
+    expect((client.config?.getStateHeartbeat as Function)()).toEqual(serverContext.getStateHeartbeat());
+    expect(serverContext.getStateHeartbeat).toHaveBeenCalled();
   });
 });

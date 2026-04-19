@@ -524,7 +524,7 @@ export function handleServerMessage(
         serverId,
       });
       // Auto-expand NotchPanel for permission requests (high-value, needs human attention).
-      useNotchPanelStore.getState().open({ auto: true, previewTitle: 'Permission required' });
+      useNotchPanelStore.getState().open({ auto: true, previewTitle: 'Permission required', tab: 'approvals' });
       break;
     }
 
@@ -904,7 +904,7 @@ export function handleServerMessage(
           });
         });
         // Auto-expand NotchPanel with 5s auto-collapse for task results.
-        useNotchPanelStore.getState().open({ auto: true, previewTitle: item.title });
+        useNotchPanelStore.getState().open({ auto: true, previewTitle: item.title, tab: 'sessions' });
       }
       break;
     }

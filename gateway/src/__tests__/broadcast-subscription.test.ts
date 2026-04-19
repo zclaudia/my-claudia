@@ -159,7 +159,8 @@ describe('Gateway v2 backend data relay', () => {
     await collector.waitFor('backend_subscribed');
 
     // Backend receives request_backend_data_snapshot — respond with snapshot
-    await backendCollector.waitFor('request_backend_data_snapshot');
+    const snapshotRequest = await backendCollector.waitFor('request_backend_data_snapshot');
+    expect(snapshotRequest.targetPeerSessionId).toBeTruthy();
     backendWs.send(JSON.stringify({
       type: 'backend_data_snapshot',
       sessions: [{ sessionId: 'sess-1', title: 'Session 1', createdAt: Date.now(), updatedAt: Date.now(), runStatus: 'idle' }],
@@ -209,6 +210,78 @@ describe('Gateway v2 backend data relay', () => {
     const eventB = await clientB.collector.waitFor('backend_data_event');
     expect(eventB.backendId).toBe(backendId);
     expect(eventB.op).toBe('session_upsert');
+  });
+
+  testIfLoopback('late subscriber receives targeted state heartbeat immediately after snapshot replay', async () => {
+    const existingClient = await connectAndSubscribeClient();
+
+    const lateClientWs = new WebSocket(wsUrl);
+    await waitForOpen(lateClientWs);
+    openClients.push(lateClientWs);
+    const lateCollector = new MessageCollector(lateClientWs);
+
+    lateClientWs.send(JSON.stringify({
+      type: 'peer_hello',
+      protocolVersion: 2,
+      peerType: 'client-only',
+      gatewaySecret: GATEWAY_SECRET,
+      identity: { deviceId: 'late-client-dev', instanceId: `late-client-inst-${Date.now()}-${Math.random()}` }
+    }));
+    await lateCollector.waitFor('peer_ready');
+
+    lateClientWs.send(JSON.stringify({ type: 'subscribe_backend', backendId }));
+    await lateCollector.waitFor('backend_subscribed');
+
+    const snapshotRequest = await backendCollector.waitFor('request_backend_data_snapshot');
+    expect(snapshotRequest.targetPeerSessionId).toBeTruthy();
+
+    backendWs.send(JSON.stringify({
+      type: 'backend_data_snapshot',
+      sessions: [{ sessionId: 'sess-late', title: 'Late Session', createdAt: Date.now(), updatedAt: Date.now(), runStatus: 'waiting' }],
+      projects: [],
+    }));
+
+    backendWs.send(JSON.stringify({
+      type: 'backend_server_message',
+      backendId,
+      targetPeerSessionId: snapshotRequest.targetPeerSessionId,
+      message: {
+        type: 'state_heartbeat',
+        activeRuns: [],
+        pendingPermissions: [],
+        pendingQuestions: [{
+          requestId: 'ask-late-1',
+          sessionId: 'sess-late',
+          questions: [{
+            header: 'Confirm',
+            question: 'Use late replay?',
+            options: [
+              { label: 'Yes', description: 'Accept' },
+              { label: 'No', description: 'Reject' },
+            ],
+          }],
+        }],
+      },
+    }));
+
+    const snapshot = await lateCollector.waitFor('backend_data_snapshot');
+    expect(snapshot.sessions).toHaveLength(1);
+    expect(snapshot.sessions[0].sessionId).toBe('sess-late');
+
+    const heartbeat = await lateCollector.waitFor('backend_server_message');
+    expect(heartbeat.targetPeerSessionId).toBe(snapshotRequest.targetPeerSessionId);
+    expect(heartbeat.message.type).toBe('state_heartbeat');
+    expect(heartbeat.message.pendingQuestions).toHaveLength(1);
+    expect(heartbeat.message.pendingQuestions[0].requestId).toBe('ask-late-1');
+
+    await delay(DELIVERY_SETTLE_MS);
+
+    const existingHeartbeats = existingClient.collector.findAll(
+      (msg) => msg.type === 'backend_server_message'
+        && msg.message?.type === 'state_heartbeat'
+        && msg.message?.pendingQuestions?.[0]?.requestId === 'ask-late-1'
+    );
+    expect(existingHeartbeats).toHaveLength(0);
   });
 
   testIfLoopback('project backend_data_event is relayed to subscribers', async () => {

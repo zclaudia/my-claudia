@@ -5,6 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useToastStore } from '../stores/toastStore';
 import { useNotificationFeedStore } from '../stores/notificationFeedStore';
 import { useProjectStore } from '../stores/projectStore';
+import { useNotchPanelStore } from '../stores/notchPanelStore';
 import { useUIStore } from '../stores/uiStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { useSelectionCoordinator } from './useSelectionCoordinator';
@@ -14,6 +15,7 @@ import {
   type NotchOpenSessionPayload,
   type NotchMarkReadPayload,
   type NotchDismissItemPayload,
+  type NotchSetTabPayload,
 } from '../services/notchBridge';
 
 const SPAWN_DEBOUNCE_MS = 40;
@@ -77,6 +79,7 @@ export function useNotchBridgeHost(params: { enabled: boolean }): void {
         projects,
         lastPreviewTitle: toasts[0]?.title ?? null,
         hasPendingAttention,
+        activeTab: useNotchPanelStore.getState().activeTab,
       };
       emit(NOTCH_EVENT.state, snapshot).catch(() => undefined);
     };
@@ -94,6 +97,9 @@ export function useNotchBridgeHost(params: { enabled: boolean }): void {
       useNotificationFeedStore.subscribe(schedulePublish),
       useProjectStore.subscribe((s, prev) => {
         if (s.projects !== prev.projects) schedulePublish();
+      }),
+      useNotchPanelStore.subscribe((s, prev) => {
+        if (s.activeTab !== prev.activeTab) schedulePublish();
       }),
     ];
 
@@ -154,6 +160,12 @@ export function useNotchBridgeHost(params: { enabled: boolean }): void {
       listen(NOTCH_EVENT.clearRead, () => {
         handlersRef.current.sendMessage({ type: 'clear_read_notifications' });
         useNotificationFeedStore.getState().clearRead();
+      }),
+    );
+
+    unlisteners.push(
+      listen<NotchSetTabPayload>(NOTCH_EVENT.setTab, (e) => {
+        useNotchPanelStore.getState().setActiveTab(e.payload.tab);
       }),
     );
 

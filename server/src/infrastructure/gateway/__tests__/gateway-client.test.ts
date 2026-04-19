@@ -779,5 +779,62 @@ describe('GatewayClient', () => {
       // Should not throw
       client.sendToChannel('channel-1', { type: 'test' } as any);
     });
+
+    it('sends a targeted state heartbeat alongside snapshot requests for late subscribers', () => {
+      const getStateHeartbeat = vi.fn(() => ({
+        type: 'state_heartbeat',
+        activeRuns: [],
+        pendingPermissions: [],
+        pendingQuestions: [],
+      }));
+      client = new GatewayClient({ ...mockConfig, getStateHeartbeat }, mockDb, mockActiveRuns);
+      const ws = {
+        send: vi.fn(),
+        readyState: 1,
+        removeAllListeners: vi.fn(),
+        close: vi.fn(),
+      };
+      (client as any).ws = ws;
+      (client as any).isConnected = true;
+      (client as any).epoch = 1;
+      (client as any).backendId = 'local-backend';
+
+      const now = Date.now();
+      mockDb.prepare = vi.fn()
+        .mockReturnValueOnce({
+          all: vi.fn(() => [{
+            id: 'session-1',
+            name: 'Session 1',
+            projectId: 'project-1',
+            createdAt: now,
+            updatedAt: now,
+          }]),
+        })
+        .mockReturnValueOnce({
+          all: vi.fn(() => [{
+            id: 'project-1',
+            name: 'Project 1',
+            createdAt: now,
+            updatedAt: now,
+          }]),
+        });
+
+      client.publishBackendDataSnapshot('peer-session-1');
+
+      expect(getStateHeartbeat).toHaveBeenCalledTimes(1);
+      expect(ws.send).toHaveBeenCalledTimes(2);
+      expect(JSON.parse(ws.send.mock.calls[0][0])).toMatchObject({
+        type: 'backend_data_snapshot',
+      });
+      expect(JSON.parse(ws.send.mock.calls[1][0])).toMatchObject({
+        type: 'backend_server_message',
+        backendId: 'local-backend',
+        targetPeerSessionId: 'peer-session-1',
+        message: {
+          type: 'state_heartbeat',
+          pendingQuestions: [],
+        },
+      });
+    });
   });
 });

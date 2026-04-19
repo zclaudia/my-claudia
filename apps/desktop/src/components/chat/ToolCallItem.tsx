@@ -13,7 +13,9 @@ import { useConnection } from '../../contexts/ConnectionContext';
 import { useServerStore } from '../../stores/serverStore';
 import { toolRendererRegistry } from '../../services/toolRendererRegistry';
 import { useInteractionStore } from '../../stores/interactionStore';
+import { usePromptRequestStore } from '../../stores/promptRequestStore';
 import { InteractionItem } from './InteractionItem';
+import type { InteractionPromptMessage } from '@my-claudia/shared';
 
 const ansiUp = new AnsiUp();
 
@@ -49,6 +51,39 @@ function extractInteractionId(result: unknown): string | null {
   if (!normalized || typeof normalized !== 'object') return null;
   const interactionId = (normalized as Record<string, unknown>).interactionId;
   return typeof interactionId === 'string' && interactionId ? interactionId : null;
+}
+
+function buildAskUserQuestionInteraction(params: {
+  interactionId: string;
+  sessionId: string;
+  questions: ReturnType<typeof extractQuestions>;
+}): InteractionPromptMessage {
+  return {
+    type: 'interaction_prompt',
+    interactionId: params.interactionId,
+    sessionId: params.sessionId,
+    source: 'provider_native',
+    createdAt: Date.now(),
+    title: params.questions.length > 1 ? 'Questions' : 'Question',
+    fields: params.questions.map((question, index) => ({
+      id: `question_${index}`,
+      label: question.question,
+      description: question.header,
+      type: question.multiSelect ? 'multiselect' : 'select',
+      options: (question.options || []).map((option) => ({
+        value: option.label,
+        label: option.label,
+        description: option.description,
+      })),
+      placeholder: 'Type your answer...',
+      allowCustomValue: question.allowCustomValue ?? true,
+      customValuePlaceholder: question.customValuePlaceholder || 'Other',
+    })),
+    submitLabel: 'Submit',
+    cancelLabel: 'Skip',
+    responseMode: 'prompt_answer',
+    variant: 'question',
+  };
 }
 
 function hasInteractionToolSuffix(toolName: string, suffix: string): boolean {
@@ -721,6 +756,23 @@ export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallIte
   const [isExpanded, setIsExpanded] = useState(false);
   const { toolName, toolInput, status, result, isError, activity } = toolCall;
   const selectedSessionId = useProjectStore((s) => s.selectedSessionId);
+  const pendingPromptRequest = usePromptRequestStore((s) => {
+    if (!selectedSessionId || toolName !== 'AskUserQuestion') return null;
+    return [...s.pendingRequests]
+      .reverse()
+      .find((request) => request.sessionId === selectedSessionId) ?? null;
+  });
+  const fallbackPromptInteraction = useMemo(() => {
+    if (!selectedSessionId || !pendingPromptRequest || toolName !== 'AskUserQuestion') return null;
+    const normalizedInput = normalizeToolInput(toolInput) as Record<string, unknown> | undefined;
+    const questions = extractQuestions(normalizedInput?.questions);
+    if (questions.length === 0) return null;
+    return buildAskUserQuestionInteraction({
+      interactionId: pendingPromptRequest.requestId,
+      sessionId: selectedSessionId,
+      questions,
+    });
+  }, [pendingPromptRequest, selectedSessionId, toolInput, toolName]);
 
   // Phase 1 dedup: render InteractionItem instead of interaction tool when interaction store has it
   const interactionId = extractInteractionId(result);
@@ -748,12 +800,13 @@ export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallIte
 
     return undefined;
   });
-  if (interaction && isInteractionTool(toolName)) {
-    if (interaction.type === 'interaction_todo_update' && interaction.todos.length > 0) {
-      return <InteractionItem interaction={interaction} />;
+  const resolvedInteraction = interaction ?? fallbackPromptInteraction;
+  if (resolvedInteraction && isInteractionTool(toolName)) {
+    if (resolvedInteraction.type === 'interaction_todo_update' && resolvedInteraction.todos.length > 0) {
+      return <InteractionItem interaction={resolvedInteraction} />;
     }
-    if (interaction.type === 'interaction_prompt' || interaction.type === 'interaction_approval' || interaction.type === 'interaction_plan_review') {
-      return <InteractionItem interaction={interaction} />;
+    if (resolvedInteraction.type === 'interaction_prompt' || resolvedInteraction.type === 'interaction_approval' || resolvedInteraction.type === 'interaction_plan_review') {
+      return <InteractionItem interaction={resolvedInteraction} />;
     }
   }
 
@@ -863,9 +916,10 @@ function getToolCallSummary(tc: ToolCallState): string {
       return input.file_path ? String(input.file_path).split('/').pop()! : 'Write';
     case 'Edit':
       return input.file_path ? String(input.file_path).split('/').pop()! : 'Edit';
-    case 'Bash':
+    case 'Bash': {
       const cmd = String(input.command || '').split(' ')[0];
       return cmd || 'bash';
+    }
     case 'Grep':
       return `grep ${String(input.pattern || '').substring(0, 15)}`;
     case 'Glob':

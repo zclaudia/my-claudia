@@ -8,11 +8,13 @@ import {
   AVATAR_PALETTE,
   hashToIndex,
   firstLetter,
+  NotchTabBar,
 } from './NotchPanelVisuals';
 import {
   NOTCH_EVENT,
   type NotchStateSnapshot,
 } from '../services/notchBridge';
+import { classifyToast, classifyFeedItem, type NotchTab } from '../utils/notchTabCategory';
 import type { NotificationItem } from '@my-claudia/shared';
 import type { Toast } from '../stores/toastStore';
 
@@ -77,10 +79,12 @@ export function NotchWindow() {
     projects: [],
     lastPreviewTitle: null,
     hasPendingAttention: false,
+    activeTab: 'sessions',
   });
   const [isOpen, setIsOpen] = useState(false);
   const [isAutoExpanded, setIsAutoExpanded] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
+  const [activeTab, setActiveTab] = useState<NotchTab>('sessions');
   const autoCollapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverExpandTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverCollapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -113,8 +117,17 @@ export function NotchWindow() {
 
       prevSnapshotRef.current = next;
       setSnapshot(next);
+      // Sync tab from main window
+      if (next.activeTab) setActiveTab(next.activeTab);
 
       if (shouldAutoExpand) {
+        // Auto-switch to the tab of the triggering toast
+        const triggerToast = newToasts.find(
+          (t) => t.icon === 'permission' || t.icon === 'task' || t.type === 'error',
+        );
+        if (triggerToast) {
+          setActiveTab(triggerToast.category ?? classifyToast(triggerToast));
+        }
         setIsOpen(true);
         setIsAutoExpanded(true);
       }
@@ -341,17 +354,23 @@ export function NotchWindow() {
   };
 
   const markAllRead = () => {
+    const tabItemIds = new Set(filteredItems.filter((i) => !i.readAt).map((i) => i.id));
+    if (tabItemIds.size === 0) return;
     setSnapshot((s) => ({
       ...s,
-      items: s.items.map((i) => (i.readAt ? i : { ...i, readAt: Date.now() })),
-      unreadCount: 0,
+      items: s.items.map((i) => (tabItemIds.has(i.id) ? { ...i, readAt: Date.now() } : i)),
+      unreadCount: Math.max(0, s.unreadCount - tabItemIds.size),
     }));
-    emit(NOTCH_EVENT.markAllRead, {}).catch(() => undefined);
+    emit(NOTCH_EVENT.markRead, { ids: [...tabItemIds] }).catch(() => undefined);
   };
 
   const clearRead = () => {
-    setSnapshot((s) => ({ ...s, items: s.items.filter((i) => !i.readAt) }));
-    emit(NOTCH_EVENT.clearRead, {}).catch(() => undefined);
+    const readIds = new Set(filteredItems.filter((i) => i.readAt).map((i) => i.id));
+    if (readIds.size === 0) return;
+    setSnapshot((s) => ({ ...s, items: s.items.filter((i) => !readIds.has(i.id)) }));
+    for (const id of readIds) {
+      emit(NOTCH_EVENT.dismissItem, { id }).catch(() => undefined);
+    }
   };
 
   const toastClick = (t: Toast) => {
@@ -365,7 +384,32 @@ export function NotchWindow() {
     }
   };
 
-  const hasReadItems = snapshot.items.some((i) => i.readAt);
+  const handleTabChange = (tab: NotchTab) => {
+    setActiveTab(tab);
+    emit(NOTCH_EVENT.setTab, { tab }).catch(() => undefined);
+  };
+
+  // Filter by active tab
+  const filteredToasts = useMemo(
+    () => snapshot.toasts.filter((t) => (t.category ?? classifyToast(t)) === activeTab),
+    [snapshot.toasts, activeTab],
+  );
+  const filteredItems = useMemo(
+    () => snapshot.items.filter((i) => classifyFeedItem(i) === activeTab),
+    [snapshot.items, activeTab],
+  );
+
+  // Per-tab unread counts
+  const unreadCounts = useMemo(() => {
+    const counts: Record<NotchTab, number> = { sessions: 0, approvals: 0, system: 0 };
+    for (const t of snapshot.toasts) counts[t.category ?? classifyToast(t)]++;
+    for (const i of snapshot.items) {
+      if (!i.readAt) counts[classifyFeedItem(i)]++;
+    }
+    return counts;
+  }, [snapshot.toasts, snapshot.items]);
+
+  const hasReadItems = filteredItems.some((i) => i.readAt);
 
   // --- Closed notch content: small leading glyph + title preview + badge ---
   const closedLeading = pillPreview?.projectId && pillPreview.projectName ? (
@@ -478,11 +522,6 @@ export function NotchWindow() {
               <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2">
                 <img src="/logo.png" alt="" className="w-4 h-4 rounded-full ring-1 ring-white/15 object-cover" draggable={false} />
                 <span className="text-[13px] font-semibold tracking-tight text-white">MyClaudia</span>
-                {snapshot.unreadCount > 0 && (
-                  <span className="px-1.5 h-4 flex items-center justify-center text-[10px] font-semibold tabular-nums bg-white/15 text-white rounded-full">
-                    {snapshot.unreadCount > 99 ? '99+' : snapshot.unreadCount}
-                  </span>
-                )}
               </div>
               <div className="flex items-center gap-1 relative z-10">
                 {hasReadItems && (
@@ -493,7 +532,7 @@ export function NotchWindow() {
                     Clear read
                   </button>
                 )}
-                {snapshot.unreadCount > 0 && (
+                {unreadCounts[activeTab] > 0 && (
                   <button
                     onClick={markAllRead}
                     className="px-2 h-6 text-[11px] text-white/55 hover:text-white hover:bg-white/[0.06] rounded-md transition-colors"
@@ -512,11 +551,14 @@ export function NotchWindow() {
               </div>
             </div>
 
+            {/* Tab bar */}
+            <NotchTabBar activeTab={activeTab} onTabChange={handleTabChange} unreadCounts={unreadCounts} />
+
             {/* List */}
             <div className="flex-1 overflow-y-auto px-1.5 py-1.5">
-              {snapshot.toasts.length > 0 && (
+              {filteredToasts.length > 0 && (
                 <>
-                  {snapshot.toasts.map((t) => (
+                  {filteredToasts.map((t) => (
                     <OpenedRow
                       key={t.id}
                       id={t.id}
@@ -530,20 +572,24 @@ export function NotchWindow() {
                       onClick={() => toastClick(t)}
                     />
                   ))}
-                  {snapshot.items.length > 0 && (
+                  {filteredItems.length > 0 && (
                     <div className="mx-3 my-1 border-t border-white/[0.04]" />
                   )}
                 </>
               )}
 
-              {snapshot.items.length === 0 && snapshot.toasts.length === 0 ? (
+              {filteredItems.length === 0 && filteredToasts.length === 0 ? (
                 <div className="px-6 py-10 text-center">
                   <img src="/logo.png" alt="" className="w-10 h-10 mx-auto opacity-40 rounded-xl" draggable={false} />
-                  <p className="mt-3 text-[13px] text-white/60">You're all caught up.</p>
-                  <p className="mt-1 text-[11px] text-white/40">Task results and plugin events will appear here.</p>
+                  <p className="mt-3 text-[13px] text-white/60">
+                    {activeTab === 'sessions' ? "You're all caught up." : activeTab === 'approvals' ? 'No pending approvals.' : 'All systems normal.'}
+                  </p>
+                  <p className="mt-1 text-[11px] text-white/40">
+                    {activeTab === 'sessions' ? 'Task results and session events will appear here.' : activeTab === 'approvals' ? 'Permission requests and AI reviews will appear here.' : 'Connection and sync status will appear here.'}
+                  </p>
                 </div>
               ) : (
-                snapshot.items.map((item) => (
+                filteredItems.map((item) => (
                   <OpenedRow
                     key={item.id}
                     id={item.id}

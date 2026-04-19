@@ -6,6 +6,8 @@ import { useNotchPanelStore } from '../stores/notchPanelStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { useSelectionCoordinator } from '../hooks/useSelectionCoordinator';
 import { timeAgo } from '../utils/timeAgo';
+import { classifyToast, classifyFeedItem, type NotchTab } from '../utils/notchTabCategory';
+import { NotchTabBar } from './NotchPanelVisuals';
 import type { NotificationItem as NotificationItemData } from '@my-claudia/shared';
 
 // ---------------------------------------------------------------------------
@@ -314,14 +316,22 @@ function OpenedRow({
 
 // ---- Opened panel ---------------------------------------------------------
 
+const TAB_EMPTY_TEXT: Record<NotchTab, { title: string; subtitle: string }> = {
+  sessions: { title: "You're all caught up.", subtitle: 'Task results and session events will appear here.' },
+  approvals: { title: 'No pending approvals.', subtitle: 'Permission requests and AI reviews will appear here.' },
+  system: { title: 'All systems normal.', subtitle: 'Connection and sync status will appear here.' },
+};
+
 function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
   const toasts = useToastStore((s) => s.toasts);
   const removeToast = useToastStore((s) => s.remove);
   const projects = useProjectStore((s) => s.projects);
-  const { items, unreadCount, hydrated, setLoading, clearRead, removeItem } = useNotificationFeedStore();
+  const { items, hydrated, setLoading, removeItem } = useNotificationFeedStore();
   const { sendMessage } = useConnection();
   const { selectSession } = useSelectionCoordinator();
   const setHovering = useNotchPanelStore((s) => s.setHovering);
+  const activeTab = useNotchPanelStore((s) => s.activeTab);
+  const setActiveTab = useNotchPanelStore((s) => s.setActiveTab);
 
   useEffect(() => {
     if (hydrated) return;
@@ -329,18 +339,44 @@ function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
     sendMessage({ type: 'get_notifications', limit: 50 });
   }, [hydrated, sendMessage, setLoading]);
 
+  // Filter by active tab
+  const filteredToasts = useMemo(
+    () => toasts.filter((t) => (t.category ?? classifyToast(t)) === activeTab),
+    [toasts, activeTab],
+  );
+  const filteredItems = useMemo(
+    () => items.filter((i) => classifyFeedItem(i) === activeTab),
+    [items, activeTab],
+  );
+
+  // Per-tab unread counts
+  const unreadCounts = useMemo(() => {
+    const counts: Record<NotchTab, number> = { sessions: 0, approvals: 0, system: 0 };
+    // Count toasts per tab (all toasts are "unread")
+    for (const t of toasts) counts[t.category ?? classifyToast(t)]++;
+    // Count unread feed items per tab
+    for (const i of items) {
+      if (!i.readAt) counts[classifyFeedItem(i)]++;
+    }
+    return counts;
+  }, [toasts, items]);
+
   const handleMarkAllRead = useCallback(() => {
-    const unreadIds = items.filter((i) => !i.readAt).map((i) => i.id);
+    const unreadIds = filteredItems.filter((i) => !i.readAt).map((i) => i.id);
     if (unreadIds.length > 0) {
       sendMessage({ type: 'mark_notifications_read', itemIds: unreadIds });
       useNotificationFeedStore.getState().markRead(unreadIds);
     }
-  }, [items, sendMessage]);
+  }, [filteredItems, sendMessage]);
 
   const handleClearRead = useCallback(() => {
-    sendMessage({ type: 'clear_read_notifications' });
-    clearRead();
-  }, [clearRead, sendMessage]);
+    // Only clear read items in the current tab
+    const readIds = filteredItems.filter((i) => i.readAt).map((i) => i.id);
+    if (readIds.length > 0) {
+      sendMessage({ type: 'dismiss_notifications', itemIds: readIds });
+      for (const id of readIds) removeItem(id);
+    }
+  }, [filteredItems, sendMessage, removeItem]);
 
   const handleFeedItemClick = (item: NotificationItemData) => {
     if (!item.readAt) {
@@ -358,7 +394,9 @@ function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
     removeItem(id);
   };
 
-  const hasReadItems = items.some((i) => i.readAt);
+  const tabUnreadCount = unreadCounts[activeTab];
+  const hasReadItems = filteredItems.some((i) => i.readAt);
+  const emptyText = TAB_EMPTY_TEXT[activeTab];
 
   return (
     <div
@@ -368,14 +406,7 @@ function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
     >
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06] flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="text-[13px] font-semibold tracking-tight text-white">Notifications</span>
-          {unreadCount > 0 && (
-            <span className="px-1.5 h-4 flex items-center justify-center text-[10px] font-semibold tabular-nums bg-white/15 text-white rounded-full">
-              {unreadCount > 99 ? '99+' : unreadCount}
-            </span>
-          )}
-        </div>
+        <span className="text-[13px] font-semibold tracking-tight text-white">Notifications</span>
         <div className="flex items-center gap-1">
           {hasReadItems && (
             <button
@@ -385,7 +416,7 @@ function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
               Clear read
             </button>
           )}
-          {unreadCount > 0 && (
+          {tabUnreadCount > 0 && (
             <button
               onClick={handleMarkAllRead}
               className="px-2 h-6 text-[11px] text-white/55 hover:text-white hover:bg-white/[0.06] rounded-md transition-colors"
@@ -404,12 +435,14 @@ function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
         </div>
       </div>
 
+      {/* Tab bar */}
+      <NotchTabBar activeTab={activeTab} onTabChange={setActiveTab} unreadCounts={unreadCounts} />
+
       {/* List */}
       <div className="flex-1 overflow-y-auto px-1.5 py-1.5">
-        {/* Ephemeral active toasts — with subtle tint so users can tell them apart */}
-        {toasts.length > 0 && (
+        {filteredToasts.length > 0 && (
           <>
-            {toasts.map((t) => {
+            {filteredToasts.map((t) => {
               const projectName = t.projectId
                 ? projects.find((p) => p.id === t.projectId)?.name ?? null
                 : null;
@@ -432,20 +465,20 @@ function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
                 />
               );
             })}
-            {items.length > 0 && (
+            {filteredItems.length > 0 && (
               <div className="mx-3 my-1 border-t border-white/[0.04]" />
             )}
           </>
         )}
 
-        {items.length === 0 && toasts.length === 0 ? (
+        {filteredItems.length === 0 && filteredToasts.length === 0 ? (
           <div className="px-6 py-10 text-center">
             <img src="/logo.png" alt="" className="w-10 h-10 mx-auto opacity-40 rounded-xl" draggable={false} />
-            <p className="mt-3 text-[13px] text-white/60">You're all caught up.</p>
-            <p className="mt-1 text-[11px] text-white/40">Task results and plugin events will appear here.</p>
+            <p className="mt-3 text-[13px] text-white/60">{emptyText.title}</p>
+            <p className="mt-1 text-[11px] text-white/40">{emptyText.subtitle}</p>
           </div>
         ) : (
-          items.map((item) => {
+          filteredItems.map((item) => {
             const projectName = item.projectId
               ? projects.find((p) => p.id === item.projectId)?.name ?? null
               : null;

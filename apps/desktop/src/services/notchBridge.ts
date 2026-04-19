@@ -18,6 +18,7 @@
 
 import type { NotificationItem } from '@my-claudia/shared';
 import type { Toast } from '../stores/toastStore';
+import type { NotchTab } from '../utils/notchTabCategory';
 
 export interface NotchProjectSlim {
   id: string;
@@ -31,6 +32,7 @@ export interface NotchStateSnapshot {
   projects: NotchProjectSlim[];
   lastPreviewTitle: string | null;
   hasPendingAttention: boolean;
+  activeTab: NotchTab;
 }
 
 export const NOTCH_EVENT = {
@@ -44,6 +46,7 @@ export const NOTCH_EVENT = {
   dismissItem: 'notch:dismiss-item',
   markAllRead: 'notch:mark-all-read',
   clearRead: 'notch:clear-read',
+  setTab: 'notch:set-tab',
 } as const;
 
 export interface NotchOpenSessionPayload {
@@ -57,4 +60,8 @@ export interface NotchMarkReadPayload {
 
 export interface NotchDismissItemPayload {
   id: string;
+}
+
+export interface NotchSetTabPayload {
+  tab: NotchTab;
 }

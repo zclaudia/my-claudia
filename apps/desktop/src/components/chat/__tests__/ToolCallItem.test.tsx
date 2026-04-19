@@ -4,6 +4,7 @@ import { ToolCallItem, ToolCallList } from '../ToolCallItem';
 import type { ToolCallState } from '../../../stores/chatStore';
 
 const mockSendMessage = vi.fn();
+const mockHandlePromptAnswer = vi.fn();
 const mockSetDrawerOpen = vi.fn();
 const mockOpenTerminal = vi.fn();
 const mockWaitForReady = vi.fn();
@@ -30,7 +31,7 @@ vi.mock('../CodeViewer', () => ({
 }));
 
 vi.mock('../../../contexts/ConnectionContext', () => ({
-  useConnection: () => ({ sendMessage: mockSendMessage }),
+  useConnection: () => ({ sendMessage: mockSendMessage, handlePromptAnswer: mockHandlePromptAnswer }),
 }));
 
 vi.mock('../../../stores/terminalStore', () => ({
@@ -100,6 +101,16 @@ vi.mock('../../../stores/interactionStore', () => ({
   ),
 }));
 
+const mockPromptRequestState = {
+  pendingRequests: [] as Array<{ requestId: string; sessionId?: string; serverId?: string }>,
+};
+vi.mock('../../../stores/promptRequestStore', () => ({
+  usePromptRequestStore: Object.assign(
+    (selector: any) => selector(mockPromptRequestState),
+    { getState: () => mockPromptRequestState },
+  ),
+}));
+
 const createToolCall = (overrides: Partial<ToolCallState> = {}): ToolCallState => ({
   id: 'tool-1',
   toolName: 'Read',
@@ -116,9 +127,11 @@ describe('ToolCallItem', () => {
     mockProjectState.selectedSessionId = null;
     mockProjectState.sessions = [];
     mockSendMessage.mockReset();
+    mockHandlePromptAnswer.mockReset();
     mockSetDrawerOpen.mockReset();
     mockOpenTerminal.mockReset();
     mockWaitForReady.mockReset();
+    mockPromptRequestState.pendingRequests = [];
     terminalIdsByBackend.clear();
     (globalThis as any).__toolCallTestActiveBackend = 'backend-1';
     mockOpenTerminal.mockImplementation((projectId: string) => {
@@ -774,6 +787,32 @@ describe('ToolCallItem', () => {
       expect(screen.getByText('Question')).toBeInTheDocument();
       expect(screen.getByText('是否立刻开工？')).toBeInTheDocument();
       expect(screen.queryByText('只读旧卡片')).not.toBeInTheDocument();
+    });
+
+    it('falls back to a prompt interaction when the request is pending but interaction store is missing', () => {
+      mockProjectState.selectedSessionId = 's1';
+      mockPromptRequestState.pendingRequests = [{
+        requestId: 'pending-question-1',
+        sessionId: 's1',
+        serverId: 'gw:backend-1',
+      }];
+
+      render(<ToolCallItem toolCall={createToolCall({
+        toolName: 'AskUserQuestion',
+        toolInput: {
+          questions: [{
+            header: '实现细节',
+            question: '移动端是否应该允许直接回复？',
+            options: [{ label: '允许', description: '跨端一致' }],
+          }],
+        },
+        status: 'completed',
+      })} />);
+
+      expect(screen.getByText('Question')).toBeInTheDocument();
+      expect(screen.getByText('移动端是否应该允许直接回复？')).toBeInTheDocument();
+      expect(screen.getByText('Submit')).toBeInTheDocument();
+      expect(screen.queryByText('实现细节')).not.toBeNull();
     });
 
     it('sends optional feedback when approving a plan review', () => {

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { useNotchPanelStore } from './notchPanelStore';
+import { classifyToast, type NotchTab } from '../utils/notchTabCategory';
 
 export type ToastIcon = 'system' | 'permission' | 'task' | 'error';
 
@@ -19,6 +20,8 @@ export interface Toast {
   serverId?: string;
   /** Icon category when there is no project context. */
   icon?: ToastIcon;
+  /** Auto-computed tab category for notch panel filtering. */
+  category?: NotchTab;
 }
 
 const MAX_TOASTS = 3;
@@ -36,6 +39,7 @@ export const useToastStore = create<ToastState>((set) => ({
   add: (toast) => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const entry: Toast = { ...toast, id, createdAt: Date.now() };
+    entry.category = classifyToast(entry);
 
     set((state) => ({
       toasts: [entry, ...state.toasts].slice(0, MAX_TOASTS),
@@ -43,7 +47,9 @@ export const useToastStore = create<ToastState>((set) => ({
 
     // Mirror title into the NotchPanel closed-pill preview so users see the
     // latest event even if they don't have the panel open.
-    useNotchPanelStore.getState().setPreviewTitle(entry.title);
+    const notchStore = useNotchPanelStore.getState();
+    notchStore.setPreviewTitle(entry.title);
+    notchStore.setLastActivityTab(entry.category);
 
     // Auto-dismiss
     setTimeout(() => {

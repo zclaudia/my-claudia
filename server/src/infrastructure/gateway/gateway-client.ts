@@ -92,6 +92,7 @@ export interface GatewayClientConfig {
   capabilities?: string[];
   proxyUrl?: string;
   proxyAuth?: { username: string; password: string };
+  getStateHeartbeat?: () => ServerMessage;
 }
 
 import type { Database as BetterDatabase } from 'better-sqlite3';
@@ -494,7 +495,7 @@ export class GatewayClient {
   // Backend Data (sessions + projects publishing)
   // ==========================================================================
 
-  publishBackendDataSnapshot(): void {
+  publishBackendDataSnapshot(targetPeerSessionId?: string): void {
     if (!this.ws || !this.isConnected || !this.epoch) return;
     if (!this.db || !this.activeRuns) return;
     try {
@@ -544,6 +545,10 @@ export class GatewayClient {
       };
       this.sendWs(msg);
       console.log(`[Gateway] Published backend data snapshot: ${sessionItems.length} sessions, ${projectItems.length} projects`);
+
+      if (targetPeerSessionId && this.config.getStateHeartbeat) {
+        this.sendToChannel(targetPeerSessionId, this.config.getStateHeartbeat());
+      }
     } catch (error) {
       console.error('[Gateway] Failed to publish backend data snapshot:', error);
     }
@@ -690,7 +695,11 @@ export class GatewayClient {
       case 'backend_data_snapshot': this.handleOutgoingBackendDataSnapshot(msg as unknown as BackendDataSnapshotMessage); break;
       case 'backend_data_event': this.handleOutgoingBackendDataEvent(msg as unknown as BackendDataEventMessage); break;
       // Handle request_backend_data_snapshot from gateway (backend-peer role)
-      case 'request_backend_data_snapshot': this.publishBackendDataSnapshot(); break;
+      case 'request_backend_data_snapshot': {
+        const request = msg as unknown as RequestBackendDataSnapshotMessage;
+        this.publishBackendDataSnapshot(request.targetPeerSessionId);
+        break;
+      }
       // Outgoing stream events (from subscribed backends)
       case 'backend_server_message': this.handleOutgoingBackendServerMessage(msg as unknown as BackendServerMessage); break;
       case 'run_stream_event': this.handleOutgoingRunStreamEvent(msg as unknown as RunStreamEvent); break;

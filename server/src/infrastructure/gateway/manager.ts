@@ -195,6 +195,7 @@ export class GatewayManager {
       serverPort: this.actualPort,
       visible: config.registerAsBackend !== false,
       capabilities: ALL_SERVER_FEATURES,
+      getStateHeartbeat: () => serverContext.getStateHeartbeat(),
     };
 
     if (config.proxyUrl) {
