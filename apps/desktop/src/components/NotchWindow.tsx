@@ -401,7 +401,7 @@ export function NotchWindow() {
 
   // Per-tab unread counts
   const unreadCounts = useMemo(() => {
-    const counts: Record<NotchTab, number> = { sessions: 0, approvals: 0, system: 0 };
+    const counts: Record<NotchTab, number> = { sessions: 0, claudia: 0, approvals: 0, system: 0 };
     for (const t of snapshot.toasts) counts[t.category ?? classifyToast(t)]++;
     for (const i of snapshot.items) {
       if (!i.readAt) counts[classifyFeedItem(i)]++;
@@ -582,10 +582,10 @@ export function NotchWindow() {
                 <div className="px-6 py-10 text-center">
                   <img src="/logo.png" alt="" className="w-10 h-10 mx-auto opacity-40 rounded-xl" draggable={false} />
                   <p className="mt-3 text-[13px] text-white/60">
-                    {activeTab === 'sessions' ? "You're all caught up." : activeTab === 'approvals' ? 'No pending approvals.' : 'All systems normal.'}
+                    {activeTab === 'sessions' ? "You're all caught up." : activeTab === 'claudia' ? 'No Claudia activity.' : activeTab === 'approvals' ? 'No pending approvals.' : 'All systems normal.'}
                   </p>
                   <p className="mt-1 text-[11px] text-white/40">
-                    {activeTab === 'sessions' ? 'Task results and session events will appear here.' : activeTab === 'approvals' ? 'Permission requests and AI reviews will appear here.' : 'Connection and sync status will appear here.'}
+                    {activeTab === 'sessions' ? 'Task results and session events will appear here.' : activeTab === 'claudia' ? 'Claudia Chat task results and updates will appear here.' : activeTab === 'approvals' ? 'Permission requests and AI reviews will appear here.' : 'Connection and sync status will appear here.'}
                   </p>
                 </div>
               ) : (

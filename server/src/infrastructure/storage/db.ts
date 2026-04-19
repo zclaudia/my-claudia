@@ -1313,6 +1313,12 @@ function runMigrations(db: Database.Database): void {
         ALTER TABLE projects ADD COLUMN permission_workflow_override_id TEXT REFERENCES workflows(id) ON DELETE SET NULL;
         ALTER TABLE agent_config ADD COLUMN permission_workflow_override_id TEXT REFERENCES workflows(id) ON DELETE SET NULL;
       `
+    },
+    {
+      name: '063_notification_initiator',
+      sql: `
+        ALTER TABLE notifications ADD COLUMN initiator TEXT;
+      `
     }
   ];
 

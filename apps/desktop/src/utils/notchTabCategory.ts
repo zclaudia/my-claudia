@@ -1,17 +1,20 @@
 import type { Toast } from '../stores/toastStore';
 import type { NotificationItem } from '@my-claudia/shared';
 
-export type NotchTab = 'sessions' | 'approvals' | 'system';
+export type NotchTab = 'sessions' | 'claudia' | 'approvals' | 'system';
 
-export const NOTCH_TABS: readonly NotchTab[] = ['sessions', 'approvals', 'system'] as const;
+export const NOTCH_TABS: readonly NotchTab[] = ['sessions', 'claudia', 'approvals', 'system'] as const;
 
 export const NOTCH_TAB_LABELS: Record<NotchTab, string> = {
   sessions: 'Sessions',
+  claudia: 'Claudia',
   approvals: 'Approvals',
   system: 'System',
 };
 
 export function classifyToast(toast: Toast): NotchTab {
+  // Claudia-initiated toasts go to the Claudia tab (except permission requests)
+  if (toast.initiator === 'claudia' && toast.icon !== 'permission') return 'claudia';
   if (toast.icon === 'permission') return 'approvals';
   if (toast.icon === 'task') return 'sessions';
   if (toast.icon === 'system') return 'system';
@@ -23,6 +26,8 @@ export function classifyToast(toast: Toast): NotchTab {
 }
 
 export function classifyFeedItem(item: NotificationItem): NotchTab {
+  // Claudia-initiated feed items go to the Claudia tab (except delegation/approval items)
+  if (item.initiator === 'claudia' && !item.delegationContext) return 'claudia';
   if (item.source === 'delegation' || item.delegationContext) return 'approvals';
   return 'sessions';
 }

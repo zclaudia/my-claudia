@@ -880,6 +880,22 @@ export function handleServerMessage(
       if (updateMsg.status === 'completed' || updateMsg.status === 'failed' || updateMsg.status === 'cancelled') {
         claudiaStoreForUpdate.clearStreamingText(updateMsg.taskId);
       }
+      // Toast + Notch auto-expand for completed/failed Claudia tasks
+      if (updateMsg.status === 'completed' || updateMsg.status === 'failed') {
+        const taskTitle = existing?.title || updateMsg.title || updateMsg.input || 'Claudia task';
+        useToastStore.getState().add({
+          title: taskTitle,
+          message: updateMsg.status === 'completed'
+            ? (updateMsg.summary?.slice(0, 100) || 'Task completed')
+            : (updateMsg.error?.slice(0, 100) || 'Task failed'),
+          type: updateMsg.status === 'completed' ? 'success' : 'error',
+          icon: updateMsg.status === 'completed' ? 'task' : 'error',
+          initiator: 'claudia',
+          sessionId: existing?.sessionId ?? updateMsg.sessionId ?? undefined,
+          serverId,
+        });
+        useNotchPanelStore.getState().open({ auto: true, previewTitle: taskTitle, tab: 'claudia' });
+      }
       break;
     }
 
@@ -892,6 +908,7 @@ export function handleServerMessage(
       }));
       // Toast notification for completed/failed feed items
       if (item.status === 'completed' || item.status === 'failed') {
+        const notchTab = item.initiator === 'claudia' ? 'claudia' as const : 'sessions' as const;
         import('../stores/toastStore').then(m => {
           m.useToastStore.getState().add({
             title: item.title,
@@ -901,10 +918,11 @@ export function handleServerMessage(
             sessionId: item.sessionId,
             serverId,
             icon: item.status === 'completed' ? 'task' : 'error',
+            initiator: item.initiator,
           });
         });
         // Auto-expand NotchPanel with 5s auto-collapse for task results.
-        useNotchPanelStore.getState().open({ auto: true, previewTitle: item.title, tab: 'sessions' });
+        useNotchPanelStore.getState().open({ auto: true, previewTitle: item.title, tab: notchTab });
       }
       break;
     }

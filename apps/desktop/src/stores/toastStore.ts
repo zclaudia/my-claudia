@@ -20,6 +20,8 @@ export interface Toast {
   serverId?: string;
   /** Icon category when there is no project context. */
   icon?: ToastIcon;
+  /** Who initiated this toast — used to route to the Claudia tab. */
+  initiator?: 'system' | 'claudia';
   /** Auto-computed tab category for notch panel filtering. */
   category?: NotchTab;
 }

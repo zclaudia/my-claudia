@@ -15,6 +15,8 @@ export interface DelegationContext {
   reviewedFileCount?: number;
 }
 
+export type NotificationInitiator = 'system' | 'claudia';
+
 export interface NotificationItem {
   id: string;
   triggerId?: string;
@@ -23,6 +25,7 @@ export interface NotificationItem {
   projectId?: string;
   ownerBackendId: string;
   source: NotificationSource;
+  initiator?: NotificationInitiator;
   title: string;
   summary?: string;
   status: NotificationStatus;

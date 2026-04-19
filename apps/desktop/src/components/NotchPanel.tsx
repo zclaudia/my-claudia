@@ -318,6 +318,7 @@ function OpenedRow({
 
 const TAB_EMPTY_TEXT: Record<NotchTab, { title: string; subtitle: string }> = {
   sessions: { title: "You're all caught up.", subtitle: 'Task results and session events will appear here.' },
+  claudia: { title: 'No Claudia activity.', subtitle: 'Claudia Chat task results and updates will appear here.' },
   approvals: { title: 'No pending approvals.', subtitle: 'Permission requests and AI reviews will appear here.' },
   system: { title: 'All systems normal.', subtitle: 'Connection and sync status will appear here.' },
 };
@@ -351,7 +352,7 @@ function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
 
   // Per-tab unread counts
   const unreadCounts = useMemo(() => {
-    const counts: Record<NotchTab, number> = { sessions: 0, approvals: 0, system: 0 };
+    const counts: Record<NotchTab, number> = { sessions: 0, claudia: 0, approvals: 0, system: 0 };
     // Count toasts per tab (all toasts are "unread")
     for (const t of toasts) counts[t.category ?? classifyToast(t)]++;
     // Count unread feed items per tab

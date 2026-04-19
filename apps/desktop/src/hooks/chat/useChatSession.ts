@@ -86,7 +86,13 @@ export function useChatSession({ sessionId, isConnected }: UseChatSessionParams)
     : null;
   const isForcedPlanSession = currentSession?.projectRole === 'task' && currentSession?.planStatus === 'planning';
   const forcedMode = isForcedPlanSession ? 'plan' : '';
-  const effectiveMode = forcedMode || runtimeMode || selectedMode;
+  // `runtimeMode` reflects provider-side transient state within the current run
+  // (for example, Claude calling EnterPlanMode mid-run). It does not change the
+  // actual mode that was used to start that run, nor the mode that will be used
+  // for the next run. Keep the visible/send mode aligned with the configured
+  // session mode so the UI does not imply stricter execution guarantees than the
+  // backend is actually enforcing.
+  const effectiveMode = forcedMode || selectedMode;
   const usageOrDefault = currentUsage || {
     inputTokens: 0,
     outputTokens: 0,

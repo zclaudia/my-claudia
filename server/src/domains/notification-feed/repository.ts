@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
-import type { NotificationItem, NotificationStatus, NotificationSource } from '@my-claudia/shared/features/notification-feed';
+import type { NotificationItem, NotificationStatus, NotificationSource, NotificationInitiator } from '@my-claudia/shared/features/notification-feed';
 
 interface FeedRow {
   id: string;
@@ -9,6 +9,7 @@ interface FeedRow {
   session_id: string | null;
   project_id: string | null;
   source: string;
+  initiator: string | null;
   title: string;
   summary: string | null;
   status: string;
@@ -30,6 +31,7 @@ function rowToItem(row: FeedRow): NotificationItem {
     projectId: row.project_id ?? undefined,
     ownerBackendId: LOCAL_NOTIFICATION_BACKEND_ID,
     source: row.source as NotificationSource,
+    initiator: (row.initiator as NotificationInitiator) ?? undefined,
     title: row.title,
     summary: row.summary ?? undefined,
     status: row.status as NotificationStatus,
@@ -52,8 +54,8 @@ export class NotificationRepository {
       ownerBackendId: item.ownerBackendId || LOCAL_NOTIFICATION_BACKEND_ID,
     };
     this.db.prepare(`
-      INSERT INTO notifications (id, trigger_id, task_id, session_id, project_id, source, title, summary, status, error, delegation_context, created_at, completed_at, read_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO notifications (id, trigger_id, task_id, session_id, project_id, source, initiator, title, summary, status, error, delegation_context, created_at, completed_at, read_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       normalizedItem.triggerId ?? null,
@@ -61,6 +63,7 @@ export class NotificationRepository {
       normalizedItem.sessionId ?? null,
       normalizedItem.projectId ?? null,
       normalizedItem.source,
+      normalizedItem.initiator ?? null,
       normalizedItem.title,
       normalizedItem.summary ?? null,
       normalizedItem.status,

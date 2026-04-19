@@ -318,6 +318,8 @@ function setDefaultStores(overrides?: {
     pagination: {},
     activeRuns: {},
     backgroundRunIds: new Set(),
+    modeOverrides: {},
+    runtimeModes: {},
     runHealth: {},
     activeToolCalls: {},
     runContentBlocks: {},
@@ -790,7 +792,7 @@ describe('ChatInterface', () => {
       chatStore: {
         messages: {},
         pagination: { 'sess-1': { total: 0, hasMore: false } },
-        getMode: vi.fn(() => 'plan'),
+        modeOverrides: { 'sess-1': 'plan' },
       },
     });
     const { container } = render(<ChatInterface sessionId="sess-1" />);
@@ -810,7 +812,7 @@ describe('ChatInterface', () => {
       chatStore: {
         messages: {},
         pagination: { 'sess-1': { total: 0, hasMore: false } },
-        getModelOverride: vi.fn(() => 'gpt-4'),
+        modelOverrides: { 'sess-1': 'gpt-4' },
       },
     });
     const { container } = render(<ChatInterface sessionId="sess-1" />);
@@ -1210,7 +1212,7 @@ describe('ChatInterface', () => {
   it('shows mode selector with current mode value', () => {
     setDefaultStores({
       chatStore: {
-        getMode: vi.fn(() => 'code'),
+        modeOverrides: { 'sess-1': 'code' },
       },
     });
     const { container } = render(<ChatInterface sessionId="sess-1" />);
@@ -1306,12 +1308,27 @@ describe('ChatInterface', () => {
       chatStore: {
         messages: {},
         pagination: { 'sess-1': { total: 0, hasMore: false } },
-        getMode: vi.fn(() => 'plan'),
+        modeOverrides: { 'sess-1': 'plan' },
       },
     });
     const { container } = render(<ChatInterface sessionId="sess-1" />);
     const input = container.querySelector('[data-testid="message-input"]');
     expect(input?.getAttribute('data-placeholder')).toContain('Plan Mode');
+  });
+
+  it('does not show plan mode placeholder when only runtimeMode is plan', () => {
+    setDefaultStores({
+      chatStore: {
+        messages: {},
+        pagination: { 'sess-1': { total: 0, hasMore: false } },
+        modeOverrides: { 'sess-1': 'default' },
+        runtimeModes: { 'sess-1': 'plan' },
+      },
+    });
+    const { container } = render(<ChatInterface sessionId="sess-1" />);
+    const input = container.querySelector('[data-testid="message-input"]');
+    expect(input?.getAttribute('data-placeholder')).toContain('Type a message');
+    expect(input?.getAttribute('data-placeholder')).not.toContain('Plan Mode');
   });
 
   it('shows queue placeholder when loading', () => {

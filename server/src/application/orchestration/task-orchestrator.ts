@@ -48,6 +48,7 @@ export interface TaskOrchestratorDeps {
       projectId?: string;
       ownerBackendId?: string;
       source: NotificationSource;
+      initiator?: 'system' | 'claudia';
       title: string;
       summary?: string;
       status: 'running' | 'completed' | 'failed';
@@ -109,6 +110,7 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
       sessionId: task.sessionId ?? undefined,
       projectId: task.projectId ?? undefined,
       source: getFeedSource(task),
+      initiator: task.initiator,
       title: getFeedTitle(task),
       summary,
       status: mappedStatus,
@@ -196,6 +198,7 @@ export function createTaskOrchestrator(deps: TaskOrchestratorDeps): TaskOrchestr
           sessionId,
           projectId: task.projectId ?? undefined,
           source: getFeedSource(task),
+          initiator: task.initiator,
           title: getFeedTitle(task),
           summary: task.task,
           status: 'running',
