@@ -24,6 +24,7 @@ import type { ConnectedClient, ActiveRun } from './application/conversation/tran
 import type { createRouter } from './interfaces/websocket/index.js';
 import { createGatewayState } from './infrastructure/gateway/gateway-state.js';
 import { bootstrapDomains } from './application/domain-bootstrap.js';
+import { buildAppSelectionClickUrl, getBackendDisplayName, getBackendRouteId } from './infrastructure/push/notification-context.js';
 
 export interface SetupDependencies {
   db: ReturnType<typeof initDatabase>;
@@ -143,12 +144,14 @@ export function setupRoutesAndServices(deps: SetupDependencies): SetupResult {
     (report) => {
       const pids = report.leakedProcesses.map(p => `PID=${p.pid}(${p.command}, ${p.elapsedSeconds}s)`).join(', ');
       console.warn(`[ProcessMonitor] Leaked processes detected (activeRuns=${report.activeRunCount}): ${pids}`);
+      const backendName = getBackendDisplayName(db);
       void notificationSender.notify({
         type: 'process_leak',
         title: 'Leaked processes detected',
-        body: `${report.leakedProcesses.length} orphaned process(es) found: ${pids}`,
+        body: `${report.leakedProcesses.length} orphaned process(es) found on backend ${backendName}: ${pids}`,
         priority: 'high',
         tags: ['warning'],
+        clickUrl: buildAppSelectionClickUrl(db, { backendId: getBackendRouteId(db) }),
       });
     },
     {

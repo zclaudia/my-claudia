@@ -184,6 +184,7 @@ export class GatewayManager {
 
     process.env.GATEWAY_URL = config.gatewayUrl;
     process.env.GATEWAY_SECRET = config.gatewaySecret;
+    process.env.GATEWAY_NAME = config.backendName || `Backend on ${os.hostname()}`;
 
     const serverContext = this.serverContext;
 

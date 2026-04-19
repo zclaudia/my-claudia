@@ -37,6 +37,7 @@ import { writePermissionLog } from '../agent/permission-log-writer.js';
 import type { PermissionBridge } from '../agent/permission-bridge.js';
 import type { PermissionEscalationContext } from '../../../domains/workflows/ports/step-executor.js';
 import type { PermissionWorkflowResolver } from '../../../domains/workflows/index.js';
+import { buildAppSelectionClickUrl, formatSessionBackendContext } from '../../../infrastructure/push/notification-context.js';
 
 interface SessionContext {
   project_id: string;
@@ -278,9 +279,10 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
           void notificationService.notify({
             type: 'background_permission',
             title: 'Background task needs attention',
-            body: `${request.toolName}: ${request.detail.slice(0, 200)}`,
+            body: `${formatSessionBackendContext(db, message.sessionId)}: ${request.toolName}: ${request.detail.slice(0, 200)}`,
             priority: 'urgent',
             tags: ['rotating_light'],
+            clickUrl: buildAppSelectionClickUrl(db, { sessionId: message.sessionId }),
           });
         }
 
@@ -362,9 +364,10 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
             void notificationService.notify({
               type: 'interaction_prompt',
               title: 'Claude has a question',
-              body: firstQuestion?.question?.slice(0, 200) || 'Interactive question',
+              body: `${formatSessionBackendContext(db, message.sessionId)}: ${firstQuestion?.question?.slice(0, 200) || 'Interactive question'}`,
               priority: 'high',
               tags: ['question'],
+              clickUrl: buildAppSelectionClickUrl(db, { sessionId: message.sessionId }),
             });
           } else {
             broadcastRunMessage(activeRun, {
@@ -385,9 +388,10 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
             void notificationService.notify({
               type: 'permission_request',
               title: 'Permission Required',
-              body: `${matchedRule ? `[${matchedRule}] ` : ''}${request.toolName}: ${request.detail.slice(0, 200)}`,
+              body: `${formatSessionBackendContext(db, message.sessionId)}: ${matchedRule ? `[${matchedRule}] ` : ''}${request.toolName}: ${request.detail.slice(0, 200)}`,
               priority: 'urgent',
               tags: ['warning'],
+              clickUrl: buildAppSelectionClickUrl(db, { sessionId: message.sessionId }),
             });
           }
         }

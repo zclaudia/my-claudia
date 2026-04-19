@@ -13,6 +13,7 @@ import { generateToolSignature } from '../../../loop-detection.js';
 import type { ProviderRegistryPort } from '../../../infrastructure/providers/registry.js';
 import type { ClaudeMessage, SystemInfo } from '../../../infrastructure/providers/types.js';
 import type { NotificationSender } from '../../../infrastructure/push/notification-sender.js';
+import { buildAppSelectionClickUrl, formatSessionBackendContext } from '../../../infrastructure/push/notification-context.js';
 
 export interface ProviderEventState {
   sdkSessionId?: string;
@@ -346,9 +347,10 @@ export function handleProviderEvent({
         void notificationService.notify({
           type: 'run_completed',
           title: 'Run completed',
-          body: `Session: ${sessionId}`,
+          body: `${formatSessionBackendContext(db, sessionId)} completed.`,
           priority: 'default',
           tags: ['white_check_mark'],
+          clickUrl: buildAppSelectionClickUrl(db, { sessionId }),
         });
       }
 
@@ -391,9 +393,10 @@ export function handleProviderEvent({
         void notificationService.notify({
           type: 'run_failed',
           title: 'Run failed',
-          body: errorMessage.slice(0, 200),
+          body: `${formatSessionBackendContext(db, sessionId)} failed: ${errorMessage.slice(0, 200)}`,
           priority: 'high',
           tags: ['x'],
+          clickUrl: buildAppSelectionClickUrl(db, { sessionId }),
         });
       }
 

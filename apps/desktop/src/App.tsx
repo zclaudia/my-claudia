@@ -62,6 +62,15 @@ import { isDesktopTauri } from './utils/platform';
 import { isLocalBackendId, resolveLocalBackendId } from './utils/controlPlane';
 import { shouldShowDirectGatewaySetup } from './utils/directGatewaySetup';
 import {
+  clearSelectionDeepLinkFromCurrentUrl,
+  consumeSelectionDeepLinkFromWindow,
+  hasSelectionDeepLinkTarget,
+  parseSelectionDeepLink,
+  parseSelectionDeepLinkUrl,
+  SELECTION_DEEP_LINK_EVENT,
+  type SelectionDeepLinkTarget,
+} from './utils/selectionDeepLink';
+import {
   getMobileBackendViewState,
   getMobileControlPlaneState,
   isMobileGatewayConnected,
@@ -167,7 +176,7 @@ function AppContent() {
   const projects = useProjectStore((s) => s.projects);
   const selectSession = useProjectStore((s) => s.selectSession);
   const setDashboardView = useSelectionStore((s) => s.setDashboardView);
-  const { selectProject } = useSelectionCoordinator();
+  const { selectBackend, selectProject: selectProjectRoute, selectSession: selectSessionRoute } = useSelectionCoordinator();
   const [dashboardProjectId, setDashboardProjectId] = useState<string | null>(null);
   const openAutomationWindowFn = useCallback(() => {
     import('./features/automation/openAutomationWindow').then(m => m.openAutomationWindow());
@@ -264,6 +273,54 @@ function AppContent() {
     if (controlPlaneState !== 'ready') return;
     void loadAgentConfig();
   }, [controlPlaneState, loadAgentConfig]);
+
+  const applySelectionDeepLinkTarget = useCallback((target: SelectionDeepLinkTarget) => {
+    if (!hasSelectionDeepLinkTarget(target)) return;
+
+    if (target.sessionId) {
+      selectSessionRoute(target.sessionId, { backendId: target.backendId });
+      return;
+    }
+
+    if (target.projectId) {
+      if (target.backendId) selectBackend(target.backendId);
+      selectProjectRoute(target.projectId);
+      return;
+    }
+
+    if (target.backendId) {
+      selectBackend(target.backendId);
+    }
+  }, [selectBackend, selectProjectRoute, selectSessionRoute]);
+
+  useEffect(() => {
+    if (controlPlaneState !== 'ready') return;
+    const target = parseSelectionDeepLink(window.location.search);
+    if (!hasSelectionDeepLinkTarget(target)) return;
+
+    applySelectionDeepLinkTarget(target);
+    clearSelectionDeepLinkFromCurrentUrl();
+  }, [applySelectionDeepLinkTarget, controlPlaneState]);
+
+  useEffect(() => {
+    if (controlPlaneState !== 'ready') return;
+
+    const pendingTarget = consumeSelectionDeepLinkFromWindow();
+    if (pendingTarget) {
+      applySelectionDeepLinkTarget(pendingTarget);
+    }
+
+    const handleSelectionTarget = (event: Event) => {
+      const rawTarget = (event as CustomEvent<string>).detail;
+      if (typeof rawTarget !== 'string' || !rawTarget.trim()) return;
+      applySelectionDeepLinkTarget(parseSelectionDeepLinkUrl(rawTarget));
+    };
+
+    window.addEventListener(SELECTION_DEEP_LINK_EVENT, handleSelectionTarget as EventListener);
+    return () => {
+      window.removeEventListener(SELECTION_DEEP_LINK_EVENT, handleSelectionTarget as EventListener);
+    };
+  }, [applySelectionDeepLinkTarget, controlPlaneState]);
 
   useEffect(() => {
     if (controlPlaneState !== 'ready' || !agentConfigLoaded || !agentConfig?.enabled) return;
@@ -709,7 +766,7 @@ function AppContent() {
           }}
           isNotificationsOpen={isMobile ? isFeedOpen : false}
           onOpenDashboard={(projectId) => {
-            selectProject(projectId);
+            selectProjectRoute(projectId);
             selectSession(null);
             setDashboardView(projectId, 'home');
             setDashboardProjectId(projectId);
@@ -812,7 +869,7 @@ function AppContent() {
                 sessionId={selectedSessionId}
                 onOpenSidebar={() => setSidebarOpen(true)}
                 onReturnToDashboard={(projectId) => {
-                  selectProject(projectId);
+                  selectProjectRoute(projectId);
                   selectSession(null);
                   setDashboardProjectId(projectId);
                 }}

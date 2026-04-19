@@ -5,6 +5,7 @@ import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 import { createNotificationRoutes } from './routes.js';
 import { NotificationService } from './service.js';
 import type { NotificationSender } from '../../infrastructure/push/notification-sender.js';
+import { buildAppSelectionClickUrl, formatSessionBackendContext, getBackendDisplayName } from '../../infrastructure/push/notification-context.js';
 
 export interface NotificationDomainDeps {
   db: ReturnType<typeof initDatabase>;
@@ -27,11 +28,19 @@ export function registerNotificationDomain(
     db,
     broadcastFn: broadcastMessage,
     notifyFn: (item) => {
+      const context = item.sessionId
+        ? `${formatSessionBackendContext(db, item.sessionId)}. `
+        : `Backend ${getBackendDisplayName(db)}. `;
       void notificationSender.notify({
         type: item.status === 'failed' ? 'run_failed' : 'run_completed',
         title: item.title,
-        body: item.summary || item.error || '',
+        body: `${context}${item.summary || item.error || ''}`.trim(),
         tags: ['agent', 'feed'],
+        clickUrl: buildAppSelectionClickUrl(db, {
+          backendId: item.ownerBackendId,
+          projectId: item.projectId,
+          sessionId: item.sessionId,
+        }),
       });
     },
   });

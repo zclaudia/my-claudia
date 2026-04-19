@@ -181,7 +181,7 @@ describe('ws/run-events', () => {
     expect(broadcastHeartbeatMock).toHaveBeenCalled();
     expect(notifyMock).toHaveBeenCalledWith(expect.objectContaining({
       type: 'run_completed',
-      body: 'Session: session-1',
+      body: expect.stringContaining('Session session-1 on backend '),
     }));
     expect(sendRunEventMock).toHaveBeenCalledWith({
       type: 'background_task_update',
