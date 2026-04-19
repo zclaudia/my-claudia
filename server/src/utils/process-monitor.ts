@@ -35,6 +35,8 @@ interface ProcessMonitorOptions {
   minElapsedSeconds?: number;
   /** Process names to ignore (e.g. internal helpers that outlive runs). */
   ignoreCommands?: string[];
+  /** Grace period when comparing descendant elapsed time to server uptime. */
+  elapsedSlackSeconds?: number;
 }
 
 export class ProcessMonitor {
@@ -65,7 +67,22 @@ export class ProcessMonitor {
       autoKill: options?.autoKill ?? false,
       minElapsedSeconds: options?.minElapsedSeconds ?? 60,
       ignoreCommands: options?.ignoreCommands ?? [],
+      elapsedSlackSeconds: options?.elapsedSlackSeconds ?? 300,
     };
+  }
+
+  private isIgnoredCommand(command: string): boolean {
+    const normalized = command.trim().toLowerCase();
+    if (!normalized) return true;
+    // `ps` is spawned by the monitor itself and can briefly appear in the descendant tree.
+    if (normalized === 'ps') return true;
+    return this.opts.ignoreCommands.some(cmd => normalized.includes(cmd.toLowerCase()));
+  }
+
+  private isReasonableElapsedSeconds(elapsedSeconds: number): boolean {
+    if (!Number.isFinite(elapsedSeconds) || elapsedSeconds < 0) return false;
+    const maxReasonableElapsed = Math.ceil(process.uptime()) + this.opts.elapsedSlackSeconds;
+    return elapsedSeconds <= maxReasonableElapsed;
   }
 
   start(): void {
@@ -90,7 +107,8 @@ export class ProcessMonitor {
     const children = await listDescendantProcesses(this.serverPid);
     const leakedProcesses = children.filter(p =>
       p.elapsedSeconds >= this.opts.minElapsedSeconds &&
-      !this.opts.ignoreCommands.some(cmd => p.command.includes(cmd)),
+      this.isReasonableElapsedSeconds(p.elapsedSeconds) &&
+      !this.isIgnoredCommand(p.command),
     );
 
     return { activeRunCount, leakedProcesses };
