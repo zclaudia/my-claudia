@@ -155,6 +155,66 @@ sign_updater_artifact() {
   return 1
 }
 
+cleanup_macos_dmg_artifacts() {
+  local bundle_dir="$1"
+  local dmg_dir="$bundle_dir/dmg"
+
+  # Remove any previously produced DMG files and Tauri temp images.
+  find "$dmg_dir" -name '*.dmg' -delete 2>/dev/null || true
+  find "$bundle_dir/macos" -name 'rw.*.dmg' -delete 2>/dev/null || true
+
+  # Detach any lingering volumes created from this bundle dir.
+  for disk in $(hdiutil info 2>/dev/null | grep -A20 "image-path.*$bundle_dir" | grep '/dev/disk' | awk '{print $1}' | grep -o '/dev/disk[0-9]*' | sort -u); do
+    echo "  Detaching stale mount: $disk"
+    hdiutil detach "$disk" -force 2>/dev/null || true
+  done
+
+  # Force-unmount any volumes named after the app. These are the usual cause of
+  # sporadic `hdiutil create ... Resource busy` failures on CI runners.
+  for vol in /Volumes/MyClaudia*; do
+    if [ -d "$vol" ]; then
+      echo "  Force unmounting volume: $vol"
+      hdiutil detach "$vol" -force 2>/dev/null || diskutil unmount force "$vol" 2>/dev/null || true
+    fi
+  done
+}
+
+create_macos_dmg_with_retry() {
+  local app_bundle="$1"
+  local dmg_path="$2"
+  local attempts=3
+  local temp_root=""
+  local temp_dmg=""
+
+  temp_root="$(mktemp -d "${TMPDIR:-/tmp}/my-claudia-dmg.XXXXXX")"
+  trap 'rm -rf "$temp_root"' RETURN
+
+  # Build from a staging copy to avoid hdiutil racing with the just re-signed bundle.
+  ditto "$app_bundle" "$temp_root/MyClaudia.app"
+
+  for attempt in $(seq 1 "$attempts"); do
+    temp_dmg="$temp_root/MyClaudia.dmg"
+    rm -f "$temp_dmg" "$dmg_path"
+
+    if hdiutil create -volname "MyClaudia" -srcfolder "$temp_root/MyClaudia.app" -ov -format UDZO "$temp_dmg"; then
+      mv "$temp_dmg" "$dmg_path"
+      rm -rf "$temp_root"
+      trap - RETURN
+      return 0
+    fi
+
+    if [ "$attempt" -lt "$attempts" ]; then
+      echo "  hdiutil create failed (attempt $attempt/$attempts), retrying after cleanup"
+      cleanup_macos_dmg_artifacts "$BUNDLE_DIR"
+      sleep $((attempt * 2))
+    fi
+  done
+
+  rm -rf "$temp_root"
+  trap - RETURN
+  return 1
+}
+
 verify_release_bundle() {
   local app_bundle="$1"
   local resources_dir="$app_bundle/Contents/Resources"
@@ -371,33 +431,13 @@ if [ "${SKIP_SIGNING:-}" != "1" ]; then
     # Rebuild DMG with corrected app bundle
     echo "  Rebuilding DMG with corrected signatures"
     DMG_DIR="$BUNDLE_DIR/dmg"
-    # Remove old DMG files
-    find "$DMG_DIR" -name '*.dmg' -delete 2>/dev/null || true
-    # Remove temp read-write DMG images from Tauri's bundle_dmg.sh
-    find "$BUNDLE_DIR/macos" -name 'rw.*.dmg' -delete 2>/dev/null || true
-    # Detach ALL mounted volumes named "MyClaudia"
-    for disk in $(hdiutil info 2>/dev/null | grep -B20 '/Volumes/MyClaudia' | grep '/dev/disk' | awk '{print $1}' | grep -o '/dev/disk[0-9]*' | sort -u); do
-      echo "  Detaching stale mount: $disk"
-      hdiutil detach "$disk" -force 2>/dev/null || true
-    done
-    # Also detach any mounts referencing our bundle dir
-    for disk in $(hdiutil info 2>/dev/null | grep -A20 "image-path.*$BUNDLE_DIR" | grep '/dev/disk' | awk '{print $1}' | grep -o '/dev/disk[0-9]*' | sort -u); do
-      hdiutil detach "$disk" -force 2>/dev/null || true
-    done
-    # Force-unmount any lingering /Volumes/MyClaudia* before creating (catches cases
-    # where hdiutil info parsing missed a stale mount, which causes "Resource busy")
-    for vol in /Volumes/MyClaudia*; do
-      if [ -d "$vol" ]; then
-        echo "  Force unmounting volume: $vol"
-        hdiutil detach "$vol" -force 2>/dev/null || diskutil unmount force "$vol" 2>/dev/null || true
-      fi
-    done
+    cleanup_macos_dmg_artifacts "$BUNDLE_DIR"
     sleep 1
     # Create new DMG
     DMG_NAME="MyClaudia_${VERSION}_$(uname -m).dmg"
     DMG_PATH="$DMG_DIR/$DMG_NAME"
     mkdir -p "$DMG_DIR"
-    hdiutil create -volname "MyClaudia" -srcfolder "$APP_BUNDLE" -ov -format UDZO "$DMG_PATH"
+    create_macos_dmg_with_retry "$APP_BUNDLE" "$DMG_PATH"
     # Sign the DMG
     codesign --force --sign "$SIGNING_IDENTITY" "$DMG_PATH"
     echo "  DMG rebuilt: $DMG_PATH"
