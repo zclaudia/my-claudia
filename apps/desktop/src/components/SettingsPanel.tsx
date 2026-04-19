@@ -508,6 +508,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                       <FontSizeToggle />
                     </div>
                     {!isMobile && <NotchPanelToggle />}
+                    {!isMobile && <NotchMonitorSelector />}
                   </div>
                 </div>
 
@@ -900,6 +901,50 @@ function NotchPanelToggle() {
           }`}
         />
       </button>
+    </div>
+  );
+}
+
+interface MonitorInfo {
+  name: string | null;
+  width: number;
+  height: number;
+  scale_factor: number;
+}
+
+function NotchMonitorSelector() {
+  const { showNotchPanel, notchMonitor, setNotchMonitor } = useUIStore();
+  const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
+
+  useEffect(() => {
+    if (!showNotchPanel) return;
+    invoke<MonitorInfo[]>('list_monitors')
+      .then(setMonitors)
+      .catch(() => setMonitors([]));
+  }, [showNotchPanel]);
+
+  if (!showNotchPanel || monitors.length <= 1) return null;
+
+  return (
+    <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg">
+      <div className="flex items-center gap-2">
+        <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+        </svg>
+        <span className="text-sm">Notification Display</span>
+      </div>
+      <select
+        value={notchMonitor === null ? '' : String(notchMonitor)}
+        onChange={(e) => setNotchMonitor(e.target.value === '' ? null : parseInt(e.target.value, 10))}
+        className="text-xs bg-secondary border border-border rounded px-2 py-1 text-foreground"
+      >
+        <option value="">Primary</option>
+        {monitors.map((m, i) => (
+          <option key={i} value={String(i)}>
+            {m.name || `Monitor ${i + 1}`} ({m.width}x{m.height})
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

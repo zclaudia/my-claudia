@@ -1,5 +1,7 @@
 #[cfg(target_os = "android")]
 use serde::{Deserialize, Serialize};
+#[cfg(not(target_os = "android"))]
+use serde::Serialize;
 
 #[cfg(not(target_os = "android"))]
 use tauri::{LogicalPosition, Manager, Position, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -323,9 +325,9 @@ fn create_claudia_ball(
 const NOTCH_WINDOW_WIDTH: f64 = 620.0;
 #[cfg(not(target_os = "android"))]
 const NOTCH_WINDOW_HEIGHT: f64 = 600.0;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "macos")))]
 const NOTCH_CLOSED_WIDTH: f64 = 244.0;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "macos")))]
 const NOTCH_CLOSED_HEIGHT: f64 = 32.0;
 #[cfg(not(any(target_os = "android", target_os = "macos")))]
 const NOTCH_OPENED_WIDTH: f64 = NOTCH_WINDOW_WIDTH;
@@ -423,27 +425,56 @@ fn set_notch_frame(window: &WebviewWindow, x: f64, width: f64, height: f64) {
     });
 }
 
+#[cfg(not(target_os = "android"))]
+#[derive(Serialize)]
+struct MonitorInfo {
+    name: Option<String>,
+    width: u32,
+    height: u32,
+    scale_factor: f64,
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn list_monitors(app: tauri::AppHandle) -> Result<Vec<MonitorInfo>, String> {
+    let monitors = app.available_monitors().map_err(|e| e.to_string())?;
+    Ok(monitors
+        .iter()
+        .map(|m| MonitorInfo {
+            name: m.name().map(|n| n.to_string()),
+            width: m.size().width,
+            height: m.size().height,
+            scale_factor: m.scale_factor(),
+        })
+        .collect())
+}
+
 /// Create the always-on-top notch window (Dynamic Island-style notification surface).
 /// The underlying OS window is always sized for the fully-opened panel; the visible
 /// notch shape is CSS-animated inside the (transparent) window. This avoids timing
 /// issues between React state changes and asynchronous `set_size` calls.
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
-fn create_notch_window(app: tauri::AppHandle, notch_url: String) -> Result<(), String> {
+fn create_notch_window(app: tauri::AppHandle, notch_url: String, monitor_index: Option<usize>) -> Result<(), String> {
     if app.get_webview_window("notch").is_some() {
         return Ok(());
     }
 
-    // Position at top-center of primary monitor. y=0 is the absolute top edge
-    // of the screen. We'll raise the window level above the menu bar below so
-    // this actually renders on top of it.
+    // Position at top-center of the chosen monitor (or primary by default).
+    // y=0 is the absolute top edge of the screen. We'll raise the window
+    // level above the menu bar below so this actually renders on top of it.
     let (x, y) = {
-        let primary = app.primary_monitor().ok().flatten();
-        if let Some(monitor) = primary {
-            let scale = monitor.scale_factor().max(1e-3);
-            let screen_w = monitor.size().width as f64 / scale;
-            let x = (screen_w - NOTCH_WINDOW_WIDTH) / 2.0;
-            (x.max(0.0), 0.0)
+        let monitors = app.available_monitors().ok().unwrap_or_default();
+        let chosen = monitor_index
+            .and_then(|i| monitors.get(i).cloned());
+        let monitor = chosen.or_else(|| app.primary_monitor().ok().flatten());
+        if let Some(mon) = monitor {
+            let scale = mon.scale_factor().max(1e-3);
+            let screen_w = mon.size().width as f64 / scale;
+            let mon_x = mon.position().x as f64 / scale;
+            let mon_y = mon.position().y as f64 / scale;
+            let x = mon_x + (screen_w - NOTCH_WINDOW_WIDTH) / 2.0;
+            (x.max(0.0), mon_y)
         } else {
             (0.0, 0.0)
         }
@@ -561,6 +592,85 @@ fn check_notch_hover(app: tauri::AppHandle) -> Result<bool, String> {
         && rel_x <= pill_x + pill_w
         && rel_y >= 0.0
         && rel_y <= pill_h)
+}
+
+/// Move the notch window to a different monitor by index.
+///
+/// macOS: use Cocoa NSScreen.screens directly, because `set_position` +
+/// `make_notch_above_menu_bar` races — `[win screen]` may still return the
+/// old screen before the move has taken effect.
+///
+/// Other platforms: use Tauri `set_position` which works correctly.
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn move_notch_to_monitor(app: tauri::AppHandle, monitor_index: usize) -> Result<(), String> {
+    let window = app
+        .get_webview_window("notch")
+        .ok_or_else(|| "notch window not found".to_string())?;
+
+    let monitors = app.available_monitors().map_err(|e| e.to_string())?;
+    if monitor_index >= monitors.len() {
+        return Err(format!("monitor index {} out of range", monitor_index));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        window.with_webview(move |webview| unsafe {
+            use objc2::msg_send;
+            use objc2::runtime::{AnyObject, Bool};
+            use objc2_foundation::{NSPoint, NSRect};
+
+            let win: *mut AnyObject = webview.ns_window() as _;
+            if win.is_null() {
+                return;
+            }
+
+            // Get NSScreen.screens (ordered same as Tauri's available_monitors)
+            let screens: *mut AnyObject = msg_send![objc2::class!(NSScreen), screens];
+            if screens.is_null() {
+                return;
+            }
+            let count: usize = msg_send![screens, count];
+            if monitor_index >= count {
+                return;
+            }
+            let target_screen: *mut AnyObject = msg_send![screens, objectAtIndex: monitor_index];
+
+            let screen_frame: NSRect = msg_send![target_screen, frame];
+            let screen_top_y = screen_frame.origin.y + screen_frame.size.height;
+
+            // Center the notch horizontally on the target screen.
+            // `visibleFrame` excludes the menu bar/dock; `frame` is the full screen.
+            let win_frame: NSRect = msg_send![win, frame];
+            let x = screen_frame.origin.x
+                + (screen_frame.size.width - win_frame.size.width) / 2.0;
+
+            let top_left = NSPoint { x, y: screen_top_y };
+            let _: () = msg_send![win, setFrameTopLeftPoint: top_left];
+
+            // Re-disable shadow (moving can re-enable it)
+            let no = Bool::from(false);
+            let _: () = msg_send![win, setHasShadow: no];
+            let _: () = msg_send![win, invalidateShadow];
+        }).map_err(|e| format!("with_webview failed: {:?}", e))?;
+
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let monitor = &monitors[monitor_index];
+        let scale = monitor.scale_factor().max(1e-3);
+        let screen_w = monitor.size().width as f64 / scale;
+        let mon_x = monitor.position().x as f64 / scale;
+        let mon_y = monitor.position().y as f64 / scale;
+        let x = mon_x + (screen_w - NOTCH_WINDOW_WIDTH) / 2.0;
+
+        window
+            .set_position(Position::Logical(LogicalPosition::new(x.max(0.0), mon_y)))
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
 }
 
 // Global shortcut state
@@ -828,10 +938,12 @@ pub fn run() {
             hide_claudia_chat,
             preload_claudia_chat,
             update_global_shortcut,
+            list_monitors,
             create_notch_window,
             resize_notch_window,
             set_notch_passthrough,
             check_notch_hover,
+            move_notch_to_monitor,
         ]);
 
     #[cfg(target_os = "android")]

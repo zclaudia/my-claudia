@@ -1,8 +1,9 @@
 import os from 'os';
 
 interface SqliteLikeDb {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   prepare?: (sql: string) => {
-    get: (...args: unknown[]) => Record<string, unknown> | undefined;
+    get: (...args: any[]) => Record<string, unknown> | undefined;
   };
 }
 

@@ -32,6 +32,7 @@ const SPAWN_DEBOUNCE_MS = 40;
 export function useNotchBridgeHost(params: { enabled: boolean }): void {
   const { enabled } = params;
   const showNotchPanel = useUIStore((s) => s.showNotchPanel);
+  const notchMonitor = useUIStore((s) => s.notchMonitor);
   const shouldEnable = enabled && showNotchPanel;
   const { sendMessage } = useConnection();
   const { selectSession } = useSelectionCoordinator();
@@ -50,7 +51,8 @@ export function useNotchBridgeHost(params: { enabled: boolean }): void {
       try {
         const params = new URLSearchParams({ notchWindow: '1' });
         const notchUrl = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
-        await invoke('create_notch_window', { notchUrl });
+        const monitorIndex = useUIStore.getState().notchMonitor;
+        await invoke('create_notch_window', { notchUrl, monitorIndex });
         await invoke('resize_notch_window', { expanded: false });
       } catch (err) {
         // eslint-disable-next-line no-console
@@ -58,6 +60,15 @@ export function useNotchBridgeHost(params: { enabled: boolean }): void {
       }
     })();
   }, [shouldEnable]);
+
+  // Move notch to a different monitor when the setting changes.
+  useEffect(() => {
+    if (!spawnedRef.current || notchMonitor === null) return;
+    invoke('move_notch_to_monitor', { monitorIndex: notchMonitor }).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.warn('[NotchBridge] move_notch_to_monitor failed:', err);
+    });
+  }, [notchMonitor]);
 
   // Publish state to the notch window whenever source stores change.
   useEffect(() => {
