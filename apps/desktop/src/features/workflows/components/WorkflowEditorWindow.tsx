@@ -19,6 +19,7 @@ interface WorkflowEditorWindowProps {
   gatewayUrl?: string;
   gatewaySecret?: string;
   initialMode?: 'toolbox' | 'ai';
+  readOnly?: boolean;
 }
 
 /** Standalone workflow editor rendered in a separate Tauri window */
@@ -32,6 +33,7 @@ export function WorkflowEditorWindow({
   gatewayUrl,
   gatewaySecret,
   initialMode,
+  readOnly,
 }: WorkflowEditorWindowProps) {
   return (
     <ConnectionProvider
@@ -47,12 +49,13 @@ export function WorkflowEditorWindow({
         serverUrl={serverUrl}
         authToken={authToken}
         initialMode={initialMode}
+        readOnly={readOnly}
       />
     </ConnectionProvider>
   );
 }
 
-function WorkflowEditorWindowContent({ projectId, workflowId, serverUrl, authToken, initialMode }: Omit<WorkflowEditorWindowProps, 'serverId' | 'serverName' | 'gatewayUrl' | 'gatewaySecret'>) {
+function WorkflowEditorWindowContent({ projectId, workflowId, serverUrl, authToken, initialMode, readOnly }: Omit<WorkflowEditorWindowProps, 'serverId' | 'serverName' | 'gatewayUrl' | 'gatewaySecret'>) {
   const [workflow, setWorkflow] = useState<Workflow | undefined>(undefined);
   const [loading, setLoading] = useState(!!workflowId);
   const [error, setError] = useState<string | null>(null);
@@ -159,6 +162,7 @@ function WorkflowEditorWindowContent({ projectId, workflowId, serverUrl, authTok
         serverUrl={serverUrl}
         authToken={authToken}
         initialMode={initialMode}
+        readOnly={readOnly}
       />
     </div>
   );

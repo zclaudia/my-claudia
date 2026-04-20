@@ -986,6 +986,7 @@ function App() {
             gatewayUrl={params.get('gatewayUrl') || undefined}
             gatewaySecret={params.get('gatewaySecret') || undefined}
             initialMode={(params.get('initialMode') as 'toolbox' | 'ai') || undefined}
+            readOnly={params.get('readOnly') === '1'}
           />
         </Suspense>
           </ErrorBoundary>

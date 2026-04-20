@@ -33,6 +33,8 @@ interface WorkflowEditorProps {
   authToken?: string;
   /** Initial left panel mode */
   initialMode?: 'toolbox' | 'ai';
+  /** When true, disables editing — view only */
+  readOnly?: boolean;
 }
 
 function getInitialDefinition(workflow?: Workflow): WorkflowDefinition {
@@ -47,7 +49,7 @@ function getInitialDefinition(workflow?: Workflow): WorkflowDefinition {
   return normalizeWorkflowDefinition(workflow.definition);
 }
 
-export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalone, serverUrl, authToken, initialMode }: WorkflowEditorProps) {
+export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalone, serverUrl, authToken, initialMode, readOnly }: WorkflowEditorProps) {
   const { createWorkflow, updateWorkflow, loadStepTypes } = useWorkflowStore();
   const projects = useProjectStore(s => s.projects);
   const project = projects.find(p => p.id === projectId);
@@ -267,7 +269,7 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
 
   const fullSelectedNode = getFullNodeDef();
   const fullSelectedEdge = getFullEdgeDef();
-  const editorLabel = workflow ? 'Edit Workflow' : 'Editor';
+  const editorLabel = readOnly ? 'View Workflow' : workflow ? 'Edit Workflow' : 'Editor';
 
   return (
     <div className="flex flex-col h-full">
@@ -302,6 +304,7 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
             onChange={(e) => setName(e.target.value)}
             placeholder="Workflow name..."
             className="text-sm font-medium bg-transparent border-none outline-none placeholder:text-muted-foreground min-w-0 w-48"
+            readOnly={readOnly}
           />
           <span className="text-muted-foreground/30 shrink-0">|</span>
           <input
@@ -310,13 +313,19 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Description (optional)"
             className="text-xs bg-transparent border-none outline-none text-muted-foreground placeholder:text-muted-foreground/40 flex-1 min-w-0"
+            readOnly={readOnly}
           />
+          {readOnly && (
+            <span className="flex items-center gap-1 text-[10px] text-muted-foreground bg-muted/50 rounded-full border border-muted px-2 py-0.5 shrink-0">
+              Read-only
+            </span>
+          )}
           {saveStatus === 'saved' && (
             <span className="flex items-center gap-1 text-xs text-green-500 shrink-0">
               <Check size={12} /> Saved
             </span>
           )}
-          {!standalone && isDesktopTauri() && (
+          {!standalone && !readOnly && isDesktopTauri() && (
             <button
               onClick={handlePopOut}
               className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground shrink-0"
@@ -325,21 +334,23 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
               <ExternalLink size={14} />
             </button>
           )}
-          <button
-            onClick={handleSave}
-            disabled={saving || !name.trim()}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40 shrink-0"
-          >
-            <Save size={14} />
-            {saving ? 'Saving...' : 'Save'}
-          </button>
+          {!readOnly && (
+            <button
+              onClick={handleSave}
+              disabled={saving || !name.trim()}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40 shrink-0"
+            >
+              <Save size={14} />
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          )}
         </div>
       </div>
 
       {/* Main layout */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left: Collapsible panel */}
-        {leftPanelOpen ? (
+        {leftPanelOpen && !readOnly ? (
           <div className="w-52 border-r border-border overflow-y-auto p-2.5 flex flex-col gap-3 shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1">
@@ -380,7 +391,7 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
               />
             )}
           </div>
-        ) : (
+        ) : !readOnly ? (
           <div className="w-8 border-r border-border flex flex-col items-center pt-2 shrink-0">
             <button
               onClick={() => setLeftPanelOpen(true)}
@@ -390,24 +401,27 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
               <PanelLeftOpen size={14} />
             </button>
           </div>
-        )}
+        ) : null}
 
         {/* Center: Graph editor canvas — takes all remaining space */}
-        <WorkflowGraphEditor
-          initialNodes={initial.nodes}
-          initialEdges={initial.edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onNodeSelect={onNodeSelect}
-          onEdgeSelect={onEdgeSelect}
-        />
+        <div className={`flex-1 min-w-0 flex flex-col ${readOnly ? '[&_.react-flow__node]:!cursor-default [&_.react-flow__handle]:!pointer-events-none' : ''}`}>
+          <WorkflowGraphEditor
+            initialNodes={initial.nodes}
+            initialEdges={initial.edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onNodeSelect={onNodeSelect}
+            onEdgeSelect={onEdgeSelect}
+          />
+        </div>
 
         {/* Right: Config panel — visible for selected node or selected loop edge */}
         {(fullSelectedNode || fullSelectedEdge) && (
-          <div className="w-72 border-l border-border overflow-y-auto p-3 bg-card/50 shrink-0">
+          <div className={`w-72 border-l border-border overflow-y-auto p-3 bg-card/50 shrink-0 ${readOnly ? '[&_input]:pointer-events-none [&_select]:pointer-events-none [&_textarea]:pointer-events-none [&_button:not([data-close])]:hidden' : ''}`}>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Config</span>
+              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{readOnly ? 'Details' : 'Config'}</span>
               <button
+                data-close
                 onClick={() => {
                   setSelectedNodeId(null);
                   setSelectedEdgeId(null);

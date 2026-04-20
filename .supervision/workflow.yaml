@@ -1,0 +1,4 @@
+onTaskComplete: []
+onCheckpoint: []
+checkpointTrigger:
+  type: on_task_complete

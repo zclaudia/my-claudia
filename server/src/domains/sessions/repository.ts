@@ -57,7 +57,7 @@ export class SessionRepository extends BaseRepository<
         data.type || 'regular',
         data.parentSessionId || null,
         data.workingDirectory || null,
-        data.sortOrder ?? null,
+        data.sortOrder ?? 0,
         data.projectRole || null,
         data.taskId || null,
         data.planStatus || null,

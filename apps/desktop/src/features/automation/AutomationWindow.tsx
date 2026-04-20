@@ -11,7 +11,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Loader2, Zap, Clock, Server, RefreshCw, Play, Pause, Trash2,
   Globe, FolderOpen, Plus, Pencil, ChevronDown, History, ArrowLeft,
-  CheckCircle2, XCircle,
+  CheckCircle2, XCircle, Eye, Shield,
 } from 'lucide-react';
 import type { Workflow, WorkflowTemplate, SystemTaskInfo, Project, WorkflowRun, WorkflowStepRun } from '@my-claudia/shared';
 import { StepRunCard, RunStatusBadge, formatDuration } from '../workflows/components/RunComponents';
@@ -667,19 +667,20 @@ function WorkflowsTab({ api, projects, globalPermissionWorkflowOverrideId, proje
     refresh();
   };
 
-  const handleEdit = (w: Workflow) => {
+  const handleEdit = (w: Workflow, readOnly?: boolean) => {
     // Include serverUrl as fallback for standalone windows where stores are empty
     const params: Record<string, string> = {
       // Use workflow's own project; fall back to selected project so editor has a real project for AI generation
       workflowEditor: w.projectId || effectiveProjectId,
       workflowId: w.id,
       ...(serverUrl ? { serverUrl } : {}),
+      ...(readOnly ? { readOnly: '1' } : {}),
     };
     if (isDesktopTauri()) {
       void openPopoutWindow({
         type: 'workflow-editor',
         params,
-        title: `Edit: ${w.name}`,
+        title: readOnly ? `View: ${w.name}` : `Edit: ${w.name}`,
         width: 1200,
         height: 800,
         connectionTarget: { backendId: selectedBackendId },
@@ -762,16 +763,24 @@ function WorkflowsTab({ api, projects, globalPermissionWorkflowOverrideId, proje
         <EmptyState message="No workflows yet" subtitle="Create one or enable a template to get started" />
       ) : (
         <div className="space-y-2">
-          {workflows.map(w => (
+          {workflows.map(w => {
+            const isSystem = !!w.isSystem;
+            return (
             <div
               key={w.id}
-              className="rounded-lg border border-border bg-card/50 p-3 flex items-center gap-3 cursor-pointer hover:bg-secondary/30 transition-colors"
-              onClick={() => handleEdit(w)}
+              className={`rounded-lg border border-border bg-card/50 p-3 flex items-center gap-3 cursor-pointer hover:bg-secondary/30 transition-colors ${isSystem ? 'opacity-80' : ''}`}
+              onClick={() => handleEdit(w, isSystem)}
             >
               <span className={`w-2 h-2 rounded-full flex-shrink-0 ${w.status === 'active' ? 'bg-green-500' : 'bg-muted-foreground'}`} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
                   <div className="text-sm font-medium truncate">{w.name}</div>
+                  {isSystem && (
+                    <span className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium shrink-0 bg-muted/50 text-muted-foreground border-muted">
+                      <Shield size={9} />
+                      System Default
+                    </span>
+                  )}
                   {getBindingBadges(w).map((badge) => (
                     <span
                       key={`${w.id}-${badge.label}`}
@@ -791,20 +800,29 @@ function WorkflowsTab({ api, projects, globalPermissionWorkflowOverrideId, proje
                 </div>
               </div>
               <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                <button onClick={() => handleEdit(w)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Edit">
-                  <Pencil size={12} />
-                </button>
-                {w.status === 'active' && (
-                  <button onClick={() => handleTrigger(w.id)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Trigger">
-                    <Play size={12} />
+                {isSystem ? (
+                  <button onClick={() => handleEdit(w, true)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="View">
+                    <Eye size={12} />
                   </button>
+                ) : (
+                  <>
+                    <button onClick={() => handleEdit(w)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Edit">
+                      <Pencil size={12} />
+                    </button>
+                    {w.status === 'active' && (
+                      <button onClick={() => handleTrigger(w.id)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Trigger">
+                        <Play size={12} />
+                      </button>
+                    )}
+                    <button onClick={() => handleDelete(w.id)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-red-400" title="Delete">
+                      <Trash2 size={12} />
+                    </button>
+                  </>
                 )}
-                <button onClick={() => handleDelete(w.id)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-red-400" title="Delete">
-                  <Trash2 size={12} />
-                </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
