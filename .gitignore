@@ -113,6 +113,7 @@ gateway/.deploy-version*
 *.heapsnapshot
 .worktrees/
 .my-claudia/
+.supervision/
 # Ignore .github except workflows
 .github/*
 !.github/workflows/
