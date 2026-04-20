@@ -37,6 +37,8 @@ const WORKFLOW_FILE = 'workflow.yaml';
 const PROJECT_SUMMARY_FILE = 'project-summary.md';
 const GOAL_FILE = 'goal.md';
 const RESULTS_DIR = 'results';
+const BASELINE_DIR = 'baseline';
+const CHANGES_DIR = 'changes';
 
 const DEFAULT_WORKFLOW: WorkflowConfig = {
   onTaskComplete: [],
@@ -121,6 +123,85 @@ export class ContextManager {
       yaml.dump(DEFAULT_WORKFLOW, { lineWidth: -1 }),
       'utf-8',
     );
+  }
+
+  ensureRootScaffold(projectName: string): void {
+    if (!this.isInitialized()) {
+      this.scaffold(projectName);
+    }
+  }
+
+  scaffoldBaseline(projectName: string): void {
+    this.ensureRootScaffold(projectName);
+    const baselineDir = path.join(this.supervisionPath, BASELINE_DIR);
+    const featuresDir = path.join(baselineDir, 'features');
+    fs.mkdirSync(featuresDir, { recursive: true });
+
+    const projectPath = path.join(baselineDir, 'project.md');
+    if (!fs.existsSync(projectPath)) {
+      this.writeStructuredDoc(projectPath, {
+        kind: 'baseline',
+        section: 'project',
+        status: 'draft',
+        updatedAt: new Date().toISOString(),
+      }, `# 项目概览\n\n## 背景\n\n## 当前目标\n\n## 关键约束\n\n## 已知风险\n\n## 待用户确认\n`);
+    }
+
+    const architecturePath = path.join(baselineDir, 'architecture.md');
+    if (!fs.existsSync(architecturePath)) {
+      this.writeStructuredDoc(architecturePath, {
+        kind: 'baseline',
+        section: 'architecture',
+        status: 'draft',
+        updatedAt: new Date().toISOString(),
+      }, `# 架构概览\n\n## 关键模块\n\n## 数据流\n\n## 外部依赖\n\n## 推断内容\n`);
+    }
+  }
+
+  scaffoldChangeWorkspace(change: { id: string; title: string; summary: string }): void {
+    const changesDir = path.join(this.supervisionPath, CHANGES_DIR, change.id);
+    fs.mkdirSync(changesDir, { recursive: true });
+    const now = new Date().toISOString();
+
+    const files: Array<{ name: string; frontmatter: Record<string, unknown>; content: string }> = [
+      {
+        name: 'change.md',
+        frontmatter: { kind: 'change', changeId: change.id, status: 'draft', updatedAt: now },
+        content: `# Change\n\n## Title\n\n${change.title}\n\n## Problem\n\n## Motivation\n\n## Non-Goals\n\n## Scope\n\n## Success Criteria\n`,
+      },
+      {
+        name: 'design.md',
+        frontmatter: { kind: 'design', changeId: change.id, status: 'awaiting_review', version: 1, updatedAt: now },
+        content: '# Design\n\n## Overview\n\n## Touched Modules\n\n## Out of Scope\n\n## Technical Approach\n\n## Risks\n\n## Testing Strategy\n\n## Acceptance Criteria\n',
+      },
+      {
+        name: 'execution.md',
+        frontmatter: { kind: 'execution', changeId: change.id, status: 'awaiting_review', designVersion: 1, updatedAt: now },
+        content: '# Execution Plan\n\n## Summary\n\n## Phases\n\n## Execution Strategy\n\n## Verification Plan\n\n## Automation Policy\n\n## Risks Before Start\n',
+      },
+      {
+        name: 'tasks.md',
+        frontmatter: { kind: 'tasks', changeId: change.id, status: 'draft', updatedAt: now },
+        content: '# Tasks\n\n## T1 <title>\n\n- Summary:\n- Scope:\n- Depends On:\n- Deliverables:\n- Verification:\n',
+      },
+      {
+        name: 'acceptance.md',
+        frontmatter: { kind: 'acceptance', changeId: change.id, status: 'pending', updatedAt: now },
+        content: '# Acceptance\n\n## Task-Level Checks\n\n## Change-Level Checks\n\n## Open Issues\n\n## Final Decision\n',
+      },
+      {
+        name: 'sync-log.md',
+        frontmatter: { kind: 'sync-log', changeId: change.id, status: 'draft', updatedAt: now },
+        content: '# Sync Log\n\n## Updated Files\n\n## Summary Of Spec Changes\n\n## Follow-up Notes\n',
+      },
+    ];
+
+    for (const file of files) {
+      const target = path.join(changesDir, file.name);
+      if (!fs.existsSync(target)) {
+        this.writeStructuredDoc(target, file.frontmatter, file.content);
+      }
+    }
   }
 
   /**
@@ -212,6 +293,40 @@ export class ContextManager {
     fs.writeFileSync(filePath, frontmatter + content, 'utf-8');
   }
 
+  updateStructuredDocument(
+    docId: string,
+    frontmatterPatch: Record<string, unknown>,
+    content: string,
+  ): void {
+    const filePath = path.join(this.supervisionPath, docId);
+    const parentDir = path.dirname(filePath);
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true });
+    }
+
+    let version = 1;
+    let existingFrontmatter: Record<string, unknown> = {};
+    if (fs.existsSync(filePath)) {
+      try {
+        const raw = fs.readFileSync(filePath, 'utf-8');
+        const parsed = matter(raw);
+        existingFrontmatter = parsed.data ?? {};
+        if (typeof parsed.data.version === 'number') {
+          version = parsed.data.version + 1;
+        }
+      } catch {
+        existingFrontmatter = {};
+      }
+    }
+
+    const nextFrontmatter = {
+      ...existingFrontmatter,
+      ...frontmatterPatch,
+      version,
+    };
+    fs.writeFileSync(filePath, matter.stringify(content, nextFrontmatter), 'utf-8');
+  }
+
   private extractDocumentMetaFallback(filePath: string): {
     version?: number;
     category?: string;
@@ -231,6 +346,11 @@ export class ContextManager {
     } catch {
       return {};
     }
+  }
+
+  private writeStructuredDoc(filePath: string, frontmatter: Record<string, unknown>, content: string): void {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, matter.stringify(content, frontmatter), 'utf-8');
   }
 
   /**

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useSupervisionStore } from '../supervisionStore';
-import type { SupervisionTask, ProjectAgent } from '@my-claudia/shared';
+import type { ChangeExecutionPlan, ProjectAgent, ProjectChange, SupervisionTask } from '@my-claudia/shared';
 
 // Helper to create mock task
 function makeTask(overrides: Partial<SupervisionTask> = {}): SupervisionTask {
@@ -25,13 +25,51 @@ function makeTask(overrides: Partial<SupervisionTask> = {}): SupervisionTask {
 // Helper to create mock agent
 function makeAgent(overrides: Partial<ProjectAgent> = {}): ProjectAgent {
   return {
-    projectId: 'proj-1',
+    type: 'supervisor',
+    mode: 'full',
     phase: 'idle',
     config: {
       maxConcurrentTasks: 2,
       trustLevel: 'medium',
       autoDiscoverTasks: false,
     },
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    ...overrides,
+  };
+}
+
+function makeChange(overrides: Partial<ProjectChange> = {}): ProjectChange {
+  return {
+    id: 'change-1',
+    projectId: 'proj-1',
+    title: 'Refactor settings',
+    slug: 'refactor-settings',
+    status: 'planning',
+    summary: 'Restructure settings flow',
+    nonGoals: [],
+    scope: [],
+    acceptanceCriteria: [],
+    active: true,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    ...overrides,
+  };
+}
+
+function makeExecutionPlan(overrides: Partial<ChangeExecutionPlan> = {}): ChangeExecutionPlan {
+  return {
+    changeId: 'change-1',
+    designVersion: 1,
+    summary: 'Execution summary',
+    automation: {
+      strategy: 'serial',
+      autoReview: true,
+      autoRetry: true,
+      autoSyncDraft: true,
+    },
+    verification: [],
+    updatedAt: Date.now(),
     ...overrides,
   };
 }
@@ -42,6 +80,8 @@ describe('supervisionStore', () => {
     useSupervisionStore.setState({
       tasks: {},
       agents: {},
+      activeChanges: {},
+      executionPlans: {},
       lastCheckpoint: {},
     });
   });
@@ -236,6 +276,22 @@ describe('supervisionStore', () => {
 
       expect(useSupervisionStore.getState().lastCheckpoint['proj-1']).toBe('Checkpoint 1');
       expect(useSupervisionStore.getState().lastCheckpoint['proj-2']).toBe('Checkpoint 2');
+    });
+  });
+
+  describe('setActiveChange', () => {
+    it('sets active change for a project', () => {
+      const change = makeChange();
+      useSupervisionStore.getState().setActiveChange('proj-1', change);
+      expect(useSupervisionStore.getState().activeChanges['proj-1']).toEqual(change);
+    });
+  });
+
+  describe('setExecutionPlan', () => {
+    it('sets execution plan for a change', () => {
+      const plan = makeExecutionPlan();
+      useSupervisionStore.getState().setExecutionPlan('change-1', plan);
+      expect(useSupervisionStore.getState().executionPlans['change-1']).toEqual(plan);
     });
   });
 });

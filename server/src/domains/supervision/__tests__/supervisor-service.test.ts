@@ -17,6 +17,10 @@ vi.mock('../context-manager.js', () => {
   class MockContextManager {
     isInitialized = vi.fn().mockReturnValue(false);
     scaffold = vi.fn();
+    scaffoldBaseline = vi.fn();
+    scaffoldChangeWorkspace = vi.fn();
+    updateDocument = vi.fn();
+    updateStructuredDocument = vi.fn();
     loadAll = mockContextManagerLoadAll;
     getContextForTask = vi.fn().mockReturnValue('');
     getWorkflow = vi.fn().mockReturnValue({ onTaskComplete: [], onCheckpoint: [], checkpointTrigger: { type: 'on_task_complete' } });
@@ -185,6 +189,7 @@ function createTestDb(): Database.Database {
     CREATE TABLE supervision_tasks (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
+      change_id TEXT,
       title TEXT NOT NULL,
       description TEXT NOT NULL,
       source TEXT NOT NULL DEFAULT 'user' CHECK (source IN ('user', 'agent_discovered')),
@@ -214,8 +219,59 @@ function createTestDb(): Database.Database {
     );
 
     CREATE INDEX idx_supervision_tasks_project ON supervision_tasks(project_id);
+    CREATE INDEX idx_supervision_tasks_change ON supervision_tasks(project_id, change_id);
     CREATE INDEX idx_supervision_tasks_status ON supervision_tasks(status);
     CREATE INDEX idx_supervision_tasks_session ON supervision_tasks(session_id);
+
+    CREATE TABLE project_changes (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      motivation TEXT,
+      non_goals TEXT,
+      scope TEXT,
+      acceptance_criteria TEXT,
+      baseline_version TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      design_approved_at INTEGER,
+      execution_approved_at INTEGER,
+      sync_approved_at INTEGER,
+      worktree_id TEXT,
+      local_pr_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      completed_at INTEGER
+    );
+
+    CREATE INDEX idx_project_changes_project ON project_changes(project_id, updated_at DESC);
+
+    CREATE TABLE change_gate_reviews (
+      id TEXT PRIMARY KEY,
+      change_id TEXT NOT NULL,
+      gate_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      decision TEXT,
+      notes TEXT,
+      reviewer_user_id TEXT,
+      created_at INTEGER NOT NULL,
+      resolved_at INTEGER
+    );
+
+    CREATE INDEX idx_change_gate_reviews_change ON change_gate_reviews(change_id, created_at DESC);
+
+    CREATE TABLE change_sync_runs (
+      id TEXT PRIMARY KEY,
+      change_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      applied_at INTEGER
+    );
+
+    CREATE INDEX idx_change_sync_runs_change ON change_sync_runs(change_id, created_at DESC);
 
     CREATE TABLE supervision_logs (
       id TEXT PRIMARY KEY,
@@ -294,6 +350,8 @@ describe('SupervisorService', () => {
   beforeEach(() => {
     db.exec('DELETE FROM supervision_logs');
     db.exec('DELETE FROM supervision_tasks');
+    db.exec('DELETE FROM change_gate_reviews');
+    db.exec('DELETE FROM change_sync_runs');
     db.exec('DELETE FROM messages');
     db.exec('DELETE FROM sessions');
     db.exec('DELETE FROM projects');
@@ -609,6 +667,62 @@ describe('SupervisorService', () => {
         (call: any[]) => call[0]?.type === 'supervision_task_update',
       );
       expect(taskUpdateCalls.length).toBeGreaterThan(0);
+    });
+
+    it('attaches task to active change when no explicit changeId is provided', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const change = service.createChange(projectId, {
+        title: 'Settings refactor',
+        summary: 'Refactor settings flow',
+      });
+
+      const task = service.createTask(projectId, {
+        title: 'Extract store',
+        description: 'Move state into new store',
+      });
+
+      expect(task.changeId).toBe(change.id);
+    });
+
+    it('syncs change artifacts after creating a task under a change', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const change = service.createChange(projectId, {
+        title: 'Settings refactor',
+        summary: 'Refactor settings flow',
+      });
+
+      service.createTask(projectId, {
+        changeId: change.id,
+        title: 'Extract store',
+        description: 'Move state into new store',
+      });
+
+      const manager = (service as any).contextService.contextManagers.get(projectId);
+      expect(manager.updateStructuredDocument).toHaveBeenCalledWith(
+        `changes/${change.id}/execution.md`,
+        expect.objectContaining({ kind: 'execution', changeId: change.id }),
+        expect.any(String),
+      );
+      expect(manager.updateStructuredDocument).toHaveBeenCalledWith(
+        `changes/${change.id}/tasks.md`,
+        expect.objectContaining({ kind: 'tasks', changeId: change.id, taskCount: 1 }),
+        expect.any(String),
+      );
+    });
+
+    it('rejects explicit changeId from another project', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const otherProjectId = seedProject(db, { agent: makeAgent() });
+      const otherChange = service.createChange(otherProjectId, {
+        title: 'Other change',
+        summary: 'Other project change',
+      });
+
+      expect(() => service.createTask(projectId, {
+        changeId: otherChange.id,
+        title: 'Invalid',
+        description: 'Should fail',
+      })).toThrow(`Change ${otherChange.id} does not belong to project ${projectId}`);
     });
   });
 
@@ -1073,6 +1187,218 @@ describe('SupervisorService', () => {
 
       const tasks = service.getTasks(projectId);
       expect(tasks).toHaveLength(2);
+    });
+
+    it('filters tasks by changeId', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const changeA = service.createChange(projectId, {
+        title: 'Change A',
+        summary: 'Summary A',
+      });
+      db.prepare('UPDATE project_changes SET active = 0, status = ? WHERE id = ?')
+        .run('completed', changeA.id);
+      const changeB = service.createChange(projectId, {
+        title: 'Change B',
+        summary: 'Summary B',
+      });
+
+      service.createTask(projectId, { changeId: changeA.id, title: 'T1', description: 'd1' });
+      service.createTask(projectId, { changeId: changeB.id, title: 'T2', description: 'd2' });
+
+      const tasks = service.getTasks(projectId, changeA.id);
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0]?.changeId).toBe(changeA.id);
+    });
+  });
+
+  describe('change artifact sync', () => {
+    it('updates execution artifacts when execution gate is approved', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const change = service.createChange(projectId, {
+        title: 'Change A',
+        summary: 'Summary A',
+      });
+
+      service.resolveExecutionGate(change.id, 'approve_execution', 'ready');
+
+      const manager = (service as any).contextService.contextManagers.get(projectId);
+      expect(manager.updateStructuredDocument).toHaveBeenCalledWith(
+        `changes/${change.id}/execution.md`,
+        expect.objectContaining({ kind: 'execution', changeId: change.id, status: 'executing' }),
+        expect.stringContaining('## Current Change Status'),
+      );
+    });
+
+    it('requests change sync and updates change status', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const change = service.createChange(projectId, {
+        title: 'Change A',
+        summary: 'Summary A',
+      });
+
+      service.resolveExecutionGate(change.id, 'approve_execution', 'approved');
+      service.requestAcceptance(change.id, 'ready');
+
+      const updated = service.requestChangeSync(change.id, 'ready for sync');
+
+      expect(updated.status).toBe('syncing');
+      const syncRun = db.prepare('SELECT status, summary FROM change_sync_runs WHERE change_id = ? ORDER BY created_at DESC LIMIT 1')
+        .get(change.id) as { status: string; summary: string };
+      expect(syncRun.status).toBe('pending');
+      expect(syncRun.summary).toBe('ready for sync');
+    });
+
+    it('moves executing change into acceptance review and can approve it into syncing', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const change = service.createChange(projectId, {
+        title: 'Change A',
+        summary: 'Summary A',
+      });
+
+      service.resolveExecutionGate(change.id, 'approve_execution', 'ready');
+      const accepting = service.requestAcceptance(change.id, 'ready for acceptance');
+      const synced = service.resolveAcceptance(change.id, 'approve_acceptance', 'approved');
+
+      expect(accepting.status).toBe('accepting');
+      expect(synced.status).toBe('syncing');
+      const syncRun = db.prepare('SELECT status, summary FROM change_sync_runs WHERE change_id = ? ORDER BY created_at DESC LIMIT 1')
+        .get(change.id) as { status: string; summary: string };
+      expect(syncRun.status).toBe('pending');
+      expect(syncRun.summary).toBe('approved');
+
+      const manager = (service as any).contextService.contextManagers.get(projectId);
+      expect(manager.updateStructuredDocument).toHaveBeenCalledWith(
+        `changes/${change.id}/acceptance.md`,
+        expect.objectContaining({ kind: 'acceptance', changeId: change.id }),
+        expect.stringContaining('## Final Decision'),
+      );
+    });
+
+    it('can reopen execution from acceptance review', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const change = service.createChange(projectId, {
+        title: 'Change A',
+        summary: 'Summary A',
+      });
+
+      service.resolveExecutionGate(change.id, 'approve_execution', 'ready');
+      service.requestAcceptance(change.id, 'ready for acceptance');
+      const reopened = service.resolveAcceptance(change.id, 'revise_execution', 'needs another pass');
+
+      expect(reopened.status).toBe('executing');
+    });
+
+    it('completes change and marks sync run applied', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const change = service.createChange(projectId, {
+        title: 'Change A',
+        summary: 'Summary A',
+      });
+
+      service.resolveExecutionGate(change.id, 'approve_execution', 'approved');
+      service.requestAcceptance(change.id, 'ready');
+      service.requestChangeSync(change.id, 'ready for sync');
+      const completed = service.completeChange(change.id, 'synced');
+
+      expect(completed.status).toBe('completed');
+      expect(completed.active).toBe(false);
+      expect(completed.syncApprovedAt).toBeDefined();
+      const syncRun = db.prepare('SELECT status, applied_at FROM change_sync_runs WHERE change_id = ? ORDER BY created_at DESC LIMIT 1')
+        .get(change.id) as { status: string; applied_at: number | null };
+      expect(syncRun.status).toBe('applied');
+      expect(syncRun.applied_at).toBeTruthy();
+    });
+
+    it('rejects acceptance request from non-executing status', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const change = service.createChange(projectId, {
+        title: 'Change A',
+        summary: 'Summary A',
+      });
+
+      expect(() => service.requestAcceptance(change.id, 'too early')).toThrow(
+        "Cannot request acceptance when change is in status 'draft'",
+      );
+    });
+
+    it('rejects acceptance resolution outside accepting status', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const change = service.createChange(projectId, {
+        title: 'Change A',
+        summary: 'Summary A',
+      });
+
+      expect(() => service.resolveAcceptance(change.id, 'approve_acceptance', 'skip')).toThrow(
+        "Cannot resolve acceptance when change is in status 'draft'",
+      );
+    });
+
+    it('rejects completing a change before syncing', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const change = service.createChange(projectId, {
+        title: 'Change A',
+        summary: 'Summary A',
+      });
+
+      expect(() => service.completeChange(change.id, 'too early')).toThrow(
+        "Cannot complete change when status is 'draft'",
+      );
+    });
+
+    it('editing design document returns change to designing and clears approvals', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const change = service.createChange(projectId, {
+        title: 'Change A',
+        summary: 'Summary A',
+      });
+
+      service.resolveDesignGate(change.id, 'approve_design', 'approved');
+      service.resolveExecutionGate(change.id, 'approve_execution', 'approved');
+
+      const updated = service.updateChangeDocument(change.id, 'design', '# Revised design');
+
+      expect(updated.status).toBe('designing');
+      expect(updated.designApprovedAt).toBeUndefined();
+      expect(updated.executionApprovedAt).toBeUndefined();
+
+      const manager = (service as any).contextService.contextManagers.get(projectId);
+      expect(manager.updateDocument).toHaveBeenCalledWith(
+        `changes/${change.id}/design.md`,
+        '# Revised design',
+        expect.objectContaining({ category: 'design', source: 'user' }),
+      );
+    });
+
+    it('editing execution document returns change to planning and clears execution approval', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      const change = service.createChange(projectId, {
+        title: 'Change A',
+        summary: 'Summary A',
+      });
+
+      service.resolveDesignGate(change.id, 'approve_design', 'approved');
+      service.resolveExecutionGate(change.id, 'approve_execution', 'approved');
+
+      const updated = service.updateChangeDocument(change.id, 'execution', '# Revised execution');
+
+      expect(updated.status).toBe('planning');
+      expect(updated.executionApprovedAt).toBeUndefined();
+    });
+
+    it('updates baseline document content', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+
+      const result = service.updateBaselineDocument(projectId, 'project', '# Updated Project Baseline');
+
+      expect(result.projectId).toBe(projectId);
+      expect(result.docId).toBe('baseline/project.md');
+
+      const manager = (service as any).contextService.contextManagers.get(projectId);
+      expect(manager.updateDocument).toHaveBeenCalledWith(
+        'baseline/project.md',
+        '# Updated Project Baseline',
+        expect.objectContaining({ category: 'baseline', source: 'user' }),
+      );
     });
   });
 

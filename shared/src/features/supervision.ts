@@ -13,6 +13,83 @@ export type SupervisionPhase =
 
 export type TrustLevel = 'low' | 'medium' | 'high';
 
+export type ChangeStatus =
+  | 'draft'
+  | 'designing'
+  | 'awaiting_design_review'
+  | 'planning'
+  | 'awaiting_execution_review'
+  | 'executing'
+  | 'paused'
+  | 'accepting'
+  | 'syncing'
+  | 'completed'
+  | 'cancelled';
+
+export type GateType = 'design' | 'execution';
+
+export type DesignGateDecision =
+  | 'approve_design'
+  | 'revise_design'
+  | 'revise_change';
+
+export type ExecutionGateDecision =
+  | 'approve_execution'
+  | 'revise_plan'
+  | 'revise_design'
+  | 'split_change';
+
+export type AcceptanceDecision =
+  | 'approve_acceptance'
+  | 'revise_execution';
+
+export interface ProjectChange {
+  id: string;
+  projectId: string;
+  title: string;
+  slug: string;
+  status: ChangeStatus;
+  summary: string;
+  motivation?: string;
+  nonGoals: string[];
+  scope: string[];
+  acceptanceCriteria: string[];
+  baselineVersion?: string;
+  active: boolean;
+  designApprovedAt?: number;
+  executionApprovedAt?: number;
+  syncApprovedAt?: number;
+  worktreeId?: string;
+  localPrId?: string;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+}
+
+export interface ChangeExecutionPlan {
+  changeId: string;
+  designVersion: number;
+  summary: string;
+  phases?: Array<{
+    id: string;
+    title: string;
+    summary: string;
+  }>;
+  automation: {
+    strategy: 'serial' | 'conservative_parallel';
+    autoReview: boolean;
+    autoRetry: boolean;
+    autoSyncDraft: boolean;
+  };
+  verification: Array<{
+    id: string;
+    label: string;
+    command?: string;
+    required: boolean;
+  }>;
+  updatedAt: number;
+}
+
 export interface SupervisorConfig {
   maxConcurrentTasks: number;
   trustLevel: TrustLevel;
@@ -76,6 +153,7 @@ export interface TaskResult {
 export interface SupervisionTask {
   id: string;
   projectId: string;
+  changeId?: string;
   title: string;
   description: string;
   source: 'user' | 'agent_discovered';
@@ -100,9 +178,21 @@ export interface SupervisionTask {
   scheduleNextRun?: number;
   scheduleEnabled?: boolean;
   retryDelayMs?: number;
+  changeTaskRef?: string;
+  phaseId?: string;
 }
 
 export type SupervisionLogEvent =
+  | 'change_created'
+  | 'change_status_changed'
+  | 'design_gate_requested'
+  | 'design_gate_resolved'
+  | 'execution_gate_requested'
+  | 'execution_gate_resolved'
+  | 'change_acceptance_requested'
+  | 'change_acceptance_resolved'
+  | 'change_sync_requested'
+  | 'change_sync_completed'
   | 'agent_initialized'
   | 'phase_changed'
   | 'task_created'

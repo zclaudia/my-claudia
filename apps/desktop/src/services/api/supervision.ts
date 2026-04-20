@@ -1,6 +1,11 @@
 import type {
+  AcceptanceDecision,
   ProjectAgent,
   AgentMode,
+  ChangeExecutionPlan,
+  DesignGateDecision,
+  ExecutionGateDecision,
+  ProjectChange,
   SupervisorConfig,
   SupervisionTask,
   SupervisionLog,
@@ -39,13 +44,172 @@ export async function updateSupervisionAgentAction(
   });
 }
 
-export async function getSupervisionTasks(projectId: string): Promise<SupervisionTask[]> {
-  return apiCall<SupervisionTask[]>(`/api/projects/${projectId}/tasks`);
+export async function getSupervisionTasks(
+  projectId: string,
+  changeId?: string,
+): Promise<SupervisionTask[]> {
+  const params = changeId ? `?changeId=${encodeURIComponent(changeId)}` : '';
+  return apiCall<SupervisionTask[]>(`/api/projects/${projectId}/tasks${params}`);
+}
+
+export async function initSupervisorBaseline(
+  projectId: string,
+  options?: {
+    mode?: 'template' | 'scan' | 'ai_scan';
+    providerId?: string;
+    language?: 'zh-CN' | 'en';
+    force?: boolean;
+  },
+): Promise<{ initialized: boolean; mode?: string; language?: string; usedAi?: boolean; regenerated?: boolean }> {
+  return apiCall<{ initialized: boolean }>(`/api/projects/${projectId}/baseline/init`, {
+    method: 'POST',
+    body: JSON.stringify(options ?? {}),
+  });
+}
+
+export async function getProjectChanges(projectId: string): Promise<ProjectChange[]> {
+  return apiCall<ProjectChange[]>(`/api/projects/${projectId}/changes`);
+}
+
+export async function getActiveProjectChange(projectId: string): Promise<ProjectChange | null> {
+  const result = await fetchApi<ProjectChange>(`/api/projects/${projectId}/changes/active`);
+  if (!result.success) {
+    if (result.error?.code === 'NOT_FOUND') return null;
+    throw new Error(result.error?.message || 'Failed to get active change');
+  }
+  return result.data ?? null;
+}
+
+export async function createProjectChange(
+  projectId: string,
+  data: {
+    title: string;
+    summary: string;
+    motivation?: string;
+    nonGoals?: string[];
+    scope?: string[];
+    acceptanceCriteria?: string[];
+  },
+): Promise<ProjectChange> {
+  return apiCall<ProjectChange>(`/api/projects/${projectId}/changes`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getChangeExecutionPlan(changeId: string): Promise<ChangeExecutionPlan> {
+  return apiCall<ChangeExecutionPlan>(`/api/changes/${changeId}/execution`);
+}
+
+export async function requestDesignGate(
+  changeId: string,
+  notes?: string,
+): Promise<ProjectChange> {
+  return apiCall<ProjectChange>(`/api/changes/${changeId}/gates/design/request`, {
+    method: 'POST',
+    body: JSON.stringify({ notes }),
+  });
+}
+
+export async function resolveDesignGate(
+  changeId: string,
+  decision: DesignGateDecision,
+  notes?: string,
+): Promise<ProjectChange> {
+  return apiCall<ProjectChange>(`/api/changes/${changeId}/gates/design/resolve`, {
+    method: 'POST',
+    body: JSON.stringify({ decision, notes }),
+  });
+}
+
+export async function requestExecutionGate(
+  changeId: string,
+  notes?: string,
+): Promise<ProjectChange> {
+  return apiCall<ProjectChange>(`/api/changes/${changeId}/gates/execution/request`, {
+    method: 'POST',
+    body: JSON.stringify({ notes }),
+  });
+}
+
+export async function resolveExecutionGate(
+  changeId: string,
+  decision: ExecutionGateDecision,
+  notes?: string,
+): Promise<ProjectChange> {
+  return apiCall<ProjectChange>(`/api/changes/${changeId}/gates/execution/resolve`, {
+    method: 'POST',
+    body: JSON.stringify({ decision, notes }),
+  });
+}
+
+export async function requestChangeSync(
+  changeId: string,
+  summary?: string,
+): Promise<ProjectChange> {
+  return apiCall<ProjectChange>(`/api/changes/${changeId}/sync/request`, {
+    method: 'POST',
+    body: JSON.stringify({ summary }),
+  });
+}
+
+export async function requestAcceptance(
+  changeId: string,
+  notes?: string,
+): Promise<ProjectChange> {
+  return apiCall<ProjectChange>(`/api/changes/${changeId}/acceptance/request`, {
+    method: 'POST',
+    body: JSON.stringify({ notes }),
+  });
+}
+
+export async function resolveAcceptance(
+  changeId: string,
+  decision: AcceptanceDecision,
+  notes?: string,
+): Promise<ProjectChange> {
+  return apiCall<ProjectChange>(`/api/changes/${changeId}/acceptance/resolve`, {
+    method: 'POST',
+    body: JSON.stringify({ decision, notes }),
+  });
+}
+
+export async function completeProjectChange(
+  changeId: string,
+  summary?: string,
+): Promise<ProjectChange> {
+  return apiCall<ProjectChange>(`/api/changes/${changeId}/complete`, {
+    method: 'POST',
+    body: JSON.stringify({ summary }),
+  });
+}
+
+export async function updateChangeDocument(
+  changeId: string,
+  docType: 'design' | 'execution' | 'tasks',
+  content: string,
+): Promise<ProjectChange> {
+  return apiCall<ProjectChange>(`/api/changes/${changeId}/docs/${docType}`, {
+    method: 'PUT',
+    body: JSON.stringify({ content }),
+  });
+}
+
+export async function updateBaselineDocument(
+  projectId: string,
+  docType: 'project' | 'architecture',
+  content: string,
+): Promise<{ projectId: string; docId: string }> {
+  return apiCall<{ projectId: string; docId: string }>(`/api/projects/${projectId}/baseline/${docType}`, {
+    method: 'PUT',
+    body: JSON.stringify({ content }),
+  });
 }
 
 export async function createSupervisionTask(
   projectId: string,
   data: {
+    changeId?: string;
     title: string;
     description: string;
     dependencies?: string[];

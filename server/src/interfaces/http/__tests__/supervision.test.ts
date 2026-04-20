@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { createSupervisionRoutes, type SupervisorService } from '../../../domains/supervision/index.js';
-import type { ProjectAgent, SupervisionTask } from '@my-claudia/shared/features/supervision';
+import type { ProjectAgent, ProjectChange, SupervisionTask } from '@my-claudia/shared/features/supervision';
 
 function makeMockAgent(overrides: Partial<ProjectAgent> = {}): ProjectAgent {
   return {
@@ -38,6 +38,19 @@ function makeMockTask(overrides: Partial<SupervisionTask> = {}): SupervisionTask
   };
 }
 
+function makeMockChange(overrides: Partial<ProjectChange> = {}): ProjectChange {
+  return {
+    id: 'change-1',
+    projectId: 'proj-1',
+    title: 'Refactor settings',
+    summary: 'Restructure settings domain',
+    status: 'draft',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    ...overrides,
+  };
+}
+
 describe('Supervision V2 Routes', () => {
   let app: express.Express;
   let mockService: Record<string, ReturnType<typeof vi.fn>>;
@@ -47,6 +60,21 @@ describe('Supervision V2 Routes', () => {
       initAgent: vi.fn(),
       updateAgentPhase: vi.fn(),
       getAgent: vi.fn(),
+      initBaseline: vi.fn(),
+      getChanges: vi.fn(),
+      getActiveChange: vi.fn(),
+      createChange: vi.fn(),
+      getChange: vi.fn(),
+      getExecutionPlan: vi.fn(),
+      updateChangeDocument: vi.fn(),
+      requestDesignGate: vi.fn(),
+      resolveDesignGate: vi.fn(),
+      requestExecutionGate: vi.fn(),
+      resolveExecutionGate: vi.fn(),
+      requestAcceptance: vi.fn(),
+      resolveAcceptance: vi.fn(),
+      requestChangeSync: vi.fn(),
+      completeChange: vi.fn(),
       getTasks: vi.fn(),
       createTask: vi.fn(),
       updateTask: vi.fn(),
@@ -57,6 +85,7 @@ describe('Supervision V2 Routes', () => {
       resolveConflict: vi.fn(),
       reloadContext: vi.fn(),
       getContextDocuments: vi.fn(),
+      updateBaselineDocument: vi.fn(),
       getTokenUsage: vi.fn(),
       getLogs: vi.fn(),
       retryTask: vi.fn(),
@@ -212,6 +241,321 @@ describe('Supervision V2 Routes', () => {
     });
   });
 
+  describe('POST /projects/:projectId/baseline/init', () => {
+    it('initializes baseline and returns 200', async () => {
+      mockService.initBaseline.mockReturnValue({ initialized: true });
+
+      const res = await request(app)
+        .post('/api/projects/proj-1/baseline/init')
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.initialized).toBe(true);
+      expect(mockService.initBaseline).toHaveBeenCalledWith('proj-1');
+    });
+  });
+
+  describe('Change routes', () => {
+    it('lists project changes', async () => {
+      mockService.getChanges.mockReturnValue([
+        makeMockChange({ id: 'change-1' }),
+        makeMockChange({ id: 'change-2', status: 'completed' }),
+      ]);
+
+      const res = await request(app)
+        .get('/api/projects/proj-1/changes')
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveLength(2);
+      expect(mockService.getChanges).toHaveBeenCalledWith('proj-1');
+    });
+
+    it('returns active project change when found', async () => {
+      mockService.getActiveChange.mockReturnValue(makeMockChange({ status: 'planning' }));
+
+      const res = await request(app)
+        .get('/api/projects/proj-1/changes/active')
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.status).toBe('planning');
+    });
+
+    it('returns 404 when active project change is missing', async () => {
+      mockService.getActiveChange.mockReturnValue(undefined);
+
+      const res = await request(app)
+        .get('/api/projects/proj-1/changes/active')
+        .expect(404);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('NOT_FOUND');
+    });
+
+    it('creates project change', async () => {
+      mockService.createChange.mockReturnValue(makeMockChange({ title: 'New change' }));
+
+      const res = await request(app)
+        .post('/api/projects/proj-1/changes')
+        .send({ title: 'New change', summary: 'Summary' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(mockService.createChange).toHaveBeenCalledWith('proj-1', expect.objectContaining({
+        title: 'New change',
+        summary: 'Summary',
+      }));
+    });
+
+    it('gets change by id', async () => {
+      mockService.getChange.mockReturnValue(makeMockChange({ status: 'designing' }));
+
+      const res = await request(app)
+        .get('/api/changes/change-1')
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.status).toBe('designing');
+    });
+
+    it('gets execution plan by change id', async () => {
+      mockService.getExecutionPlan.mockReturnValue({
+        changeId: 'change-1',
+        designVersion: 1,
+        summary: 'Execution summary',
+        automation: {
+          strategy: 'serial',
+          autoReview: true,
+          autoRetry: true,
+          autoSyncDraft: false,
+        },
+        verification: [],
+        updatedAt: Date.now(),
+      });
+
+      const res = await request(app)
+        .get('/api/changes/change-1/execution')
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.changeId).toBe('change-1');
+    });
+
+    it('updates editable change document', async () => {
+      mockService.updateChangeDocument.mockReturnValue(
+        makeMockChange({ status: 'designing' }),
+      );
+
+      const res = await request(app)
+        .put('/api/changes/change-1/docs/design')
+        .send({ content: '# Updated design' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(mockService.updateChangeDocument).toHaveBeenCalledWith(
+        'change-1',
+        'design',
+        '# Updated design',
+      );
+    });
+
+    it('validates editable change document type', async () => {
+      const res = await request(app)
+        .put('/api/changes/change-1/docs/bad-doc')
+        .send({ content: '# no-op' })
+        .expect(400);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+  });
+
+  describe('Gate routes', () => {
+    it('requests design gate review', async () => {
+      mockService.requestDesignGate.mockReturnValue(
+        makeMockChange({ status: 'awaiting_design_review' }),
+      );
+
+      const res = await request(app)
+        .post('/api/changes/change-1/gates/design/request')
+        .send({ notes: 'ready for review' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(mockService.requestDesignGate).toHaveBeenCalledWith('change-1', 'ready for review');
+    });
+
+    it('validates design gate decision', async () => {
+      const res = await request(app)
+        .post('/api/changes/change-1/gates/design/resolve')
+        .send({ decision: 'bad-decision' })
+        .expect(400);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('resolves design gate review', async () => {
+      mockService.resolveDesignGate.mockReturnValue(
+        makeMockChange({ status: 'planning' }),
+      );
+
+      const res = await request(app)
+        .post('/api/changes/change-1/gates/design/resolve')
+        .send({ decision: 'approve_design', notes: 'looks good' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(mockService.resolveDesignGate).toHaveBeenCalledWith(
+        'change-1',
+        'approve_design',
+        'looks good',
+      );
+    });
+
+    it('requests execution gate review', async () => {
+      mockService.requestExecutionGate.mockReturnValue(
+        makeMockChange({ status: 'awaiting_execution_review' }),
+      );
+
+      const res = await request(app)
+        .post('/api/changes/change-1/gates/execution/request')
+        .send({ notes: 'plan ready' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(mockService.requestExecutionGate).toHaveBeenCalledWith('change-1', 'plan ready');
+    });
+
+    it('validates execution gate decision', async () => {
+      const res = await request(app)
+        .post('/api/changes/change-1/gates/execution/resolve')
+        .send({ decision: 'bad-decision' })
+        .expect(400);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('resolves execution gate review', async () => {
+      mockService.resolveExecutionGate.mockReturnValue(
+        makeMockChange({ status: 'executing' }),
+      );
+
+      const res = await request(app)
+        .post('/api/changes/change-1/gates/execution/resolve')
+        .send({ decision: 'approve_execution', notes: 'start it' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(mockService.resolveExecutionGate).toHaveBeenCalledWith(
+        'change-1',
+        'approve_execution',
+        'start it',
+      );
+    });
+
+    it('requests acceptance review', async () => {
+      mockService.requestAcceptance.mockReturnValue(
+        makeMockChange({ status: 'accepting' }),
+      );
+
+      const res = await request(app)
+        .post('/api/changes/change-1/acceptance/request')
+        .send({ notes: 'ready for acceptance' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(mockService.requestAcceptance).toHaveBeenCalledWith('change-1', 'ready for acceptance');
+    });
+
+    it('returns invalid state when acceptance request is rejected', async () => {
+      mockService.requestAcceptance.mockImplementation(() => {
+        throw new Error("Cannot request acceptance when change is in status 'draft'");
+      });
+
+      const res = await request(app)
+        .post('/api/changes/change-1/acceptance/request')
+        .send({ notes: 'too early' })
+        .expect(400);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('INVALID_STATE');
+    });
+
+    it('validates acceptance decision', async () => {
+      const res = await request(app)
+        .post('/api/changes/change-1/acceptance/resolve')
+        .send({ decision: 'bad-decision' })
+        .expect(400);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('resolves acceptance review', async () => {
+      mockService.resolveAcceptance.mockReturnValue(
+        makeMockChange({ status: 'syncing' }),
+      );
+
+      const res = await request(app)
+        .post('/api/changes/change-1/acceptance/resolve')
+        .send({ decision: 'approve_acceptance', notes: 'accepted' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(mockService.resolveAcceptance).toHaveBeenCalledWith(
+        'change-1',
+        'approve_acceptance',
+        'accepted',
+      );
+    });
+
+    it('returns invalid state when completion is rejected', async () => {
+      mockService.completeChange.mockImplementation(() => {
+        throw new Error("Cannot complete change when status is 'executing'");
+      });
+
+      const res = await request(app)
+        .post('/api/changes/change-1/complete')
+        .send({ summary: 'too early' })
+        .expect(400);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('INVALID_STATE');
+    });
+
+    it('requests change sync', async () => {
+      mockService.requestChangeSync.mockReturnValue(
+        makeMockChange({ status: 'syncing' }),
+      );
+
+      const res = await request(app)
+        .post('/api/changes/change-1/sync/request')
+        .send({ summary: 'ready to sync' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(mockService.requestChangeSync).toHaveBeenCalledWith('change-1', 'ready to sync');
+    });
+
+    it('completes change after sync', async () => {
+      mockService.completeChange.mockReturnValue(
+        makeMockChange({ status: 'completed', active: false }),
+      );
+
+      const res = await request(app)
+        .post('/api/changes/change-1/complete')
+        .send({ summary: 'sync applied' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.status).toBe('completed');
+      expect(mockService.completeChange).toHaveBeenCalledWith('change-1', 'sync applied');
+    });
+  });
+
   // ========================================
   // GET /projects/:projectId/tasks
   // ========================================
@@ -228,6 +572,17 @@ describe('Supervision V2 Routes', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveLength(2);
       expect(mockService.getTasks).toHaveBeenCalledWith('proj-1');
+    });
+
+    it('passes changeId filter to service', async () => {
+      mockService.getTasks.mockReturnValue([makeMockTask({ id: 't1', changeId: 'change-1' })]);
+
+      const res = await request(app)
+        .get('/api/projects/proj-1/tasks?changeId=change-1')
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(mockService.getTasks).toHaveBeenCalledWith('proj-1', 'change-1');
     });
 
     it('returns empty array when no tasks', async () => {
@@ -288,6 +643,23 @@ describe('Supervision V2 Routes', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data.title).toBe('Test Task');
       expect(mockService.createTask).toHaveBeenCalledWith('proj-1', expect.objectContaining({
+        title: 'New task',
+        description: 'Do something',
+      }));
+    });
+
+    it('passes changeId to createTask when provided', async () => {
+      const task = makeMockTask({ changeId: 'change-1' });
+      mockService.createTask.mockReturnValue(task);
+
+      const res = await request(app)
+        .post('/api/projects/proj-1/tasks')
+        .send({ changeId: 'change-1', title: 'New task', description: 'Do something' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(mockService.createTask).toHaveBeenCalledWith('proj-1', expect.objectContaining({
+        changeId: 'change-1',
         title: 'New task',
         description: 'Do something',
       }));
@@ -505,6 +877,27 @@ describe('Supervision V2 Routes', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveLength(1);
       expect(res.body.data[0].id).toBe('goal.md');
+    });
+  });
+
+  describe('PUT /projects/:projectId/baseline/:docType', () => {
+    it('updates editable baseline document', async () => {
+      mockService.updateBaselineDocument.mockReturnValue({
+        projectId: 'proj-1',
+        docId: 'baseline/project.md',
+      });
+
+      const res = await request(app)
+        .put('/api/projects/proj-1/baseline/project')
+        .send({ content: '# Updated project baseline' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(mockService.updateBaselineDocument).toHaveBeenCalledWith(
+        'proj-1',
+        'project',
+        '# Updated project baseline',
+      );
     });
   });
 

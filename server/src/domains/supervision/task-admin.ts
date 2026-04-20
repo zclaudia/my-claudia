@@ -12,6 +12,7 @@ import { TaskAggregate } from './task-aggregate.js';
 import { shouldActivateAgentForTaskStatus } from './model.js';
 
 interface CreateTaskInput {
+  changeId: string;
   title: string;
   description: string;
   source?: 'user' | 'agent_discovered';
@@ -74,6 +75,7 @@ export class TaskAdmin {
     const agg = TaskAggregate.create(
       {
         projectId,
+        changeId: data.changeId,
         title: data.title,
         description: data.description,
         source: data.source,

@@ -3,12 +3,33 @@ import type { SupervisionTask, TaskStatus, TaskResult } from '@my-claudia/shared
 import { v4 as uuidv4 } from 'uuid';
 
 export class SupervisionTaskRepository {
+  private schemaCache: {
+    hasChangeId?: boolean;
+    hasChangeTaskRef?: boolean;
+    hasPhaseId?: boolean;
+  } = {};
+
   constructor(private db: Database) {}
+
+  private hasColumn(name: 'change_id' | 'change_task_ref' | 'phase_id'): boolean {
+    const cacheKey =
+      name === 'change_id' ? 'hasChangeId' :
+      name === 'change_task_ref' ? 'hasChangeTaskRef' :
+      'hasPhaseId';
+    if (this.schemaCache[cacheKey] !== undefined) {
+      return this.schemaCache[cacheKey]!;
+    }
+    const columns = this.db.prepare('PRAGMA table_info(supervision_tasks)').all() as Array<{ name: string }>;
+    const exists = columns.some((column) => column.name === name);
+    this.schemaCache[cacheKey] = exists;
+    return exists;
+  }
 
   mapRow(row: any): SupervisionTask {
     return {
       id: row.id,
       projectId: row.project_id,
+      changeId: row.change_id,
       title: row.title,
       description: row.description,
       source: row.source,
@@ -32,11 +53,14 @@ export class SupervisionTaskRepository {
       scheduleNextRun: row.schedule_next_run || undefined,
       scheduleEnabled: row.schedule_enabled === 1,
       retryDelayMs: row.retry_delay_ms || undefined,
+      changeTaskRef: row.change_task_ref || undefined,
+      phaseId: row.phase_id || undefined,
     };
   }
 
   create(data: {
     projectId: string;
+    changeId: string;
     title: string;
     description: string;
     source: 'user' | 'agent_discovered';
@@ -57,15 +81,14 @@ export class SupervisionTaskRepository {
     const id = uuidv4();
     const now = Date.now();
 
-    this.db.prepare(`
-      INSERT INTO supervision_tasks
-        (id, project_id, title, description, source, status, priority,
-         dependencies, dependency_mode, relevant_doc_ids, task_specific_context,
-         scope, acceptance_criteria, max_retries, attempt,
-         schedule_cron, schedule_next_run, schedule_enabled, retry_delay_ms,
-         created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
-    `).run(
+    const columns = [
+      'id', 'project_id', 'title', 'description', 'source', 'status', 'priority',
+      'dependencies', 'dependency_mode', 'relevant_doc_ids', 'task_specific_context',
+      'scope', 'acceptance_criteria', 'max_retries', 'attempt',
+      'schedule_cron', 'schedule_next_run', 'schedule_enabled', 'retry_delay_ms',
+      'created_at', 'updated_at',
+    ];
+    const params: unknown[] = [
       id,
       data.projectId,
       data.title,
@@ -80,13 +103,33 @@ export class SupervisionTaskRepository {
       data.scope?.length ? JSON.stringify(data.scope) : null,
       data.acceptanceCriteria?.length ? JSON.stringify(data.acceptanceCriteria) : null,
       data.maxRetries ?? 2,
+      1,
       data.scheduleCron ?? null,
       data.scheduleNextRun ?? null,
       data.scheduleEnabled ? 1 : 0,
       data.retryDelayMs ?? 5000,
       now,
       now,
-    );
+    ];
+
+    if (this.hasColumn('change_id')) {
+      columns.splice(2, 0, 'change_id');
+      params.splice(2, 0, data.changeId);
+    }
+    if (this.hasColumn('change_task_ref')) {
+      columns.splice(columns.indexOf('schedule_cron'), 0, 'change_task_ref');
+      params.splice(params.length - 6, 0, null);
+    }
+    if (this.hasColumn('phase_id')) {
+      columns.splice(columns.indexOf('schedule_cron'), 0, 'phase_id');
+      params.splice(params.length - 6, 0, null);
+    }
+
+    const placeholders = columns.map(() => '?').join(', ');
+    this.db.prepare(`
+      INSERT INTO supervision_tasks (${columns.join(', ')})
+      VALUES (${placeholders})
+    `).run(...params);
 
     return this.findById(id)!;
   }
@@ -100,6 +143,17 @@ export class SupervisionTaskRepository {
     const rows = this.db.prepare(
       'SELECT * FROM supervision_tasks WHERE project_id = ? ORDER BY priority ASC, created_at ASC'
     ).all(projectId);
+    return rows.map(r => this.mapRow(r));
+  }
+
+  findByChangeId(projectId: string, changeId: string): SupervisionTask[] {
+    const hasChangeId = this.hasColumn('change_id');
+    if (!hasChangeId) {
+      return this.findByProjectId(projectId);
+    }
+    const rows = this.db.prepare(
+      'SELECT * FROM supervision_tasks WHERE project_id = ? AND change_id = ? ORDER BY priority ASC, created_at ASC'
+    ).all(projectId, changeId);
     return rows.map(r => this.mapRow(r));
   }
 
@@ -154,7 +208,8 @@ export class SupervisionTaskRepository {
   update(id: string, data: Partial<Pick<SupervisionTask,
     'title' | 'description' | 'priority' | 'dependencies' | 'dependencyMode' |
     'acceptanceCriteria' | 'relevantDocIds' | 'scope' | 'taskSpecificContext' |
-    'scheduleCron' | 'scheduleEnabled' | 'scheduleNextRun' | 'retryDelayMs'
+    'scheduleCron' | 'scheduleEnabled' | 'scheduleNextRun' | 'retryDelayMs' |
+    'changeTaskRef' | 'phaseId'
   >>): SupervisionTask | undefined {
     const updates: string[] = [];
     const params: any[] = [];
@@ -172,6 +227,8 @@ export class SupervisionTaskRepository {
     if (data.scheduleEnabled !== undefined) { updates.push('schedule_enabled = ?'); params.push(data.scheduleEnabled ? 1 : 0); }
     if (data.scheduleNextRun !== undefined) { updates.push('schedule_next_run = ?'); params.push(data.scheduleNextRun); }
     if (data.retryDelayMs !== undefined) { updates.push('retry_delay_ms = ?'); params.push(data.retryDelayMs); }
+    if (this.hasColumn('change_task_ref') && (data as Partial<SupervisionTask>).changeTaskRef !== undefined) { updates.push('change_task_ref = ?'); params.push((data as Partial<SupervisionTask>).changeTaskRef); }
+    if (this.hasColumn('phase_id') && (data as Partial<SupervisionTask>).phaseId !== undefined) { updates.push('phase_id = ?'); params.push((data as Partial<SupervisionTask>).phaseId); }
 
     if (updates.length === 0) return this.findById(id);
 

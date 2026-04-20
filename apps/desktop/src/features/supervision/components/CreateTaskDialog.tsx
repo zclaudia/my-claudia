@@ -6,12 +6,13 @@ import { useAndroidBack } from '../../../hooks/useAndroidBack';
 
 interface CreateTaskDialogProps {
   projectId: string;
+  changeId?: string;
   existingTasks: SupervisionTask[];
   isOpen: boolean;
   onClose: () => void;
 }
 
-export function CreateTaskDialog({ projectId, existingTasks, isOpen, onClose }: CreateTaskDialogProps) {
+export function CreateTaskDialog({ projectId, changeId, existingTasks, isOpen, onClose }: CreateTaskDialogProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState(0);
@@ -47,6 +48,7 @@ export function CreateTaskDialog({ projectId, existingTasks, isOpen, onClose }: 
     setError(null);
     try {
       const task = await api.createSupervisionTask(projectId, {
+        changeId,
         title: title.trim(),
         description: description.trim(),
         priority,
@@ -59,7 +61,7 @@ export function CreateTaskDialog({ projectId, existingTasks, isOpen, onClose }: 
       setError(err instanceof Error ? err.message : 'Failed to create task');
       setLoading(false);
     }
-  }, [projectId, title, description, priority, criteria, selectedDeps, upsertTask, handleClose]);
+  }, [projectId, changeId, title, description, priority, criteria, selectedDeps, upsertTask, handleClose]);
 
   const handleAddCriterion = useCallback(() => {
     const trimmed = newCriterion.trim();

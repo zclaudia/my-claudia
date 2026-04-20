@@ -17,6 +17,7 @@ import type { TrustLevel } from '@my-claudia/shared/features/supervision';
 
 export interface CreateTaskInput {
   projectId: string;
+  changeId: string;
   title: string;
   description: string;
   source?: 'user' | 'agent_discovered';
@@ -78,6 +79,7 @@ export class TaskAggregate {
 
     const task = taskRepo.create({
       projectId: input.projectId,
+      changeId: input.changeId,
       title: input.title,
       description: input.description,
       source,

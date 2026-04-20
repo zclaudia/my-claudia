@@ -3,10 +3,13 @@ import { render, fireEvent, act } from '@testing-library/react';
 import { ProjectDashboard } from '../ProjectDashboard';
 import { useSupervisionStore } from '../../../features/supervision/store';
 import { useProjectStore } from '../../../stores/projectStore';
+import { useSelectionStore } from '../../../stores/selectionStore';
 
 vi.mock('../../../services/api', () => ({
   getSupervisionAgent: vi.fn().mockResolvedValue(null),
   getSupervisionTasks: vi.fn().mockResolvedValue([]),
+  getActiveProjectChange: vi.fn().mockResolvedValue(null),
+  getChangeExecutionPlan: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('../DashboardHome', () => ({
@@ -36,6 +39,10 @@ vi.mock('../../chat/ChatInterface', () => ({
   ChatInterface: (props: any) => <div data-testid="chat-interface">{props.sessionId}</div>,
 }));
 
+vi.mock('../../../features/supervision/components/SupervisorWorkspacePanel', () => ({
+  SupervisorWorkspacePanel: () => <div data-testid="supervisor-workspace" />,
+}));
+
 vi.mock('../../../features/local-pr/components/LocalPRsPanel', () => ({
   LocalPRsPanel: () => <div data-testid="local-prs-panel" />,
 }));
@@ -48,10 +55,18 @@ describe('ProjectDashboard', () => {
   const projectId = 'p1';
 
   beforeEach(() => {
-    useSupervisionStore.setState({ tasks: {}, agents: {}, lastCheckpoint: {} });
+    useSupervisionStore.setState({ tasks: {}, agents: {}, activeChanges: {}, executionPlans: {}, lastCheckpoint: {} });
     useProjectStore.setState({
       projects: [{ id: projectId, name: 'Test', rootPath: '/tmp' }],
       dashboardViews: {},
+      setDashboardView: vi.fn(),
+    } as any);
+    useSelectionStore.setState({
+      selectedProjectId: null,
+      selectedSessionId: null,
+      dashboardViews: {},
+      setSelectedProjectId: vi.fn(),
+      setSelectedSessionId: vi.fn(),
       setDashboardView: vi.fn(),
     } as any);
   });
@@ -114,24 +129,37 @@ describe('ProjectDashboard', () => {
     }
   });
 
-  it('shows supervisor chat with session when agent has mainSessionId', async () => {
+  it('shows supervisor workspace by default and can switch to chat', async () => {
     useSupervisionStore.setState({
       tasks: {},
       agents: { [projectId]: { phase: 'active', mainSessionId: 'sess-123' } },
+      activeChanges: {},
+      executionPlans: {},
       lastCheckpoint: {},
     } as any);
     const { container, getByText } = await renderDashboard();
     await act(async () => {
       fireEvent.click(getByText('go-supervisor'));
     });
+    expect(container.querySelector('[data-testid="supervisor-workspace"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="chat-interface"]')).toBeFalsy();
+
+    await act(async () => {
+      fireEvent.click(getByText('Chat'));
+    });
     expect(container.querySelector('[data-testid="chat-interface"]')).toBeTruthy();
     expect(container.textContent).toContain('sess-123');
   });
 
-  it('shows no supervisor message when no agent session', async () => {
+  it('shows no supervisor message in chat view when no agent session', async () => {
     const { container, getByText } = await renderDashboard();
     await act(async () => {
       fireEvent.click(getByText('go-supervisor'));
+    });
+    expect(container.querySelector('[data-testid="supervisor-workspace"]')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(getByText('Chat'));
     });
     expect(container.textContent).toContain('No supervisor agent configured');
   });

@@ -12,6 +12,8 @@ import { SupervisorService } from './supervisor-service.js';
 import { StateRecovery } from './state-recovery.js';
 import { CheckpointEngine } from './checkpoint-engine.js';
 import { ContextManager } from './context-manager.js';
+import { ProjectChangeRepository } from '../../infrastructure/repositories/project-change.js';
+import { ChangeSyncRunRepository } from '../../infrastructure/repositories/change-sync-run.js';
 import { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
 import { createSupervisionRoutes } from './routes.js';
 import type {
@@ -45,11 +47,13 @@ export function registerSupervisionDomain(deps: SupervisionDomainDeps): Supervis
   } = deps;
 
   // Repositories (supervision's own)
+  const changeRepo = new ProjectChangeRepository(db);
+  const syncRunRepo = new ChangeSyncRunRepository(db);
   const taskRepo = new SupervisionTaskRepository(db);
 
   // SupervisorService
   const supervisorService = new SupervisorService(
-    db, taskRepo, projectPort, sessionPort, sessionModel, broadcast, aiRunPort,
+    db, taskRepo, projectPort, sessionPort, sessionModel, broadcast, aiRunPort, changeRepo, undefined, syncRunRepo,
   );
 
   // Mount routes on both prefixes

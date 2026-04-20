@@ -6,6 +6,7 @@ import { useSupervisionStore } from '../../features/supervision/store';
 import { TaskBoard } from '../../features/supervision/components/TaskBoard';
 import { ContextBrowser } from '../../features/supervision/components/ContextBrowser';
 import { CheckpointFeed } from '../../features/supervision/components/CheckpointFeed';
+import { SupervisorWorkspacePanel } from '../../features/supervision/components/SupervisorWorkspacePanel';
 import { ChatInterface } from '../chat/ChatInterface';
 import { LocalPRsPanel } from '../../features/local-pr/components/LocalPRsPanel';
 import { WorkflowsPanel } from '../../features/workflows/components/WorkflowsPanel';
@@ -19,7 +20,7 @@ const VIEW_LABELS: Record<DashboardView, string> = {
   tasks: 'Tasks',
   'local-prs': 'Local Pull Requests',
   workflows: 'Workflows',
-  supervisor: 'Supervisor Chat',
+  supervisor: 'Supervisor Workspace',
 };
 
 interface ProjectDashboardProps {
@@ -33,10 +34,13 @@ export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations
   const tasks = useSupervisionStore((s) => s.tasks[projectId]) ?? [];
   const setAgent = useSupervisionStore((s) => s.setAgent);
   const setTasks = useSupervisionStore((s) => s.setTasks);
+  const setActiveChange = useSupervisionStore((s) => s.setActiveChange);
+  const setExecutionPlan = useSupervisionStore((s) => s.setExecutionPlan);
   const savedView = useSelectionStore((s) => s.dashboardViews[projectId] ?? 'home');
   const setDashboardView = useSelectionStore((s) => s.setDashboardView);
   const [view, setView] = useState<DashboardView>(savedView);
   const [workflowViewMode, setWorkflowViewMode] = useState<'list' | 'detail'>('list');
+  const [supervisorPane, setSupervisorPane] = useState<'workspace' | 'chat'>('workspace');
 
   const navigate = useCallback((nextView: DashboardView) => {
     setView(nextView);
@@ -47,6 +51,7 @@ export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations
   useEffect(() => {
     setView(savedView);
     setWorkflowViewMode('list');
+    setSupervisorPane('workspace');
   }, [projectId, savedView]);
 
   // Hydrate supervision store
@@ -58,10 +63,18 @@ export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations
       ]);
       if (fetchedAgent) setAgent(projectId, fetchedAgent);
       setTasks(projectId, fetchedTasks);
+      const activeChange = await api.getActiveProjectChange(projectId).catch(() => null);
+      setActiveChange(projectId, activeChange);
+      if (activeChange) {
+        const executionPlan = await api.getChangeExecutionPlan(activeChange.id).catch(() => null);
+        if (executionPlan) {
+          setExecutionPlan(activeChange.id, executionPlan);
+        }
+      }
     } catch {
       // Silently handle — agent may not exist yet
     }
-  }, [projectId, setAgent, setTasks]);
+  }, [projectId, setAgent, setTasks, setActiveChange, setExecutionPlan]);
 
   useEffect(() => {
     hydrate();
@@ -128,18 +141,40 @@ export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations
 
       {view === 'supervisor' && (
         <div className="flex-1 overflow-hidden">
-          {agent?.mainSessionId ? (
-            <ChatInterface sessionId={agent.mainSessionId} />
-          ) : (
-            <div className="flex items-center justify-center h-full text-muted-foreground">
-              <div className="text-center">
-                <p className="text-sm">No supervisor agent configured.</p>
-                <p className="text-xs mt-1">
-                  Go to <button onClick={() => navigate('tasks')} className="text-primary hover:underline">Tasks</button> to initialize a supervisor agent.
-                </p>
-              </div>
+          <div className="flex h-full flex-col overflow-hidden">
+            <div className="flex items-center gap-2 border-b border-border px-4 py-2">
+              {(['workspace', 'chat'] as const).map((pane) => (
+                <button
+                  key={pane}
+                  type="button"
+                  onClick={() => setSupervisorPane(pane)}
+                  className={`rounded px-3 py-1.5 text-xs transition-colors ${
+                    supervisorPane === pane
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-secondary text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {pane === 'workspace' ? 'Workspace' : 'Chat'}
+                </button>
+              ))}
             </div>
-          )}
+            <div className="flex-1 overflow-hidden">
+              {supervisorPane === 'workspace' ? (
+                <SupervisorWorkspacePanel projectId={projectId} agent={agent} />
+              ) : agent?.mainSessionId ? (
+                <ChatInterface sessionId={agent.mainSessionId} />
+              ) : (
+                <div className="flex items-center justify-center h-full text-muted-foreground">
+                  <div className="text-center">
+                    <p className="text-sm">No supervisor agent configured.</p>
+                    <p className="text-xs mt-1">
+                      Go to <button onClick={() => navigate('tasks')} className="text-primary hover:underline">Tasks</button> to initialize a supervisor agent.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

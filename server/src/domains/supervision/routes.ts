@@ -1,6 +1,14 @@
 import { Router, Request, Response } from 'express';
 import type { ApiResponse } from '@my-claudia/shared/core/api';
-import type { SupervisionTask, ProjectAgent } from '@my-claudia/shared/features/supervision';
+import type {
+  AcceptanceDecision,
+  ChangeExecutionPlan,
+  DesignGateDecision,
+  ExecutionGateDecision,
+  ProjectAgent,
+  ProjectChange,
+  SupervisionTask,
+} from '@my-claudia/shared/features/supervision';
 import type { SupervisorService } from './supervisor-service.js';
 import type { ContextDocument } from './context-manager.js';
 
@@ -67,10 +75,276 @@ export function createSupervisionRoutes(service: SupervisorService): Router {
     }
   });
 
+  // POST /projects/:projectId/baseline/init — Initialize baseline files
+  router.post('/projects/:projectId/baseline/init', async (req: Request, res: Response) => {
+    try {
+      const data = await service.initBaseline(req.params.projectId, {
+        mode: req.body?.mode,
+        providerId: req.body?.providerId,
+        language: req.body?.language,
+        force: req.body?.force,
+      });
+      res.json({ success: true, data } as ApiResponse<{ initialized: boolean }>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to initialize baseline';
+      res.status(400).json({
+        success: false,
+        error: { code: 'INIT_ERROR', message },
+      } as ApiResponse<never>);
+    }
+  });
+
+  // GET /projects/:projectId/changes — List project changes
+  router.get('/projects/:projectId/changes', (req: Request, res: Response) => {
+    try {
+      const changes = service.getChanges(req.params.projectId);
+      res.json({ success: true, data: changes } as ApiResponse<ProjectChange[]>);
+    } catch {
+      res.status(500).json({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to list changes' },
+      } as ApiResponse<never>);
+    }
+  });
+
+  // GET /projects/:projectId/changes/active — Get active project change
+  router.get('/projects/:projectId/changes/active', (req: Request, res: Response) => {
+    try {
+      const change = service.getActiveChange(req.params.projectId);
+      if (!change) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'No active change for this project' },
+        } as ApiResponse<never>);
+        return;
+      }
+      res.json({ success: true, data: change } as ApiResponse<ProjectChange>);
+    } catch {
+      res.status(500).json({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get active change' },
+      } as ApiResponse<never>);
+    }
+  });
+
+  // POST /projects/:projectId/changes — Create change
+  router.post('/projects/:projectId/changes', (req: Request, res: Response) => {
+    try {
+      const { title, summary, motivation, nonGoals, scope, acceptanceCriteria } = req.body;
+      if (!title || !summary) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'title and summary are required' },
+        } as ApiResponse<never>);
+        return;
+      }
+      const change = service.createChange(req.params.projectId, {
+        title, summary, motivation, nonGoals, scope, acceptanceCriteria,
+      });
+      res.json({ success: true, data: change } as ApiResponse<ProjectChange>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create change';
+      const status = message.includes('already has an active change') ? 409 : 400;
+      res.status(status).json({
+        success: false,
+        error: { code: status === 409 ? 'ACTIVE_CHANGE_EXISTS' : 'CREATE_ERROR', message },
+      } as ApiResponse<never>);
+    }
+  });
+
+  // GET /changes/:changeId — Get change
+  router.get('/changes/:changeId', (req: Request, res: Response) => {
+    try {
+      const change = service.getChange(req.params.changeId);
+      if (!change) {
+        res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Change not found' },
+        } as ApiResponse<never>);
+        return;
+      }
+      res.json({ success: true, data: change } as ApiResponse<ProjectChange>);
+    } catch {
+      res.status(500).json({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get change' },
+      } as ApiResponse<never>);
+    }
+  });
+
+  // GET /changes/:changeId/execution — Minimal execution plan summary
+  router.get('/changes/:changeId/execution', (req: Request, res: Response) => {
+    try {
+      const plan = service.getExecutionPlan(req.params.changeId);
+      res.json({ success: true, data: plan } as ApiResponse<ChangeExecutionPlan>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to get execution plan';
+      const status = message.includes('Change not found') ? 404 : 500;
+      res.status(status).json({
+        success: false,
+        error: { code: status === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR', message },
+      } as ApiResponse<never>);
+    }
+  });
+
+  // POST /changes/:changeId/gates/design/request — Request design review
+  router.post('/changes/:changeId/gates/design/request', (req: Request, res: Response) => {
+    try {
+      const change = service.requestDesignGate(req.params.changeId, req.body?.notes);
+      res.json({ success: true, data: change } as ApiResponse<ProjectChange>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to request design gate';
+      const status = message.includes('not found') ? 404 : 400;
+      res.status(status).json({
+        success: false,
+        error: { code: status === 404 ? 'NOT_FOUND' : 'REQUEST_ERROR', message },
+      } as ApiResponse<never>);
+    }
+  });
+
+  // POST /changes/:changeId/gates/design/resolve — Resolve design review
+  router.post('/changes/:changeId/gates/design/resolve', (req: Request, res: Response) => {
+    try {
+      const { decision, notes } = req.body as { decision?: DesignGateDecision; notes?: string };
+      if (!decision || !['approve_design', 'revise_design', 'revise_change'].includes(decision)) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'decision must be one of: approve_design, revise_design, revise_change',
+          },
+        } as ApiResponse<never>);
+        return;
+      }
+      const change = service.resolveDesignGate(req.params.changeId, decision, notes);
+      res.json({ success: true, data: change } as ApiResponse<ProjectChange>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to resolve design gate';
+      const status = message.includes('not found') ? 404 : 400;
+      res.status(status).json({
+        success: false,
+        error: { code: status === 404 ? 'NOT_FOUND' : 'RESOLVE_ERROR', message },
+      } as ApiResponse<never>);
+    }
+  });
+
+  // POST /changes/:changeId/gates/execution/request — Request execution review
+  router.post('/changes/:changeId/gates/execution/request', (req: Request, res: Response) => {
+    try {
+      const change = service.requestExecutionGate(req.params.changeId, req.body?.notes);
+      res.json({ success: true, data: change } as ApiResponse<ProjectChange>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to request execution gate';
+      const status = message.includes('not found') ? 404 : 400;
+      res.status(status).json({
+        success: false,
+        error: { code: status === 404 ? 'NOT_FOUND' : 'REQUEST_ERROR', message },
+      } as ApiResponse<never>);
+    }
+  });
+
+  // POST /changes/:changeId/gates/execution/resolve — Resolve execution review
+  router.post('/changes/:changeId/gates/execution/resolve', (req: Request, res: Response) => {
+    try {
+      const { decision, notes } = req.body as { decision?: ExecutionGateDecision; notes?: string };
+      if (!decision || !['approve_execution', 'revise_plan', 'revise_design', 'split_change'].includes(decision)) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'decision must be one of: approve_execution, revise_plan, revise_design, split_change',
+          },
+        } as ApiResponse<never>);
+        return;
+      }
+      const change = service.resolveExecutionGate(req.params.changeId, decision, notes);
+      res.json({ success: true, data: change } as ApiResponse<ProjectChange>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to resolve execution gate';
+      const status = message.includes('not found') ? 404 : 400;
+      res.status(status).json({
+        success: false,
+        error: { code: status === 404 ? 'NOT_FOUND' : 'RESOLVE_ERROR', message },
+      } as ApiResponse<never>);
+    }
+  });
+
+  router.post('/changes/:changeId/acceptance/request', (req: Request, res: Response) => {
+    try {
+      const change = service.requestAcceptance(req.params.changeId, req.body?.notes);
+      res.json({ success: true, data: change } as ApiResponse<ProjectChange>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to request acceptance';
+      const status = message.includes('not found') ? 404 : 400;
+      const code = status === 404 ? 'NOT_FOUND' : 'INVALID_STATE';
+      res.status(status).json({
+        success: false,
+        error: { code, message },
+      } as ApiResponse<never>);
+    }
+  });
+
+  router.post('/changes/:changeId/acceptance/resolve', (req: Request, res: Response) => {
+    try {
+      const { decision, notes } = req.body as { decision?: AcceptanceDecision; notes?: string };
+      if (!decision || !['approve_acceptance', 'revise_execution'].includes(decision)) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'decision must be one of: approve_acceptance, revise_execution',
+          },
+        } as ApiResponse<never>);
+        return;
+      }
+      const change = service.resolveAcceptance(req.params.changeId, decision, notes);
+      res.json({ success: true, data: change } as ApiResponse<ProjectChange>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to resolve acceptance';
+      const status = message.includes('not found') ? 404 : 400;
+      const code = status === 404 ? 'NOT_FOUND' : 'INVALID_STATE';
+      res.status(status).json({
+        success: false,
+        error: { code, message },
+      } as ApiResponse<never>);
+    }
+  });
+
+  router.post('/changes/:changeId/sync/request', (req: Request, res: Response) => {
+    try {
+      const change = service.requestChangeSync(req.params.changeId, req.body?.summary);
+      res.json({ success: true, data: change } as ApiResponse<ProjectChange>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to request change sync';
+      const status = message.includes('not found') ? 404 : 400;
+      const code = status === 404 ? 'NOT_FOUND' : 'INVALID_STATE';
+      res.status(status).json({
+        success: false,
+        error: { code, message },
+      } as ApiResponse<never>);
+    }
+  });
+
+  router.post('/changes/:changeId/complete', (req: Request, res: Response) => {
+    try {
+      const change = service.completeChange(req.params.changeId, req.body?.summary);
+      res.json({ success: true, data: change } as ApiResponse<ProjectChange>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to complete change';
+      const status = message.includes('not found') ? 404 : 400;
+      const code = status === 404 ? 'NOT_FOUND' : 'INVALID_STATE';
+      res.status(status).json({
+        success: false,
+        error: { code, message },
+      } as ApiResponse<never>);
+    }
+  });
+
   // GET /projects/:projectId/tasks — List tasks
   router.get('/projects/:projectId/tasks', (req: Request, res: Response) => {
     try {
-      const tasks = service.getTasks(req.params.projectId);
+      const changeId = typeof req.query.changeId === 'string' ? req.query.changeId : undefined;
+      const tasks = service.getTasks(req.params.projectId, changeId);
       res.json({ success: true, data: tasks } as ApiResponse<SupervisionTask[]>);
     } catch (error) {
       res.status(500).json({
@@ -85,6 +359,7 @@ export function createSupervisionRoutes(service: SupervisorService): Router {
     try {
       const { projectId } = req.params;
       const {
+        changeId,
         title, description, dependencies, dependencyMode, priority,
         acceptanceCriteria, relevantDocIds, scope,
         scheduleCron, scheduleEnabled, retryDelayMs,
@@ -97,6 +372,7 @@ export function createSupervisionRoutes(service: SupervisorService): Router {
         return;
       }
       const task = service.createTask(projectId, {
+        changeId,
         title, description, dependencies, dependencyMode, priority,
         acceptanceCriteria, relevantDocIds, scope,
         scheduleCron, scheduleEnabled, retryDelayMs,
@@ -104,7 +380,13 @@ export function createSupervisionRoutes(service: SupervisorService): Router {
       res.json({ success: true, data: task } as ApiResponse<SupervisionTask>);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create task';
-      const status = message.includes('budget') ? 409 : message.includes('No agent') ? 400 : 500;
+      const status = message.includes('budget')
+        ? 409
+        : (message.includes('No agent')
+          || message.includes('Change not found')
+          || message.includes('does not belong to project'))
+          ? 400
+          : 500;
       res.status(status).json({
         success: false,
         error: { code: status === 409 ? 'BUDGET_EXCEEDED' : 'INTERNAL_ERROR', message },
@@ -321,6 +603,75 @@ export function createSupervisionRoutes(service: SupervisorService): Router {
       res.status(500).json({
         success: false,
         error: { code: 'INTERNAL_ERROR', message: 'Failed to get context documents' },
+      } as ApiResponse<never>);
+    }
+  });
+
+  router.put('/projects/:projectId/baseline/:docType', (req: Request, res: Response) => {
+    try {
+      const docType = req.params.docType;
+      const { content } = req.body as { content?: string };
+      if (!['project', 'architecture'].includes(docType)) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'docType must be one of: project, architecture' },
+        } as ApiResponse<never>);
+        return;
+      }
+      if (typeof content !== 'string') {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'content is required' },
+        } as ApiResponse<never>);
+        return;
+      }
+      const result = service.updateBaselineDocument(
+        req.params.projectId,
+        docType as 'project' | 'architecture',
+        content,
+      );
+      res.json({ success: true, data: result } as ApiResponse<{ projectId: string; docId: string }>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update baseline document';
+      const status = message.includes('not found') ? 404 : 400;
+      res.status(status).json({
+        success: false,
+        error: { code: status === 404 ? 'NOT_FOUND' : 'UPDATE_ERROR', message },
+      } as ApiResponse<never>);
+    }
+  });
+
+  // PUT /changes/:changeId/docs/:docType — Update editable change documents
+  router.put('/changes/:changeId/docs/:docType', (req: Request, res: Response) => {
+    try {
+      const docType = req.params.docType;
+      const { content } = req.body as { content?: string };
+      if (!['design', 'execution', 'tasks'].includes(docType)) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'docType must be one of: design, execution, tasks' },
+        } as ApiResponse<never>);
+        return;
+      }
+      if (typeof content !== 'string') {
+        res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'content is required' },
+        } as ApiResponse<never>);
+        return;
+      }
+      const change = service.updateChangeDocument(
+        req.params.changeId,
+        docType as 'design' | 'execution' | 'tasks',
+        content,
+      );
+      res.json({ success: true, data: change } as ApiResponse<ProjectChange>);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update change document';
+      const status = message.includes('not found') ? 404 : 400;
+      res.status(status).json({
+        success: false,
+        error: { code: status === 404 ? 'NOT_FOUND' : 'UPDATE_ERROR', message },
       } as ApiResponse<never>);
     }
   });

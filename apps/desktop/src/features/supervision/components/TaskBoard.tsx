@@ -8,6 +8,8 @@ import { CreateTaskDialog } from './CreateTaskDialog';
 interface TaskBoardProps {
   projectId: string;
   tasks: SupervisionTask[];
+  changeId?: string;
+  title?: string;
 }
 
 // Display order of status groups
@@ -19,7 +21,7 @@ const statusGroups: { key: string; statuses: TaskStatus[]; label: string }[] = [
   { key: 'problem', statuses: ['rejected', 'failed', 'blocked', 'cancelled'], label: 'Issues' },
 ];
 
-export function TaskBoard({ projectId, tasks }: TaskBoardProps) {
+export function TaskBoard({ projectId, tasks, changeId, title = 'Tasks' }: TaskBoardProps) {
   const [selectedTask, setSelectedTask] = useState<SupervisionTask | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
@@ -48,6 +50,7 @@ export function TaskBoard({ projectId, tasks }: TaskBoardProps) {
       <div className="flex items-center justify-between px-4 py-2 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-semibold">Tasks</h3>
+          {title !== 'Tasks' && <span className="text-xs text-muted-foreground">{title}</span>}
           <span className="text-xs text-muted-foreground">({tasks.length})</span>
         </div>
         <button
@@ -96,6 +99,7 @@ export function TaskBoard({ projectId, tasks }: TaskBoardProps) {
       {/* Create task dialog */}
       <CreateTaskDialog
         projectId={projectId}
+        changeId={changeId}
         existingTasks={tasks}
         isOpen={showCreate}
         onClose={() => setShowCreate(false)}
