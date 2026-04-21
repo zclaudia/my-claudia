@@ -175,10 +175,29 @@ export async function getMainBranch(repoPath: string): Promise<string> {
 
 /**
  * Returns the current branch name in a worktree.
+ * Handles orphan branches (no commits yet) by falling back to symbolic-ref.
  */
 export async function getCurrentBranch(repoPath: string): Promise<string> {
-  const output = await git(['rev-parse', '--abbrev-ref', 'HEAD'], repoPath);
-  return output.trim();
+  try {
+    const output = await git(['rev-parse', '--abbrev-ref', 'HEAD'], repoPath);
+    return output.trim();
+  } catch {
+    // HEAD doesn't resolve (orphan branch with no commits) — read symbolic ref directly
+    const ref = await git(['symbolic-ref', '--short', 'HEAD'], repoPath);
+    return ref.trim();
+  }
+}
+
+/**
+ * Returns true if the repo/worktree at repoPath has at least one commit.
+ */
+export async function hasCommits(repoPath: string): Promise<boolean> {
+  try {
+    await git(['rev-parse', 'HEAD'], repoPath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

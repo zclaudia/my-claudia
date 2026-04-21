@@ -18,6 +18,7 @@ import {
   getDiff,
   getMainBranch,
   getCurrentBranch,
+  hasCommits,
   isWorkingTreeClean,
   mergeBranch,
   abortMerge,
@@ -134,6 +135,13 @@ export class LocalPRService {
         return {
           canCreate: false,
           reason: `Worktree is already on the base branch (${baseBranch})`,
+        };
+      }
+
+      if (!await hasCommits(worktreePath)) {
+        return {
+          canCreate: false,
+          reason: `Branch '${branchName}' has no commits yet`,
         };
       }
 
@@ -608,6 +616,8 @@ Be thorough but pragmatic. Minor style issues do not warrant REVIEW_FAILED.`;
         this.prRepo.update(prId, {
           status: 'approved',
           statusMessage: 'Cannot merge: main worktree is dirty. Commit or stash changes, then retry.',
+          executionState: 'idle',
+          pendingAction: 'none',
         });
         this.broadcastPRUpdate(this.prRepo.findById(prId)!);
         throw new Error(

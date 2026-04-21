@@ -26,7 +26,7 @@ const ANIM_DURATION_MS = 360;
 const SHAPE_CLOSED_W = 220;
 const SHAPE_CLOSED_H = 32;
 const SHAPE_OPENED_W = 460;
-const SHAPE_OPENED_H = 600;
+const SHAPE_OPENED_H = 440;
 const TOP_R_CLOSED = 12;
 const TOP_R_OPENED = 16;
 const BOT_R_CLOSED = 20;
@@ -514,7 +514,7 @@ export function NotchWindow() {
         {/* Opened content — conditionally rendered to avoid ghost artifacts */}
         {openedOpacity > 0 && (
         <div
-          className="absolute inset-0 flex flex-col"
+          className="absolute inset-0 flex min-h-0 flex-col"
           style={{ opacity: openedOpacity }}
         >
             {/* Header */}
@@ -555,7 +555,7 @@ export function NotchWindow() {
             <NotchTabBar activeTab={activeTab} onTabChange={handleTabChange} unreadCounts={unreadCounts} />
 
             {/* List */}
-            <div className="flex-1 overflow-y-auto px-1.5 py-1.5">
+            <div className="flex-1 min-h-0 overflow-y-auto px-1.5 py-1.5">
               {filteredToasts.length > 0 && (
                 <>
                   {filteredToasts.map((t) => (

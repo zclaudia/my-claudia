@@ -70,6 +70,47 @@ export function useNotchBridgeHost(params: { enabled: boolean }): void {
     });
   }, [notchMonitor]);
 
+  // Recenter notch when display configuration changes (monitor plug/unplug/rearrange).
+  // Three layers of detection:
+  //  1. macOS NSApplicationDidChangeScreenParametersNotification (Rust-side, most reliable)
+  //  2. window resize + matchMedia change (covers DPI/resolution changes affecting main window)
+  //  3. Polling list_monitors every 5s (catches changes that don't affect the main window)
+  useEffect(() => {
+    if (!shouldEnable || !spawnedRef.current) return;
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const recenter = () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        invoke('recenter_notch').catch(() => undefined);
+      }, 300);
+    };
+
+    // Layer 2: resize / DPI events
+    window.addEventListener('resize', recenter);
+    const mql = window.matchMedia('(resolution: 1dppx)');
+    mql.addEventListener('change', recenter);
+
+    // Layer 3: poll monitor list as fallback
+    let lastMonitorSnapshot = '';
+    const poll = setInterval(async () => {
+      try {
+        const monitors = await invoke<Array<{ name: string | null; width: number; height: number; scale_factor: number }>>('list_monitors');
+        const snapshot = JSON.stringify(monitors);
+        if (lastMonitorSnapshot && snapshot !== lastMonitorSnapshot) {
+          recenter();
+        }
+        lastMonitorSnapshot = snapshot;
+      } catch { /* ignore */ }
+    }, 5000);
+
+    return () => {
+      if (debounce) clearTimeout(debounce);
+      window.removeEventListener('resize', recenter);
+      mql.removeEventListener('change', recenter);
+      clearInterval(poll);
+    };
+  }, [shouldEnable]);
+
   // Publish state to the notch window whenever source stores change.
   useEffect(() => {
     if (!shouldEnable) return;

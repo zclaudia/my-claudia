@@ -264,6 +264,18 @@ export function saveExternalSkillDirs(dirs: string[]): void {
   `).run(JSON.stringify(dirs));
 }
 
+function getWellKnownSkillDirs(): string[] {
+  const home = process.env.HOME || process.env.USERPROFILE || '';
+  if (!home) return [];
+  return [
+    path.join(home, '.claude', 'skills'),
+    path.join(home, '.cursor', 'skills'),
+    path.join(home, '.cursor', 'skills-cursor'),
+    path.join(home, '.codex', 'skills'),
+    path.join(home, '.agents', 'skills'),
+  ];
+}
+
 export async function registerSkillTools(): Promise<number> {
   const allSkills: SkillMeta[] = [];
   const seenIds = new Set<string>();
@@ -276,7 +288,7 @@ export async function registerSkillTools(): Promise<number> {
     }
   }
 
-  for (const dir of getExternalSkillDirs()) {
+  for (const dir of [...getWellKnownSkillDirs(), ...getExternalSkillDirs()]) {
     for (const skill of discoverSkillsInDir(dir, 'external')) {
       if (!seenIds.has(skill.id)) {
         seenIds.add(skill.id);

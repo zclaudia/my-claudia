@@ -201,8 +201,9 @@ export function createProjectRoutes(
         res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Project not found' } });
         return;
       }
-      console.error('Error listing worktrees:', error);
-      res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Failed to list worktrees' } });
+      const msg = error instanceof Error ? error.message : 'Failed to list worktrees';
+      console.error(`Error listing worktrees for project ${projectId}:`, error);
+      res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: msg } });
     }
   });
 

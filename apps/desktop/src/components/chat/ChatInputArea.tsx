@@ -33,6 +33,7 @@ interface ChatInputAreaProps {
   capabilities: ProviderCapabilities | null;
   commands: SlashCommand[];
   fileReferenceRoot: string | undefined;
+  fileReferenceBackendId: string | null;
   sessionRunId: string | null;
   currentUsage: {
     inputTokens: number;
@@ -70,6 +71,7 @@ export function ChatInputArea({
   capabilities,
   commands,
   fileReferenceRoot,
+  fileReferenceBackendId,
   sessionRunId,
   currentUsage,
   currentSystemInfo,
@@ -314,6 +316,7 @@ export function ChatInputArea({
         onCommand={onCommand}
         commands={commands}
         projectRoot={fileReferenceRoot}
+        backendId={fileReferenceBackendId}
         disabled={!isConnected}
         isLoading={isLoading}
         initialValue={restoreMessage?.content ?? initialDraft?.content}

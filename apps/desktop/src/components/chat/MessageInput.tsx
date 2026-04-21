@@ -22,6 +22,7 @@ interface MessageInputProps {
   onCommand?: (command: string, args: string) => void;
   commands?: SlashCommand[];  // Commands from provider
   projectRoot?: string;       // Project root for @ file mentions
+  backendId?: string | null;  // Backend ID for routing file listing API calls
   disabled?: boolean;
   isLoading?: boolean;
   placeholder?: string;
@@ -41,6 +42,7 @@ interface MentionState {
   entries: FileEntry[];
   selectedIndex: number;
   isLoading: boolean;
+  hasError: boolean;
 }
 
 const initialMentionState: MentionState = {
@@ -51,6 +53,7 @@ const initialMentionState: MentionState = {
   entries: [],
   selectedIndex: 0,
   isLoading: false,
+  hasError: false,
 };
 
 const DRAFT_PERSIST_DEBOUNCE_MS = 300;
@@ -85,6 +88,7 @@ export function MessageInput({
   onCommand,
   commands = [],
   projectRoot,
+  backendId,
   disabled = false,
   isLoading = false,
   placeholder = 'Type a message...',
@@ -260,17 +264,18 @@ export function MessageInput({
   }, []);
 
   // Fetch directory entries with debouncing
-  const fetchEntries = useCallback(async (projectRootPath: string, relativePath: string, query: string) => {
+  const fetchEntries = useCallback(async (projectRootPath: string, relativePath: string, query: string, resolvedBackendId?: string | null) => {
     if (!projectRootPath) return;
 
-    setMentionState(prev => ({ ...prev, isLoading: true }));
+    setMentionState(prev => ({ ...prev, isLoading: true, hasError: false }));
 
     try {
       const result = await api.listDirectory({
         projectRoot: projectRootPath,
         relativePath,
         query,
-        maxResults: 20
+        maxResults: 20,
+        backendId: resolvedBackendId,
       });
 
       setMentionState(prev => ({
@@ -281,7 +286,7 @@ export function MessageInput({
       }));
     } catch (error) {
       console.error('Failed to fetch directory listing:', error);
-      setMentionState(prev => ({ ...prev, entries: [], isLoading: false }));
+      setMentionState(prev => ({ ...prev, entries: [], isLoading: false, hasError: true }));
     }
   }, []);
 
@@ -391,12 +396,14 @@ export function MessageInput({
         setMentionState(prev => ({
           ...prev,
           isActive: true,
+          isLoading: true,
+          hasError: false,
           triggerIndex: mention.triggerIndex,
           query: mention.query,
           currentPath
         }));
 
-        debouncedFetchEntries(projectRoot, currentPath, searchQuery);
+        debouncedFetchEntries(projectRoot, currentPath, searchQuery, backendId);
       } else if (mentionState.isActive) {
         setMentionState(initialMentionState);
       }
@@ -425,7 +432,7 @@ export function MessageInput({
 
       // Fetch new directory contents
       if (projectRoot) {
-        fetchEntries(projectRoot, newPath, '');
+        fetchEntries(projectRoot, newPath, '', backendId);
       }
 
       // Set cursor position
@@ -455,7 +462,7 @@ export function MessageInput({
         }
       }, 0);
     }
-  }, [value, mentionState, projectRoot, fetchEntries]);
+  }, [value, mentionState, projectRoot, backendId, fetchEntries]);
 
   // Navigate to a specific path (for breadcrumb navigation)
   const navigateToPath = useCallback((path: string) => {
@@ -474,7 +481,7 @@ export function MessageInput({
     }));
 
     if (projectRoot) {
-      fetchEntries(projectRoot, path, '');
+      fetchEntries(projectRoot, path, '', backendId);
     }
 
     const newCursorPos = before.length + newQuery.length + 1;
@@ -485,7 +492,7 @@ export function MessageInput({
         textareaRef.current.focus();
       }
     }, 0);
-  }, [value, mentionState, projectRoot, fetchEntries]);
+  }, [value, mentionState, projectRoot, backendId, fetchEntries]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Handle @ mention selection
@@ -764,7 +771,7 @@ export function MessageInput({
       )}
 
       {/* @ Mention suggestions dropdown */}
-      {mentionState.isActive && (mentionState.entries.length > 0 || mentionState.isLoading) && (
+      {mentionState.isActive && (
         <div
           ref={mentionListRef}
           className="absolute bottom-full left-0 right-0 mb-1 bg-card border border-border rounded-lg shadow-lg overflow-y-auto max-h-64 z-10"
@@ -794,6 +801,8 @@ export function MessageInput({
 
           {mentionState.isLoading ? (
             <div className="px-4 py-3 text-muted-foreground text-sm">Loading...</div>
+          ) : mentionState.hasError ? (
+            <div className="px-4 py-3 text-destructive text-sm">Failed to list files — check server connection</div>
           ) : mentionState.entries.length === 0 ? (
             <div className="px-4 py-3 text-muted-foreground text-sm">No files found</div>
           ) : (

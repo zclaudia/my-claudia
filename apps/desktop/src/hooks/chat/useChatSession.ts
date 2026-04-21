@@ -3,6 +3,7 @@ import { useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useProviderMetaStore } from '../../stores/providerMetaStore';
 import { useServerStore } from '../../stores/serverStore';
+import { useOwnershipStore } from '../../stores/ownershipStore';
 import { useProviderCapabilities } from './useProviderCapabilities';
 import type { MessageWithToolCalls, ToolCallState } from '../../stores/chatStore';
 import type { ContentBlock } from '@my-claudia/shared';
@@ -101,6 +102,9 @@ export function useChatSession({ sessionId, isConnected }: UseChatSessionParams)
     contextWindow: undefined
   };
   const fileReferenceRoot = currentSession?.workingDirectory || currentProject?.rootPath;
+  const fileReferenceBackendId = useOwnershipStore(
+    (s) => currentSession?.projectId ? s.getProjectBackendId(currentSession.projectId) : null,
+  );
 
   // ── Provider capabilities ──
   const { providerId, capabilities, commands, commandsCacheKey } = useProviderCapabilities({ sessionId, isConnected });
@@ -128,6 +132,7 @@ export function useChatSession({ sessionId, isConnected }: UseChatSessionParams)
     providers,
     isForcedPlanSession,
     fileReferenceRoot,
+    fileReferenceBackendId,
 
     // Provider
     providerId,

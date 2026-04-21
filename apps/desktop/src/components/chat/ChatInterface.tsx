@@ -76,7 +76,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
     sessionMessages, lastSessionMessage, sessionRunId, isSessionRunning, isLoading, sessionHealth,
     sessionToolCalls, sessionContentBlocks, sessionToolCallHistory, useStreamingSegmented,
     lastStreamingBlock, streamingContentSignature,
-    currentSession, currentProject, providers, isForcedPlanSession, fileReferenceRoot,
+    currentSession, currentProject, providers, isForcedPlanSession, fileReferenceRoot, fileReferenceBackendId,
     providerId, capabilities, commands, commandsCacheKey,
     effectiveMode, modelOverride, permissionOverride, currentUsage, currentSystemInfo,
     addMessage, clearMessages, setMode, setModelOverride, setPermissionOverride,
@@ -323,6 +323,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
           capabilities={capabilities}
           commands={commands}
           fileReferenceRoot={fileReferenceRoot}
+          fileReferenceBackendId={fileReferenceBackendId}
           sessionRunId={sessionRunId}
           currentUsage={currentUsage}
           currentSystemInfo={currentSystemInfo}

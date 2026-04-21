@@ -324,7 +324,7 @@ fn create_claudia_ball(
 #[cfg(not(target_os = "android"))]
 const NOTCH_WINDOW_WIDTH: f64 = 620.0;
 #[cfg(not(target_os = "android"))]
-const NOTCH_WINDOW_HEIGHT: f64 = 600.0;
+const NOTCH_WINDOW_HEIGHT: f64 = 440.0;
 #[cfg(not(any(target_os = "android", target_os = "macos")))]
 const NOTCH_CLOSED_WIDTH: f64 = 244.0;
 #[cfg(not(any(target_os = "android", target_os = "macos")))]
@@ -333,6 +333,76 @@ const NOTCH_CLOSED_HEIGHT: f64 = 32.0;
 const NOTCH_OPENED_WIDTH: f64 = NOTCH_WINDOW_WIDTH;
 #[cfg(not(any(target_os = "android", target_os = "macos")))]
 const NOTCH_OPENED_HEIGHT: f64 = NOTCH_WINDOW_HEIGHT;
+
+/// Recenter the notch window on its current screen.
+/// Called when display configuration changes (monitors added/removed/rearranged).
+#[cfg(not(target_os = "android"))]
+fn recenter_notch_on_current_screen(app: &tauri::AppHandle) {
+    let window = match app.get_webview_window("notch") {
+        Some(w) => w,
+        None => return,
+    };
+
+    #[cfg(target_os = "macos")]
+    {
+        let _ = window.with_webview(|webview| unsafe {
+            use objc2::msg_send;
+            use objc2::runtime::{AnyObject, Bool};
+            use objc2_foundation::{NSPoint, NSRect};
+
+            let win: *mut AnyObject = webview.ns_window() as _;
+            if win.is_null() {
+                return;
+            }
+
+            // Get the screen the window is currently on (or main screen as fallback).
+            let mut screen: *mut AnyObject = msg_send![win, screen];
+            if screen.is_null() {
+                screen = msg_send![objc2::class!(NSScreen), mainScreen];
+            }
+            if screen.is_null() {
+                return;
+            }
+
+            let screen_frame: NSRect = msg_send![screen, frame];
+            let screen_top_y = screen_frame.origin.y + screen_frame.size.height;
+
+            let win_frame: NSRect = msg_send![win, frame];
+            let x = screen_frame.origin.x
+                + (screen_frame.size.width - win_frame.size.width) / 2.0;
+
+            let top_left = NSPoint { x, y: screen_top_y };
+            let _: () = msg_send![win, setFrameTopLeftPoint: top_left];
+
+            let no = Bool::from(false);
+            let _: () = msg_send![win, setHasShadow: no];
+            let _: () = msg_send![win, invalidateShadow];
+        });
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Ok(Some(monitor)) = window.current_monitor() {
+            let scale = monitor.scale_factor().max(1e-3);
+            let screen_w = monitor.size().width as f64 / scale;
+            let mon_x = monitor.position().x as f64 / scale;
+            let mon_y = monitor.position().y as f64 / scale;
+            let x = mon_x + (screen_w - NOTCH_WINDOW_WIDTH) / 2.0;
+            let _ = window.set_position(Position::Logical(LogicalPosition::new(x.max(0.0), mon_y)));
+        }
+    }
+}
+
+/// Tauri command: recenter the notch window on its current screen.
+/// Called from the frontend when display changes are detected (e.g. via
+/// screen resize/displaychange events), as a cross-platform supplement
+/// to the macOS-only NSNotificationCenter observer.
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn recenter_notch(app: tauri::AppHandle) -> Result<(), String> {
+    recenter_notch_on_current_screen(&app);
+    Ok(())
+}
 
 /// macOS: raise the notch window ABOVE the menu bar, pin it across all Spaces, and
 /// force its top edge to the physical screen top (not the menu-bar-excluded visibleFrame).
@@ -944,6 +1014,7 @@ pub fn run() {
             set_notch_passthrough,
             check_notch_hover,
             move_notch_to_monitor,
+            recenter_notch,
         ]);
 
     #[cfg(target_os = "android")]
@@ -973,6 +1044,42 @@ pub fn run() {
         let state = app.state::<ShortcutStateHandle>();
         if let Ok(mut state) = state.lock() {
             state.current_shortcut = Some(DEFAULT_CLAUDIA_SHORTCUT.to_string());
+        }
+
+        // macOS: listen for display configuration changes (monitor plug/unplug/rearrange)
+        // and recenter the notch window automatically.
+        #[cfg(target_os = "macos")]
+        {
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || unsafe {
+                use objc2::msg_send;
+                use objc2::runtime::{AnyClass, AnyObject};
+                use objc2_foundation::NSString;
+
+                let nc: *mut AnyObject = msg_send![
+                    AnyClass::get(c"NSNotificationCenter").unwrap(),
+                    defaultCenter
+                ];
+                if nc.is_null() {
+                    return;
+                }
+
+                let name = NSString::from_str("NSApplicationDidChangeScreenParametersNotification");
+
+                let handle = app_handle.clone();
+                let block = block2::StackBlock::new(move |_notif: *mut AnyObject| {
+                    recenter_notch_on_current_screen(&handle);
+                });
+                let block = block.copy();
+
+                let _: *mut AnyObject = msg_send![
+                    nc,
+                    addObserverForName: &*name,
+                    object: std::ptr::null::<AnyObject>(),
+                    queue: std::ptr::null::<AnyObject>(),
+                    usingBlock: &*block
+                ];
+            });
         }
 
         // macOS: probe TCC-protected folders at startup
