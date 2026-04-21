@@ -50,7 +50,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
   const { updateProject } = useProjectStore();
 
   // Supervisor state
-  const v2Agent = useSupervisionStore((s) => project ? s.agents[project.id] : undefined);
+  const supervisorAgent = useSupervisionStore((s) => project ? s.agents[project.id] : undefined);
   const setAgent = useSupervisionStore((s) => s.setAgent);
   const removeAgent = useSupervisionStore((s) => s.removeAgent);
   const [supervisorLoading, setSupervisorLoading] = useState(false);
@@ -75,7 +75,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
   const [hasOverride, setHasOverride] = useState(false);
   const [permOverride, setPermOverride] = useState<Partial<UnifiedPermissionPolicy>>({});
 
-  const effectiveAgent = v2Agent ?? project?.agent;
+  const effectiveAgent = supervisorAgent ?? project?.agent;
   const isSupervisorEnabled = Boolean(effectiveAgent && effectiveAgent.phase !== 'archived');
 
   // Keep local providers in sync with global store

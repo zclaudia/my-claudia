@@ -251,7 +251,7 @@ describe('Supervision V2 Routes', () => {
 
       expect(res.body.success).toBe(true);
       expect(res.body.data.initialized).toBe(true);
-      expect(mockService.initBaseline).toHaveBeenCalledWith('proj-1');
+      expect(mockService.initBaseline).toHaveBeenCalledWith('proj-1', expect.anything());
     });
   });
 
@@ -571,7 +571,7 @@ describe('Supervision V2 Routes', () => {
 
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveLength(2);
-      expect(mockService.getTasks).toHaveBeenCalledWith('proj-1');
+      expect(mockService.getTasks).toHaveBeenCalledWith('proj-1', undefined);
     });
 
     it('passes changeId filter to service', async () => {

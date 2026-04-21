@@ -118,7 +118,7 @@ export function Sidebar({
     selectSession,
     selectSessionOnBackend,
   } = useSelectionCoordinator();
-  const v2Agents = useSupervisionStore((s) => s.agents);
+  const supervisorAgents = useSupervisionStore((s) => s.agents);
   const notificationUnreadCount = useNotificationFeedStore((s) => s.unreadCount);
   const { hasUnread: hasClaudiaUnread, hasRunning: hasClaudiaRunning, hasPermissionPending: hasClaudiaPermissionPending } = useClaudiaStatus();
   const isClaudiaExpanded = useClaudiaStore((s) => s.isExpanded);
@@ -470,7 +470,7 @@ export function Sidebar({
                 activeRunSessionIds={activeRunSessionIds}
                 getProviderName={getProviderName}
                 getWorktreeBranch={getWorktreeBranch}
-                v2Agent={v2Agents[project.id]}
+                supervisorAgent={supervisorAgents[project.id]}
                 worktrees={worktreesByProject.get(project.id) || []}
                 expandedWorktrees={expandedWorktrees}
                 onToggleWorktree={toggleWorktree}

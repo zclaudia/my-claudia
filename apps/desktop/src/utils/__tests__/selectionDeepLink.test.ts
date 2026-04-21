@@ -22,6 +22,10 @@ describe('selectionDeepLink', () => {
   });
 
   it('removes only selection params from the current url', () => {
+    // Skip in non-browser environments (node test runner without jsdom)
+    if (typeof window === 'undefined' || !window.history?.replaceState) {
+      return;
+    }
     const replaceState = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {});
     const original = `${window.location.pathname}${window.location.search}${window.location.hash}`;
     window.history.pushState({}, '', '/?backendId=b1&sessionId=s1&foo=bar#hash');

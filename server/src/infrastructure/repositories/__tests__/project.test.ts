@@ -165,10 +165,10 @@ describe('ProjectRepository', () => {
       const after = Date.now();
 
       // params: [id, name, type, providerId, rootPath, systemPrompt, permissionPolicy,
-      // agentPermissionOverride, agent, contextSyncStatus, reviewProviderId, sortOrder, createdAt, updatedAt]
-      expect(params[12]).toBeGreaterThanOrEqual(before);
-      expect(params[12]).toBeLessThanOrEqual(after);
-      expect(params[13]).toBe(params[12]); // createdAt === updatedAt
+      // agentPermissionOverride, agent, contextSyncStatus, reviewProviderId, permissionWorkflowOverrideId, sortOrder, createdAt, updatedAt]
+      expect(params[13]).toBeGreaterThanOrEqual(before);
+      expect(params[13]).toBeLessThanOrEqual(after);
+      expect(params[14]).toBe(params[13]); // createdAt === updatedAt
     });
   });
 

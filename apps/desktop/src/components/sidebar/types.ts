@@ -53,7 +53,7 @@ export interface ProjectListItemProps {
   activeRunSessionIds: Set<string>;
   getProviderName: (session: Session) => string | undefined;
   getWorktreeBranch: (session: Session, project: Project | undefined) => string | undefined;
-  v2Agent?: AgentPhaseInfo;
+  supervisorAgent?: AgentPhaseInfo;
   worktrees: GitWorktree[];
   expandedWorktrees: Set<string>;
   onToggleWorktree: (key: string) => void;

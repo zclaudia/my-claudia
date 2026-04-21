@@ -40,6 +40,7 @@ vi.mock('../../../stores/terminalStore', () => {
       poppedOutTerminals: {} as Record<string, string>,
       getTerminalId: vi.fn(() => undefined),
       shouldReattach: vi.fn(() => false),
+      hasReattachFailed: vi.fn(() => false),
       clearNeedsReattach: vi.fn(),
       toggleCtrl: mockToggleCtrl,
     };
@@ -53,6 +54,7 @@ vi.mock('../../../stores/terminalStore', () => {
     poppedOutTerminals: {},
     getTerminalId: vi.fn(() => undefined),
     shouldReattach: vi.fn(() => false),
+    hasReattachFailed: vi.fn(() => false),
     clearNeedsReattach: vi.fn(),
     toggleCtrl: mockToggleCtrl,
   });
@@ -92,6 +94,7 @@ describe('TerminalPanel', () => {
         poppedOutTerminals: {},
         getTerminalId,
         shouldReattach: vi.fn(() => false),
+        hasReattachFailed: vi.fn(() => false),
         clearNeedsReattach: vi.fn(),
         toggleCtrl: mockToggleCtrl,
       };
@@ -118,6 +121,7 @@ describe('TerminalPanel', () => {
         poppedOutTerminals: {},
         getTerminalId,
         shouldReattach: vi.fn(() => false),
+        hasReattachFailed: vi.fn(() => false),
         clearNeedsReattach: vi.fn(),
         toggleCtrl: mockToggleCtrl,
       };

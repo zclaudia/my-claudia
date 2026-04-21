@@ -4,8 +4,12 @@
  * Unified message processing for both direct and gateway connections.
  * All message types except `auth_result` (transport-specific) are handled here.
  *
- * Accesses stores via getState() to avoid stale closures and eliminate
- * useCallback dependency tracking in the calling hooks.
+ * Large handler groups are extracted into message-handlers/ sub-modules:
+ *  - claudia-messages.ts — Claudia task & inline response lifecycle
+ *  - heartbeat-reconciliation.ts — state_heartbeat reconciliation
+ *  - terminal-messages.ts — terminal I/O lifecycle
+ *  - plugin-messages.ts — plugin state, panels, permissions
+ *  - notification-messages.ts — notification feed CRUD
  */
 
 import type { ServerMessage, StateHeartbeatMessage } from '@my-claudia/shared';
@@ -19,9 +23,6 @@ import { useSystemTaskStore } from '../stores/systemTaskStore';
 import { useInteractionStore } from '../stores/interactionStore';
 import { useSessionsStore } from '../stores/sessionsStore';
 import { getSessionBucketKeyForBackend } from '../stores/sessionsStore';
-import { useTerminalStore } from '../stores/terminalStore';
-import { useBottomPanelStore } from '../stores/bottomPanelStore';
-import { usePluginStore } from '../stores/pluginStore';
 import { useFilePushStore } from '../stores/filePushStore';
 import { useBackgroundTaskStore } from '../stores/backgroundTaskStore';
 import { useProcessMonitorStore } from '../stores/processMonitorStore';
@@ -30,19 +31,23 @@ import { useToastStore } from '../stores/toastStore';
 import { useNotchPanelStore } from '../stores/notchPanelStore';
 import { downloadPushedFile } from './fileDownload';
 import { eagerSyncCurrentSession, recoverCurrentSessionTail } from './sessionSync';
-import { getProjectsForBackend } from './api/projects';
-import { xtermRegistry } from '../utils/xtermRegistry';
-import { parseBackendId } from '../stores/gatewayStore';
-import { resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/controlPlane';
-import type { InteractionPromptMessage } from '@my-claudia/shared';
+import { handleClaudiaMessage } from './message-handlers/claudia-messages';
+import { handleTerminalMessage } from './message-handlers/terminal-messages';
+import { handlePluginMessage } from './message-handlers/plugin-messages';
+import { handleNotificationMessage } from './message-handlers/notification-messages';
+import { handleHeartbeat } from './message-handlers/heartbeat-reconciliation';
+import type { HeartbeatState } from './message-handlers/heartbeat-reconciliation';
+
+// ============================================
+// Helpers & Module-Level State
+// ============================================
 
 // Throttled lastActivityAt updater — avoids re-renders on every delta message.
-// Updates at most once per second per runId.
 const lastActivityUpdate = new Map<string, number>();
 function updateRunActivity(runId: string): void {
   const now = Date.now();
   const last = lastActivityUpdate.get(runId) || 0;
-  if (now - last < 1000) return; // throttle: 1 update per second
+  if (now - last < 1000) return;
   lastActivityUpdate.set(runId, now);
   const chat = useChatStore.getState();
   const health = chat.runHealth[runId];
@@ -64,9 +69,6 @@ export interface MessageHandlerContext {
   logTag: string;
 }
 
-/**
- * Unwrap correlation envelope format if present.
- */
 function unwrapMessage(rawMessage: ServerMessage | any): ServerMessage {
   if ('payload' in rawMessage && 'metadata' in rawMessage) {
     return {
@@ -81,53 +83,34 @@ function isCompletedBackgroundStatus(status: string | undefined): boolean {
   return status === 'completed' || status === 'failed' || status === 'stopped';
 }
 
-/**
- * Run event dedup: track max seq per runId.
- * Events with seq <= maxSeq are stale (duplicate or out-of-order).
- * Events without seq (old servers) always pass through.
- */
+// Run event dedup: track max seq per runId.
 const maxSeqByRun = new Map<string, number>();
-/** Per-server entity version cache for state_sync reconciliation. */
-const entityVersions = new Map<string, { projects: number; plugins: number }>();
-const projectFetchInFlight = new Map<string, { version: number; generation: number; promise: Promise<void> }>();
-const serverSyncGenerations = new Map<string, number>();
 const terminalRunSeqByRun = new Map<string, { seq?: number; endedAt: number }>();
 const TERMINAL_RUN_TOMBSTONE_MS = 60_000;
 
-function resolveOwnerBackendId(backendId: string | null, serverId: string): string {
-  const rawBackendId = backendId || parseBackendId(serverId) || serverId;
-  return resolveCanonicalBackendId(rawBackendId, resolveLocalBackendId() ?? rawBackendId) ?? rawBackendId;
-}
+// Heartbeat state — shared with heartbeat-reconciliation handler
+const entityVersions = new Map<string, { projects: number; plugins: number }>();
+const projectFetchInFlight = new Map<string, { version: number; generation: number; promise: Promise<void> }>();
+const serverSyncGenerations = new Map<string, number>();
+
+const heartbeatState: HeartbeatState = {
+  entityVersions,
+  projectFetchInFlight,
+  serverSyncGenerations,
+  terminalRunSeqByRun,
+  TERMINAL_RUN_TOMBSTONE_MS,
+};
 
 function isStaleRunEvent(runId: string, seq?: number): boolean {
-  if (seq == null || seq < 1) return false; // Old server without seq — pass through
+  if (seq == null || seq < 1) return false;
   const maxSeq = maxSeqByRun.get(runId) ?? 0;
-  if (seq <= maxSeq) return true; // Duplicate or stale
+  if (seq <= maxSeq) return true;
   maxSeqByRun.set(runId, seq);
   return false;
 }
 
 function recordTerminalRun(runId: string, seq?: number): void {
   terminalRunSeqByRun.set(runId, { seq, endedAt: Date.now() });
-}
-
-function clearExpiredTerminalRuns(now = Date.now()): void {
-  for (const [runId, tombstone] of terminalRunSeqByRun) {
-    if (now - tombstone.endedAt > TERMINAL_RUN_TOMBSTONE_MS) {
-      terminalRunSeqByRun.delete(runId);
-    }
-  }
-}
-
-function shouldIgnoreHeartbeatRun(runId: string, lastSeq?: number): boolean {
-  const tombstone = terminalRunSeqByRun.get(runId);
-  if (!tombstone) return false;
-  if (Date.now() - tombstone.endedAt > TERMINAL_RUN_TOMBSTONE_MS) {
-    terminalRunSeqByRun.delete(runId);
-    return false;
-  }
-  if (tombstone.seq == null || lastSeq == null) return true;
-  return lastSeq <= tombstone.seq;
 }
 
 function isRunEventGap(runId: string, seq?: number): boolean {
@@ -174,41 +157,6 @@ function upsertBackgroundTask(taskId: string, task: import('../stores/background
   backgroundTaskStore.addTask(task);
 }
 
-function reconcileStaleBackgroundRunTasks(
-  serverId: string,
-  activeBackgroundSessionIds: Set<string>,
-): void {
-  const backgroundTaskStore = useBackgroundTaskStore.getState();
-  const now = Date.now();
-
-  for (const task of Object.values(backgroundTaskStore.tasks)) {
-    // Skip tasks belonging to a different server; include tasks with no serverId (legacy)
-    if (task.serverId && task.serverId !== serverId) continue;
-    // Only reconcile running tasks
-    if (task.status !== 'started' && task.status !== 'in_progress' && task.status !== 'paused') continue;
-
-    // Determine the background session ID to check against active runs
-    let backgroundSessionId: string | null = null;
-    if (task.source === 'background_run' && task.id.startsWith('background:')) {
-      backgroundSessionId = task.id.slice('background:'.length);
-    } else if (task.source === 'sdk_task') {
-      backgroundSessionId = task.sessionId;
-    }
-    if (!backgroundSessionId) continue;
-
-    // If the session is still active on the server, keep the task
-    if (activeBackgroundSessionIds.has(backgroundSessionId)) continue;
-
-    backgroundTaskStore.updateTask(task.id, {
-      status: 'stopped',
-      summary: task.summary
-        ? `${task.summary}\nBackground task no longer active after reconnect`
-        : 'Background task no longer active after reconnect',
-      completedAt: now,
-    });
-  }
-}
-
 function updateClaudiaTaskStatusBySessionId(
   sessionId: string | undefined,
   status: import('@my-claudia/shared').ClaudiaTaskStatus,
@@ -242,56 +190,18 @@ function buildAIReviewAutoResolveToastMessage(msg: import('@my-claudia/shared').
   return `AI review auto-approved with sanitized local payload; redactions ${redactions}; reviewed ${files} file${files === 1 ? '' : 's'}.`;
 }
 
-function buildProviderPromptInteraction(
-  prompt: {
-    requestId: string;
-    sessionId: string;
-    questions: import('@my-claudia/shared').AskUserQuestionItem[];
-  },
-): InteractionPromptMessage {
-  return {
-    type: 'interaction_prompt',
-    interactionId: prompt.requestId,
-    sessionId: prompt.sessionId,
-    source: 'provider_native',
-    createdAt: Date.now(),
-    title: Array.isArray(prompt.questions) && prompt.questions.length > 1 ? 'Questions' : 'Question',
-    fields: (prompt.questions || []).map((question, index) => {
-      const promptQuestion = question as typeof question & {
-        placeholder?: string;
-        allowCustomValue?: boolean;
-        customValuePlaceholder?: string;
-      };
-      return {
-      id: `question_${index}`,
-      label: question.question,
-      description: question.header,
-      type: question.multiSelect ? 'multiselect' : 'select',
-      options: (question.options || []).map((option) => ({
-        value: option.label,
-        label: option.label,
-        description: option.description,
-      })),
-      placeholder: promptQuestion.placeholder || 'Type your answer...',
-      allowCustomValue: promptQuestion.allowCustomValue ?? true,
-      customValuePlaceholder: promptQuestion.customValuePlaceholder || 'Other',
-    }; }),
-    submitLabel: 'Submit',
-    cancelLabel: 'Skip',
-    responseMode: 'prompt_answer',
-    variant: 'question',
-  };
-}
-
 /**
  * Clean up per-server state caches when a server disconnects.
- * Ensures the next heartbeat after reconnect triggers a full reconciliation.
  */
 export function cleanupServerSyncState(serverId: string): void {
   entityVersions.delete(serverId);
   projectFetchInFlight.delete(serverId);
   serverSyncGenerations.set(serverId, (serverSyncGenerations.get(serverId) ?? 0) + 1);
 }
+
+// ============================================
+// Main Handler
+// ============================================
 
 /**
  * Process a server message through the unified handler.
@@ -305,7 +215,7 @@ export function handleServerMessage(
   const { serverId, backendId, serverRunsRef, logTag } = ctx;
   const activeServerId = useServerStore.getState().activeServerId;
 
-  // Update lastActivityAt for run activity messages (throttled to avoid excessive re-renders)
+  // Update lastActivityAt for run activity messages (throttled)
   const runMsg = msg as { runId?: string; type: string };
   if (runMsg.runId && (msg.type === 'delta' || msg.type === 'tool_use' || msg.type === 'tool_result' || msg.type === 'tool_activity')) {
     updateRunActivity(runMsg.runId);
@@ -347,8 +257,6 @@ export function handleServerMessage(
       if (targetSessionId) {
         const alreadyTrackingRun = chat.activeRuns[msg.runId] === targetSessionId;
         chat.startRun(msg.runId, targetSessionId, isBackground);
-        // Initialize runHealth immediately so timer shows from the start
-        // (don't wait for the first state_heartbeat which is 30s away)
         const now = Date.now();
         chat.updateRunHealth(msg.runId, {
           sessionId: targetSessionId,
@@ -371,21 +279,17 @@ export function handleServerMessage(
         }
 
         if (!isBackground) {
-          // Track run-to-server mapping (only for foreground runs; background cleanup
-          // happens via run_completed broadcast, not heartbeat reconciliation)
           if (!serverRunsRef.has(serverId)) {
             serverRunsRef.set(serverId, new Set());
           }
           serverRunsRef.get(serverId)!.add(msg.runId);
 
           useProjectStore.getState().setSessionActive(targetSessionId, true);
-          // Update unified active-session index for both local and gateway contexts
           useSessionsStore.getState().setSessionActiveFlag(
             getSessionBucketKeyForBackend(backendId),
             targetSessionId,
             true
           );
-          // Gateway: also update session snapshot flag
           if (backendId) useSessionsStore.getState().setSessionActiveById(backendId, targetSessionId, true);
         }
       } else {
@@ -495,6 +399,8 @@ export function handleServerMessage(
       useChatStore.getState().setRuntimeMode(msg.sessionId, msg.mode);
       break;
 
+    // ── Permissions ──
+
     case 'permission_request': {
       const permMsg = msg as import('@my-claudia/shared').PermissionRequestMessage;
       const backendName = ctx.resolveBackendName();
@@ -514,7 +420,6 @@ export function handleServerMessage(
         workflowRunId: permMsg.workflowRunId,
       });
       updateClaudiaTaskStatusBySessionId(permMsg.sessionId, 'waiting');
-      // Toast so the user notices even if they're not looking at the chat
       useToastStore.getState().add({
         title: 'Permission required',
         message: `${permMsg.toolName} needs approval`,
@@ -523,7 +428,6 @@ export function handleServerMessage(
         sessionId: permMsg.sessionId,
         serverId,
       });
-      // Auto-expand NotchPanel for permission requests (high-value, needs human attention).
       useNotchPanelStore.getState().open({ auto: true, previewTitle: 'Permission required', tab: 'approvals' });
       break;
     }
@@ -581,7 +485,8 @@ export function handleServerMessage(
       break;
     }
 
-    // Phase 1: Unified Interaction Events
+    // ── Interactions ──
+
     case 'interaction_prompt':
       if (msg.source === 'provider_native') {
         usePromptRequestStore.getState().setPendingRequest({
@@ -620,6 +525,8 @@ export function handleServerMessage(
       }
       break;
 
+    // ── Background Tasks ──
+
     case 'background_task_update': {
       const targetSessionId = msg.parentSessionId || msg.sessionId;
       if (!targetSessionId) break;
@@ -648,7 +555,6 @@ export function handleServerMessage(
 
     case 'task_notification': {
       if (isStaleRunEvent(msg.runId, msg.seq)) break;
-      // Add/update background task in store
       if (msg.sessionId && msg.taskId) {
         upsertBackgroundTask(msg.taskId, {
           id: msg.taskId,
@@ -666,10 +572,6 @@ export function handleServerMessage(
           taskRootPid: msg.taskRootPid,
         });
       }
-
-      // Task notifications are displayed in BackgroundTaskPanel — no need to add
-      // a system message to the chat. Adding one would break streaming by inserting
-      // a message after the active assistant message, causing isLastAssistant to fail.
       break;
     }
 
@@ -709,6 +611,8 @@ export function handleServerMessage(
       break;
     }
 
+    // ── Sessions / Projects ──
+
     case 'sessions_created': {
       const { session } = msg as any;
       const store = useProjectStore.getState();
@@ -730,479 +634,35 @@ export function handleServerMessage(
       break;
     }
 
-    case 'claudia_task_created': {
-      const taskMsg = msg as import('@my-claudia/shared').ClaudiaTaskCreatedMessage;
-      const claudiaStore = useClaudiaStore.getState();
-      const optimistic = claudiaStore.tasks.find(t => t.id === taskMsg.clientRequestId);
-      if (optimistic) {
-        claudiaStore.removeTask(taskMsg.clientRequestId);
-        claudiaStore.addTask({
-          ...optimistic,
-          id: taskMsg.taskId,
-          sessionId: taskMsg.sessionId || null,
-          branchId: taskMsg.branchId || null,
-          branchAction: taskMsg.branchAction,
-          contextReset: taskMsg.contextReset,
-          title: taskMsg.title,
-          status: taskMsg.status,
-          updatedAt: Date.now(),
-        });
-      } else {
-        claudiaStore.addTask({
-          id: taskMsg.taskId,
-          sessionId: taskMsg.sessionId || null,
-          branchId: taskMsg.branchId || null,
-          branchAction: taskMsg.branchAction,
-          contextReset: taskMsg.contextReset,
-          input: '',
-          title: taskMsg.title,
-          status: taskMsg.status,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        });
-      }
-      // Update active branch: only switch on reuse/create, not on fork (parallel tasks stay background)
-      if (taskMsg.branchAction !== 'forked') {
-        claudiaStore.setActiveBranchId(taskMsg.projectId, taskMsg.branchId);
-      }
+    // ── Delegated handlers ──
+
+    case 'claudia_task_created':
+    case 'claudia_task_snapshot':
+    case 'claudia_message_delta':
+    case 'claudia_message_completed':
+    case 'claudia_message_failed':
+    case 'claudia_message_promoted':
+    case 'claudia_task_delta':
+    case 'claudia_task_update':
+      handleClaudiaMessage(msg, serverId);
       break;
-    }
 
-    case 'claudia_task_snapshot': {
-      const snapshotMsg = msg as import('@my-claudia/shared').ClaudiaTaskSnapshotMessage;
-      const snapshotStore = useClaudiaStore.getState();
-      const snapshotTasks = [...snapshotMsg.tasks]
-        .sort((a, b) => b.createdAt - a.createdAt)
-        .map(t => ({ ...t, branchId: t.branchId ?? null }));
-      snapshotStore.setTasks(snapshotTasks);
-      snapshotStore.setActiveBranchIds(
-        Object.fromEntries(snapshotMsg.activeBranches.map((state) => [state.projectId, state.branchId]))
-      );
+    case 'notification_update':
+    case 'notification_list':
+    case 'notification_read':
+      handleNotificationMessage(msg, serverId, backendId);
       break;
-    }
 
-    case 'claudia_message_delta': {
-      const inlineDelta = msg as import('@my-claudia/shared').ClaudiaMessageDeltaMessage;
-      useClaudiaStore.getState().appendInlineDelta(inlineDelta.clientRequestId, inlineDelta.content);
+    case 'state_heartbeat':
+      handleHeartbeat(msg as StateHeartbeatMessage, ctx, heartbeatState);
       break;
-    }
 
-    case 'claudia_message_completed': {
-      const inlineCompleted = msg as import('@my-claudia/shared').ClaudiaMessageCompletedMessage;
-      useClaudiaStore.getState().completeInline(inlineCompleted.clientRequestId, inlineCompleted.responseText);
+    case 'terminal_opened':
+    case 'terminal_attached':
+    case 'terminal_output':
+    case 'terminal_exited':
+      handleTerminalMessage(msg, logTag);
       break;
-    }
-
-    case 'claudia_message_failed': {
-      const inlineFailed = msg as import('@my-claudia/shared').ClaudiaMessageFailedMessage;
-      useClaudiaStore.getState().failInline(inlineFailed.clientRequestId, inlineFailed.error);
-      break;
-    }
-
-    case 'claudia_message_promoted': {
-      const inlinePromoted = msg as import('@my-claudia/shared').ClaudiaMessagePromotedMessage;
-      const claudiaForPromotion = useClaudiaStore.getState();
-      const inline = claudiaForPromotion.inlineResponses.find((r) => r.clientRequestId === inlinePromoted.clientRequestId);
-      claudiaForPromotion.promoteInline(inlinePromoted.clientRequestId, inlinePromoted.taskId);
-      // Create a task entry with the accumulated streaming text
-      claudiaForPromotion.addTask({
-        id: inlinePromoted.taskId,
-        sessionId: inlinePromoted.sessionId,
-        branchId: inlinePromoted.branchId || null,
-        branchAction: inlinePromoted.branchAction,
-        contextReset: inlinePromoted.contextReset,
-        input: inline?.input || '',
-        title: (inline?.input || '').replace(/\s+/g, ' ').trim().slice(0, 80),
-        status: 'running',
-        createdAt: inline?.createdAt || Date.now(),
-        updatedAt: Date.now(),
-      });
-      // Update active branch (promoted inline tasks are always on the active branch)
-      if (inlinePromoted.branchId && inlinePromoted.branchAction !== 'forked') {
-        claudiaForPromotion.setActiveBranchId(inlinePromoted.projectId, inlinePromoted.branchId);
-      }
-      // Transfer accumulated text to streaming
-      if (inline?.streamingText) {
-        claudiaForPromotion.appendStreamingText(inlinePromoted.taskId, inline.streamingText);
-      }
-      break;
-    }
-
-    case 'claudia_task_delta': {
-      const deltaMsg = msg as import('@my-claudia/shared').ClaudiaTaskDeltaMessage;
-      useClaudiaStore.getState().appendStreamingText(deltaMsg.taskId, deltaMsg.content);
-      break;
-    }
-
-    case 'claudia_task_update': {
-      const updateMsg = msg as import('@my-claudia/shared').ClaudiaTaskUpdateMessage;
-      const claudiaStoreForUpdate = useClaudiaStore.getState();
-      const existing = claudiaStoreForUpdate.tasks.find((t) => t.id === updateMsg.taskId);
-      if (!existing) {
-        claudiaStoreForUpdate.addTask({
-          id: updateMsg.taskId,
-          sessionId: updateMsg.sessionId || null,
-          branchId: updateMsg.branchId || null,
-          branchAction: updateMsg.branchAction,
-          contextReset: updateMsg.contextReset,
-          input: updateMsg.input || '',
-          title: updateMsg.title || updateMsg.input || 'Claudia Task',
-          status: updateMsg.status,
-          createdAt: updateMsg.createdAt || Date.now(),
-          updatedAt: updateMsg.updatedAt || Date.now(),
-          ...(updateMsg.summary ? { summary: updateMsg.summary } : {}),
-          ...(updateMsg.error ? { error: updateMsg.error } : {}),
-          ...(updateMsg.responseText !== undefined ? { responseText: updateMsg.responseText } : {}),
-          ...(updateMsg.toolCount != null ? { toolCount: updateMsg.toolCount } : {}),
-        });
-        if (updateMsg.status === 'completed' || updateMsg.status === 'failed' || updateMsg.status === 'cancelled') {
-          claudiaStoreForUpdate.clearStreamingText(updateMsg.taskId);
-        }
-        break;
-      }
-
-      claudiaStoreForUpdate.updateTask(updateMsg.taskId, {
-        status: updateMsg.status,
-        ...(updateMsg.sessionId ? { sessionId: updateMsg.sessionId } : {}),
-        ...(updateMsg.branchId ? { branchId: updateMsg.branchId } : {}),
-        ...(updateMsg.branchAction ? { branchAction: updateMsg.branchAction } : {}),
-        ...(updateMsg.contextReset !== undefined ? { contextReset: updateMsg.contextReset } : {}),
-        ...(updateMsg.input ? { input: updateMsg.input } : {}),
-        ...(updateMsg.title ? { title: updateMsg.title } : {}),
-        ...(updateMsg.createdAt ? { createdAt: updateMsg.createdAt } : {}),
-        ...(updateMsg.updatedAt ? { updatedAt: updateMsg.updatedAt } : {}),
-        ...(updateMsg.summary ? { summary: updateMsg.summary } : {}),
-        ...(updateMsg.error ? { error: updateMsg.error } : {}),
-        ...(updateMsg.responseText !== undefined ? { responseText: updateMsg.responseText } : {}),
-        ...(updateMsg.toolCount != null ? { toolCount: updateMsg.toolCount } : {}),
-      });
-      // Clear streaming text on completion
-      if (updateMsg.status === 'completed' || updateMsg.status === 'failed' || updateMsg.status === 'cancelled') {
-        claudiaStoreForUpdate.clearStreamingText(updateMsg.taskId);
-      }
-      // Toast + Notch auto-expand for completed/failed Claudia tasks
-      if (updateMsg.status === 'completed' || updateMsg.status === 'failed') {
-        const taskTitle = existing?.title || updateMsg.title || updateMsg.input || 'Claudia task';
-        useToastStore.getState().add({
-          title: taskTitle,
-          message: updateMsg.status === 'completed'
-            ? (updateMsg.summary?.slice(0, 100) || 'Task completed')
-            : (updateMsg.error?.slice(0, 100) || 'Task failed'),
-          type: updateMsg.status === 'completed' ? 'success' : 'error',
-          icon: updateMsg.status === 'completed' ? 'task' : 'error',
-          initiator: 'claudia',
-          sessionId: existing?.sessionId ?? updateMsg.sessionId ?? undefined,
-          serverId,
-        });
-        useNotchPanelStore.getState().open({ auto: true, previewTitle: taskTitle, tab: 'claudia' });
-      }
-      break;
-    }
-
-    case 'notification_update': {
-      const { item } = msg as import('@my-claudia/shared').NotificationUpdateMessage;
-      const ownerBackendId = resolveOwnerBackendId(backendId, serverId);
-      import('../stores/notificationFeedStore').then(m => m.useNotificationFeedStore.getState().upsertItem({
-        ...item,
-        ownerBackendId: item.ownerBackendId ?? ownerBackendId,
-      }));
-      // Toast notification for completed/failed feed items
-      if (item.status === 'completed' || item.status === 'failed') {
-        const notchTab = item.initiator === 'claudia' ? 'claudia' as const : 'sessions' as const;
-        import('../stores/toastStore').then(m => {
-          m.useToastStore.getState().add({
-            title: item.title,
-            message: item.status === 'completed' ? (item.summary?.slice(0, 100) || 'Task completed') : (item.error?.slice(0, 100) || 'Task failed'),
-            type: item.status === 'completed' ? 'success' : 'error',
-            projectId: item.projectId,
-            sessionId: item.sessionId,
-            serverId,
-            icon: item.status === 'completed' ? 'task' : 'error',
-            initiator: item.initiator,
-          });
-        });
-        // Auto-expand NotchPanel with 5s auto-collapse for task results.
-        useNotchPanelStore.getState().open({ auto: true, previewTitle: item.title, tab: notchTab });
-      }
-      break;
-    }
-
-    case 'notification_list': {
-      const feedMsg = msg as import('@my-claudia/shared').NotificationListMessage;
-      const ownerBackendId = resolveOwnerBackendId(backendId, serverId);
-      import('../stores/notificationFeedStore').then(m => {
-        m.useNotificationFeedStore.getState().setFeedList(
-          feedMsg.items.map((item) => ({
-            ...item,
-            ownerBackendId: item.ownerBackendId ?? ownerBackendId,
-          })),
-          feedMsg.hasMore,
-          feedMsg.unreadCount,
-          feedMsg.append,
-        );
-        m.useNotificationFeedStore.getState().setLoading(false);
-      });
-      break;
-    }
-
-    case 'notification_read': {
-      const readMsg = msg as import('@my-claudia/shared').NotificationReadMessage;
-      import('../stores/notificationFeedStore').then(m => {
-        m.useNotificationFeedStore.getState().markRead(
-          readMsg.itemIds,
-          readMsg.unreadCount,
-          readMsg.readAt,
-        );
-      });
-      break;
-    }
-
-    case 'state_heartbeat': {
-      const heartbeat = msg as StateHeartbeatMessage;
-      const backendName = ctx.resolveBackendName();
-      const chatState = useChatStore.getState();
-      clearExpiredTerminalRuns();
-
-      // Track heartbeat arrival for staleness detection
-      useServerStore.getState().recordHeartbeat(serverId);
-
-      const serverActiveRunIds = new Set(heartbeat.activeRuns.map(r => r.runId));
-      const activeBackgroundSessionIds = new Set(
-        heartbeat.activeRuns
-          .filter(r => r.sessionType === 'background')
-          .map(r => r.sessionId)
-      );
-
-      // Add missing runs (server has active run, client doesn't know about it)
-      for (const run of heartbeat.activeRuns) {
-        if (!chatState.activeRuns[run.runId]) {
-          if (shouldIgnoreHeartbeatRun(run.runId, run.lastSeq)) {
-            console.log(`[${logTag}] Ignoring stale heartbeat resurrection for run ${run.runId} lastSeq=${run.lastSeq ?? 'none'}`);
-            continue;
-          }
-          const isBackground = run.sessionType === 'background';
-          console.log(`[${logTag}] Heartbeat resurrecting run ${run.runId} sessionId=${run.sessionId} lastSeq=${run.lastSeq ?? 'none'}`);
-          chatState.startRun(run.runId, run.sessionId, isBackground);
-          if (!isBackground) {
-            // Only track foreground runs in serverRunsRef for heartbeat cleanup
-            if (!serverRunsRef.has(serverId)) {
-              serverRunsRef.set(serverId, new Set());
-            }
-            serverRunsRef.get(serverId)!.add(run.runId);
-          }
-        }
-      }
-
-      // Clean up stale runs (client thinks run is active, but server says it's not)
-      const trackedRuns = serverRunsRef.get(serverId);
-      if (trackedRuns) {
-        for (const runId of trackedRuns) {
-          if (!serverActiveRunIds.has(runId)) {
-            console.log(`[${logTag}] Cleaning up stale run ${runId} (not in server heartbeat)`);
-            const sessionId = chatState.activeRuns[runId];
-            chatState.finalizeRunToMessage(runId);
-            chatState.endRun(runId);
-            if (sessionId) {
-              useProjectStore.getState().setSessionActive(sessionId, false);
-              useSessionsStore.getState().setSessionActiveFlag(
-                getSessionBucketKeyForBackend(backendId),
-                sessionId,
-                false
-              );
-              void eagerSyncCurrentSession(serverId);
-              void recoverCurrentSessionTail(serverId, sessionId);
-            }
-            trackedRuns.delete(runId);
-          }
-        }
-      }
-
-      // Update run health info from heartbeat
-      for (const run of heartbeat.activeRuns) {
-        if (run.systemInfo) {
-          chatState.setSystemInfo(run.sessionId, run.systemInfo);
-        }
-        chatState.updateRunHealth(run.runId, {
-          sessionId: run.sessionId,
-          startedAt: run.startedAt,
-          lastActivityAt: run.lastActivityAt,
-          health: run.health,
-          loopPattern: run.loopPattern,
-        });
-      }
-
-      reconcileStaleBackgroundRunTasks(serverId, activeBackgroundSessionIds);
-
-      // Reconcile permissions — always clear stale (fixes direct connections not cleaning up)
-      const validPermIds = new Set<string>(heartbeat.pendingPermissions.map(p => p.requestId));
-      usePermissionStore.getState().clearStaleRequests(serverId, validPermIds);
-      for (const perm of heartbeat.pendingPermissions) {
-        if (!usePermissionStore.getState().hasRequest(perm.requestId)) {
-          usePermissionStore.getState().setPendingRequest({
-            requestId: perm.requestId,
-            sessionId: perm.sessionId,
-            serverId,
-            backendName,
-            toolName: perm.toolName,
-            detail: perm.detail,
-            timeoutSec: perm.timeoutSeconds,
-            requiresCredential: perm.requiresCredential,
-            credentialHint: perm.credentialHint,
-            aiInitiated: perm.aiInitiated,
-          });
-        }
-      }
-
-      // Reconcile questions — always clear stale
-      const validQIds = new Set<string>(heartbeat.pendingQuestions.map(q => q.requestId));
-      usePromptRequestStore.getState().clearStaleRequests(serverId, validQIds);
-      for (const q of heartbeat.pendingQuestions) {
-        if (!usePromptRequestStore.getState().hasRequest(q.requestId)) {
-          usePromptRequestStore.getState().setPendingRequest({
-            requestId: q.requestId,
-            sessionId: q.sessionId,
-            serverId,
-          });
-        }
-        if (!(useInteractionStore.getState().has?.(q.requestId) ?? false)) {
-          useInteractionStore.getState().upsertInteraction(buildProviderPromptInteraction({
-            requestId: q.requestId,
-            sessionId: q.sessionId,
-            questions: q.questions,
-          }));
-        }
-      }
-
-      // Gateway: also reconcile sessionsStore active status (exclude background sessions)
-      if (backendId) {
-        const activeSessionIds = new Set<string>(
-          heartbeat.activeRuns
-            .filter(r => r.sessionType !== 'background')
-            .map(r => r.sessionId)
-        );
-        useSessionsStore.getState().reconcileActiveStatus(backendId, activeSessionIds);
-      } else {
-        const activeSessionIds = new Set<string>(
-          heartbeat.activeRuns
-            .filter(r => r.sessionType !== 'background')
-            .map(r => r.sessionId)
-        );
-        useSessionsStore.getState().setActiveSessionsForBackend(getSessionBucketKeyForBackend(backendId), activeSessionIds);
-      }
-
-      // Sync feed unread count from heartbeat (covers offline/reconnect scenario)
-      if (heartbeat.unreadFeedCount !== undefined) {
-        import('../stores/notificationFeedStore').then(m => {
-          const store = m.useNotificationFeedStore.getState();
-          if (store.unreadCount !== heartbeat.unreadFeedCount) {
-            m.useNotificationFeedStore.setState({ unreadCount: heartbeat.unreadFeedCount! });
-          }
-        });
-      }
-
-      // Version-based reconciliation for stable entities (projects, plugins).
-      // Client compares server versions with local cache; fetches via REST if stale.
-      // A version *lower* than cached means server restarted — treat as stale too.
-      if (heartbeat.versions) {
-        const cached = entityVersions.get(serverId) ?? { projects: 0, plugins: 0 };
-        const generation = serverSyncGenerations.get(serverId) ?? 0;
-
-        if (heartbeat.versions.projects && heartbeat.versions.projects !== cached.projects) {
-          const targetVersion = heartbeat.versions.projects;
-          const pendingFetch = projectFetchInFlight.get(serverId);
-          if (pendingFetch?.version !== targetVersion || pendingFetch.generation !== generation) {
-            console.log(`[${logTag}] Projects version ${cached.projects} → ${targetVersion}, fetching`);
-            const ownerBackendId = resolveOwnerBackendId(backendId, serverId);
-            const fetchPromise = getProjectsForBackend(backendId ?? null)
-              .then((projects) => {
-                const current = projectFetchInFlight.get(serverId);
-                const latestKnownVersion = entityVersions.get(serverId)?.projects ?? 0;
-                const latestGeneration = serverSyncGenerations.get(serverId) ?? 0;
-                if (
-                  current?.version !== targetVersion
-                  || current.generation !== generation
-                  || latestKnownVersion > targetVersion
-                  || latestGeneration !== generation
-                ) {
-                  return;
-                }
-                useProjectStore.getState().replaceProjectsForBackend(ownerBackendId, projects);
-                cached.projects = targetVersion;
-                entityVersions.set(serverId, cached);
-                if (current?.version === targetVersion && current.generation === generation) {
-                  projectFetchInFlight.delete(serverId);
-                }
-              })
-              .catch(err => {
-                const current = projectFetchInFlight.get(serverId);
-                if (current?.version === targetVersion && current.generation === generation) {
-                  projectFetchInFlight.delete(serverId);
-                }
-                console.error(`[${logTag}] Project fetch failed:`, err);
-              });
-            projectFetchInFlight.set(serverId, { version: targetVersion, generation, promise: fetchPromise });
-          }
-        }
-
-        if (heartbeat.versions.plugins) {
-          cached.plugins = heartbeat.versions.plugins;
-        }
-
-        entityVersions.set(serverId, cached);
-      }
-      break;
-    }
-
-    case 'terminal_opened': {
-      if (!msg.success) {
-        console.error(`[${logTag}] Terminal open failed:`, msg.error);
-        const entry = xtermRegistry.get(msg.terminalId);
-        if (entry) {
-          entry.terminal.writeln(`\r\n\x1b[31mTerminal failed to open: ${msg.error || 'Unknown error'}\x1b[0m`);
-        }
-      }
-      break;
-    }
-
-    case 'terminal_attached': {
-      const attachEntry = xtermRegistry.get(msg.terminalId);
-      if (attachEntry) {
-        if (msg.success && msg.scrollback) {
-          // Replay scrollback buffer to restore terminal history
-          for (const chunk of msg.scrollback) {
-            attachEntry.terminal.write(chunk);
-          }
-        } else if (!msg.success) {
-          attachEntry.terminal.writeln(`\r\n\x1b[31mTerminal attach failed: ${msg.error || 'Unknown error'}\x1b[0m`);
-        }
-      }
-      if (msg.success) {
-        useTerminalStore.getState().clearReattachFailed(msg.terminalId);
-        useTerminalStore.getState().clearNeedsReattach(msg.terminalId);
-        useTerminalStore.getState().markReady(msg.terminalId);
-      } else if (msg.error === 'Terminal not found') {
-        // The backend lost the old PTY, so the next render should reopen a fresh terminal.
-        useTerminalStore.getState().markReattachFailed(msg.terminalId);
-      }
-      break;
-    }
-
-    case 'terminal_output': {
-      const entry = xtermRegistry.get(msg.terminalId);
-      if (entry) {
-        entry.terminal.write(msg.data);
-        useTerminalStore.getState().markReady(msg.terminalId);
-      }
-      break;
-    }
-
-    case 'terminal_exited': {
-      const exitTerm = xtermRegistry.get(msg.terminalId)?.terminal;
-      if (exitTerm) exitTerm.write(`\r\n[Process exited with code ${msg.exitCode}]\r\n`);
-      useTerminalStore.getState().handleTerminalExited(msg.terminalId);
-      xtermRegistry.delete(msg.terminalId);
-      break;
-    }
 
     case 'file_push': {
       useChatStore.getState().addMessage(msg.sessionId, {
@@ -1243,105 +703,16 @@ export function handleServerMessage(
       console.error(`[${logTag}] Server error:`, msg.message);
       break;
 
-    case 'plugin_state': {
-      const pluginStore = usePluginStore.getState();
-      const now = new Date().toISOString();
-      pluginStore.setPlugins(msg.plugins.map((p: any) => ({
-        manifest: {
-          id: p.id,
-          name: p.name,
-          version: p.version,
-          description: p.description,
-          permissions: p.permissions,
-          platform: p.platform,
-        },
-        path: p.path,
-        status: p.status === 'active' ? 'active' : p.status === 'error' ? 'error' : 'idle',
-        enabled: p.enabled,
-        error: p.error,
-        installedAt: now,
-        updatedAt: now,
-      })));
-
-      // Register panels from active plugins (so panels survive reconnects)
-      for (const p of msg.plugins as any[]) {
-        if (p.status === 'active' && p.panels?.length > 0) {
-          for (const panel of p.panels) {
-            // Only register if not already registered (avoid overwriting visibility)
-            const existing = pluginStore.panels.find((ep: any) => ep.id === panel.id);
-            if (!existing) {
-              pluginStore.registerPanel({
-                id: panel.id,
-                pluginId: p.id,
-                type: 'panel',
-                label: panel.label,
-                icon: panel.icon,
-                iframeUrl: panel.iframeUrl,
-                order: panel.order,
-                visible: false,
-              });
-            }
-          }
-        }
-      }
-      break;
-    }
-
-    case 'plugin_permission_request': {
-      const pluginStoreForPerms = usePluginStore.getState();
-      pluginStoreForPerms.setPendingPermissionRequest({
-        pluginId: (msg as any).pluginId,
-        pluginName: (msg as any).pluginName,
-        permissions: (msg as any).permissions,
-      });
-      break;
-    }
-
-    case 'plugin_notification': {
-      const pluginMsg = msg as import('@my-claudia/shared').PluginNotificationMessage;
-      import('../stores/notificationFeedStore').then(m => m.useNotificationFeedStore.getState().upsertItem({
-        id: `plugin-${pluginMsg.pluginId}-${Date.now()}`,
-        ownerBackendId: resolveOwnerBackendId(backendId, serverId),
-        source: 'trigger',
-        title: pluginMsg.title,
-        summary: pluginMsg.body,
-        status: 'completed',
-        createdAt: Date.now(),
-      }));
-      import('../stores/toastStore').then(m => {
-        m.useToastStore.getState().add({
-          title: pluginMsg.title,
-          message: pluginMsg.body,
-          type: 'info',
-          icon: 'system',
-          serverId,
-        });
-      });
-      break;
-    }
-
+    case 'plugin_state':
+    case 'plugin_permission_request':
+    case 'plugin_notification':
     case 'plugin_show_panel':
     case 'plugin_panel_registered':
-    case 'plugin_panel_unregistered': {
-      if (msg.type === 'plugin_show_panel') {
-        usePluginStore.getState().updatePanelVisibility(msg.panelId, true);
-        useBottomPanelStore.getState().setActiveTab(msg.panelId);
-      } else if (msg.type === 'plugin_panel_registered') {
-        usePluginStore.getState().registerPanel({
-          id: msg.panelId,
-          pluginId: msg.pluginId,
-          type: 'panel',
-          label: msg.label,
-          icon: msg.icon,
-          iframeUrl: msg.iframeUrl,
-          order: msg.order,
-          visible: false,
-        });
-      } else {
-        usePluginStore.getState().clearPluginExtensions(msg.pluginId);
-      }
+    case 'plugin_panel_unregistered':
+      handlePluginMessage(msg, serverId, backendId);
       break;
-    }
+
+    // ── Feature dispatch ──
 
     case 'supervision_task_update':
     case 'supervision_agent_update':

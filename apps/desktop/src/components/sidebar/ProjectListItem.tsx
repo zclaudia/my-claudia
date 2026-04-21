@@ -1,4 +1,5 @@
 import { createPortal } from 'react-dom';
+import { Bot } from 'lucide-react';
 import { isDesktopTauri } from '../../utils/platform';
 import { SessionItem } from './SessionItem';
 import { WorktreeGroupItem } from './WorktreeGroupItem';
@@ -37,7 +38,7 @@ export function ProjectListItem({
   activeRunSessionIds,
   getProviderName,
   getWorktreeBranch,
-  v2Agent,
+  supervisorAgent,
   worktrees,
   expandedWorktrees,
   onToggleWorktree,
@@ -174,14 +175,24 @@ export function ProjectListItem({
             />
           </svg>
           <span className="truncate text-sm font-bold uppercase tracking-wider text-foreground/80">{project.name}</span>
-          {v2Agent && (
-            <span className={`ml-1 w-1.5 h-1.5 rounded-full shrink-0 ${
-              v2Agent.phase === 'active' ? 'bg-green-500 animate-pulse' :
-              v2Agent.phase === 'paused' ? 'bg-yellow-500' :
-              'bg-gray-400'
-            }`} />
-          )}
         </button>
+        {/* Supervisor dashboard button */}
+        {supervisorAgent && onOpenDashboard && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenDashboard(project.id);
+            }}
+            className={`w-8 h-8 rounded hover:bg-secondary active:bg-secondary flex-shrink-0 flex items-center justify-center ${
+              supervisorAgent.phase === 'active' ? 'text-green-500' :
+              supervisorAgent.phase === 'paused' ? 'text-yellow-500' :
+              'text-muted-foreground'
+            }`}
+            title="Supervisor Dashboard"
+          >
+            <Bot size={14} />
+          </button>
+        )}
         {/* Project menu button */}
         <button
           onClick={(e) => onOpenContextMenu(e, 'project', project.id)}
@@ -251,7 +262,7 @@ export function ProjectListItem({
               }}
               isSelected={selectedSessionId === mainSession.id}
               isActive={activeRunSessionIds.has(mainSession.id)}
-              phase={v2Agent?.phase}
+              phase={supervisorAgent?.phase}
               taskCount={taskSessions.length}
               taskChildren={taskSessions.length > 0 ? renderSortableSessions(taskSessions) : null}
             />

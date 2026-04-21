@@ -8,7 +8,8 @@ import type { NotificationSender } from '../../../infrastructure/push/notificati
 import { broadcastRunMessage, sendMessage } from '../transport/broadcast.js';
 import { MAX_SESSION_RESET_RETRIES } from '../transport/types.js';
 import type { TraceRecorder } from '../../../utils/provider-trace.js';
-import { buildAppSelectionClickUrl, formatSessionBackendContext } from '../../../infrastructure/push/notification-context.js';
+import type { NotificationService } from '../../../domains/notification-feed/index.js';
+import { postRunFailedNotification } from './run-terminal-notifications.js';
 
 interface HandleRunExceptionInput {
   activeRun: ActiveRun;
@@ -25,6 +26,7 @@ interface HandleRunExceptionInput {
     sessionId: string;
   } & Record<string, unknown>;
   notificationService: NotificationSender;
+  notificationsService?: NotificationService;
   processMonitor: ProcessMonitor | null;
   recoveryState: { sessionResetRetryCount?: number };
   runId: string;
@@ -45,6 +47,7 @@ export async function handleRunException(input: HandleRunExceptionInput): Promis
     isHardQuotaExceededError,
     message,
     notificationService,
+    notificationsService,
     processMonitor: _processMonitor,
     recoveryState,
     runId,
@@ -107,13 +110,12 @@ export async function handleRunException(input: HandleRunExceptionInput): Promis
   });
   activeRun.completed = true;
   broadcastHeartbeat();
-  void notificationService.notify({
-    type: 'run_failed',
-    title: 'Run failed',
-    body: `${formatSessionBackendContext(input.db, message.sessionId)} failed: ${formattedErrMsg.slice(0, 200)}`,
-    priority: 'high',
-    tags: ['x'],
-    clickUrl: buildAppSelectionClickUrl(input.db, { sessionId: message.sessionId }),
+  postRunFailedNotification({
+    db: input.db,
+    sessionId: message.sessionId,
+    error: formattedErrMsg,
+    notificationSender: notificationService,
+    notificationsService,
   });
 
   if (sessionType === 'background') {

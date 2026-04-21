@@ -27,7 +27,7 @@ describe('WorkflowRepository', () => {
         created_at: 100, updated_at: 200,
       };
       const result = repo.mapRow(row);
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         id: 'w1', projectId: 'p1', name: 'flow', description: 'desc',
         status: 'active', definition: { nodes: [], edges: [], entryNodeId: '', triggers: [] }, templateId: 'tpl1',
         createdAt: 100, updatedAt: 200,

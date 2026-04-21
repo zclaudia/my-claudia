@@ -4,7 +4,8 @@ import { PluginSettings } from '../PluginSettings';
 import { usePluginStore } from '../../stores/pluginStore';
 
 // Mock api
-vi.mock('../../services/api', () => ({
+vi.mock('../../services/api', async (importOriginal) => ({
+  ...(await importOriginal() as object),
   getBaseUrl: () => 'http://localhost:3100',
 }));
 

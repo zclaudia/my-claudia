@@ -10,6 +10,7 @@ import type { ToolDefinition } from '@my-claudia/shared/plugin-types';
 vi.mock('../loader.js', () => ({
   pluginLoader: {
     checkPermissions: vi.fn().mockResolvedValue(true),
+    getPendingPermissions: vi.fn().mockReturnValue(undefined),
   },
 }));
 
@@ -416,7 +417,7 @@ describe('ToolRegistry', () => {
       });
 
       const result = await toolRegistry.execute('plugin_tool', {});
-      expect(result).toContain('permissions denied');
+      expect(result).toContain('permissions_required');
 
       // Reset mock
       (pluginLoader.checkPermissions as any).mockResolvedValue(true);

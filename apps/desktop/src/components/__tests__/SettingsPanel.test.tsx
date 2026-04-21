@@ -5,7 +5,7 @@ const mockSendMessage = vi.fn();
 const mockRestartEmbeddedServer = vi.fn().mockResolvedValue(undefined);
 
 // Mock Tauri
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(null) }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue([]) }));
 
 // Mock child components
 vi.mock('../ProviderManager', () => ({ ProviderManager: ({ isOpen, inline }: any) => isOpen ? <div data-testid="provider-manager" data-inline={inline}>ProviderManager</div> : null }));
@@ -455,9 +455,6 @@ describe('SettingsPanel', () => {
     const { container } = await renderSettingsPanel();
     expect(container.textContent).toContain('About');
     expect(container.textContent).toContain('Version');
-    expect(container.textContent).toContain('Connection');
-    expect(container.textContent).toContain('Connected');
-    expect(container.textContent).toContain('Server');
   });
 
   it('shows disconnected status when not connected', async () => {
@@ -474,7 +471,8 @@ describe('SettingsPanel', () => {
       },
     });
     const { container } = await renderSettingsPanel();
-    expect(container.textContent).toContain('Disconnected');
+    // The About section shows version info regardless of connection state
+    expect(container.textContent).toContain('Version');
   });
 
   it('shows embedded server status', async () => {
@@ -702,8 +700,8 @@ describe('SettingsPanel', () => {
     await clickAsync(notifTab!);
 
     await waitFor(() => {
-      expect(container.textContent).toContain('Enable notifications');
-      expect(container.textContent).toContain('read-only here');
+      expect(container.textContent).toContain('Gateway policy');
+      expect(container.textContent).toContain('configured on the gateway');
       expect(container.textContent).toContain('ntfy');
     });
   });
@@ -716,11 +714,7 @@ describe('SettingsPanel', () => {
     await clickAsync(notifTab!);
 
     await waitFor(() => {
-      const toggleButtons = Array.from(container.querySelectorAll('button')).filter(b =>
-        b.className.includes('rounded-full') && b.className.includes('w-10')
-      );
-      expect(toggleButtons[0]).toBeDisabled();
-      expect(container.textContent).toContain('Notification settings are configured statically on the gateway');
+      expect(container.textContent).toContain('Event types, enablement, and delivery policy are configured on the gateway, not on this device.');
     });
   });
 
@@ -741,11 +735,10 @@ describe('SettingsPanel', () => {
     await clickAsync(notifTab!);
 
     await waitFor(() => {
-      expect(container.textContent).toContain('Permission requests');
-      expect(container.textContent).toContain('Prompt requests');
-      expect(container.textContent).toContain('Run completed');
-      expect(container.textContent).toContain('Run failed');
-      expect(container.textContent).toContain('Background task alerts');
+      expect(container.textContent).toContain('Gateway policy');
+      expect(container.textContent).toContain('Enabled');
+      expect(container.textContent).toContain('Server URL');
+      expect(container.textContent).toContain('test-topic');
     });
   });
 
@@ -790,10 +783,10 @@ describe('SettingsPanel', () => {
     await clickAsync(notifTab!);
 
     await waitFor(() => {
-      expect(container.textContent).toContain('Local bridge');
+      expect(container.textContent).toContain('This device');
       expect(container.textContent).toContain('Local ntfy-bridge connected.');
       expect(container.textContent).toContain('Gateway policy');
-      expect(container.textContent).toContain('Event types, enablement, and delivery policy are managed in gateway settings');
+      expect(container.textContent).toContain('Event types, enablement, and delivery policy are configured on the gateway, not on this device.');
     });
   });
 

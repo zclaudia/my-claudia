@@ -39,40 +39,23 @@ import { SupervisorAgentManager } from './supervisor-agent.js';
 import { SupervisorContextService } from './supervisor-context.js';
 import { buildTaskPrompt as buildSupervisedTaskPrompt } from './task-prompt.js';
 import type { SupervisionAiRunPort, SupervisionSchedulingPort } from './ports.js';
-import { runCliJob } from '../../infrastructure/providers/cli-jobs/runner.js';
-import type { CliProviderAdapter } from '../../infrastructure/providers/cli-jobs/types.js';
-import { claudeReviewAdapter } from '../../infrastructure/providers/cli-jobs/adapters/claude.js';
-import { codexReviewAdapter } from '../../infrastructure/providers/cli-jobs/adapters/codex.js';
-import { cursorReviewAdapter } from '../../infrastructure/providers/cli-jobs/adapters/cursor.js';
-import { kimiReviewAdapter } from '../../infrastructure/providers/cli-jobs/adapters/kimi.js';
-import { opencodeReviewAdapter } from '../../infrastructure/providers/cli-jobs/adapters/opencode.js';
-import { extractJSONObjects } from '../../infrastructure/providers/cli-jobs/json-extract.js';
-
-type BaselineGenerationMode = 'template' | 'scan' | 'ai_scan';
-type BaselineLanguage = 'zh-CN' | 'en';
-
-interface BaselineInitOptions {
-  mode?: BaselineGenerationMode;
-  providerId?: string;
-  language?: BaselineLanguage;
-  force?: boolean;
-}
-
-interface BaselineInitResult {
-  initialized: boolean;
-  mode: BaselineGenerationMode;
-  language: BaselineLanguage;
-  usedAi: boolean;
-  regenerated: boolean;
-}
-
-const BASELINE_PROVIDER_ADAPTERS: Record<string, CliProviderAdapter> = {
-  claude: claudeReviewAdapter,
-  codex: codexReviewAdapter,
-  cursor: cursorReviewAdapter,
-  kimi: kimiReviewAdapter,
-  opencode: opencodeReviewAdapter,
-};
+import {
+  scanProjectForBaseline,
+  generateBaselineWithAi,
+  readJsonFile,
+  safeReadTopLevelEntries,
+  collectInterestingDependencies,
+  type BaselineGenerationMode,
+  type BaselineLanguage,
+  type BaselineInitOptions,
+  type BaselineInitResult,
+} from './baseline-generator.js';
+import {
+  renderExecutionPlanMarkdown,
+  renderTasksMarkdown,
+  renderAcceptanceMarkdown,
+  renderSyncLogMarkdown,
+} from './change-markdown-renderer.js';
 
 export class SupervisorService {
   private static cleanupHooksInstalled = false;
@@ -740,142 +723,20 @@ export class SupervisorService {
     }, this.renderSyncLogMarkdown(change, latestSyncRun?.summary ?? syncSummary));
   }
 
-  private renderExecutionPlanMarkdown(
-    change: ProjectChange,
-    plan: ChangeExecutionPlan,
-    tasks: SupervisionTask[],
-  ): string {
-    const verification = plan.verification.length > 0
-      ? plan.verification.map((item) => `- ${item.label}${item.required ? ' (required)' : ''}${item.command ? ` — \`${item.command}\`` : ''}`).join('\n')
-      : '- 暂无结构化验证项';
-    const phases = plan.phases && plan.phases.length > 0
-      ? plan.phases.map((phase) => `- ${phase.title}: ${phase.summary}`).join('\n')
-      : '- 当前按单阶段执行';
-    return [
-      '# Execution Plan',
-      '',
-      '## Summary',
-      '',
-      change.summary,
-      '',
-      '## Current Change Status',
-      '',
-      `- Status: \`${change.status}\``,
-      `- Task Count: ${tasks.length}`,
-      '',
-      '## Phases',
-      '',
-      phases,
-      '',
-      '## Execution Strategy',
-      '',
-      `- Strategy: \`${plan.automation.strategy}\``,
-      `- Auto Review: ${plan.automation.autoReview ? 'yes' : 'no'}`,
-      `- Auto Retry: ${plan.automation.autoRetry ? 'yes' : 'no'}`,
-      `- Auto Sync Draft: ${plan.automation.autoSyncDraft ? 'yes' : 'no'}`,
-      '',
-      '## Verification Plan',
-      '',
-      verification,
-      '',
-      '## Risks Before Start',
-      '',
-      '- 待补充',
-      '',
-    ].join('\n');
+  private renderExecutionPlanMarkdown(change: ProjectChange, plan: ChangeExecutionPlan, tasks: SupervisionTask[]): string {
+    return renderExecutionPlanMarkdown(change, plan, tasks);
   }
 
   private renderTasksMarkdown(change: ProjectChange, tasks: SupervisionTask[]): string {
-    if (tasks.length === 0) {
-      return [
-        '# Tasks',
-        '',
-        `> Change: ${change.title}`,
-        '',
-        '当前还没有生成任务。',
-        '',
-      ].join('\n');
-    }
-
-    const sections = tasks.map((task, index) => [
-      `## T${index + 1} ${task.title}`,
-      '',
-      `- Status: \`${task.status}\``,
-      `- Summary: ${task.description}`,
-      `- Scope: ${task.scope?.join(', ') || '(none)'}`,
-      `- Depends On: ${task.dependencies.length > 0 ? task.dependencies.join(', ') : '(none)'}`,
-      `- Deliverables: ${task.acceptanceCriteria.length > 0 ? task.acceptanceCriteria.join('; ') : '(none)'}`,
-      `- Verification: ${task.relevantDocIds?.length ? task.relevantDocIds.join(', ') : '(not specified)'}`,
-      '',
-    ].join('\n'));
-
-    return [
-      '# Tasks',
-      '',
-      `> Change: ${change.title}`,
-      '',
-      ...sections,
-    ].join('\n');
+    return renderTasksMarkdown(change, tasks);
   }
 
   private renderAcceptanceMarkdown(change: ProjectChange, tasks: SupervisionTask[]): string {
-    const acceptedTasks = tasks.filter((task) => ['approved', 'integrated'].includes(task.status));
-    const openTasks = tasks.filter((task) => !['approved', 'integrated'].includes(task.status));
-    const finalDecision = (() => {
-      if (change.status === 'completed') return 'Accepted, synced, and completed.';
-      if (change.status === 'syncing') return 'Acceptance approved. Ready for final spec sync.';
-      if (change.status === 'accepting') return 'Acceptance review in progress.';
-      if (openTasks.length === 0 && tasks.length > 0) return 'Ready to request acceptance review.';
-      return 'Pending further work.';
-    })();
-    return [
-      '# Acceptance',
-      '',
-      '## Task-Level Checks',
-      '',
-      acceptedTasks.length > 0
-        ? acceptedTasks.map((task) => `- ${task.title}: ${task.status}`).join('\n')
-        : '- No completed task-level checks yet',
-      '',
-      '## Change-Level Checks',
-      '',
-      change.acceptanceCriteria.length > 0
-        ? change.acceptanceCriteria.map((item) => `- ${item}`).join('\n')
-        : '- No explicit change-level acceptance criteria',
-      '',
-      '## Open Issues',
-      '',
-      openTasks.length > 0
-        ? openTasks.map((task) => `- ${task.title}: ${task.status}`).join('\n')
-        : '- None',
-      '',
-      '## Final Decision',
-      '',
-      finalDecision,
-      '',
-    ].join('\n');
+    return renderAcceptanceMarkdown(change, tasks);
   }
 
   private renderSyncLogMarkdown(change: ProjectChange, summary?: string): string {
-    return [
-      '# Sync Log',
-      '',
-      '## Updated Files',
-      '',
-      '- baseline/project.md (pending review)',
-      '- baseline/architecture.md (pending review)',
-      '',
-      '## Summary Of Spec Changes',
-      '',
-      summary ?? `Sync state for ${change.title} is currently \`${change.status}\`.`,
-      '',
-      '## Follow-up Notes',
-      '',
-      change.status === 'completed'
-        ? '- Change marked completed'
-        : '- Awaiting sync approval',
-      '',
-    ].join('\n');
+    return renderSyncLogMarkdown(change, summary);
   }
 
   // ========================================
@@ -969,304 +830,17 @@ export class SupervisorService {
     return { projectId, docId };
   }
 
-  private scanProjectForBaseline(
-    rootPath: string,
-    projectName: string,
-    language: BaselineLanguage,
-  ): { projectMd: string; architectureMd: string } {
-    const packageJson = this.readJsonFile(path.join(rootPath, 'package.json'));
-    const workspaceFiles = [
-      'pnpm-workspace.yaml',
-      'turbo.json',
-      'nx.json',
-      'lerna.json',
-      'docker-compose.yml',
-      'docker-compose.yaml',
-      'README.md',
-    ].filter((name) => fs.existsSync(path.join(rootPath, name)));
-    const topLevelEntries = this.safeReadTopLevelEntries(rootPath);
-    const appDirs = topLevelEntries.filter((name) => ['apps', 'packages', 'server', 'gateway', 'shared', 'src'].includes(name));
-    const scripts = packageJson?.scripts ? Object.keys(packageJson.scripts).slice(0, 8) : [];
-    const deps = this.collectInterestingDependencies(packageJson);
-
-    if (language === 'en') {
-      return {
-        projectMd: [
-          '# Project Overview',
-          '',
-          '## Background',
-          `- Project: ${projectName}`,
-          `- Root path: \`${rootPath}\``,
-          workspaceFiles.length > 0 ? `- Workspace signals: ${workspaceFiles.map((file) => `\`${file}\``).join(', ')}` : '- Workspace signals: not detected',
-          '',
-          '## Current Goals',
-          '- Fill in the actual product and delivery goals for this project.',
-          '',
-          '## Key Constraints',
-          deps.length > 0 ? `- Main stack signals: ${deps.join(', ')}` : '- Main stack signals: pending scan confirmation',
-          scripts.length > 0 ? `- Useful scripts: ${scripts.map((script) => `\`${script}\``).join(', ')}` : '- Useful scripts: none detected in package.json',
-          '',
-          '## Known Risks',
-          '- This draft was generated from repository structure and may contain inference errors.',
-          '',
-          '## Inferred Existing Functionality',
-          ...(appDirs.length > 0
-            ? appDirs.map((dir) => `- Candidate module area: \`${dir}\``)
-            : ['- No obvious app/module directories were detected at the repo root.']),
-          '',
-          '## Needs User Confirmation',
-          '- Confirm the real business purpose of the project.',
-          '- Confirm which modules are core vs. legacy/supporting.',
-          '- Confirm whether the inferred stack and scripts are still current.',
-        ].join('\n'),
-        architectureMd: [
-          '# Architecture Overview',
-          '',
-          '## Key Modules',
-          ...(topLevelEntries.length > 0
-            ? topLevelEntries.slice(0, 12).map((entry) => `- \`${entry}\``)
-            : ['- No top-level directories were detected.']),
-          '',
-          '## Data / Request Flow',
-          '- Fill in the main runtime flow after reviewing the actual code paths.',
-          '',
-          '## External Dependencies',
-          ...(deps.length > 0 ? deps.map((dep) => `- ${dep}`) : ['- No key dependencies detected from package.json.']),
-          '',
-          '## Inferred Notes',
-          '- This baseline was generated from lightweight project scanning.',
-          '- Review actual entrypoints, runtime boundaries, and persistence paths before using this as design truth.',
-        ].join('\n'),
-      };
-    }
-
-    return {
-      projectMd: [
-        '# 项目概览',
-        '',
-        '## 背景',
-        `- 项目名称：${projectName}`,
-        `- 根目录：\`${rootPath}\``,
-        workspaceFiles.length > 0 ? `- 工作区信号：${workspaceFiles.map((file) => `\`${file}\``).join('、')}` : '- 工作区信号：未检测到明显配置文件',
-        '',
-        '## 当前目标',
-        '- 这里需要补充项目真实的产品目标和当前交付目标。',
-        '',
-        '## 关键约束',
-        deps.length > 0 ? `- 主要技术栈信号：${deps.join('、')}` : '- 主要技术栈信号：待进一步确认',
-        scripts.length > 0 ? `- 可用脚本：${scripts.map((script) => `\`${script}\``).join('、')}` : '- 可用脚本：未在 package.json 中检测到',
-        '',
-        '## 已知风险',
-        '- 当前内容基于仓库结构推断，可能与真实业务含义不完全一致。',
-        '',
-        '## 推断出的现有能力',
-        ...(appDirs.length > 0
-          ? appDirs.map((dir) => `- 候选模块区域：\`${dir}\``)
-          : ['- 根目录下没有明显的应用/模块目录。']),
-        '',
-        '## 待用户确认',
-        '- 请确认项目的真实业务目标。',
-        '- 请确认哪些模块是核心模块，哪些是历史/辅助模块。',
-        '- 请确认当前推断出的技术栈和脚本是否仍然有效。',
-      ].join('\n'),
-      architectureMd: [
-        '# 架构概览',
-        '',
-        '## 关键模块',
-        ...(topLevelEntries.length > 0
-          ? topLevelEntries.slice(0, 12).map((entry) => `- \`${entry}\``)
-          : ['- 未检测到顶层目录。']),
-        '',
-        '## 数据流',
-        '- 需要结合实际入口代码进一步补充主要请求流和状态流。',
-        '',
-        '## 外部依赖',
-        ...(deps.length > 0 ? deps.map((dep) => `- ${dep}`) : ['- 未从 package.json 检测到关键依赖。']),
-        '',
-        '## 推断说明',
-        '- 该 baseline 由轻量项目扫描生成。',
-        '- 在将其作为设计依据前，请先复核真实入口、运行边界和持久化路径。',
-      ].join('\n'),
-    };
+  private scanProjectForBaseline(rootPath: string, projectName: string, language: BaselineLanguage) {
+    return scanProjectForBaseline(rootPath, projectName, language);
   }
 
   private async generateBaselineWithAi(
-    projectId: string,
+    _projectId: string,
     rootPath: string,
     scanned: { projectMd: string; architectureMd: string },
     options: { providerId?: string; language: BaselineLanguage },
-  ): Promise<{ projectMd: string; architectureMd: string }> {
-    const provider = this.resolveBaselineProvider(options.providerId);
-    if (!provider) {
-      throw new Error('No supported AI provider found for baseline generation');
-    }
-    const adapter = BASELINE_PROVIDER_ADAPTERS[provider.type];
-    if (!adapter) {
-      throw new Error(`Provider ${provider.id} does not support baseline generation`);
-    }
-
-    const prompt = this.buildBaselineGenerationPrompt(scanned, options.language);
-    const systemPrompt = options.language === 'en'
-      ? 'You are generating project baseline markdown documents for a long-running engineering workspace. Be concrete, concise, and preserve uncertainty explicitly.'
-      : '你正在为一个长期工程工作区生成项目 baseline 文档。请尽量具体、简洁，并显式标注不确定内容。';
-
-    const assistantText = await runCliJob(
-      adapter,
-      {
-        prompt,
-        cwd: rootPath,
-        cliPath: provider.cliPath ?? undefined,
-        env: provider.env ?? undefined,
-        systemPrompt,
-        timeoutMs: 120000,
-      },
-      (text) => text,
-    );
-
-    return this.parseBaselineGenerationResult(assistantText, scanned);
-  }
-
-  private buildBaselineGenerationPrompt(
-    scanned: { projectMd: string; architectureMd: string },
-    language: BaselineLanguage,
-  ): string {
-    if (language === 'en') {
-      return [
-        'Analyze the repository context below and generate two markdown documents.',
-        'Return strict JSON only with keys "projectMd" and "architectureMd".',
-        'Both markdown documents must be written in English.',
-        'If information is inferred, mark it clearly with phrases like "Inferred:" or "Needs confirmation:".',
-        '',
-        '[Scanned Project Draft]',
-        scanned.projectMd,
-        '',
-        '[Scanned Architecture Draft]',
-        scanned.architectureMd,
-      ].join('\n');
-    }
-    return [
-      '请基于下面的仓库扫描结果，生成两份 markdown 文档。',
-      '只返回严格 JSON，包含 "projectMd" 和 "architectureMd" 两个字段。',
-      '两份 markdown 文档都必须使用中文。',
-      '凡是推断内容，请明确标注“推断：”或“待确认：”。',
-      '',
-      '[项目扫描草稿]',
-      scanned.projectMd,
-      '',
-      '[架构扫描草稿]',
-      scanned.architectureMd,
-    ].join('\n');
-  }
-
-  private parseBaselineGenerationResult(
-    assistantText: string,
-    fallback: { projectMd: string; architectureMd: string },
-  ): { projectMd: string; architectureMd: string } {
-    const candidates = extractJSONObjects(assistantText);
-    for (let i = candidates.length - 1; i >= 0; i -= 1) {
-      try {
-        const parsed = JSON.parse(candidates[i]) as Record<string, unknown>;
-        const projectMd = typeof parsed.projectMd === 'string' ? parsed.projectMd.trim() : '';
-        const architectureMd = typeof parsed.architectureMd === 'string' ? parsed.architectureMd.trim() : '';
-        if (projectMd && architectureMd) {
-          return { projectMd, architectureMd };
-        }
-      } catch {
-        // Ignore malformed candidates.
-      }
-    }
-    return fallback;
-  }
-
-  private resolveBaselineProvider(providerId?: string): {
-    id: string;
-    type: string;
-    cliPath: string | null;
-    env: Record<string, string> | null;
-  } | null {
-    if (providerId) {
-      const selected = this.db.prepare(`
-        SELECT id, type, cli_path as cliPath, env
-        FROM providers
-        WHERE id = ?
-        LIMIT 1
-      `).get(providerId) as { id: string; type: string; cliPath: string | null; env: string | null } | undefined;
-      if (!selected) {
-        throw new Error(`Provider not found: ${providerId}`);
-      }
-      return {
-        id: selected.id,
-        type: selected.type,
-        cliPath: selected.cliPath,
-        env: this.parseProviderEnv(selected.env),
-      };
-    }
-
-    const row = this.db.prepare(`
-      SELECT id, type, cli_path as cliPath, env
-      FROM providers
-      WHERE type IN ('claude', 'codex', 'cursor', 'kimi', 'opencode')
-      ORDER BY is_default DESC, updated_at DESC
-      LIMIT 1
-    `).get() as { id: string; type: string; cliPath: string | null; env: string | null } | undefined;
-    if (!row) return null;
-    return {
-      id: row.id,
-      type: row.type,
-      cliPath: row.cliPath,
-      env: this.parseProviderEnv(row.env),
-    };
-  }
-
-  private parseProviderEnv(raw: string | null): Record<string, string> | null {
-    if (!raw) return null;
-    try {
-      return JSON.parse(raw) as Record<string, string>;
-    } catch {
-      return null;
-    }
-  }
-
-  private readJsonFile(filePath: string): Record<string, any> | null {
-    try {
-      if (!fs.existsSync(filePath)) return null;
-      return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Record<string, any>;
-    } catch {
-      return null;
-    }
-  }
-
-  private safeReadTopLevelEntries(rootPath: string): string[] {
-    try {
-      return fs.readdirSync(rootPath, { withFileTypes: true })
-        .filter((entry) => !entry.name.startsWith('.') || entry.name === '.github')
-        .map((entry) => entry.name)
-        .sort((a, b) => a.localeCompare(b))
-        .slice(0, 20);
-    } catch {
-      return [];
-    }
-  }
-
-  private collectInterestingDependencies(packageJson: Record<string, any> | null): string[] {
-    const deps = {
-      ...(packageJson?.dependencies ?? {}),
-      ...(packageJson?.devDependencies ?? {}),
-    } as Record<string, string>;
-    const interesting = [
-      'react',
-      'vite',
-      'tauri',
-      'express',
-      'zustand',
-      'typescript',
-      'vitest',
-      'better-sqlite3',
-      'ws',
-      'electron',
-    ];
-    const found = interesting.filter((name) => deps[name]);
-    return found.map((name) => `${name}@${deps[name]}`);
+  ) {
+    return generateBaselineWithAi(this.db, rootPath, scanned, options);
   }
 
   reloadContext(projectId: string): void {

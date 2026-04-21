@@ -1145,9 +1145,9 @@ describe('Sidebar', () => {
     });
 
     const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} isMobile={true} isOpen={true} />);
-    // The project name should have a pulsing green dot (mobile sidebar path)
-    const pulseDot = container.querySelector('.animate-pulse');
-    expect(pulseDot).toBeTruthy();
+    // The project should have a green-colored supervisor button
+    const greenIndicator = container.querySelector('.text-green-500');
+    expect(greenIndicator).toBeTruthy();
   });
 
   it('shows paused agent indicator', () => {
@@ -1158,8 +1158,8 @@ describe('Sidebar', () => {
     });
 
     const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} isMobile={true} isOpen={true} />);
-    const yellowDot = container.querySelector('.bg-yellow-500');
-    expect(yellowDot).toBeTruthy();
+    const yellowIndicator = container.querySelector('.text-yellow-500');
+    expect(yellowIndicator).toBeTruthy();
   });
 
   // ---- Supervisor groups ----

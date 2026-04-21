@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
-import { Bot, ChevronsRight, ChevronsLeft, MessageSquare, Activity, Clock, Cloud, Gauge, StickyNote, Puzzle, type LucideIcon } from 'lucide-react';
-import { ErrorBoundary } from './components/ErrorBoundary';
+import { ChevronsRight, ChevronsLeft } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { ChatInterface } from './components/chat/ChatInterface';
 import { ServerSelector } from './components/ServerSelector';
@@ -13,23 +12,19 @@ import { ToastContainer } from './components/ToastContainer';
 import { useNotchBridgeHost } from './hooks/useNotchBridgeHost';
 import { emit as emitTauri } from '@tauri-apps/api/event';
 import { NOTCH_EVENT } from './services/notchBridge';
-
-// Lazy-loaded popout windows (only loaded when the specific window type is opened)
-const FileViewerWindow = lazy(() => import('./components/fileviewer/FileViewerWindow').then(m => ({ default: m.FileViewerWindow })));
-const WorkflowEditorWindow = lazy(() => import('./features/workflows/components/WorkflowEditorWindow').then(m => ({ default: m.WorkflowEditorWindow })));
-const AutomationWindow = lazy(() => import('./features/automation/AutomationWindow').then(m => ({ default: m.AutomationWindow })));
-const SessionChatWindow = lazy(() => import('./components/chat/SessionChatWindow').then(m => ({ default: m.SessionChatWindow })));
-const TerminalWindow = lazy(() => import('./components/terminal/TerminalWindow').then(m => ({ default: m.TerminalWindow })));
-const DraftWindow = lazy(() => import('./components/draft/DraftWindow').then(m => ({ default: m.DraftWindow })));
-const PluginWindow = lazy(() => import('./components/PluginWindow').then(m => ({ default: m.PluginWindow })));
-const ClaudiaBallWindow = lazy(() => import('./components/claudia/ClaudiaBallWindow').then(m => ({ default: m.ClaudiaBallWindow })));
-const NotchWindowLazy = lazy(() => import('./components/NotchWindow').then(m => ({ default: m.NotchWindow })));
-const ClaudiaChatWindow = lazy(() => import('./components/claudia/ClaudiaChatWindow').then(m => ({ default: m.ClaudiaChatWindow })));
+import { WindowRouter } from './app/WindowRouter';
+import { PluginWindowButtons } from './app/PluginDock';
 
 // Lazy-loaded heavy feature components
+const FileViewerWindow = lazy(() => import('./components/fileviewer/FileViewerWindow').then(m => ({ default: m.FileViewerWindow })));
 const ProjectDashboard = lazy(() => import('./components/dashboard/ProjectDashboard').then(m => ({ default: m.ProjectDashboard })));
-import { ThemeProvider } from './contexts/ThemeContext';
-import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
+
+const LazyFallback = () => (
+  <div className="flex items-center justify-center h-full">
+    <div className="text-sm text-muted-foreground animate-pulse">Loading...</div>
+  </div>
+);
+import { useConnection } from './contexts/ConnectionContext';
 import { useDataLoader } from './hooks/useDataLoader';
 import { useSelectionCoordinator } from './hooks/useSelectionCoordinator';
 import { useServerStore } from './stores/serverStore';
@@ -45,7 +40,7 @@ import { useSwipeBack } from './hooks/useSwipeBack';
 import { useFileViewerStore } from './stores/fileViewerStore';
 import { useUIStore } from './stores/uiStore';
 import { useTerminalStore } from './stores/terminalStore';
-import { usePluginStore, selectPluginPanels } from './stores/pluginStore';
+import { usePluginStore } from './stores/pluginStore';
 import { useDraftEditorStore } from './stores/draftEditorStore';
 import { LEGACY_LOCAL_SERVER_ID, resolveCanonicalBackendId } from './utils/controlPlane';
 import { xtermRegistry } from './utils/xtermRegistry';
@@ -75,90 +70,6 @@ import {
   getMobileControlPlaneState,
   isMobileGatewayConnected,
 } from './services/mobileConnectionState';
-
-// ── Plugin Dock ─────────────────────────────────────────────────
-// Icon name → Lucide component mapping for plugin-declared icons.
-// Plugins can also use image files (icon.svg / icon.png) in their ui/ directory.
-const PLUGIN_ICON_MAP: Record<string, LucideIcon> = {
-  MessageSquare, Activity, Clock, Cloud, Gauge, StickyNote, Puzzle, Bot,
-};
-
-function PluginIcon({ name, pluginId, size = 16 }: { name?: string; pluginId?: string; size?: number }) {
-  // Image file: icon value contains a file extension (e.g. "icon.svg", "logo.png")
-  const localServerPort = useServerStore(s => s.localServerPort);
-  if (name && pluginId && /\.\w+$/.test(name)) {
-    const baseUrl = `http://localhost:${localServerPort || 3100}`;
-    const src = `${baseUrl}/api/plugins/${encodeURIComponent(pluginId)}/frontend/${name}`;
-    return <img src={src} alt="" style={{ width: size, height: size }} className="object-contain" />;
-  }
-  // Lucide icon name
-  const Icon = name ? PLUGIN_ICON_MAP[name] : undefined;
-  if (Icon) return <Icon size={size} />;
-  return <Puzzle size={size} />;
-}
-
-/**
- * Selector: returns panels from active plugins that have an iframe frontend.
- * Uses a stable reference to avoid unnecessary re-renders.
- */
-function useActivePluginPanels() {
-  const allPanels = usePluginStore(selectPluginPanels);
-  const activeIds = usePluginStore(
-    (s) => s.plugins.filter(p => p.status === 'active').map(p => p.manifest.id),
-  );
-  // Use JSON.stringify for stable dependency comparison
-  const activeIdsKey = useMemo(() => JSON.stringify(activeIds), [activeIds]);
-  const activeSet = useMemo(() => new Set(JSON.parse(activeIdsKey)), [activeIdsKey]);
-  return useMemo(
-    () => allPanels.filter(p => p.iframeUrl && p.pluginId && activeSet.has(p.pluginId)),
-    [allPanels, activeSet],
-  );
-}
-
-/** Plugin Dock — fixed area in header for third-party plugin windows (max 5, scrollable). */
-function PluginWindowButtons() {
-  const pluginPanels = useActivePluginPanels();
-
-  if (pluginPanels.length === 0 || !isDesktopTauri()) return null;
-
-  const openWindow = async (panel: typeof pluginPanels[0]) => {
-    try {
-      const { openPluginWindow } = await import('./utils/pluginWindow');
-      await openPluginWindow({
-        pluginId: panel.pluginId,
-        panelId: panel.id,
-        title: panel.label || 'Plugin',
-        width: 900,
-        height: 650,
-        iframeUrl: panel.iframeUrl,
-      });
-    } catch (err) {
-      console.error('Failed to open plugin window:', err);
-    }
-  };
-
-  return (
-    <div className="flex items-center mr-1.5">
-      <div className="w-px h-4 bg-border mr-1.5" />
-
-      <div
-        className="flex items-center gap-0.5 overflow-x-auto scrollbar-none"
-        style={{ maxWidth: 5 * 32 }}
-      >
-        {pluginPanels.map(panel => (
-          <button
-            key={panel.id}
-            onClick={() => openWindow(panel)}
-            className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-all"
-            title={panel.label}
-          >
-            <PluginIcon name={panel.icon} pluginId={panel.pluginId} size={16} />
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 function AppContent() {
   const { connectServer, embeddedServerStatus, embeddedServerError } = useConnection();
@@ -908,232 +819,11 @@ function AppContent() {
   );
 }
 
-const LazyFallback = () => (
-  <div className="flex items-center justify-center h-full">
-    <div className="text-sm text-muted-foreground animate-pulse">Loading...</div>
-  </div>
-);
-
 function App() {
-  // Check if this window is a standalone file viewer (opened via "Open in new window")
-  const params = new URLSearchParams(window.location.search);
-  const fileViewerPath = params.get('fileViewer');
-  const fileViewerRoot = params.get('projectRoot');
-
-  if (fileViewerPath && fileViewerRoot) {
-    const serverUrl = params.get('serverUrl') || '';
-    const authToken = params.get('authToken') || '';
-    const serverName = params.get('serverName') || undefined;
-    return (
-      <ThemeProvider defaultTheme="dark-neutral">
-        <ErrorBoundary label="FileViewer">
-          <Suspense fallback={<LazyFallback />}>
-          <FileViewerWindow
-            filePath={fileViewerPath}
-            projectRoot={fileViewerRoot}
-            serverUrl={serverUrl}
-            authToken={authToken}
-            serverName={serverName}
-          />
-        </Suspense>
-          </ErrorBoundary>
-      </ThemeProvider>
-    );
-  }
-
-  // Check if this window is a standalone automation panel
-  if (params.get('automationWindow')) {
-    const serverUrl = params.get('serverUrl') || '';
-    const authToken = params.get('authToken') || '';
-    const serverId = params.get('serverId') || undefined;
-    const gatewayUrl = params.get('gatewayUrl') || undefined;
-    const gatewaySecret = params.get('gatewaySecret') || undefined;
-    return (
-      <ThemeProvider defaultTheme="dark-neutral">
-        <ErrorBoundary label="Automation">
-          <ConnectionProvider
-            standaloneServerUrl={serverUrl}
-            standaloneServerId={serverId}
-            standaloneGatewayUrl={gatewayUrl}
-            standaloneGatewaySecret={gatewaySecret}
-          >
-            <Suspense fallback={<LazyFallback />}>
-              <AutomationWindow serverUrl={serverUrl} authToken={authToken} serverId={serverId} />
-            </Suspense>
-          </ConnectionProvider>
-        </ErrorBoundary>
-      </ThemeProvider>
-    );
-  }
-
-  // Check if this window is a standalone workflow editor
-  const workflowEditorProjectId = params.get('workflowEditor');
-  if (workflowEditorProjectId) {
-    const serverUrl = params.get('serverUrl') || '';
-    const authToken = params.get('authToken') || '';
-    const workflowId = params.get('workflowId') || undefined;
-    return (
-      <ThemeProvider defaultTheme="dark-neutral">
-        <ErrorBoundary label="WorkflowEditor">
-          <Suspense fallback={<LazyFallback />}>
-          <WorkflowEditorWindow
-            projectId={workflowEditorProjectId}
-            workflowId={workflowId}
-            serverUrl={serverUrl}
-            authToken={authToken}
-            serverId={params.get('serverId') || undefined}
-            serverName={params.get('serverName') || undefined}
-            gatewayUrl={params.get('gatewayUrl') || undefined}
-            gatewaySecret={params.get('gatewaySecret') || undefined}
-            initialMode={(params.get('initialMode') as 'toolbox' | 'ai') || undefined}
-            readOnly={params.get('readOnly') === '1'}
-          />
-        </Suspense>
-          </ErrorBoundary>
-      </ThemeProvider>
-    );
-  }
-
-  // Check if this window is a standalone session chat window
-  const sessionWindowId = params.get('sessionWindow');
-  if (sessionWindowId) {
-    const serverUrl = params.get('serverUrl') || '';
-    const projectId = params.get('projectId') || '';
-    const authToken = params.get('authToken') || '';
-    const serverId = params.get('serverId') || undefined;
-    const serverName = params.get('serverName') || undefined;
-    const gatewayUrl = params.get('gatewayUrl') || undefined;
-    const gatewaySecret = params.get('gatewaySecret') || undefined;
-    return (
-      <ThemeProvider defaultTheme="dark-neutral">
-        <ErrorBoundary label="SessionChat">
-          <Suspense fallback={<LazyFallback />}>
-          <SessionChatWindow
-            sessionId={sessionWindowId}
-            projectId={projectId}
-            serverUrl={serverUrl}
-            authToken={authToken}
-            serverId={serverId}
-            serverName={serverName}
-            gatewayUrl={gatewayUrl}
-            gatewaySecret={gatewaySecret}
-          />
-        </Suspense>
-          </ErrorBoundary>
-      </ThemeProvider>
-    );
-  }
-
-  // Check if this window is a standalone draft editor window
-  const draftSessionId = params.get('draftWindow');
-  if (draftSessionId) {
-    const serverUrl = params.get('serverUrl') || '';
-    const authToken = params.get('authToken') || '';
-    const serverId = params.get('serverId') || undefined;
-    const serverName = params.get('serverName') || undefined;
-    const gatewayUrl = params.get('gatewayUrl') || undefined;
-    const gatewaySecret = params.get('gatewaySecret') || undefined;
-    return (
-      <ThemeProvider defaultTheme="dark-neutral">
-        <ErrorBoundary label="DraftEditor">
-          <Suspense fallback={<LazyFallback />}>
-          <DraftWindow
-            sessionId={draftSessionId}
-            serverUrl={serverUrl}
-            authToken={authToken}
-            serverId={serverId}
-            serverName={serverName}
-            gatewayUrl={gatewayUrl}
-            gatewaySecret={gatewaySecret}
-          />
-        </Suspense>
-          </ErrorBoundary>
-      </ThemeProvider>
-    );
-  }
-
-  // Check if this window is a standalone terminal window
-  const terminalWindowId = params.get('terminalWindow');
-  if (terminalWindowId) {
-    const serverUrl = params.get('serverUrl') || '';
-    const projectId = params.get('projectId') || '';
-    const authToken = params.get('authToken') || '';
-    const serverId = params.get('serverId') || undefined;
-    const serverName = params.get('serverName') || undefined;
-    const gatewayUrl = params.get('gatewayUrl') || undefined;
-    const gatewaySecret = params.get('gatewaySecret') || undefined;
-    return (
-      <ThemeProvider defaultTheme="dark-neutral">
-        <ErrorBoundary label="Terminal">
-          <Suspense fallback={<LazyFallback />}>
-          <TerminalWindow
-            terminalId={terminalWindowId}
-            projectId={projectId}
-            serverUrl={serverUrl}
-            authToken={authToken}
-            serverId={serverId}
-            serverName={serverName}
-            gatewayUrl={gatewayUrl}
-            gatewaySecret={gatewaySecret}
-          />
-        </Suspense>
-          </ErrorBoundary>
-      </ThemeProvider>
-    );
-  }
-
-  // Check if this window is the Claudia floating ball
-  if (params.get('claudiaBall')) {
-    return <Suspense fallback={<LazyFallback />}><ClaudiaBallWindow /></Suspense>;
-  }
-
-  // Check if this window is the independent NotchPanel (Dynamic Island).
-  // Renders *only* NotchWindow — no connection, no backend, no stores bootstrapped.
-  // State is mirrored from the main window via Tauri events.
-  if (params.get('notchWindow')) {
-    return <Suspense fallback={<LazyFallback />}><NotchWindowLazy /></Suspense>;
-  }
-
-  // Check if this window is the standalone Claudia chat
-  if (params.get('claudiaChat')) {
-    return (
-      <Suspense fallback={<LazyFallback />}>
-        <ClaudiaChatWindow
-          serverUrl={params.get('serverUrl') || ''}
-          authToken={params.get('authToken') || ''}
-          serverId={params.get('serverId') || undefined}
-          serverName={params.get('serverName') || undefined}
-          gatewayUrl={params.get('gatewayUrl') || undefined}
-          gatewaySecret={params.get('gatewaySecret') || undefined}
-          projectId={params.get('projectId') || undefined}
-          contextProjectId={params.get('contextProjectId') || undefined}
-        />
-      </Suspense>
-    );
-  }
-
-  // Check if this window is a standalone plugin window
-  const pluginWindowId = params.get('pluginWindow');
-  if (pluginWindowId) {
-    return (
-      <ThemeProvider defaultTheme="dark-neutral">
-        <ErrorBoundary label="Plugin">
-          <Suspense fallback={<LazyFallback />}>
-          <PluginWindow pluginId={pluginWindowId} params={params} />
-        </Suspense>
-          </ErrorBoundary>
-      </ThemeProvider>
-    );
-  }
-
   return (
-    <ThemeProvider defaultTheme="dark-neutral">
-      <ErrorBoundary label="App">
-        <ConnectionProvider>
-          <AppContent />
-        </ConnectionProvider>
-      </ErrorBoundary>
-    </ThemeProvider>
+    <WindowRouter>
+      <AppContent />
+    </WindowRouter>
   );
 }
 

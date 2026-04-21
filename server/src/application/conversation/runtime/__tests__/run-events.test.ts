@@ -116,7 +116,7 @@ describe('ws/run-events', () => {
   it('completes result events, emits background completion, and notifies', async () => {
     const sendRunEventMock = vi.fn();
     const broadcastHeartbeatMock = vi.fn();
-    const notifyMock = vi.fn();
+    const postItemMock = vi.fn();
     const activeRun = {
       sessionId: 'session-1',
       assistantMessageId: 'assistant-1',
@@ -145,7 +145,8 @@ describe('ws/run-events', () => {
         content: 'done',
         usage: { inputTokens: 1, outputTokens: 2 },
       } as any,
-      notificationService: { notify: notifyMock } as any,
+      notificationService: { notify: vi.fn() } as any,
+      notificationsService: { postItem: postItemMock } as any,
       persistSessionWorkingDirectory: vi.fn(),
       providerType: 'claude',
       runId: 'run-1',
@@ -179,9 +180,12 @@ describe('ws/run-events', () => {
       sessionId: 'session-1',
     }));
     expect(broadcastHeartbeatMock).toHaveBeenCalled();
-    expect(notifyMock).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'run_completed',
-      body: expect.stringContaining('Session session-1 on backend '),
+    expect(postItemMock).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'session-1',
+      title: 'Run completed: session-1',
+      summary: 'Session response is ready.',
+      status: 'completed',
+      source: 'manual',
     }));
     expect(sendRunEventMock).toHaveBeenCalledWith({
       type: 'background_task_update',
@@ -193,7 +197,6 @@ describe('ws/run-events', () => {
   it('marks heartbeat dirty before broadcasting completion state', async () => {
     const sendRunEventMock = vi.fn();
     const broadcastHeartbeatMock = vi.fn();
-    const notifyMock = vi.fn();
     const activeRun = {
       sessionId: 'session-1',
       providerType: 'claude',
@@ -216,7 +219,8 @@ describe('ws/run-events', () => {
       input: 'hello',
       modeValue: 'default',
       msg: { type: 'result', subtype: 'success', usage: { inputTokens: 1, outputTokens: 2 } } as any,
-      notificationService: { notify: notifyMock } as any,
+      notificationService: { notify: vi.fn() } as any,
+      notificationsService: { postItem: vi.fn() } as any,
       persistSessionWorkingDirectory: vi.fn(),
       providerType: 'claude',
       runId: 'run-1',
@@ -234,7 +238,7 @@ describe('ws/run-events', () => {
   it('fails runs on provider error and removes them from activeRuns', async () => {
     const sendRunEventMock = vi.fn();
     const broadcastHeartbeatMock = vi.fn();
-    const notifyMock = vi.fn();
+    const postItemMock = vi.fn();
     const activeRun = {
       sessionId: 'session-1',
       providerType: 'claude',
@@ -261,7 +265,8 @@ describe('ws/run-events', () => {
         type: 'error',
         error: 'provider exploded',
       } as any,
-      notificationService: { notify: notifyMock } as any,
+      notificationService: { notify: vi.fn() } as any,
+      notificationsService: { postItem: postItemMock } as any,
       persistSessionWorkingDirectory: vi.fn(),
       providerType: 'claude',
       runId: 'run-1',
@@ -285,7 +290,13 @@ describe('ws/run-events', () => {
       sessionId: 'session-1',
     }));
     expect(broadcastHeartbeatMock).toHaveBeenCalled();
-    expect(notifyMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'run_failed' }));
+    expect(postItemMock).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'session-1',
+      title: 'Run failed: session-1',
+      error: 'provider exploded',
+      status: 'failed',
+      source: 'manual',
+    }));
     expect(cleanupPendingPermissionsMock).toHaveBeenCalled();
     expect(activeRuns.has('run-1')).toBe(false);
   });

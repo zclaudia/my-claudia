@@ -13,7 +13,8 @@ import { generateToolSignature } from '../../../loop-detection.js';
 import type { ProviderRegistryPort } from '../../../infrastructure/providers/registry.js';
 import type { ClaudeMessage, SystemInfo } from '../../../infrastructure/providers/types.js';
 import type { NotificationSender } from '../../../infrastructure/push/notification-sender.js';
-import { buildAppSelectionClickUrl, formatSessionBackendContext } from '../../../infrastructure/push/notification-context.js';
+import type { NotificationService } from '../../../domains/notification-feed/index.js';
+import { postRunCompletedNotification, postRunFailedNotification } from './run-terminal-notifications.js';
 
 export interface ProviderEventState {
   sdkSessionId?: string;
@@ -28,6 +29,7 @@ interface HandleProviderEventParams {
   input: string;
   modeValue: string;
   notificationService: NotificationSender;
+  notificationsService?: NotificationService;
   persistSessionWorkingDirectory: (nextWorkingDirectory: string | null | undefined) => void;
   providerType: string;
   runId: string;
@@ -51,6 +53,7 @@ export function handleProviderEvent({
   modeValue,
   msg,
   notificationService,
+  notificationsService,
   persistSessionWorkingDirectory,
   providerRegistry,
   providerType,
@@ -344,13 +347,11 @@ export function handleProviderEvent({
           console.warn('[PluginEvents] Event emission failed:', err instanceof Error ? err.message : err);
         });
         broadcastHeartbeat();
-        void notificationService.notify({
-          type: 'run_completed',
-          title: 'Run completed',
-          body: `${formatSessionBackendContext(db, sessionId)} completed.`,
-          priority: 'default',
-          tags: ['white_check_mark'],
-          clickUrl: buildAppSelectionClickUrl(db, { sessionId }),
+        postRunCompletedNotification({
+          db,
+          sessionId,
+          notificationSender: notificationService,
+          notificationsService,
         });
       }
 
@@ -390,13 +391,12 @@ export function handleProviderEvent({
           console.warn('[PluginEvents] Event emission failed:', err instanceof Error ? err.message : err);
         });
         broadcastHeartbeat();
-        void notificationService.notify({
-          type: 'run_failed',
-          title: 'Run failed',
-          body: `${formatSessionBackendContext(db, sessionId)} failed: ${errorMessage.slice(0, 200)}`,
-          priority: 'high',
-          tags: ['x'],
-          clickUrl: buildAppSelectionClickUrl(db, { sessionId }),
+        postRunFailedNotification({
+          db,
+          sessionId,
+          error: errorMessage,
+          notificationSender: notificationService,
+          notificationsService,
         });
       }
 

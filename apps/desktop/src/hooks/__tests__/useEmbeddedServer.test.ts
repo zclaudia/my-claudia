@@ -659,9 +659,10 @@ describe('hooks/useEmbeddedServer', () => {
         expect.objectContaining({
           cwd: '../../..',
           env: expect.objectContaining({
-            PORT: '3100',
+            PORT: '0',
             SERVER_HOST: '127.0.0.1',
             MY_CLAUDIA_DATA_DIR: '/tmp/my-claudia-dev/',
+            MY_CLAUDIA_CHANNEL: 'dev',
           }),
         })
       );

@@ -1,9 +1,11 @@
 import type { ClaudeMessage } from '../../../infrastructure/providers/types.js';
 import type { ProviderRegistryPort } from '../../../infrastructure/providers/registry.js';
 import type { NotificationSender } from '../../../infrastructure/push/notification-sender.js';
+import type { NotificationService } from '../../../domains/notification-feed/index.js';
 import { summarizeProviderMessage, type TraceRecorder } from '../../../utils/provider-trace.js';
 import type { ActiveRun } from '../transport/types.js';
 import { handleProviderEvent, type ProviderEventState } from './run-events.js';
+import { postRunCompletedNotification } from './run-terminal-notifications.js';
 
 interface ConsumeProviderStreamInput {
   activeRun: ActiveRun;
@@ -15,6 +17,7 @@ interface ConsumeProviderStreamInput {
   input: string;
   modeValue: string;
   notificationService: NotificationSender;
+  notificationsService?: NotificationService;
   persistSessionWorkingDirectory: (nextWorkingDirectory: string | null | undefined) => void;
   providerRunner: AsyncIterable<ClaudeMessage>;
   providerType: string;
@@ -39,6 +42,7 @@ export async function consumeProviderStream(input: ConsumeProviderStreamInput): 
     input: userInput,
     modeValue,
     notificationService,
+    notificationsService,
     persistSessionWorkingDirectory,
     providerRunner,
     providerRegistry,
@@ -76,6 +80,7 @@ export async function consumeProviderStream(input: ConsumeProviderStreamInput): 
       modeValue,
       msg,
       notificationService,
+      notificationsService,
       persistSessionWorkingDirectory,
       providerRegistry,
       providerType,
@@ -110,5 +115,11 @@ export async function consumeProviderStream(input: ConsumeProviderStreamInput): 
     });
     activeRun.completed = true;
     broadcastHeartbeat();
+    postRunCompletedNotification({
+      db,
+      sessionId,
+      notificationSender: notificationService,
+      notificationsService,
+    });
   }
 }
