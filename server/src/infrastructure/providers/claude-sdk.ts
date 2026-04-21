@@ -47,6 +47,35 @@ export interface ClaudeRunOptions {
 // PermissionDecision and PermissionCallback are now defined in message-types.ts
 
 /**
+ * Scan top-level entries in a workspace directory for symlinks and return
+ * the real paths of their targets (directories only). This allows the Claude
+ * Agent SDK to access symlinked directories without prompting for "Outside
+ * workspace access".
+ */
+function resolveWorkspaceSymlinks(cwd: string): string[] {
+  try {
+    const entries = fs.readdirSync(cwd, { withFileTypes: true });
+    const targets: string[] = [];
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) {
+        try {
+          const realTarget = fs.realpathSync(path.join(cwd, entry.name));
+          // Only add directories that are actually outside the workspace
+          if (fs.statSync(realTarget).isDirectory() && !realTarget.startsWith(cwd + path.sep)) {
+            targets.push(realTarget);
+          }
+        } catch {
+          // Broken symlink — skip
+        }
+      }
+    }
+    return targets;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Get the on-disk storage path for an uploaded file.
  * Returns null if the file doesn't exist.
  */
@@ -411,9 +440,19 @@ export async function* runClaude(
   // Prepare content (handles both text and structured input with attachments)
   const { text: promptText, tempFiles } = await prepareInput(input);
 
-  // Grant CLI access to temp upload directory so it can read attached images
+  // Build additional directories list:
+  // 1. Temp upload directory (for attached images)
+  // 2. Symlink targets in the workspace (so SDK doesn't prompt for outside workspace access)
+  const additionalDirs: string[] = [];
   if (tempFiles.length > 0) {
-    sdkOptions.additionalDirectories = [UPLOAD_TMP_DIR];
+    additionalDirs.push(UPLOAD_TMP_DIR);
+  }
+  if (options.cwd) {
+    const symlinkTargets = resolveWorkspaceSymlinks(options.cwd);
+    additionalDirs.push(...symlinkTargets);
+  }
+  if (additionalDirs.length > 0) {
+    sdkOptions.additionalDirectories = additionalDirs;
   }
 
   try {
