@@ -121,3 +121,5 @@ gateway/.deploy-version*
 .cursor/
 
 .version
+
+plugins/
