@@ -1,6 +1,10 @@
 import { create } from 'zustand';
 import type { NotificationItem } from '@my-claudia/shared';
 
+function deriveUnreadCount(items: NotificationItem[]): number {
+  return items.reduce((count, item) => count + (item.readAt ? 0 : 1), 0);
+}
+
 interface NotificationFeedState {
   items: NotificationItem[];
   unreadCount: number;
@@ -26,7 +30,12 @@ export const useNotificationFeedStore = create<NotificationFeedState>((set) => (
 
   setFeedList: (items, hasMore, unreadCount, append = false) => set((state) => {
     if (!append) {
-      return { items, hasMore, unreadCount, hydrated: true };
+      return {
+        items,
+        hasMore,
+        unreadCount: hasMore ? Math.max(unreadCount, deriveUnreadCount(items)) : deriveUnreadCount(items),
+        hydrated: true,
+      };
     }
 
     const merged = [...state.items];
@@ -37,7 +46,12 @@ export const useNotificationFeedStore = create<NotificationFeedState>((set) => (
       }
     }
 
-    return { items: merged, hasMore, unreadCount, hydrated: true };
+    return {
+      items: merged,
+      hasMore,
+      unreadCount: hasMore ? Math.max(unreadCount, deriveUnreadCount(merged)) : deriveUnreadCount(merged),
+      hydrated: true,
+    };
   }),
 
   upsertItem: (item) => set((state) => {

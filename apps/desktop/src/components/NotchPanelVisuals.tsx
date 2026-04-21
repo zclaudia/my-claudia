@@ -84,6 +84,14 @@ export function CloseIcon({ className = '' }: { className?: string }) {
   );
 }
 
+export function CollapseChevronIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 10 8 6 12 10" />
+    </svg>
+  );
+}
+
 export function SystemIcon({ icon, className = '' }: { icon: ToastIcon; className?: string }) {
   switch (icon) {
     case 'permission': return <LockIcon className={className} />;

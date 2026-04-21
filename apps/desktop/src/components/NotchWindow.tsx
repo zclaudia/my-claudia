@@ -3,7 +3,7 @@ import { emit, listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import {
   OpenedRow,
-  CloseIcon,
+  CollapseChevronIcon,
   SystemIcon,
   AVATAR_PALETTE,
   hashToIndex,
@@ -540,14 +540,6 @@ export function NotchWindow() {
                     Mark all read
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => { setIsOpen(false); setIsAutoExpanded(false); }}
-                  aria-label="Close"
-                  className="w-6 h-6 flex items-center justify-center rounded-md text-white/50 hover:text-white hover:bg-white/[0.08] transition-colors"
-                >
-                  <CloseIcon className="w-3 h-3" />
-                </button>
               </div>
             </div>
 
@@ -605,6 +597,18 @@ export function NotchWindow() {
                   />
                 ))
               )}
+            </div>
+
+            <div className="flex items-center justify-center border-t border-white/[0.06] px-3 py-2.5 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => { setIsOpen(false); setIsAutoExpanded(false); }}
+                aria-label="Collapse panel"
+                className="group relative flex h-11 min-w-[44px] items-center justify-center rounded-full px-3 text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white/80 active:bg-white/[0.09]"
+              >
+                <span className="pointer-events-none absolute h-1 w-10 rounded-full bg-white/[0.14] transition-colors group-hover:bg-white/[0.2]" />
+                <CollapseChevronIcon className="relative mt-1 h-4 w-4" />
+              </button>
             </div>
           </div>
         )}

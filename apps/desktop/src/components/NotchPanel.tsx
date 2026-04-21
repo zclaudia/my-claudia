@@ -99,6 +99,14 @@ function CloseIcon({ className = '' }: { className?: string }) {
   );
 }
 
+function CollapseChevronIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 10 8 6 12 10" />
+    </svg>
+  );
+}
+
 // ---- icon resolvers -------------------------------------------------------
 
 function SystemIcon({ icon, className = '' }: { icon: ToastIcon; className?: string }) {
@@ -406,9 +414,11 @@ function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
       className="flex flex-col max-h-[60vh] w-[420px]"
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06] flex-shrink-0">
-        <span className="text-[13px] font-semibold tracking-tight text-white">Notifications</span>
-        <div className="flex items-center gap-1">
+      <div className="relative flex items-center justify-end px-3 py-2 border-b border-white/[0.06] flex-shrink-0">
+        <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-[13px] font-semibold tracking-tight text-white">
+          MyClaudia
+        </span>
+        <div className="relative z-10 flex items-center gap-1">
           {hasReadItems && (
             <button
               onClick={handleClearRead}
@@ -425,14 +435,6 @@ function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
               Mark all read
             </button>
           )}
-          <button
-            type="button"
-            onClick={onRequestClose}
-            aria-label="Close"
-            className="w-6 h-6 flex items-center justify-center rounded-md text-white/50 hover:text-white hover:bg-white/[0.08] transition-colors"
-          >
-            <CloseIcon className="w-3 h-3" />
-          </button>
         </div>
       </div>
 
@@ -500,6 +502,18 @@ function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
             );
           })
         )}
+      </div>
+
+      <div className="flex items-center justify-center border-t border-white/[0.06] px-3 py-2.5 flex-shrink-0">
+        <button
+          type="button"
+          onClick={onRequestClose}
+          aria-label="Collapse panel"
+          className="group relative flex h-11 min-w-[44px] items-center justify-center rounded-full px-3 text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white/80 active:bg-white/[0.09]"
+        >
+          <span className="pointer-events-none absolute h-1 w-10 rounded-full bg-white/[0.14] transition-colors group-hover:bg-white/[0.2]" />
+          <CollapseChevronIcon className="relative mt-1 h-4 w-4" />
+        </button>
       </div>
     </div>
   );

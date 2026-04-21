@@ -258,8 +258,12 @@ export function handleHeartbeat(
   if (heartbeat.unreadFeedCount !== undefined) {
     import('../../stores/notificationFeedStore').then(m => {
       const store = m.useNotificationFeedStore.getState();
-      if (store.unreadCount !== heartbeat.unreadFeedCount) {
-        m.useNotificationFeedStore.setState({ unreadCount: heartbeat.unreadFeedCount! });
+      const derivedUnreadCount = store.items.reduce((count, item) => count + (item.readAt ? 0 : 1), 0);
+      const nextUnreadCount = store.hydrated && !store.hasMore
+        ? derivedUnreadCount
+        : heartbeat.unreadFeedCount!;
+      if (store.unreadCount !== nextUnreadCount) {
+        m.useNotificationFeedStore.setState({ unreadCount: nextUnreadCount });
       }
     });
   }

@@ -12,6 +12,8 @@ interface SqliteLikeDb {
   prepare?: (sql: string) => { get: (...args: any[]) => Record<string, unknown> | undefined };
 }
 
+const RUN_NOTIFICATION_DEDUPE_WINDOW_MS = 60_000;
+
 interface TerminalRunNotificationInput {
   db: SqliteLikeDb | null | undefined;
   sessionId: string;
@@ -33,17 +35,46 @@ function getSessionProjectId(db: SqliteLikeDb | null | undefined, sessionId: str
   }
 }
 
+function hasRecentRunNotification(
+  db: SqliteLikeDb | null | undefined,
+  sessionId: string,
+  title: string,
+  status: 'completed' | 'failed',
+  now = Date.now(),
+): boolean {
+  if (!db?.prepare) return false;
+  try {
+    const row = db.prepare(`
+      SELECT id
+      FROM notifications
+      WHERE session_id = ?
+        AND title = ?
+        AND status = ?
+        AND created_at >= ?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get(sessionId, title, status, now - RUN_NOTIFICATION_DEDUPE_WINDOW_MS);
+    return !!row?.id;
+  } catch {
+    return false;
+  }
+}
+
 export function postRunCompletedNotification(input: TerminalRunNotificationInput): void {
   const { db, sessionId, notificationSender, notificationsService } = input;
   const sessionName = getSessionDisplayName(db, sessionId);
+  const title = `Run completed: ${sessionName}`;
 
   if (notificationsService) {
+    if (hasRecentRunNotification(db, sessionId, title, 'completed')) {
+      return;
+    }
     notificationsService.postItem({
       sessionId,
       projectId: getSessionProjectId(db, sessionId),
       ownerBackendId: getBackendRouteId(db) ?? 'local-standalone',
       source: 'manual',
-      title: `Run completed: ${sessionName}`,
+      title,
       summary: 'Session response is ready.',
       status: 'completed',
       initiator: 'system',
@@ -66,14 +97,18 @@ export function postRunFailedNotification(
 ): void {
   const { db, error, sessionId, notificationSender, notificationsService } = input;
   const sessionName = getSessionDisplayName(db, sessionId);
+  const title = `Run failed: ${sessionName}`;
 
   if (notificationsService) {
+    if (hasRecentRunNotification(db, sessionId, title, 'failed')) {
+      return;
+    }
     notificationsService.postItem({
       sessionId,
       projectId: getSessionProjectId(db, sessionId),
       ownerBackendId: getBackendRouteId(db) ?? 'local-standalone',
       source: 'manual',
-      title: `Run failed: ${sessionName}`,
+      title,
       error,
       status: 'failed',
       initiator: 'system',
