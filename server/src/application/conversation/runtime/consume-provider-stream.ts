@@ -92,6 +92,13 @@ export async function consumeProviderStream(input: ConsumeProviderStreamInput): 
       toolUseIdToName,
     });
 
+    // Some providers keep the stream open briefly after emitting a terminal
+    // result/error event. Once the run is marked completed, stop consuming so
+    // finalizeRun() can clear activeRuns and heartbeat state immediately.
+    if (activeRun.completed) {
+      break;
+    }
+
     if (msg.type === 'init') {
       if (msg.systemInfo?.cwd) {
         trace.setMeta({ cwd: msg.systemInfo.cwd || cwd });

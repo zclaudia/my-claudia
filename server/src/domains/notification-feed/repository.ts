@@ -114,6 +114,14 @@ export class NotificationRepository {
     return now;
   }
 
+  markAllRead(): number {
+    const now = Date.now();
+    this.db.prepare(
+      'UPDATE notifications SET read_at = ? WHERE read_at IS NULL'
+    ).run(now);
+    return now;
+  }
+
   deleteByIds(ids: string[]): number {
     if (ids.length === 0) return 0;
     const placeholders = ids.map(() => '?').join(',');

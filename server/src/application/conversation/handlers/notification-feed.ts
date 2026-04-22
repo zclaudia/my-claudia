@@ -1,5 +1,6 @@
 import type {
   GetNotificationsMessage,
+  MarkAllNotificationsReadMessage,
   MarkNotificationsReadMessage,
   DismissNotificationsMessage,
   NotificationListMessage,
@@ -34,6 +35,13 @@ export function handleMarkNotificationsRead(
   if (Array.isArray(message.itemIds)) {
     notificationService.markRead(message.itemIds);
   }
+}
+
+export function handleMarkAllNotificationsRead(
+  _message: MarkAllNotificationsReadMessage,
+  notificationService: NotificationService,
+): void {
+  notificationService.markAllRead();
 }
 
 export function handleDismissNotifications(

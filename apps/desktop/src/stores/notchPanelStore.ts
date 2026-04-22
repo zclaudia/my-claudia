@@ -31,7 +31,7 @@ interface NotchPanelState {
   setLastActivityTab: (tab: NotchTab) => void;
 }
 
-const AUTO_COLLAPSE_MS = 5000;
+const AUTO_COLLAPSE_MS = 3000;
 
 let autoCollapseTimer: ReturnType<typeof setTimeout> | null = null;
 

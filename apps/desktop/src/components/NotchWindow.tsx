@@ -15,13 +15,14 @@ import {
   type NotchStateSnapshot,
 } from '../services/notchBridge';
 import { classifyToast, classifyFeedItem, type NotchTab } from '../utils/notchTabCategory';
+import { NOTCH_WINDOW_TIMINGS } from '../config/notch';
 import type { NotificationItem } from '@my-claudia/shared';
 import type { Toast } from '../stores/toastStore';
 
-const AUTO_COLLAPSE_MS = 5000;
-const HOVER_EXPAND_DELAY = 300;
-const HOVER_COLLAPSE_DELAY = 200;
-const ANIM_DURATION_MS = 360;
+const AUTO_COLLAPSE_MS = NOTCH_WINDOW_TIMINGS.autoCollapseCheckMs;
+const HOVER_EXPAND_DELAY = NOTCH_WINDOW_TIMINGS.hoverExpandDelayMs;
+const OPEN_ANIM_DURATION_MS = NOTCH_WINDOW_TIMINGS.openAnimationDurationMs;
+const CLOSE_ANIM_DURATION_MS = NOTCH_WINDOW_TIMINGS.closeAnimationDurationMs;
 
 const SHAPE_CLOSED_W = 220;
 const SHAPE_CLOSED_H = 32;
@@ -82,12 +83,9 @@ export function NotchWindow() {
     activeTab: 'sessions',
   });
   const [isOpen, setIsOpen] = useState(false);
-  const [isAutoExpanded, setIsAutoExpanded] = useState(false);
-  const [isHovering, setIsHovering] = useState(false);
   const [activeTab, setActiveTab] = useState<NotchTab>('sessions');
   const autoCollapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverExpandTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hoverCollapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevSnapshotRef = useRef<NotchStateSnapshot | null>(null);
   const surfacePathRef = useRef<SVGPathElement | null>(null);
 
@@ -129,7 +127,6 @@ export function NotchWindow() {
           setActiveTab(triggerToast.category ?? classifyToast(triggerToast));
         }
         setIsOpen(true);
-        setIsAutoExpanded(true);
       }
     });
     return () => { un.then((u) => u()).catch(() => undefined); };
@@ -138,7 +135,6 @@ export function NotchWindow() {
   useEffect(() => {
     const un = listen(NOTCH_EVENT.collapse, () => {
       setIsOpen(false);
-      setIsAutoExpanded(false);
     });
     return () => { un.then((u) => u()).catch(() => undefined); };
   }, []);
@@ -146,7 +142,6 @@ export function NotchWindow() {
   useEffect(() => {
     const un = listen(NOTCH_EVENT.toggle, () => {
       setIsOpen((v) => !v);
-      setIsAutoExpanded(false);
     });
     return () => { un.then((u) => u()).catch(() => undefined); };
   }, []);
@@ -157,12 +152,10 @@ export function NotchWindow() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setIsOpen(false);
-        setIsAutoExpanded(false);
       }
     };
     const onBlur = () => {
       setIsOpen(false);
-      setIsAutoExpanded(false);
     };
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('blur', onBlur);
@@ -193,10 +186,8 @@ export function NotchWindow() {
           hoverPollRef.current = null;
           await invoke('set_notch_passthrough', { passthrough: false });
           // Cursor is already inside — mouseEnter won't fire, so expand directly.
-          setIsHovering(true);
           hoverExpandTimer.current = setTimeout(() => {
             setIsOpen(true);
-            setIsAutoExpanded(true);
           }, HOVER_EXPAND_DELAY);
         }
       } catch { /* ignore */ }
@@ -226,7 +217,8 @@ export function NotchWindow() {
     }
 
     const startTime = performance.now();
-    const duration = ANIM_DURATION_MS * Math.abs(target - from);
+    const baseDuration = target > from ? OPEN_ANIM_DURATION_MS : CLOSE_ANIM_DURATION_MS;
+    const duration = baseDuration * Math.abs(target - from);
 
     const tick = (now: number) => {
       const t = Math.min((now - startTime) / duration, 1);
@@ -251,22 +243,40 @@ export function NotchWindow() {
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [isOpen]);
 
-  // Auto-collapse for toast-driven auto-open (skipped while hovered / manual).
+  // Unified auto-collapse: while open, check every few seconds whether the
+  // cursor is actually inside the visible panel area. If yes, defer the check;
+  // otherwise collapse.
   useEffect(() => {
-    if (!isOpen || !isAutoExpanded || isHovering) {
+    if (!isOpen) {
       if (autoCollapseTimer.current) clearTimeout(autoCollapseTimer.current);
       autoCollapseTimer.current = null;
       return;
     }
-    autoCollapseTimer.current = setTimeout(() => {
-      setIsOpen(false);
-      setIsAutoExpanded(false);
-    }, AUTO_COLLAPSE_MS);
+
+    const scheduleCollapseCheck = () => {
+      autoCollapseTimer.current = setTimeout(() => {
+        invoke<boolean>('check_notch_panel_hover')
+          .then((isPointerInsidePanel) => {
+            if (isPointerInsidePanel) {
+              scheduleCollapseCheck();
+              return;
+            }
+
+            setIsOpen(false);
+          })
+          .catch(() => {
+            setIsOpen(false);
+          });
+      }, AUTO_COLLAPSE_MS);
+    };
+
+    scheduleCollapseCheck();
+
     return () => {
       if (autoCollapseTimer.current) clearTimeout(autoCollapseTimer.current);
       autoCollapseTimer.current = null;
     };
-  }, [isOpen, isAutoExpanded, isHovering]);
+  }, [isOpen]);
 
   // --- Hover to expand / collapse ---
   const clearHoverTimers = () => {
@@ -274,32 +284,19 @@ export function NotchWindow() {
       clearTimeout(hoverExpandTimer.current);
       hoverExpandTimer.current = null;
     }
-    if (hoverCollapseTimer.current) {
-      clearTimeout(hoverCollapseTimer.current);
-      hoverCollapseTimer.current = null;
-    }
   };
 
   const handleMouseEnter = () => {
-    setIsHovering(true);
     clearHoverTimers();
     if (!isOpen) {
       hoverExpandTimer.current = setTimeout(() => {
         setIsOpen(true);
-        setIsAutoExpanded(true);  // Hover-opened panels auto-collapse on leave.
       }, HOVER_EXPAND_DELAY);
     }
   };
 
   const handleMouseLeave = () => {
-    setIsHovering(false);
     clearHoverTimers();
-    if (isOpen) {
-      hoverCollapseTimer.current = setTimeout(() => {
-        setIsOpen(false);
-        setIsAutoExpanded(false);
-      }, HOVER_COLLAPSE_DELAY);
-    }
   };
 
   useEffect(() => () => clearHoverTimers(), []);
@@ -338,13 +335,12 @@ export function NotchWindow() {
     if (!item.readAt) {
       emit(NOTCH_EVENT.markRead, { ids: [item.id] }).catch(() => undefined);
     }
+    setIsOpen(false);
     if (item.sessionId) {
       emit(NOTCH_EVENT.openSession, {
         sessionId: item.sessionId,
         backendId: item.ownerBackendId,
       }).catch(() => undefined);
-      setIsOpen(false);
-      setIsAutoExpanded(false);
     }
   };
 
@@ -354,14 +350,13 @@ export function NotchWindow() {
   };
 
   const markAllRead = () => {
-    const tabItemIds = new Set(filteredItems.filter((i) => !i.readAt).map((i) => i.id));
-    if (tabItemIds.size === 0) return;
+    if (snapshot.unreadCount === 0) return;
     setSnapshot((s) => ({
       ...s,
-      items: s.items.map((i) => (tabItemIds.has(i.id) ? { ...i, readAt: Date.now() } : i)),
-      unreadCount: Math.max(0, s.unreadCount - tabItemIds.size),
+      items: s.items.map((i) => (i.readAt ? i : { ...i, readAt: Date.now() })),
+      unreadCount: 0,
     }));
-    emit(NOTCH_EVENT.markRead, { ids: [...tabItemIds] }).catch(() => undefined);
+    emit(NOTCH_EVENT.markAllRead).catch(() => undefined);
   };
 
   const clearRead = () => {
@@ -375,7 +370,6 @@ export function NotchWindow() {
 
   const toastClick = (t: Toast) => {
     setIsOpen(false);
-    setIsAutoExpanded(false);
     if (t.sessionId) {
       emit(NOTCH_EVENT.openSession, {
         sessionId: t.sessionId,
@@ -459,7 +453,6 @@ export function NotchWindow() {
   const handleBackdropMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if (isOpen && e.target === e.currentTarget) {
       setIsOpen(false);
-      setIsAutoExpanded(false);
     }
   };
 
@@ -497,7 +490,7 @@ export function NotchWindow() {
         >
         {/* Closed content — always rendered, opacity driven by progress */}
         <div
-          className="absolute inset-0 flex items-center justify-center gap-2 px-3"
+          className="absolute inset-x-0 top-0 flex h-8 translate-y-1 items-center justify-center gap-2 px-3"
           style={{
             opacity: closedOpacity,
             pointerEvents: closedOpacity > 0 ? 'auto' : 'none',
@@ -518,8 +511,8 @@ export function NotchWindow() {
           style={{ opacity: openedOpacity }}
         >
             {/* Header */}
-            <div className="relative flex items-center justify-end px-3 pt-1.5 pb-1.5 border-b border-white/[0.06] flex-shrink-0">
-              <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2">
+            <div className="relative flex min-h-11 items-start justify-end border-b border-white/[0.06] px-3 pt-3 pb-1.5 flex-shrink-0">
+              <div className="absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-2">
                 <img src="/logo.png" alt="" className="w-4 h-4 rounded-full ring-1 ring-white/15 object-cover" draggable={false} />
                 <span className="text-[13px] font-semibold tracking-tight text-white">MyClaudia</span>
               </div>
@@ -602,12 +595,11 @@ export function NotchWindow() {
             <div className="flex items-center justify-center border-t border-white/[0.06] px-3 py-2.5 flex-shrink-0">
               <button
                 type="button"
-                onClick={() => { setIsOpen(false); setIsAutoExpanded(false); }}
+                onClick={() => { setIsOpen(false); }}
                 aria-label="Collapse panel"
-                className="group relative flex h-11 min-w-[44px] items-center justify-center rounded-full px-3 text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white/80 active:bg-white/[0.09]"
+                className="group relative flex h-11 min-w-[44px] items-center justify-center rounded-full px-3 text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white active:bg-white/[0.09]"
               >
-                <span className="pointer-events-none absolute h-1 w-10 rounded-full bg-white/[0.14] transition-colors group-hover:bg-white/[0.2]" />
-                <CollapseChevronIcon className="relative mt-1 h-4 w-4" />
+                <CollapseChevronIcon className="h-5 w-5 transition-transform group-hover:-translate-y-0.5" />
               </button>
             </div>
           </div>

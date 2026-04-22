@@ -198,13 +198,9 @@ export function useNotchBridgeHost(params: { enabled: boolean }): void {
 
     unlisteners.push(
       listen(NOTCH_EVENT.markAllRead, () => {
-        const unreadIds = useNotificationFeedStore
-          .getState()
-          .items.filter((i) => !i.readAt)
-          .map((i) => i.id);
-        if (unreadIds.length === 0) return;
-        handlersRef.current.sendMessage({ type: 'mark_notifications_read', itemIds: unreadIds });
-        useNotificationFeedStore.getState().markRead(unreadIds);
+        if (useNotificationFeedStore.getState().unreadCount === 0) return;
+        handlersRef.current.sendMessage({ type: 'mark_all_notifications_read' });
+        useNotificationFeedStore.getState().markAllRead();
       }),
     );
 

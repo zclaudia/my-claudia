@@ -61,4 +61,30 @@ describe('NotchPanel', () => {
     expect(useNotchPanelStore.getState().isOpen).toBe(false);
     expect(screen.getByTestId('notch-pill')).toBeTruthy();
   });
+
+  it('collapses when a notification row is clicked even without a session target', () => {
+    useNotchPanelStore.getState().open();
+    useNotificationFeedStore.setState({
+      items: [
+        {
+          id: 'notif-1',
+          title: 'Run completed: Codex',
+          summary: 'Session response is ready.',
+          status: 'completed',
+          source: 'manual',
+          createdAt: Date.now(),
+        } as any,
+      ],
+      unreadCount: 1,
+      hasMore: false,
+      loading: false,
+      hydrated: true,
+    });
+
+    render(<NotchPanel />);
+
+    fireEvent.click(screen.getByText('Run completed: Codex'));
+
+    expect(useNotchPanelStore.getState().isOpen).toBe(false);
+  });
 });

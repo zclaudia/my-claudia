@@ -51,7 +51,7 @@ import type {
   ClaudiaMessageMessage,
 } from './claudia.js';
 import type {
-  GetNotificationsMessage, MarkNotificationsReadMessage, DismissNotificationsMessage, ClearReadNotificationsMessage,
+  GetNotificationsMessage, MarkNotificationsReadMessage, MarkAllNotificationsReadMessage, DismissNotificationsMessage, ClearReadNotificationsMessage,
 } from './notification-feed.js';
 
 export type ClientMessage =
@@ -107,6 +107,7 @@ export type ClientMessage =
   // Notifications
   | GetNotificationsMessage
   | MarkNotificationsReadMessage
+  | MarkAllNotificationsReadMessage
   | DismissNotificationsMessage
   | ClearReadNotificationsMessage;
 

@@ -22,7 +22,7 @@ import {
   handleTerminalClose, handleTerminalDetach, handleTerminalAttach,
 } from '../handlers/terminal.js';
 import {
-  handleGetNotifications, handleMarkNotificationsRead, handleDismissNotifications, handleClearReadNotifications,
+  handleGetNotifications, handleMarkNotificationsRead, handleMarkAllNotificationsRead, handleDismissNotifications, handleClearReadNotifications,
 } from '../handlers/notification-feed.js';
 import {
   handlePermission, handlePromptAnswerMessage, handleInteractionResponse, handlePluginPermissionResponse,
@@ -111,6 +111,10 @@ export async function handleClientMessage(
 
     case 'mark_notifications_read':
       if (ctx.notificationService) handleMarkNotificationsRead(message, ctx.notificationService);
+      break;
+
+    case 'mark_all_notifications_read':
+      if (ctx.notificationService) handleMarkAllNotificationsRead(message, ctx.notificationService);
       break;
 
     case 'dismiss_notifications':

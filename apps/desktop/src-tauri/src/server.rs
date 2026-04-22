@@ -297,12 +297,9 @@ pub async fn start_server(
         if let Some(existing_child) = guard.as_mut() {
             match existing_child.try_wait() {
                 Ok(None) => {
-                    let existing_config =
-                        SERVER_CONFIG.lock().map_err(|e| e.to_string())?.clone();
-                    if decide_existing_server_action(
-                        existing_config.as_ref(),
-                        &requested_config,
-                    ) == ExistingServerAction::Reuse
+                    let existing_config = SERVER_CONFIG.lock().map_err(|e| e.to_string())?.clone();
+                    if decide_existing_server_action(existing_config.as_ref(), &requested_config)
+                        == ExistingServerAction::Reuse
                     {
                         let existing_port = SERVER_PORT
                             .lock()
@@ -657,7 +654,10 @@ pub fn stop_server_sync() {
     if let Ok(mut guard) = SERVER_PROCESS.lock() {
         if let Some(mut child) = guard.take() {
             let pid = child.id();
-            eprintln!("[EmbeddedServer/Rust] Exit hook: stopping server (pid={})...", pid);
+            eprintln!(
+                "[EmbeddedServer/Rust] Exit hook: stopping server (pid={})...",
+                pid
+            );
             graceful_kill(&mut child, 3);
 
             // Clean up pid file
@@ -677,9 +677,7 @@ pub fn stop_server_sync() {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        decide_existing_server_action, ExistingServerAction, ServerLaunchConfig,
-    };
+    use super::{decide_existing_server_action, ExistingServerAction, ServerLaunchConfig};
     use std::collections::BTreeMap;
 
     fn make_config(

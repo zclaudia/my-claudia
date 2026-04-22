@@ -14,6 +14,10 @@ export interface MarkNotificationsReadMessage {
   itemIds: string[];
 }
 
+export interface MarkAllNotificationsReadMessage {
+  type: 'mark_all_notifications_read';
+}
+
 export interface DismissNotificationsMessage {
   type: 'dismiss_notifications';
   itemIds: string[];

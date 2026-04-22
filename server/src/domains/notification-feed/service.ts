@@ -100,6 +100,18 @@ export class NotificationService {
     return unreadCount;
   }
 
+  markAllRead(): number {
+    const readAt = this.repo.markAllRead();
+    const unreadCount = this.repo.unreadCount();
+    this.broadcastFn({
+      type: 'notification_read',
+      itemIds: [],
+      readAt,
+      unreadCount,
+    } as NotificationReadMessage);
+    return unreadCount;
+  }
+
   dismissItems(ids: string[]): number {
     return this.repo.deleteByIds(ids);
   }

@@ -1,18 +1,18 @@
-#[cfg(target_os = "android")]
-use serde::{Deserialize, Serialize};
 #[cfg(not(target_os = "android"))]
 use serde::Serialize;
+#[cfg(target_os = "android")]
+use serde::{Deserialize, Serialize};
 
-#[cfg(not(target_os = "android"))]
-use tauri::{LogicalPosition, Manager, Position, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 #[cfg(not(target_os = "android"))]
 use std::sync::Mutex;
 #[cfg(not(target_os = "android"))]
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState as GlobalShortcutState};
+use tauri::menu::{MenuBuilder, MenuItemBuilder};
 #[cfg(not(target_os = "android"))]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 #[cfg(not(target_os = "android"))]
-use tauri::menu::{MenuBuilder, MenuItemBuilder};
+use tauri::{LogicalPosition, Manager, Position, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+#[cfg(not(target_os = "android"))]
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState as GlobalShortcutState};
 
 #[cfg(not(target_os = "android"))]
 mod server;
@@ -92,11 +92,19 @@ fn android_get_ntfy_bridge_status() -> Result<AndroidNtfyBridgeStatus, String> {
         return Err(format!("status failed: {}", response.status()));
     }
 
-    let value = response.json::<serde_json::Value>().map_err(|e| e.to_string())?;
+    let value = response
+        .json::<serde_json::Value>()
+        .map_err(|e| e.to_string())?;
     Ok(AndroidNtfyBridgeStatus {
         ok: value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false),
-        uptime: value.get("uptime").and_then(|v| v.as_str()).map(ToOwned::to_owned),
-        version: value.get("version").and_then(|v| v.as_str()).map(ToOwned::to_owned),
+        uptime: value
+            .get("uptime")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned),
+        version: value
+            .get("version")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned),
         subscriptions: value
             .get("subscriptions")
             .cloned()
@@ -106,10 +114,14 @@ fn android_get_ntfy_bridge_status() -> Result<AndroidNtfyBridgeStatus, String> {
 
 #[cfg(target_os = "android")]
 #[tauri::command]
-fn android_sync_ntfy_bridge(config: AndroidNotificationConfig, package_id: String) -> Result<(), String> {
+fn android_sync_ntfy_bridge(
+    config: AndroidNotificationConfig,
+    package_id: String,
+) -> Result<(), String> {
     let client = android_bridge_client()?;
 
-    if config.enabled && !config.ntfy_url.trim().is_empty() && !config.ntfy_topic.trim().is_empty() {
+    if config.enabled && !config.ntfy_url.trim().is_empty() && !config.ntfy_topic.trim().is_empty()
+    {
         let response = client
             .post(format!("{NTFY_BRIDGE_URL}/subscribe"))
             .json(&AndroidBridgeSubscribeRequest {
@@ -127,7 +139,10 @@ fn android_sync_ntfy_bridge(config: AndroidNotificationConfig, package_id: Strin
             .map_err(|e| e.to_string())?;
 
         if !response.status().is_success() {
-            return Err(format!("ntfy-bridge register failed: {}", response.status()));
+            return Err(format!(
+                "ntfy-bridge register failed: {}",
+                response.status()
+            ));
         }
         return Ok(());
     }
@@ -139,7 +154,10 @@ fn android_sync_ntfy_bridge(config: AndroidNotificationConfig, package_id: Strin
         .map_err(|e| e.to_string())?;
 
     if !response.status().is_success() {
-        return Err(format!("ntfy-bridge unregister failed: {}", response.status()));
+        return Err(format!(
+            "ntfy-bridge unregister failed: {}",
+            response.status()
+        ));
     }
 
     Ok(())
@@ -333,6 +351,10 @@ const NOTCH_CLOSED_HEIGHT: f64 = 32.0;
 const NOTCH_OPENED_WIDTH: f64 = NOTCH_WINDOW_WIDTH;
 #[cfg(not(any(target_os = "android", target_os = "macos")))]
 const NOTCH_OPENED_HEIGHT: f64 = NOTCH_WINDOW_HEIGHT;
+#[cfg(not(target_os = "android"))]
+const NOTCH_VISIBLE_OPEN_WIDTH: f64 = 460.0;
+#[cfg(not(target_os = "android"))]
+const NOTCH_VISIBLE_OPEN_HEIGHT: f64 = 440.0;
 
 /// Recenter the notch window on its current screen.
 /// Called when display configuration changes (monitors added/removed/rearranged).
@@ -368,8 +390,7 @@ fn recenter_notch_on_current_screen(app: &tauri::AppHandle) {
             let screen_top_y = screen_frame.origin.y + screen_frame.size.height;
 
             let win_frame: NSRect = msg_send![win, frame];
-            let x = screen_frame.origin.x
-                + (screen_frame.size.width - win_frame.size.width) / 2.0;
+            let x = screen_frame.origin.x + (screen_frame.size.width - win_frame.size.width) / 2.0;
 
             let top_left = NSPoint { x, y: screen_top_y };
             let _: () = msg_send![win, setFrameTopLeftPoint: top_left];
@@ -481,10 +502,7 @@ fn set_notch_frame(window: &WebviewWindow, x: f64, width: f64, height: f64) {
                 x,
                 y: screen_top_y - height,
             },
-            size: NSSize {
-                width,
-                height,
-            },
+            size: NSSize { width, height },
         };
 
         // display:YES ensures the webview viewport updates immediately so CSS
@@ -525,7 +543,11 @@ fn list_monitors(app: tauri::AppHandle) -> Result<Vec<MonitorInfo>, String> {
 /// issues between React state changes and asynchronous `set_size` calls.
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
-fn create_notch_window(app: tauri::AppHandle, notch_url: String, monitor_index: Option<usize>) -> Result<(), String> {
+fn create_notch_window(
+    app: tauri::AppHandle,
+    notch_url: String,
+    monitor_index: Option<usize>,
+) -> Result<(), String> {
     if app.get_webview_window("notch").is_some() {
         return Ok(());
     }
@@ -535,8 +557,7 @@ fn create_notch_window(app: tauri::AppHandle, notch_url: String, monitor_index: 
     // level above the menu bar below so this actually renders on top of it.
     let (x, y) = {
         let monitors = app.available_monitors().ok().unwrap_or_default();
-        let chosen = monitor_index
-            .and_then(|i| monitors.get(i).cloned());
+        let chosen = monitor_index.and_then(|i| monitors.get(i).cloned());
         let monitor = chosen.or_else(|| app.primary_monitor().ok().flatten());
         if let Some(mon) = monitor {
             let scale = mon.scale_factor().max(1e-3);
@@ -607,12 +628,18 @@ fn resize_notch_window(app: tauri::AppHandle, expanded: bool) -> Result<(), Stri
             let screen_w = monitor.size().width as f64 / scale;
             let x = (screen_w - w) / 2.0;
             window
-                .set_size(tauri::Size::Logical(tauri::LogicalSize { width: w, height: h }))
+                .set_size(tauri::Size::Logical(tauri::LogicalSize {
+                    width: w,
+                    height: h,
+                }))
                 .map_err(|e| e.to_string())?;
             let _ = window.set_position(Position::Logical(LogicalPosition::new(x.max(0.0), 0.0)));
         } else {
             window
-                .set_size(tauri::Size::Logical(tauri::LogicalSize { width: w, height: h }))
+                .set_size(tauri::Size::Logical(tauri::LogicalSize {
+                    width: w,
+                    height: h,
+                }))
                 .map_err(|e| e.to_string())?;
         }
 
@@ -658,10 +685,31 @@ fn check_notch_hover(app: tauri::AppHandle) -> Result<bool, String> {
     let pill_h = 40.0 * scale;
     let pill_x = (win_size.width as f64 - pill_w) / 2.0;
 
-    Ok(rel_x >= pill_x
-        && rel_x <= pill_x + pill_w
-        && rel_y >= 0.0
-        && rel_y <= pill_h)
+    Ok(rel_x >= pill_x && rel_x <= pill_x + pill_w && rel_y >= 0.0 && rel_y <= pill_h)
+}
+
+/// Check whether the cursor is currently hovering over the visible opened notch
+/// panel area. This ignores the transparent padding around the centered panel.
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn check_notch_panel_hover(app: tauri::AppHandle) -> Result<bool, String> {
+    let window = app
+        .get_webview_window("notch")
+        .ok_or_else(|| "notch window not found".to_string())?;
+
+    let cursor = window.cursor_position().map_err(|e| e.to_string())?;
+    let win_pos = window.outer_position().map_err(|e| e.to_string())?;
+    let win_size = window.outer_size().map_err(|e| e.to_string())?;
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+
+    let rel_x = cursor.x - win_pos.x as f64;
+    let rel_y = cursor.y - win_pos.y as f64;
+
+    let panel_w = NOTCH_VISIBLE_OPEN_WIDTH * scale;
+    let panel_h = NOTCH_VISIBLE_OPEN_HEIGHT * scale;
+    let panel_x = (win_size.width as f64 - panel_w) / 2.0;
+
+    Ok(rel_x >= panel_x && rel_x <= panel_x + panel_w && rel_y >= 0.0 && rel_y <= panel_h)
 }
 
 /// Move the notch window to a different monitor by index.
@@ -685,44 +733,47 @@ fn move_notch_to_monitor(app: tauri::AppHandle, monitor_index: usize) -> Result<
 
     #[cfg(target_os = "macos")]
     {
-        window.with_webview(move |webview| unsafe {
-            use objc2::msg_send;
-            use objc2::runtime::{AnyObject, Bool};
-            use objc2_foundation::{NSPoint, NSRect};
+        window
+            .with_webview(move |webview| unsafe {
+                use objc2::msg_send;
+                use objc2::runtime::{AnyObject, Bool};
+                use objc2_foundation::{NSPoint, NSRect};
 
-            let win: *mut AnyObject = webview.ns_window() as _;
-            if win.is_null() {
-                return;
-            }
+                let win: *mut AnyObject = webview.ns_window() as _;
+                if win.is_null() {
+                    return;
+                }
 
-            // Get NSScreen.screens (ordered same as Tauri's available_monitors)
-            let screens: *mut AnyObject = msg_send![objc2::class!(NSScreen), screens];
-            if screens.is_null() {
-                return;
-            }
-            let count: usize = msg_send![screens, count];
-            if monitor_index >= count {
-                return;
-            }
-            let target_screen: *mut AnyObject = msg_send![screens, objectAtIndex: monitor_index];
+                // Get NSScreen.screens (ordered same as Tauri's available_monitors)
+                let screens: *mut AnyObject = msg_send![objc2::class!(NSScreen), screens];
+                if screens.is_null() {
+                    return;
+                }
+                let count: usize = msg_send![screens, count];
+                if monitor_index >= count {
+                    return;
+                }
+                let target_screen: *mut AnyObject =
+                    msg_send![screens, objectAtIndex: monitor_index];
 
-            let screen_frame: NSRect = msg_send![target_screen, frame];
-            let screen_top_y = screen_frame.origin.y + screen_frame.size.height;
+                let screen_frame: NSRect = msg_send![target_screen, frame];
+                let screen_top_y = screen_frame.origin.y + screen_frame.size.height;
 
-            // Center the notch horizontally on the target screen.
-            // `visibleFrame` excludes the menu bar/dock; `frame` is the full screen.
-            let win_frame: NSRect = msg_send![win, frame];
-            let x = screen_frame.origin.x
-                + (screen_frame.size.width - win_frame.size.width) / 2.0;
+                // Center the notch horizontally on the target screen.
+                // `visibleFrame` excludes the menu bar/dock; `frame` is the full screen.
+                let win_frame: NSRect = msg_send![win, frame];
+                let x =
+                    screen_frame.origin.x + (screen_frame.size.width - win_frame.size.width) / 2.0;
 
-            let top_left = NSPoint { x, y: screen_top_y };
-            let _: () = msg_send![win, setFrameTopLeftPoint: top_left];
+                let top_left = NSPoint { x, y: screen_top_y };
+                let _: () = msg_send![win, setFrameTopLeftPoint: top_left];
 
-            // Re-disable shadow (moving can re-enable it)
-            let no = Bool::from(false);
-            let _: () = msg_send![win, setHasShadow: no];
-            let _: () = msg_send![win, invalidateShadow];
-        }).map_err(|e| format!("with_webview failed: {:?}", e))?;
+                // Re-disable shadow (moving can re-enable it)
+                let no = Bool::from(false);
+                let _: () = msg_send![win, setHasShadow: no];
+                let _: () = msg_send![win, invalidateShadow];
+            })
+            .map_err(|e| format!("with_webview failed: {:?}", e))?;
 
         Ok(())
     }
@@ -1013,6 +1064,7 @@ pub fn run() {
             resize_notch_window,
             set_notch_passthrough,
             check_notch_hover,
+            check_notch_panel_hover,
             move_notch_to_monitor,
             recenter_notch,
         ]);
@@ -1104,8 +1156,9 @@ pub fn run() {
             .items(&[&show_item, &quit_item])
             .build()?;
 
-        let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon@2x.png"))
-            .expect("failed to load tray icon");
+        let tray_icon =
+            tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon@2x.png"))
+                .expect("failed to load tray icon");
 
         TrayIconBuilder::with_id("main-tray")
             .icon(tray_icon)

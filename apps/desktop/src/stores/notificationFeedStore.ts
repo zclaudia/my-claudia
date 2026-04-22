@@ -16,6 +16,7 @@ interface NotificationFeedState {
   setFeedList: (items: NotificationItem[], hasMore: boolean, unreadCount: number, append?: boolean) => void;
   upsertItem: (item: NotificationItem) => void;
   markRead: (ids: string[], unreadCount?: number, readAt?: number) => void;
+  markAllRead: (readAt?: number) => void;
   removeItem: (id: string) => void;
   clearRead: () => void;
   setLoading: (loading: boolean) => void;
@@ -86,6 +87,14 @@ export const useNotificationFeedStore = create<NotificationFeedState>((set) => (
     });
     const nextUnreadCount = unreadCount ?? Math.max(0, state.unreadCount - markedKnownUnread);
     return { items: newItems, unreadCount: nextUnreadCount };
+  }),
+
+  markAllRead: (readAt) => set((state) => {
+    const now = readAt ?? Date.now();
+    return {
+      items: state.items.map((item) => (item.readAt ? item : { ...item, readAt: now })),
+      unreadCount: 0,
+    };
   }),
 
   removeItem: (id) => set((state) => {

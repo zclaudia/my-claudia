@@ -369,14 +369,14 @@ function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
     }
     return counts;
   }, [toasts, items]);
+  const tabUnreadCount = unreadCounts[activeTab];
 
   const handleMarkAllRead = useCallback(() => {
-    const unreadIds = filteredItems.filter((i) => !i.readAt).map((i) => i.id);
-    if (unreadIds.length > 0) {
-      sendMessage({ type: 'mark_notifications_read', itemIds: unreadIds });
-      useNotificationFeedStore.getState().markRead(unreadIds);
+    if (tabUnreadCount > 0) {
+      sendMessage({ type: 'mark_all_notifications_read' });
+      useNotificationFeedStore.getState().markAllRead();
     }
-  }, [filteredItems, sendMessage]);
+  }, [sendMessage, tabUnreadCount]);
 
   const handleClearRead = useCallback(() => {
     // Only clear read items in the current tab
@@ -394,8 +394,8 @@ function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
     }
     if (item.sessionId) {
       selectSession(item.sessionId, { backendId: item.ownerBackendId });
-      onRequestClose();
     }
+    onRequestClose();
   };
 
   const handleFeedDismiss = (id: string) => {
@@ -403,7 +403,6 @@ function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
     removeItem(id);
   };
 
-  const tabUnreadCount = unreadCounts[activeTab];
   const hasReadItems = filteredItems.some((i) => i.readAt);
   const emptyText = TAB_EMPTY_TEXT[activeTab];
 
@@ -463,6 +462,7 @@ function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
                   onClick={() => {
                     t.onClick?.();
                     removeToast(t.id);
+                    onRequestClose();
                   }}
                   onDismiss={() => removeToast(t.id)}
                 />
@@ -509,10 +509,9 @@ function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
           type="button"
           onClick={onRequestClose}
           aria-label="Collapse panel"
-          className="group relative flex h-11 min-w-[44px] items-center justify-center rounded-full px-3 text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white/80 active:bg-white/[0.09]"
+          className="group relative flex h-11 min-w-[44px] items-center justify-center rounded-full px-3 text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white active:bg-white/[0.09]"
         >
-          <span className="pointer-events-none absolute h-1 w-10 rounded-full bg-white/[0.14] transition-colors group-hover:bg-white/[0.2]" />
-          <CollapseChevronIcon className="relative mt-1 h-4 w-4" />
+          <CollapseChevronIcon className="h-5 w-5 transition-transform group-hover:-translate-y-0.5" />
         </button>
       </div>
     </div>

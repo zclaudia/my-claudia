@@ -23,12 +23,11 @@ export function NotificationsPanel() {
   }, [hasMore, loading, items, sendMessage, setLoading]);
 
   const markAllRead = useCallback(() => {
-    const unreadIds = items.filter((i) => !i.readAt).map((i) => i.id);
-    if (unreadIds.length > 0) {
-      sendMessage({ type: 'mark_notifications_read', itemIds: unreadIds });
-      useNotificationFeedStore.getState().markRead(unreadIds);
+    if (unreadCount > 0) {
+      sendMessage({ type: 'mark_all_notifications_read' });
+      useNotificationFeedStore.getState().markAllRead();
     }
-  }, [items, sendMessage]);
+  }, [sendMessage, unreadCount]);
 
   const handleClearRead = useCallback(() => {
     sendMessage({ type: 'clear_read_notifications' });

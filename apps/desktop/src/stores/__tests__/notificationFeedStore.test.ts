@@ -34,4 +34,24 @@ describe('notificationFeedStore', () => {
     expect(state.unreadCount).toBe(35);
     expect(state.hasMore).toBe(true);
   });
+
+  it('markAllRead clears unread count and marks loaded items as read', () => {
+    useNotificationFeedStore.setState({
+      items: [
+        { id: 'n1', title: 'one', status: 'completed', source: 'session', createdAt: 1 },
+        { id: 'n2', title: 'two', status: 'completed', source: 'session', createdAt: 2, readAt: 3 },
+        { id: 'n3', title: 'three', status: 'completed', source: 'session', createdAt: 4 },
+      ] as any,
+      unreadCount: 35,
+      hasMore: true,
+      loading: false,
+      hydrated: true,
+    });
+
+    useNotificationFeedStore.getState().markAllRead(9);
+
+    const state = useNotificationFeedStore.getState();
+    expect(state.unreadCount).toBe(0);
+    expect(state.items.every((item) => item.readAt === 3 || item.readAt === 9)).toBe(true);
+  });
 });
