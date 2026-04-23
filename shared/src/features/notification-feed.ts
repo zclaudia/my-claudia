@@ -2,6 +2,21 @@
 
 export type NotificationStatus = 'running' | 'completed' | 'failed';
 export type NotificationSource = 'trigger' | 'scheduled' | 'manual' | 'delegation';
+export type NotificationInboxTab = 'sessions' | 'claudia' | 'approvals' | 'system';
+
+export interface NotificationUnreadCountsByTab {
+  sessions: number;
+  claudia: number;
+  approvals: number;
+  system: number;
+}
+
+export const EMPTY_NOTIFICATION_UNREAD_COUNTS_BY_TAB: NotificationUnreadCountsByTab = {
+  sessions: 0,
+  claudia: 0,
+  approvals: 0,
+  system: 0,
+};
 
 export interface DelegationContext {
   originalRequestId: string;
@@ -34,4 +49,12 @@ export interface NotificationItem {
   createdAt: number;
   completedAt?: number;
   readAt?: number;
+}
+
+export function classifyNotificationItemTab(
+  item: Pick<NotificationItem, 'initiator' | 'delegationContext' | 'source'>,
+): NotificationInboxTab {
+  if (item.initiator === 'claudia' && !item.delegationContext) return 'claudia';
+  if (item.source === 'delegation' || item.delegationContext) return 'approvals';
+  return 'sessions';
 }

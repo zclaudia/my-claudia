@@ -123,3 +123,6 @@ gateway/.deploy-version*
 .version
 
 plugins/
+
+# Superpowers plugin generated docs
+docs/superpowers/

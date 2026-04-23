@@ -74,6 +74,7 @@ function broadcastPluginState(): void {
 function buildStateHeartbeat(): StateHeartbeatMessage {
   const heartbeat = _buildStateHeartbeat(activeRuns);
   heartbeat.unreadFeedCount = notificationsService?.getUnreadCount() ?? 0;
+  heartbeat.unreadFeedCountsByTab = notificationsService?.getUnreadCountsByTab();
   return heartbeat;
 }
 

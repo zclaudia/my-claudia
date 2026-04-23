@@ -359,16 +359,7 @@ function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
   );
 
   // Per-tab unread counts
-  const unreadCounts = useMemo(() => {
-    const counts: Record<NotchTab, number> = { sessions: 0, claudia: 0, approvals: 0, system: 0 };
-    // Count toasts per tab (all toasts are "unread")
-    for (const t of toasts) counts[t.category ?? classifyToast(t)]++;
-    // Count unread feed items per tab
-    for (const i of items) {
-      if (!i.readAt) counts[classifyFeedItem(i)]++;
-    }
-    return counts;
-  }, [toasts, items]);
+  const unreadCounts = useNotificationFeedStore((s) => s.unreadCountsByTab);
   const tabUnreadCount = unreadCounts[activeTab];
 
   const handleMarkAllRead = useCallback(() => {

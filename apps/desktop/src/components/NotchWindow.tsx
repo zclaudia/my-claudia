@@ -16,7 +16,7 @@ import {
 } from '../services/notchBridge';
 import { classifyToast, classifyFeedItem, type NotchTab } from '../utils/notchTabCategory';
 import { NOTCH_WINDOW_TIMINGS } from '../config/notch';
-import type { NotificationItem } from '@my-claudia/shared';
+import { EMPTY_NOTIFICATION_UNREAD_COUNTS_BY_TAB, type NotificationItem } from '@my-claudia/shared';
 import type { Toast } from '../stores/toastStore';
 
 const AUTO_COLLAPSE_MS = NOTCH_WINDOW_TIMINGS.autoCollapseCheckMs;
@@ -77,6 +77,7 @@ export function NotchWindow() {
     toasts: [],
     items: [],
     unreadCount: 0,
+    unreadCountsByTab: { ...EMPTY_NOTIFICATION_UNREAD_COUNTS_BY_TAB },
     projects: [],
     lastPreviewTitle: null,
     hasPendingAttention: false,
@@ -394,14 +395,7 @@ export function NotchWindow() {
   );
 
   // Per-tab unread counts
-  const unreadCounts = useMemo(() => {
-    const counts: Record<NotchTab, number> = { sessions: 0, claudia: 0, approvals: 0, system: 0 };
-    for (const t of snapshot.toasts) counts[t.category ?? classifyToast(t)]++;
-    for (const i of snapshot.items) {
-      if (!i.readAt) counts[classifyFeedItem(i)]++;
-    }
-    return counts;
-  }, [snapshot.toasts, snapshot.items]);
+  const unreadCounts = snapshot.unreadCountsByTab;
 
   const hasReadItems = filteredItems.some((i) => i.readAt);
 

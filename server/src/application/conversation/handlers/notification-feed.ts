@@ -24,6 +24,7 @@ export function handleGetNotifications(
     items: result.items,
     hasMore: result.hasMore,
     unreadCount: result.unreadCount,
+    unreadCountsByTab: result.unreadCountsByTab,
     append: typeof message.before === 'number',
   } as NotificationListMessage);
 }

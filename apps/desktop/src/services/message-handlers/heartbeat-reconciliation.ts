@@ -262,8 +262,17 @@ export function handleHeartbeat(
       const nextUnreadCount = store.hydrated && !store.hasMore
         ? derivedUnreadCount
         : heartbeat.unreadFeedCount!;
-      if (store.unreadCount !== nextUnreadCount) {
-        m.useNotificationFeedStore.setState({ unreadCount: nextUnreadCount });
+      const nextUnreadCountsByTab = store.hydrated && !store.hasMore
+        ? store.unreadCountsByTab
+        : (heartbeat.unreadFeedCountsByTab ?? store.unreadCountsByTab);
+      if (
+        store.unreadCount !== nextUnreadCount
+        || store.unreadCountsByTab !== nextUnreadCountsByTab
+      ) {
+        m.useNotificationFeedStore.setState({
+          unreadCount: nextUnreadCount,
+          unreadCountsByTab: nextUnreadCountsByTab,
+        });
       }
     });
   }

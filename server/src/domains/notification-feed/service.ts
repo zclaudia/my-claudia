@@ -71,6 +71,7 @@ export class NotificationService {
     items: NotificationItem[];
     hasMore: boolean;
     unreadCount: number;
+    unreadCountsByTab: import('@my-claudia/shared/features/notification-feed').NotificationUnreadCountsByTab;
   } {
     const limit = options?.limit ?? 50;
     const items = this.repo.list({ ...options, limit: limit + 1 });
@@ -81,6 +82,7 @@ export class NotificationService {
       items,
       hasMore,
       unreadCount: this.repo.unreadCount(),
+      unreadCountsByTab: this.repo.unreadCountsByTab(),
     };
   }
 
@@ -91,11 +93,13 @@ export class NotificationService {
     }
     const readAt = this.repo.markRead(ids);
     const unreadCount = this.repo.unreadCount();
+    const unreadCountsByTab = this.repo.unreadCountsByTab();
     this.broadcastFn({
       type: 'notification_read',
       itemIds: ids,
       readAt: readAt ?? Date.now(),
       unreadCount,
+      unreadCountsByTab,
     } as NotificationReadMessage);
     return unreadCount;
   }
@@ -103,11 +107,13 @@ export class NotificationService {
   markAllRead(): number {
     const readAt = this.repo.markAllRead();
     const unreadCount = this.repo.unreadCount();
+    const unreadCountsByTab = this.repo.unreadCountsByTab();
     this.broadcastFn({
       type: 'notification_read',
       itemIds: [],
       readAt,
       unreadCount,
+      unreadCountsByTab,
     } as NotificationReadMessage);
     return unreadCount;
   }
@@ -123,6 +129,10 @@ export class NotificationService {
   /** Get unread count */
   getUnreadCount(): number {
     return this.repo.unreadCount();
+  }
+
+  getUnreadCountsByTab(): import('@my-claudia/shared/features/notification-feed').NotificationUnreadCountsByTab {
+    return this.repo.unreadCountsByTab();
   }
 
   /** Find feed item by task ID (for updating on task completion) */

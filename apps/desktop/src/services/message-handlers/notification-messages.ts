@@ -54,6 +54,7 @@ export function handleNotificationMessage(
           })),
           feedMsg.hasMore,
           feedMsg.unreadCount,
+          feedMsg.unreadCountsByTab,
           feedMsg.append,
         );
         m.useNotificationFeedStore.getState().setLoading(false);
@@ -64,9 +65,14 @@ export function handleNotificationMessage(
     case 'notification_read': {
       const readMsg = msg as import('@my-claudia/shared').NotificationReadMessage;
       import('../../stores/notificationFeedStore').then(m => {
+        if (readMsg.itemIds.length === 0) {
+          m.useNotificationFeedStore.getState().markAllRead(readMsg.readAt);
+          return;
+        }
         m.useNotificationFeedStore.getState().markRead(
           readMsg.itemIds,
           readMsg.unreadCount,
+          readMsg.unreadCountsByTab,
           readMsg.readAt,
         );
       });

@@ -128,6 +128,7 @@ export function useNotchBridgeHost(params: { enabled: boolean }): void {
         toasts,
         items: feed.items,
         unreadCount: feed.unreadCount,
+        unreadCountsByTab: feed.unreadCountsByTab,
         projects,
         lastPreviewTitle: toasts[0]?.title ?? null,
         hasPendingAttention,

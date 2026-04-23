@@ -39,6 +39,7 @@ export interface NotificationListMessage {
   items: import('../../features/notification-feed.js').NotificationItem[];
   hasMore: boolean;
   unreadCount: number;
+  unreadCountsByTab: import('../../features/notification-feed.js').NotificationUnreadCountsByTab;
   append?: boolean;
 }
 
@@ -47,4 +48,5 @@ export interface NotificationReadMessage {
   itemIds: string[];
   readAt: number;
   unreadCount: number;
+  unreadCountsByTab: import('../../features/notification-feed.js').NotificationUnreadCountsByTab;
 }

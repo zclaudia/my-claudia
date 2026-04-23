@@ -1,7 +1,11 @@
 import type { Toast } from '../stores/toastStore';
-import type { NotificationItem } from '@my-claudia/shared';
+import {
+  classifyNotificationItemTab,
+  type NotificationInboxTab,
+  type NotificationItem,
+} from '@my-claudia/shared';
 
-export type NotchTab = 'sessions' | 'claudia' | 'approvals' | 'system';
+export type NotchTab = NotificationInboxTab;
 
 export const NOTCH_TABS: readonly NotchTab[] = ['sessions', 'claudia', 'approvals', 'system'] as const;
 
@@ -26,8 +30,5 @@ export function classifyToast(toast: Toast): NotchTab {
 }
 
 export function classifyFeedItem(item: NotificationItem): NotchTab {
-  // Claudia-initiated feed items go to the Claudia tab (except delegation/approval items)
-  if (item.initiator === 'claudia' && !item.delegationContext) return 'claudia';
-  if (item.source === 'delegation' || item.delegationContext) return 'approvals';
-  return 'sessions';
+  return classifyNotificationItemTab(item);
 }

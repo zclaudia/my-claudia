@@ -1,6 +1,14 @@
 import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
-import type { NotificationItem, NotificationStatus, NotificationSource, NotificationInitiator } from '@my-claudia/shared/features/notification-feed';
+import {
+  EMPTY_NOTIFICATION_UNREAD_COUNTS_BY_TAB,
+  classifyNotificationItemTab,
+  type NotificationItem,
+  type NotificationStatus,
+  type NotificationSource,
+  type NotificationInitiator,
+  type NotificationUnreadCountsByTab,
+} from '@my-claudia/shared/features/notification-feed';
 
 interface FeedRow {
   id: string;
@@ -139,6 +147,24 @@ export class NotificationRepository {
   unreadCount(): number {
     const row = this.db.prepare('SELECT COUNT(*) as count FROM notifications WHERE read_at IS NULL').get() as { count: number };
     return row.count;
+  }
+
+  unreadCountsByTab(): NotificationUnreadCountsByTab {
+    const rows = this.db.prepare(
+      'SELECT source, initiator, delegation_context FROM notifications WHERE read_at IS NULL'
+    ).all() as Array<Pick<FeedRow, 'source' | 'initiator' | 'delegation_context'>>;
+
+    const counts: NotificationUnreadCountsByTab = { ...EMPTY_NOTIFICATION_UNREAD_COUNTS_BY_TAB };
+    for (const row of rows) {
+      const tab = classifyNotificationItemTab({
+        source: row.source as NotificationSource,
+        initiator: (row.initiator as NotificationInitiator) ?? undefined,
+        delegationContext: row.delegation_context ? JSON.parse(row.delegation_context) : undefined,
+      });
+      counts[tab] += 1;
+    }
+
+    return counts;
   }
 
   findById(id: string): NotificationItem | undefined {

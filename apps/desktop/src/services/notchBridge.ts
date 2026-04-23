@@ -19,6 +19,7 @@
 import type { NotificationItem } from '@my-claudia/shared';
 import type { Toast } from '../stores/toastStore';
 import type { NotchTab } from '../utils/notchTabCategory';
+import type { NotificationUnreadCountsByTab } from '@my-claudia/shared';
 
 export interface NotchProjectSlim {
   id: string;
@@ -29,6 +30,7 @@ export interface NotchStateSnapshot {
   toasts: Toast[];
   items: NotificationItem[];
   unreadCount: number;
+  unreadCountsByTab: NotificationUnreadCountsByTab;
   projects: NotchProjectSlim[];
   lastPreviewTitle: string | null;
   hasPendingAttention: boolean;
