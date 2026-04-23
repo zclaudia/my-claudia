@@ -397,6 +397,7 @@ export function handleServerMessage(
       if (isRunEventGap(msg.runId, msg.seq)) recoverRunGap(ctx, msg.runId, msg.seq, msg.sessionId);
       if (isStaleRunEvent(msg.runId, msg.seq)) break;
       useChatStore.getState().setRuntimeMode(msg.sessionId, msg.mode);
+      useChatStore.getState().setMode(msg.sessionId, msg.mode);
       break;
 
     // ── Permissions ──
