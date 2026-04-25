@@ -1,6 +1,8 @@
+import { useRef, useEffect, useState, useCallback } from 'react';
 import type { Toast, ToastIcon } from '../stores/toastStore';
 import { timeAgo } from '../utils/timeAgo';
 import { NOTCH_TABS, NOTCH_TAB_LABELS, type NotchTab } from '../utils/notchTabCategory';
+import type { PluginNotchTab } from '../stores/pluginStore';
 
 // ---------------------------------------------------------------------------
 // Pure visual building blocks used by both:
@@ -249,34 +251,78 @@ export interface OpenedRowProps {
 export interface NotchTabBarProps {
   activeTab: NotchTab;
   onTabChange: (tab: NotchTab) => void;
-  unreadCounts: Record<NotchTab, number>;
+  unreadCounts: Record<string, number>;
+  pluginTabs?: PluginNotchTab[];
 }
 
-export function NotchTabBar({ activeTab, onTabChange, unreadCounts }: NotchTabBarProps) {
+export function NotchTabBar({ activeTab, onTabChange, unreadCounts, pluginTabs = [] }: NotchTabBarProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const hasPluginTabs = pluginTabs.length > 0;
+
+  // Scroll active tab into view
+  useEffect(() => {
+    if (!scrollRef.current || !hasPluginTabs) return;
+    const active = scrollRef.current.querySelector('[data-active="true"]');
+    active?.scrollIntoView({ inline: 'nearest', behavior: 'smooth', block: 'nearest' });
+  }, [activeTab, hasPluginTabs]);
+
+  // Track scroll overflow for gradient masks
+  const [canScroll, setCanScroll] = useState({ left: false, right: false });
+  const updateScrollState = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setCanScroll({
+      left: el.scrollLeft > 1,
+      right: el.scrollLeft < el.scrollWidth - el.clientWidth - 1,
+    });
+  }, []);
+  useEffect(() => {
+    if (!hasPluginTabs) return;
+    updateScrollState();
+  }, [pluginTabs.length, hasPluginTabs, updateScrollState]);
+
+  const renderTab = (key: string, label: string, isActive: boolean, count: number, onClick: () => void) => (
+    <button
+      key={key}
+      type="button"
+      data-active={isActive}
+      onClick={onClick}
+      className={`${hasPluginTabs ? 'min-w-[60px] shrink-0 px-2' : 'flex-1'} flex items-center justify-center gap-1 h-7 rounded-md text-[11.5px] tracking-tight transition-all duration-150
+                  ${isActive
+                    ? 'bg-white/[0.1] text-white font-semibold shadow-[0_1px_2px_rgba(0,0,0,0.2)]'
+                    : 'text-white/50 hover:text-white/70'}`}
+    >
+      <span className="truncate">{label}</span>
+      {count > 0 && (
+        <span className={`min-w-[14px] h-3.5 px-1 flex items-center justify-center rounded-full text-[9px] font-semibold leading-none tabular-nums shrink-0
+                         ${isActive ? 'bg-white/15 text-white' : 'bg-white/10 text-white/50'}`}>
+          {count > 99 ? '99+' : count}
+        </span>
+      )}
+    </button>
+  );
+
+  // Gradient mask for scroll overflow indicators
+  const maskStyle = hasPluginTabs && (canScroll.left || canScroll.right)
+    ? {
+        maskImage: `linear-gradient(to right, ${canScroll.left ? 'transparent, black 16px' : 'black'}, ${canScroll.right ? 'black calc(100% - 16px), transparent' : 'black'})`,
+        WebkitMaskImage: `linear-gradient(to right, ${canScroll.left ? 'transparent, black 16px' : 'black'}, ${canScroll.right ? 'black calc(100% - 16px), transparent' : 'black'})`,
+      }
+    : undefined;
+
   return (
-    <div className="flex items-center gap-0.5 mx-2 my-1.5 p-0.5 rounded-lg bg-white/[0.06]">
-      {NOTCH_TABS.map((tab) => {
-        const isActive = tab === activeTab;
-        const count = unreadCounts[tab];
-        return (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => onTabChange(tab)}
-            className={`flex-1 flex items-center justify-center gap-1 h-7 rounded-md text-[11.5px] tracking-tight transition-all duration-150
-                        ${isActive
-                          ? 'bg-white/[0.1] text-white font-semibold shadow-[0_1px_2px_rgba(0,0,0,0.2)]'
-                          : 'text-white/50 hover:text-white/70'}`}
-          >
-            {NOTCH_TAB_LABELS[tab]}
-            {count > 0 && (
-              <span className={`min-w-[14px] h-3.5 px-1 flex items-center justify-center rounded-full text-[9px] font-semibold leading-none tabular-nums
-                               ${isActive ? 'bg-white/15 text-white' : 'bg-white/10 text-white/50'}`}>
-                {count > 99 ? '99+' : count}
-              </span>
-            )}
-          </button>
-        );
+    <div
+      ref={scrollRef}
+      onScroll={hasPluginTabs ? updateScrollState : undefined}
+      style={maskStyle}
+      className={`flex items-center gap-0.5 mx-2 my-1.5 p-0.5 rounded-lg bg-white/[0.06] ${hasPluginTabs ? 'overflow-x-auto scrollbar-hide' : ''}`}
+    >
+      {NOTCH_TABS.map((tab) =>
+        renderTab(tab, NOTCH_TAB_LABELS[tab], tab === activeTab, unreadCounts[tab] ?? 0, () => onTabChange(tab))
+      )}
+      {pluginTabs.map((pt) => {
+        const tabKey: NotchTab = `plugin:${pt.id}`;
+        return renderTab(tabKey, pt.label, tabKey === activeTab, unreadCounts[tabKey] ?? 0, () => onTabChange(tabKey));
       })}
     </div>
   );

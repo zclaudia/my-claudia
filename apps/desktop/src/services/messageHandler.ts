@@ -710,6 +710,8 @@ export function handleServerMessage(
     case 'plugin_show_panel':
     case 'plugin_panel_registered':
     case 'plugin_panel_unregistered':
+    case 'plugin_notch_tab_registered':
+    case 'plugin_notch_tab_unregistered':
       handlePluginMessage(msg, serverId, backendId);
       break;
 

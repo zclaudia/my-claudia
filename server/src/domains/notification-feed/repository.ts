@@ -160,8 +160,10 @@ export class NotificationRepository {
         source: row.source as NotificationSource,
         initiator: (row.initiator as NotificationInitiator) ?? undefined,
         delegationContext: row.delegation_context ? JSON.parse(row.delegation_context) : undefined,
+        pluginTab: undefined,
       });
-      counts[tab] += 1;
+      // Only count built-in tabs; plugin tab counts are computed client-side
+      if (tab in counts) counts[tab as keyof NotificationUnreadCountsByTab] += 1;
     }
 
     return counts;

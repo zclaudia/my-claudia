@@ -8,6 +8,7 @@ import { useSelectionCoordinator } from '../hooks/useSelectionCoordinator';
 import { timeAgo } from '../utils/timeAgo';
 import { classifyToast, classifyFeedItem, type NotchTab } from '../utils/notchTabCategory';
 import { NotchTabBar } from './NotchPanelVisuals';
+import { usePluginStore, selectPluginNotchTabs } from '../stores/pluginStore';
 import type { NotificationItem as NotificationItemData } from '@my-claudia/shared';
 
 // ---------------------------------------------------------------------------
@@ -324,12 +325,18 @@ function OpenedRow({
 
 // ---- Opened panel ---------------------------------------------------------
 
-const TAB_EMPTY_TEXT: Record<NotchTab, { title: string; subtitle: string }> = {
+const BUILTIN_TAB_EMPTY_TEXT: Record<string, { title: string; subtitle: string }> = {
   sessions: { title: "You're all caught up.", subtitle: 'Task results and session events will appear here.' },
   claudia: { title: 'No Claudia activity.', subtitle: 'Claudia Chat task results and updates will appear here.' },
   approvals: { title: 'No pending approvals.', subtitle: 'Permission requests and AI reviews will appear here.' },
   system: { title: 'All systems normal.', subtitle: 'Connection and sync status will appear here.' },
 };
+
+function getTabEmptyText(tab: NotchTab, pluginLabel?: string): { title: string; subtitle: string } {
+  if (tab in BUILTIN_TAB_EMPTY_TEXT) return BUILTIN_TAB_EMPTY_TEXT[tab]!;
+  const label = pluginLabel ?? 'Plugin';
+  return { title: `No ${label} activity.`, subtitle: `${label} notifications will appear here.` };
+}
 
 function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
   const toasts = useToastStore((s) => s.toasts);
@@ -341,6 +348,7 @@ function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
   const setHovering = useNotchPanelStore((s) => s.setHovering);
   const activeTab = useNotchPanelStore((s) => s.activeTab);
   const setActiveTab = useNotchPanelStore((s) => s.setActiveTab);
+  const pluginNotchTabs = usePluginStore(selectPluginNotchTabs);
 
   useEffect(() => {
     if (hydrated) return;
@@ -358,9 +366,20 @@ function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
     [items, activeTab],
   );
 
-  // Per-tab unread counts
-  const unreadCounts = useNotificationFeedStore((s) => s.unreadCountsByTab);
-  const tabUnreadCount = unreadCounts[activeTab];
+  // Per-tab unread counts — merge built-in counts with plugin tab counts
+  const builtinUnreadCounts = useNotificationFeedStore((s) => s.unreadCountsByTab);
+  const unreadCounts = useMemo(() => {
+    const merged: Record<string, number> = { ...builtinUnreadCounts };
+    // Compute unread counts for plugin tabs from notification items
+    for (const item of items) {
+      if (item.pluginTab && !item.readAt) {
+        const key = `plugin:${item.pluginTab}`;
+        merged[key] = (merged[key] ?? 0) + 1;
+      }
+    }
+    return merged;
+  }, [builtinUnreadCounts, items]);
+  const tabUnreadCount = unreadCounts[activeTab] ?? 0;
 
   const handleMarkAllRead = useCallback(() => {
     if (tabUnreadCount > 0) {
@@ -395,7 +414,10 @@ function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
   };
 
   const hasReadItems = filteredItems.some((i) => i.readAt);
-  const emptyText = TAB_EMPTY_TEXT[activeTab];
+  const activePluginTab = activeTab.startsWith('plugin:')
+    ? pluginNotchTabs.find((t) => `plugin:${t.id}` === activeTab)
+    : undefined;
+  const emptyText = getTabEmptyText(activeTab, activePluginTab?.label);
 
   return (
     <div
@@ -429,7 +451,7 @@ function OpenedPanel({ onRequestClose }: { onRequestClose: () => void }) {
       </div>
 
       {/* Tab bar */}
-      <NotchTabBar activeTab={activeTab} onTabChange={setActiveTab} unreadCounts={unreadCounts} />
+      <NotchTabBar activeTab={activeTab} onTabChange={setActiveTab} unreadCounts={unreadCounts} pluginTabs={pluginNotchTabs} />
 
       {/* List */}
       <div className="flex-1 overflow-y-auto px-1.5 py-1.5">

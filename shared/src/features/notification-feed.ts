@@ -46,14 +46,17 @@ export interface NotificationItem {
   status: NotificationStatus;
   error?: string;
   delegationContext?: DelegationContext;
+  /** Target plugin notch tab ID (namespaced as 'pluginId/tabId') */
+  pluginTab?: string;
   createdAt: number;
   completedAt?: number;
   readAt?: number;
 }
 
 export function classifyNotificationItemTab(
-  item: Pick<NotificationItem, 'initiator' | 'delegationContext' | 'source'>,
-): NotificationInboxTab {
+  item: Pick<NotificationItem, 'initiator' | 'delegationContext' | 'source' | 'pluginTab'>,
+): NotificationInboxTab | `plugin:${string}` {
+  if (item.pluginTab) return `plugin:${item.pluginTab}`;
   if (item.initiator === 'claudia' && !item.delegationContext) return 'claudia';
   if (item.source === 'delegation' || item.delegationContext) return 'approvals';
   return 'sessions';

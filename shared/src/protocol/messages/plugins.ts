@@ -31,6 +31,8 @@ export interface PluginNotificationMessage {
   pluginId: string;
   title: string;
   body: string;
+  /** Target plugin notch tab ID (namespaced as 'pluginId/tabId') */
+  notchTab?: string;
 }
 
 // Plugin show panel (Server → Client)
@@ -54,6 +56,22 @@ export interface PluginPanelRegisteredMessage {
 // Plugin panel unregistered (Server → Client) — sent when a plugin deactivates
 export interface PluginPanelUnregisteredMessage {
   type: 'plugin_panel_unregistered';
+  pluginId: string;
+}
+
+// Plugin notch tab registered (Server → Client) — sent when a plugin activates with notchTabs
+export interface PluginNotchTabRegisteredMessage {
+  type: 'plugin_notch_tab_registered';
+  tabId: string;
+  pluginId: string;
+  label: string;
+  icon?: string;
+  order?: number;
+}
+
+// Plugin notch tab unregistered (Server → Client) — sent when a plugin deactivates
+export interface PluginNotchTabUnregisteredMessage {
+  type: 'plugin_notch_tab_unregistered';
   pluginId: string;
 }
 

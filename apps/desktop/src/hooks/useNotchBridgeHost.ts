@@ -7,6 +7,7 @@ import { useNotificationFeedStore } from '../stores/notificationFeedStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useNotchPanelStore } from '../stores/notchPanelStore';
 import { useUIStore } from '../stores/uiStore';
+import { usePluginStore } from '../stores/pluginStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { useSelectionCoordinator } from './useSelectionCoordinator';
 import {
@@ -133,6 +134,7 @@ export function useNotchBridgeHost(params: { enabled: boolean }): void {
         lastPreviewTitle: toasts[0]?.title ?? null,
         hasPendingAttention,
         activeTab: useNotchPanelStore.getState().activeTab,
+        pluginNotchTabs: usePluginStore.getState().notchTabs,
       };
       emit(NOTCH_EVENT.state, snapshot).catch(() => undefined);
     };
@@ -153,6 +155,9 @@ export function useNotchBridgeHost(params: { enabled: boolean }): void {
       }),
       useNotchPanelStore.subscribe((s, prev) => {
         if (s.activeTab !== prev.activeTab) schedulePublish();
+      }),
+      usePluginStore.subscribe((s, prev) => {
+        if (s.notchTabs !== prev.notchTabs) schedulePublish();
       }),
     ];
 

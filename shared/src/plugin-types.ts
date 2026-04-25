@@ -160,6 +160,17 @@ export type WorkflowStepHandler = (
   },
 ) => Promise<{ status: 'completed' | 'failed'; output: Record<string, unknown>; error?: string }>;
 
+export interface NotchTabContribution {
+  /** Unique ID within the plugin (namespaced as 'pluginId/id' at runtime) */
+  id: string;
+  /** Display label in the tab bar (keep short, ≤8 chars recommended) */
+  label: string;
+  /** Optional icon name */
+  icon?: string;
+  /** Ordering among plugin tabs (lower = left) */
+  order?: number;
+}
+
 export interface SkillContribution {
   /** Relative path to SKILL.md inside the plugin directory */
   path: string;
@@ -177,6 +188,7 @@ export interface PluginContributes {
   workflowSteps?: WorkflowStepContribution[];
   triggerSources?: TriggerSourceContribution[];
   skills?: SkillContribution[];
+  notchTabs?: NotchTabContribution[];
 }
 
 export type ExecutionMode = 'main' | 'worker' | 'sandbox';
@@ -650,6 +662,17 @@ export function validatePluginManifest(manifest: unknown): PluginValidationResul
       }
     }
 
+    if (contributes.notchTabs && Array.isArray(contributes.notchTabs)) {
+      for (const tab of contributes.notchTabs) {
+        if (!tab.id || typeof tab.id !== 'string') {
+          errors.push('NotchTab contribution missing "id" field');
+        }
+        if (!tab.label || typeof tab.label !== 'string') {
+          errors.push('NotchTab contribution missing "label" field');
+        }
+      }
+    }
+
     if (contributes.workflowSteps && Array.isArray(contributes.workflowSteps)) {
       for (const step of contributes.workflowSteps) {
         if (!step.id || typeof step.id !== 'string') {
@@ -688,6 +711,7 @@ export function resolvePluginPlatform(manifest: PluginManifest): PluginPlatform 
     || (c.uiExtensions && c.uiExtensions.length > 0)
     || (c.menus && c.menus.length > 0)
     || (c.keybindings && c.keybindings.length > 0)
+    || (c.notchTabs && c.notchTabs.length > 0)
     || !!manifest.frontend;
 
   return hasUI ? 'desktop' : 'universal';

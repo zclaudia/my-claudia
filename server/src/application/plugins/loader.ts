@@ -1206,11 +1206,12 @@ export class PluginLoader {
       // Notification API (requires notification permission)
       notification: permissionManager.hasPermission(pluginId, 'notification' as Permission)
         ? {
-            show: async (title: string, body: string): Promise<void> => {
+            show: async (title: string, body: string, options?: { notchTab?: string }): Promise<void> => {
               if (!permissionManager.hasPermission(pluginId, 'notification' as Permission))
                 throw new Error('Permission denied: notification');
-              pluginEvents.emit('plugin.notification', { pluginId, title, body }).catch(() => {});
-              this.broadcastFn?.({ type: 'plugin_notification', pluginId, title, body });
+              const notchTab = options?.notchTab ? `${pluginId}/${options.notchTab}` : undefined;
+              pluginEvents.emit('plugin.notification', { pluginId, title, body, notchTab }).catch(() => {});
+              this.broadcastFn?.({ type: 'plugin_notification', pluginId, title, body, notchTab });
             },
           }
         : undefined,

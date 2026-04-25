@@ -5,7 +5,7 @@ import {
   type NotificationItem,
 } from '@my-claudia/shared';
 
-export type NotchTab = NotificationInboxTab;
+export type NotchTab = NotificationInboxTab | `plugin:${string}`;
 
 export const NOTCH_TABS: readonly NotchTab[] = ['sessions', 'claudia', 'approvals', 'system'] as const;
 
@@ -17,6 +17,8 @@ export const NOTCH_TAB_LABELS: Record<NotchTab, string> = {
 };
 
 export function classifyToast(toast: Toast): NotchTab {
+  // Plugin tab routing takes priority
+  if (toast.pluginTab) return `plugin:${toast.pluginTab}`;
   // Claudia-initiated toasts go to the Claudia tab (except permission requests)
   if (toast.initiator === 'claudia' && toast.icon !== 'permission') return 'claudia';
   if (toast.icon === 'permission') return 'approvals';

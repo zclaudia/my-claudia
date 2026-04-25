@@ -56,6 +56,21 @@ export function handlePluginMessage(
             }
           }
         }
+        // Register notch tabs from plugin_state
+        if (p.status === 'active' && p.notchTabs?.length > 0) {
+          for (const tab of p.notchTabs) {
+            const existing = pluginStore.notchTabs.find((t: any) => t.id === tab.id);
+            if (!existing) {
+              pluginStore.registerNotchTab({
+                id: tab.id,
+                pluginId: tab.pluginId ?? p.id,
+                label: tab.label,
+                icon: tab.icon,
+                order: tab.order ?? 0,
+              });
+            }
+          }
+        }
       }
       return true;
     }
@@ -79,6 +94,7 @@ export function handlePluginMessage(
         title: pluginMsg.title,
         summary: pluginMsg.body,
         status: 'completed',
+        pluginTab: pluginMsg.notchTab,
         createdAt: Date.now(),
       }));
       import('../../stores/toastStore').then(m => {
@@ -88,6 +104,7 @@ export function handlePluginMessage(
           type: 'info',
           icon: 'system',
           serverId,
+          pluginTab: pluginMsg.notchTab,
         });
       });
       return true;
@@ -113,6 +130,20 @@ export function handlePluginMessage(
 
     case 'plugin_panel_unregistered':
       usePluginStore.getState().clearPluginExtensions(msg.pluginId);
+      return true;
+
+    case 'plugin_notch_tab_registered':
+      usePluginStore.getState().registerNotchTab({
+        id: msg.tabId,
+        pluginId: msg.pluginId,
+        label: msg.label,
+        icon: msg.icon,
+        order: msg.order ?? 0,
+      });
+      return true;
+
+    case 'plugin_notch_tab_unregistered':
+      usePluginStore.getState().unregisterNotchTabs(msg.pluginId);
       return true;
 
     default:

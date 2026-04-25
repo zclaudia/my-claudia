@@ -20,6 +20,7 @@ import type { NotificationItem } from '@my-claudia/shared';
 import type { Toast } from '../stores/toastStore';
 import type { NotchTab } from '../utils/notchTabCategory';
 import type { NotificationUnreadCountsByTab } from '@my-claudia/shared';
+import type { PluginNotchTab } from '../stores/pluginStore';
 
 export interface NotchProjectSlim {
   id: string;
@@ -35,6 +36,7 @@ export interface NotchStateSnapshot {
   lastPreviewTitle: string | null;
   hasPendingAttention: boolean;
   activeTab: NotchTab;
+  pluginNotchTabs: PluginNotchTab[];
 }
 
 export const NOTCH_EVENT = {

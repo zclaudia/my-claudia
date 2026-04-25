@@ -24,6 +24,8 @@ export interface Toast {
   initiator?: 'system' | 'claudia';
   /** Auto-computed tab category for notch panel filtering. */
   category?: NotchTab;
+  /** Target plugin notch tab (namespaced 'pluginId/tabId') — routes toast to plugin tab. */
+  pluginTab?: string;
 }
 
 const MAX_TOASTS = 3;

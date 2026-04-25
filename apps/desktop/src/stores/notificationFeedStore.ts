@@ -10,11 +10,16 @@ function deriveUnreadCount(items: NotificationItem[]): number {
   return items.reduce((count, item) => count + (item.readAt ? 0 : 1), 0);
 }
 
+function isBuiltinTab(tab: string): tab is keyof NotificationUnreadCountsByTab {
+  return tab === 'sessions' || tab === 'claudia' || tab === 'approvals' || tab === 'system';
+}
+
 function deriveUnreadCountsByTab(items: NotificationItem[]): NotificationUnreadCountsByTab {
   const counts: NotificationUnreadCountsByTab = { ...EMPTY_NOTIFICATION_UNREAD_COUNTS_BY_TAB };
   for (const item of items) {
     if (item.readAt) continue;
-    counts[classifyNotificationItemTab(item)] += 1;
+    const tab = classifyNotificationItemTab(item);
+    if (isBuiltinTab(tab)) counts[tab] += 1;
   }
   return counts;
 }
@@ -96,25 +101,27 @@ export const useNotificationFeedStore = create<NotificationFeedState>((set) => (
       newItems[idx] = item;
       if (!previous.readAt && item.readAt) {
         unreadCount = Math.max(0, unreadCount - 1);
-        unreadCountsByTab[classifyNotificationItemTab(previous)] = Math.max(
-          0,
-          unreadCountsByTab[classifyNotificationItemTab(previous)] - 1,
-        );
+        const prevTab = classifyNotificationItemTab(previous);
+        if (isBuiltinTab(prevTab)) {
+          unreadCountsByTab[prevTab] = Math.max(0, unreadCountsByTab[prevTab] - 1);
+        }
       } else if (previous.readAt && !item.readAt) {
         unreadCount += 1;
-        unreadCountsByTab[itemTab] += 1;
+        if (isBuiltinTab(itemTab)) unreadCountsByTab[itemTab] += 1;
       } else if (!previous.readAt && !item.readAt) {
         const previousTab = classifyNotificationItemTab(previous);
         if (previousTab !== itemTab) {
-          unreadCountsByTab[previousTab] = Math.max(0, unreadCountsByTab[previousTab] - 1);
-          unreadCountsByTab[itemTab] += 1;
+          if (isBuiltinTab(previousTab)) {
+            unreadCountsByTab[previousTab] = Math.max(0, unreadCountsByTab[previousTab] - 1);
+          }
+          if (isBuiltinTab(itemTab)) unreadCountsByTab[itemTab] += 1;
         }
       }
     } else {
       newItems.unshift(item); // newest first
       if (!item.readAt) {
         unreadCount += 1;
-        unreadCountsByTab[itemTab] += 1;
+        if (isBuiltinTab(itemTab)) unreadCountsByTab[itemTab] += 1;
       }
     }
     return { items: newItems, unreadCount, unreadCountsByTab };
@@ -132,7 +139,9 @@ export const useNotificationFeedStore = create<NotificationFeedState>((set) => (
       markedKnownUnread += 1;
       if (!unreadCountsByTab) {
         const tab = classifyNotificationItemTab(item);
-        nextUnreadCountsByTab[tab] = Math.max(0, nextUnreadCountsByTab[tab] - 1);
+        if (isBuiltinTab(tab)) {
+          nextUnreadCountsByTab[tab] = Math.max(0, nextUnreadCountsByTab[tab] - 1);
+        }
       }
       return { ...item, readAt: now };
     });
@@ -155,7 +164,9 @@ export const useNotificationFeedStore = create<NotificationFeedState>((set) => (
     const unreadCountsByTab = { ...state.unreadCountsByTab };
     if (item && !item.readAt) {
       const tab = classifyNotificationItemTab(item);
-      unreadCountsByTab[tab] = Math.max(0, unreadCountsByTab[tab] - 1);
+      if (isBuiltinTab(tab)) {
+        unreadCountsByTab[tab] = Math.max(0, unreadCountsByTab[tab] - 1);
+      }
     }
     return {
       items: state.items.filter((i) => i.id !== id),

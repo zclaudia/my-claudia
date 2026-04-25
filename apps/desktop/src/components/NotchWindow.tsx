@@ -18,6 +18,30 @@ import { classifyToast, classifyFeedItem, type NotchTab } from '../utils/notchTa
 import { NOTCH_WINDOW_TIMINGS } from '../config/notch';
 import { EMPTY_NOTIFICATION_UNREAD_COUNTS_BY_TAB, type NotificationItem } from '@my-claudia/shared';
 import type { Toast } from '../stores/toastStore';
+import type { PluginNotchTab } from '../stores/pluginStore';
+
+function NotchEmptyState({ activeTab, pluginNotchTabs }: { activeTab: NotchTab; pluginNotchTabs: PluginNotchTab[] }) {
+  const pluginTab = activeTab.startsWith('plugin:')
+    ? pluginNotchTabs.find((t) => `plugin:${t.id}` === activeTab)
+    : undefined;
+  const emptyTitle = activeTab === 'sessions' ? "You're all caught up."
+    : activeTab === 'claudia' ? 'No Claudia activity.'
+    : activeTab === 'approvals' ? 'No pending approvals.'
+    : pluginTab ? `No ${pluginTab.label} activity.`
+    : 'All systems normal.';
+  const emptySubtitle = activeTab === 'sessions' ? 'Task results and session events will appear here.'
+    : activeTab === 'claudia' ? 'Claudia Chat task results and updates will appear here.'
+    : activeTab === 'approvals' ? 'Permission requests and AI reviews will appear here.'
+    : pluginTab ? `${pluginTab.label} notifications will appear here.`
+    : 'Connection and sync status will appear here.';
+  return (
+    <div className="px-6 py-10 text-center">
+      <img src="/logo.png" alt="" className="w-10 h-10 mx-auto opacity-40 rounded-xl" draggable={false} />
+      <p className="mt-3 text-[13px] text-white/60">{emptyTitle}</p>
+      <p className="mt-1 text-[11px] text-white/40">{emptySubtitle}</p>
+    </div>
+  );
+}
 
 const AUTO_COLLAPSE_MS = NOTCH_WINDOW_TIMINGS.autoCollapseCheckMs;
 const HOVER_EXPAND_DELAY = NOTCH_WINDOW_TIMINGS.hoverExpandDelayMs;
@@ -82,6 +106,7 @@ export function NotchWindow() {
     lastPreviewTitle: null,
     hasPendingAttention: false,
     activeTab: 'sessions',
+    pluginNotchTabs: [],
   });
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<NotchTab>('sessions');
@@ -394,8 +419,23 @@ export function NotchWindow() {
     [snapshot.items, activeTab],
   );
 
-  // Per-tab unread counts
-  const unreadCounts = snapshot.unreadCountsByTab;
+  // Per-tab unread counts — merge built-in with plugin tab counts
+  const unreadCounts = useMemo(() => {
+    const merged: Record<string, number> = { ...snapshot.unreadCountsByTab };
+    for (const item of snapshot.items) {
+      if (item.pluginTab && !item.readAt) {
+        const key = `plugin:${item.pluginTab}`;
+        merged[key] = (merged[key] ?? 0) + 1;
+      }
+    }
+    return merged;
+  }, [snapshot.unreadCountsByTab, snapshot.items]);
+
+  // Sorted plugin notch tabs
+  const pluginNotchTabs = useMemo(
+    () => [...(snapshot.pluginNotchTabs ?? [])].sort((a, b) => a.order - b.order),
+    [snapshot.pluginNotchTabs],
+  );
 
   const hasReadItems = filteredItems.some((i) => i.readAt);
 
@@ -519,7 +559,7 @@ export function NotchWindow() {
                     Clear read
                   </button>
                 )}
-                {unreadCounts[activeTab] > 0 && (
+                {(unreadCounts[activeTab] ?? 0) > 0 && (
                   <button
                     onClick={markAllRead}
                     className="px-2 h-6 text-[11px] text-white/55 hover:text-white hover:bg-white/[0.06] rounded-md transition-colors"
@@ -531,7 +571,7 @@ export function NotchWindow() {
             </div>
 
             {/* Tab bar */}
-            <NotchTabBar activeTab={activeTab} onTabChange={handleTabChange} unreadCounts={unreadCounts} />
+            <NotchTabBar activeTab={activeTab} onTabChange={handleTabChange} unreadCounts={unreadCounts} pluginTabs={pluginNotchTabs} />
 
             {/* List */}
             <div className="flex-1 min-h-0 overflow-y-auto px-1.5 py-1.5">
@@ -558,15 +598,7 @@ export function NotchWindow() {
               )}
 
               {filteredItems.length === 0 && filteredToasts.length === 0 ? (
-                <div className="px-6 py-10 text-center">
-                  <img src="/logo.png" alt="" className="w-10 h-10 mx-auto opacity-40 rounded-xl" draggable={false} />
-                  <p className="mt-3 text-[13px] text-white/60">
-                    {activeTab === 'sessions' ? "You're all caught up." : activeTab === 'claudia' ? 'No Claudia activity.' : activeTab === 'approvals' ? 'No pending approvals.' : 'All systems normal.'}
-                  </p>
-                  <p className="mt-1 text-[11px] text-white/40">
-                    {activeTab === 'sessions' ? 'Task results and session events will appear here.' : activeTab === 'claudia' ? 'Claudia Chat task results and updates will appear here.' : activeTab === 'approvals' ? 'Permission requests and AI reviews will appear here.' : 'Connection and sync status will appear here.'}
-                  </p>
-                </div>
+                <NotchEmptyState activeTab={activeTab} pluginNotchTabs={pluginNotchTabs} />
               ) : (
                 filteredItems.map((item) => (
                   <OpenedRow

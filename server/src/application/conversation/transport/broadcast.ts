@@ -147,6 +147,13 @@ export function buildPluginStateMessage(): import('@my-claudia/shared/protocol/m
         ? `/api/plugins/${p.manifest.id}/frontend/${panel.frontend}`
         : undefined,
     }));
+    const notchTabs = (contributes.notchTabs || []).map((tab: { id: string; label: string; icon?: string; order?: number }) => ({
+      id: `${p.manifest.id}/${tab.id}`,
+      pluginId: p.manifest.id,
+      label: tab.label,
+      icon: tab.icon,
+      order: tab.order ?? 0,
+    }));
     return {
       id: p.manifest.id,
       name: p.manifest.name,
@@ -162,6 +169,7 @@ export function buildPluginStateMessage(): import('@my-claudia/shared/protocol/m
       path: p.path,
       platform: resolvePluginPlatform(p.manifest),
       panels,
+      notchTabs,
       requires: p.manifest.requires,
       capabilities: p.capabilities,
     };

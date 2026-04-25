@@ -162,7 +162,9 @@ import type {
 } from './notification-feed.js';
 import type {
   PluginStateMessage, PluginNotificationMessage, PluginShowPanelMessage,
-  PluginPanelRegisteredMessage, PluginPanelUnregisteredMessage, FilePushNotificationMessage,
+  PluginPanelRegisteredMessage, PluginPanelUnregisteredMessage,
+  PluginNotchTabRegisteredMessage, PluginNotchTabUnregisteredMessage,
+  FilePushNotificationMessage,
 } from './plugins.js';
 
 export type ServerMessage =
@@ -229,6 +231,8 @@ export type ServerMessage =
   | PluginShowPanelMessage
   | PluginPanelRegisteredMessage
   | PluginPanelUnregisteredMessage
+  | PluginNotchTabRegisteredMessage
+  | PluginNotchTabUnregisteredMessage
   | LocalPRUpdateMessage
   | LocalPRDeletedMessage
   | SystemTaskUpdateMessage
