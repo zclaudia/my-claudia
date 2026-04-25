@@ -23,6 +23,9 @@ mod permissions;
 #[cfg(not(target_os = "android"))]
 mod network_probe;
 
+#[cfg(target_os = "windows")]
+mod wsl;
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -1067,6 +1070,10 @@ pub fn run() {
             check_notch_panel_hover,
             move_notch_to_monitor,
             recenter_notch,
+            #[cfg(target_os = "windows")]
+            wsl::wsl_exec,
+            #[cfg(target_os = "windows")]
+            wsl::wsl_start_server,
         ]);
 
     #[cfg(target_os = "android")]

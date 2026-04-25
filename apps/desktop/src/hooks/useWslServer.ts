@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Command, type Child } from '@tauri-apps/plugin-shell';
 import { resolveResource } from '@tauri-apps/api/path';
+import { invoke } from '@tauri-apps/api/core';
 import { isWindows as isWindowsTauri } from '../utils/platform';
 
 export type WslServerStatus = 'idle' | 'checking' | 'deploying' | 'starting' | 'ready' | 'error';
@@ -43,13 +43,16 @@ async function checkHealth(port: number = DEFAULT_PORT): Promise<boolean> {
 }
 
 /**
- * Run a WSL command using execute (one-shot, waits for completion).
- * Returns { code, stdout, stderr }.
+ * Run a WSL command via the Rust-side `wsl_exec` Tauri command.
+ *
+ * The JS shell-plugin's `Command.execute()` hangs on `wsl bash -c "..."`
+ * because the child inherits a GUI-parent stdin handle that never reports
+ * EOF, leaving wsl.exe's stdio relay stuck. The Rust path uses
+ * `Stdio::null()` for stdin and returns as fast as a direct PowerShell
+ * invocation.
  */
 async function wslExec(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-  const command = Command.create('wsl-check', args);
-  const result = await command.execute();
-  return { code: result.code ?? -1, stdout: result.stdout, stderr: result.stderr };
+  return await invoke<{ code: number; stdout: string; stderr: string }>('wsl_exec', { args });
 }
 
 /**
@@ -72,7 +75,6 @@ export function useWslServer(): WslServerState & {
   });
 
   const mountedRef = useRef(true);
-  const childRef = useRef<Child | null>(null);
 
   const appendOutput = useCallback((line: string) => {
     if (!mountedRef.current) return;
@@ -159,66 +161,22 @@ export function useWslServer(): WslServerState & {
   }, [appendOutput]);
 
   /**
-   * Start the server in WSL using spawn (streaming stdout).
+   * Start the server in WSL via the Rust-side `wsl_start_server` Tauri
+   * command. Rust spawns `wsl bash -c "..."` with `Stdio::null()` for
+   * stdin (avoiding the JS shell-plugin hang), waits for SERVER_READY,
+   * and returns the port. Detailed server stdout/stderr is logged to
+   * the Rust app's stderr instead of the in-app TerminalOutput.
    */
   const startServer = useCallback(async () => {
     setState(prev => ({ ...prev, status: 'starting' }));
     appendOutput('[Server] Starting...');
 
     try {
-      const command = Command.create('wsl-check', [
-        'bash', '-c',
-        `cd ~/.my-claudia && exec ./server/node ./server/server.mjs`,
-      ]);
-
-      command.stdout.on('data', (line: string) => {
-        const trimmed = line.trim();
-        const match = trimmed.match(/^SERVER_READY:(\d+)$/);
-        if (match && mountedRef.current) {
-          const port = parseInt(match[1], 10);
-          appendOutput(`[Server] Ready on port ${port}`);
-          setState(prev => ({ ...prev, port, status: 'ready', error: null }));
-        } else if (trimmed) {
-          appendOutput(`[Server] ${trimmed}`);
-        }
-      });
-
-      command.stderr.on('data', (line: string) => {
-        if (line.trim()) {
-          appendOutput(`[Server] ${line.trim()}`);
-        }
-      });
-
-      command.on('error', (error: string) => {
-        console.error('[WslServer] Process error:', error);
-        appendOutput(`[Server] ERROR: ${error}`);
-        if (mountedRef.current) {
-          setState(prev => ({ ...prev, status: 'error', error }));
-        }
-      });
-
-      command.on('close', (data: { code: number | null; signal: number | null }) => {
-        console.log(`[WslServer] Process exited (code=${data.code}, signal=${data.signal})`);
-        if (!mountedRef.current) return;
-
-        // Check if server is still reachable (handles race conditions)
-        checkHealth().then(ok => {
-          if (ok && mountedRef.current) {
-            setState(prev => ({ ...prev, port: DEFAULT_PORT, status: 'ready', error: null }));
-          } else if (mountedRef.current) {
-            appendOutput(`[Server] Process exited (code=${data.code})`);
-            setState(prev => {
-              if (prev.status === 'ready') return { ...prev, status: 'error', error: 'Server process exited unexpectedly' };
-              if (prev.status === 'starting') return { ...prev, status: 'error', error: `Server failed to start (code=${data.code})` };
-              return prev;
-            });
-          }
-        });
-      });
-
-      const child = await command.spawn();
-      childRef.current = child;
-      console.log(`[WslServer] Spawned server process (pid=${child.pid})`);
+      const { port } = await invoke<{ port: number }>('wsl_start_server');
+      appendOutput(`[Server] Ready on port ${port}`);
+      if (mountedRef.current) {
+        setState(prev => ({ ...prev, port, status: 'ready', error: null }));
+      }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error('[WslServer] Failed to start:', err);
@@ -270,10 +228,9 @@ export function useWslServer(): WslServerState & {
     await startServer();
   }, [appendOutput, deploy, getDeployedVersion, startServer]);
 
-  // Track mount state — do NOT kill the server process on unmount.
-  // WindowsSetup unmounts when the app transitions to the main UI after
-  // a successful connection, but the WSL server must keep running.
-  // The process will be cleaned up when the Tauri window closes.
+  // Track mount state. The server process is owned by Rust and intentionally
+  // outlives this hook — WindowsSetup unmounts when the app transitions to
+  // the main UI, and we want the WSL server to keep running.
   useEffect(() => {
     mountedRef.current = true;
     return () => {
