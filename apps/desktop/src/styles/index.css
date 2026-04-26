@@ -375,7 +375,24 @@ body.notch-window {
 [data-tauri-drag-region] a,
 [data-tauri-drag-region] input,
 [data-tauri-drag-region] select,
+[data-tauri-drag-region] textarea,
+[data-tauri-drag-region] [contenteditable="true"],
 [data-tauri-drag-region] [role="button"] {
+  -webkit-app-region: no-drag;
+}
+
+/* Scroll containers must stay interactive inside any accidental drag region. */
+[data-tauri-no-drag],
+[data-tauri-no-drag] *,
+[data-tauri-drag-region].overflow-auto,
+[data-tauri-drag-region].overflow-x-auto,
+[data-tauri-drag-region].overflow-y-auto,
+[data-tauri-drag-region] .overflow-auto,
+[data-tauri-drag-region] .overflow-auto *,
+[data-tauri-drag-region] .overflow-x-auto,
+[data-tauri-drag-region] .overflow-x-auto *,
+[data-tauri-drag-region] .overflow-y-auto,
+[data-tauri-drag-region] .overflow-y-auto * {
   -webkit-app-region: no-drag;
 }
 

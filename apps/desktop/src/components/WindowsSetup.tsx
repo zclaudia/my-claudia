@@ -190,7 +190,7 @@ export function WindowsSetup() {
   const PageWrapper = ({ children }: { children: React.ReactNode }) => (
     <div className="flex flex-col h-dvh bg-background text-foreground">
       <div className="safe-top-spacer bg-background flex-shrink-0" data-tauri-drag-region />
-      <div className="flex-1 flex items-center justify-center p-6" data-tauri-drag-region>
+      <div className="flex-1 flex items-center justify-center p-6">
         {children}
       </div>
     </div>
