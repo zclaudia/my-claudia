@@ -31,6 +31,7 @@ export default defineConfig({
       'src/hooks/__tests__/useMessagePagination.test.ts',
       'src/hooks/__tests__/useMediaQuery.test.ts',
       'src/hooks/__tests__/useMultiServerSocket.test.ts',
+      'src/hooks/__tests__/useMainWindowGeometry.test.tsx',
       'src/hooks/__tests__/useProjectManager.test.ts',
       'src/hooks/__tests__/useProviderManager.test.ts',
       'src/hooks/__tests__/useSessionManager.test.ts',

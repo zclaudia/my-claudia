@@ -48,6 +48,7 @@ import { initBuiltinPanels } from './plugins/builtinPanels';
 import { useAutoUpdate } from './hooks/useAutoUpdate';
 import { useServerLatencyMonitor } from './hooks/useServerLatencyMonitor';
 import { useActiveSessionStream } from './hooks/useActiveSessionStream';
+import { useMainWindowGeometry } from './hooks/useMainWindowGeometry';
 import { useRecoveryStore } from './stores/recoveryStore';
 import { UpdateBanner } from './components/UpdateBanner';
 import { BrandMark } from './components/BrandMark';
@@ -101,6 +102,7 @@ function AppContent() {
   const disabledBuiltinPanels = usePluginStore((s) => s.disabledBuiltinPanels);
   const notificationUnreadCount = useNotificationFeedStore((s) => s.unreadCount);
   const [isFeedOpen, setFeedOpen] = useState(false);
+  useMainWindowGeometry();
   // Host bridge: on desktop, spawn the independent notch window and keep it in sync.
   useNotchBridgeHost({ enabled: !isMobile });
   const fileViewerFullscreen = useFileViewerStore((s) => s.fullscreen);
