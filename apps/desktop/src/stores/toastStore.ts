@@ -29,7 +29,7 @@ export interface Toast {
 }
 
 const MAX_TOASTS = 3;
-const AUTO_DISMISS_MS = 5000;
+const AUTO_DISMISS_MS = 3000;
 
 interface ToastState {
   toasts: Toast[];

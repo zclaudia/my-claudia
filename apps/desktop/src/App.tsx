@@ -804,7 +804,7 @@ function AppContent() {
       </div>
 
       {/* Toast notifications */}
-      {isMobile && <ToastContainer />}
+      {isMobile && <ToastContainer className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2" />}
 
       {/* Fullscreen file viewer overlay (mobile) */}
       {fileViewerFullscreen && fileViewerFilePath && fileViewerProjectRoot && (

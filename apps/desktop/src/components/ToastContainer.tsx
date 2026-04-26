@@ -17,7 +17,7 @@ function ToastCard({ toast }: { toast: Toast }) {
         remove(toast.id);
       }}
       className={`flex items-start gap-2 p-3 rounded-lg border shadow-lg backdrop-blur-sm cursor-pointer
-        animate-in slide-in-from-bottom-2 fade-in duration-200
+        animate-in slide-in-from-top-2 fade-in duration-200
         ${style.bg} hover:opacity-90 transition-opacity max-w-[320px] pointer-events-auto`}
     >
       <span className="text-sm flex-shrink-0 mt-0.5">{style.icon}</span>
