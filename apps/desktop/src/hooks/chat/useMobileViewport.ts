@@ -1,35 +1,42 @@
 import { useEffect, type RefObject } from 'react';
-import { isAndroid } from '../../utils/platform';
+
+const KEYBOARD_OVERLAY_THRESHOLD_PX = 80;
 
 /**
  * Mobile: keep chat pinned to the visible viewport when soft keyboard opens.
- * Android Tauri WebView already uses adjustResize, so the layout shrinks with
- * the keyboard automatically. Applying visualViewport-based fixed positioning on
- * top of that causes the composer to float above the keyboard.
+ * When the native shell already resizes the layout viewport, leave CSS layout
+ * alone. When the keyboard overlays the webview, pin the chat root to the
+ * visual viewport so the composer remains visible.
  */
 export function useMobileViewport(chatRootRef: RefObject<HTMLDivElement | null>, isMobile: boolean) {
   useEffect(() => {
     if (!isMobile) return;
-    if (isAndroid()) return;
     const vv = window.visualViewport;
     if (!vv) return;
+
+    const reset = (el: HTMLDivElement) => {
+      el.style.position = '';
+      el.style.top = '';
+      el.style.left = '';
+      el.style.right = '';
+      el.style.width = '';
+      el.style.height = '';
+    };
 
     const sync = () => {
       const el = chatRootRef.current;
       if (!el) return;
-      const h = Math.min(window.innerHeight, vv.height);
-      if (h < window.innerHeight) {
+
+      const keyboardOverlaysWebview = window.innerHeight - vv.height > KEYBOARD_OVERLAY_THRESHOLD_PX;
+      if (keyboardOverlaysWebview) {
         el.style.position = 'fixed';
-        el.style.top = '0';
-        el.style.left = '0';
+        el.style.top = `${vv.offsetTop || 0}px`;
+        el.style.left = `${vv.offsetLeft || 0}px`;
         el.style.right = '0';
-        el.style.height = `${h}px`;
+        el.style.width = `${vv.width}px`;
+        el.style.height = `${vv.height}px`;
       } else {
-        el.style.position = '';
-        el.style.top = '';
-        el.style.left = '';
-        el.style.right = '';
-        el.style.height = '';
+        reset(el);
       }
     };
 
@@ -40,13 +47,7 @@ export function useMobileViewport(chatRootRef: RefObject<HTMLDivElement | null>,
       vv.removeEventListener('resize', sync);
       vv.removeEventListener('scroll', sync);
       const el = chatRootRef.current;
-      if (el) {
-        el.style.position = '';
-        el.style.top = '';
-        el.style.left = '';
-        el.style.right = '';
-        el.style.height = '';
-      }
+      if (el) reset(el);
     };
   }, [isMobile]);
 }
