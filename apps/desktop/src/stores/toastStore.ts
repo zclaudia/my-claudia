@@ -45,9 +45,12 @@ export const useToastStore = create<ToastState>((set) => ({
     const entry: Toast = { ...toast, id, createdAt: Date.now() };
     entry.category = classifyToast(entry);
 
-    set((state) => ({
-      toasts: [entry, ...state.toasts].slice(0, MAX_TOASTS),
-    }));
+    set((state) => {
+      const base = toast.sessionId
+        ? state.toasts.filter((t) => t.sessionId !== toast.sessionId)
+        : state.toasts;
+      return { toasts: [entry, ...base].slice(0, MAX_TOASTS) };
+    });
 
     // Mirror title into the NotchPanel closed-pill preview so users see the
     // latest event even if they don't have the panel open.

@@ -517,6 +517,8 @@ export function syncToGatewayStore(
         type: 'error',
         title: '消息同步失败',
         message: event.error,
+        sessionId: event.sessionId,
+        serverId: event.backendId,
       });
       break;
 

@@ -439,14 +439,16 @@ export function handleServerMessage(
       break;
 
     case 'permission_auto_resolved': {
-      updateClaudiaTaskStatusBySessionId((msg as import('@my-claudia/shared').PermissionAutoResolvedMessage).sessionId, 'running');
-      const autoResolveToast = buildAIReviewAutoResolveToastMessage(msg as import('@my-claudia/shared').PermissionAutoResolvedMessage);
+      const autoMsg = msg as import('@my-claudia/shared').PermissionAutoResolvedMessage;
+      updateClaudiaTaskStatusBySessionId(autoMsg.sessionId, 'running');
+      const autoResolveToast = buildAIReviewAutoResolveToastMessage(autoMsg);
       if (autoResolveToast) {
         useToastStore.getState().add({
           title: 'Permission auto-approved',
           message: autoResolveToast,
           type: 'success',
           icon: 'permission',
+          sessionId: autoMsg.sessionId,
           serverId,
         });
       }
@@ -469,6 +471,7 @@ export function handleServerMessage(
           message: toastMessage,
           type: aiMsg.decision === 'deny' ? 'error' : 'info',
           icon: 'permission',
+          sessionId: aiMsg.sessionId,
           serverId,
         });
       }
