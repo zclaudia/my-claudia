@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, type CSSProperties } from 'react';
 import { useFileViewerStore } from '../../stores/fileViewerStore';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -137,9 +137,11 @@ export function FileViewerActions() {
 export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
   const {
     filePath, content, loading, error, searchOpen,
+    targetLine, targetEndLine, targetNonce,
     openFile, setContent, setError, setSearchOpen,
   } = useFileViewerStore();
   const fileBackendId = resolveProjectBackendId(projectRoot);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const { resolvedTheme } = useTheme();
 
@@ -170,6 +172,18 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
   const lang = filePath ? detectLanguage(filePath) : 'text';
   const codeStyle = isDarkTheme(resolvedTheme) ? oneDark : oneLight;
   const isMarkdown = lang === 'markdown';
+  const highlightStart = targetLine ?? null;
+  const highlightEnd = targetEndLine ?? targetLine ?? null;
+
+  // Scroll to the target line whenever a new target is set or content arrives
+  useEffect(() => {
+    if (!highlightStart || isMarkdown) return;
+    if (loading || !content) return;
+    const node = scrollRef.current?.querySelector('[data-line-target="start"]');
+    if (node && 'scrollIntoView' in node) {
+      (node as HTMLElement).scrollIntoView({ block: 'center', behavior: 'auto' });
+    }
+  }, [highlightStart, content, loading, isMarkdown, targetNonce]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -194,7 +208,7 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
       )}
 
       {/* Content area */}
-      <div className="flex-1 overflow-auto">
+      <div ref={scrollRef} className="flex-1 overflow-auto">
         {loading && (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
             Loading...
@@ -213,6 +227,20 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
               style={codeStyle}
               language={lang}
               showLineNumbers
+              wrapLines
+              lineProps={(lineNumber: number) => {
+                const inRange = highlightStart != null && highlightEnd != null
+                  && lineNumber >= highlightStart && lineNumber <= highlightEnd;
+                const isStart = highlightStart != null && lineNumber === highlightStart;
+                const props: { style: CSSProperties; 'data-line-target'?: string } = {
+                  style: {
+                    display: 'block',
+                    backgroundColor: inRange ? 'rgba(250, 204, 21, 0.2)' : undefined,
+                  },
+                };
+                if (isStart) props['data-line-target'] = 'start';
+                return props;
+              }}
               PreTag="div"
               customStyle={{
                 margin: 0,

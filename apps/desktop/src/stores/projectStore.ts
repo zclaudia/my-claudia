@@ -100,30 +100,49 @@ export const useProjectStore = create<ProjectState>((set) => ({
         }
         return true;
       });
-      const mergedAcceptedProjects = acceptedProjects.map((project) =>
-        mergeProjectPreservingFields(
-          state.projects.find((existingProject) => existingProject.id === project.id),
-          project,
-        )
-      );
+      const acceptedById = new Map(acceptedProjects.map((p) => [p.id, p]));
+
+      // Shallow equality short-circuit: same set + same updatedAt for this backend
       const currentBackendProjects = state.projects.filter(
         (project) => ownership.getProjectBackendId(project.id) === backendId
       );
-
-      // Shallow equality check: skip update if the project set is identical
       if (
-        currentBackendProjects.length === mergedAcceptedProjects.length &&
-        currentBackendProjects.every((cur, i) => cur.id === mergedAcceptedProjects[i].id && cur.updatedAt === mergedAcceptedProjects[i].updatedAt)
+        currentBackendProjects.length === acceptedProjects.length &&
+        currentBackendProjects.every((cur) => {
+          const incoming = acceptedById.get(cur.id);
+          return incoming !== undefined && cur.updatedAt === incoming.updatedAt;
+        })
       ) {
         return state;
       }
 
-      const otherProjects = state.projects.filter(
-        (project) => ownership.getProjectBackendId(project.id) !== backendId
-      );
+      // Order-preserving merge: walk the existing array, replace this-backend
+      // entries in place, drop ones missing from the new snapshot, leave other
+      // backends untouched. Brand-new projects from this backend get appended
+      // at the end. Avoids segregating the array into [otherBackend, currentBackend]
+      // which used to push the current backend's projects to the tail on every
+      // snapshot replay.
+      const seen = new Set<string>();
+      const next: Project[] = [];
+      for (const existing of state.projects) {
+        const ownerBackendId = ownership.getProjectBackendId(existing.id);
+        if (ownerBackendId === backendId || acceptedById.has(existing.id)) {
+          const incoming = acceptedById.get(existing.id);
+          if (!incoming) continue; // owned by this backend but no longer present in snapshot — drop
+          next.push(mergeProjectPreservingFields(existing, incoming));
+          seen.add(existing.id);
+        } else {
+          next.push(existing);
+        }
+      }
+      for (const project of acceptedProjects) {
+        if (seen.has(project.id)) continue;
+        next.push(mergeProjectPreservingFields(undefined, project));
+      }
+
       ownership.removeProjectOwnersByBackend(backendId);
-      ownership.setProjectOwners(mergedAcceptedProjects.map((project) => project.id), backendId);
-      return { projects: [...otherProjects, ...mergedAcceptedProjects] };
+      ownership.setProjectOwners(acceptedProjects.map((project) => project.id), backendId);
+      return { projects: next };
     }),
 
   upsertProjectForBackend: (backendId, project) =>
@@ -139,25 +158,23 @@ export const useProjectStore = create<ProjectState>((set) => ({
       }
 
       ownership.setProjectOwner(project.id, backendId);
+      const existingIndex = state.projects.findIndex((existingProject) => existingProject.id === project.id);
       const mergedProject = mergeProjectPreservingFields(
-        state.projects.find((existingProject) => existingProject.id === project.id),
+        existingIndex >= 0 ? state.projects[existingIndex] : undefined,
         project,
       );
 
-      if (existingOwnerBackendId === backendId) {
-        return {
-          projects: state.projects.map((existingProject) =>
-            existingProject.id === project.id ? mergedProject : existingProject
-          ),
-        };
+      // Preserve array position whenever the project already exists — even if
+      // ownership wasn't recorded (e.g. setProjects ran before activeServerId
+      // was ready). Otherwise the project visibly jumps to the end on the
+      // first project_upsert event after launch.
+      if (existingIndex >= 0) {
+        const next = state.projects.slice();
+        next[existingIndex] = mergedProject;
+        return { projects: next };
       }
 
-      return {
-        projects: [
-          ...state.projects.filter((existingProject) => existingProject.id !== project.id),
-          mergedProject,
-        ],
-      };
+      return { projects: [...state.projects, mergedProject] };
     }),
 
   removeProjectForBackend: (backendId, projectId) =>

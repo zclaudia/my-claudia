@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, memo, useRef, useEffect } from 'react';
+import { useState, useMemo, useCallback, memo, useRef, useEffect, createContext, useContext } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -20,6 +20,14 @@ import { useProjectStore } from '../../stores/projectStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useServerStore } from '../../stores/serverStore';
 import { TextWithFileRefs, MarkdownChildrenWithFileRefs } from './FileReference';
+import { FileLineReference, FILE_LINE_REF_REGEX } from './FileLineReference';
+
+interface FileRefContextValue {
+  projectRoot?: string;
+  backendId?: string | null;
+}
+
+const FileRefContext = createContext<FileRefContextValue>({});
 
 /**
  * Extract <think>...</think> blocks from message content.
@@ -169,6 +177,10 @@ interface MessageListProps {
   highlightedMessageId?: string | null;
   onResendTarget?: () => void;
   resendDisabled?: boolean;
+  /** Project root used to resolve `filename.ext:line` references in messages. */
+  fileReferenceRoot?: string;
+  /** Backend that owns the project root — used for cross-gateway file lookups. */
+  fileReferenceBackendId?: string | null;
 }
 
 const VIRTUALIZE_THRESHOLD = 80;
@@ -185,7 +197,13 @@ export const MessageList = memo(function MessageList({
   highlightedMessageId,
   onResendTarget,
   resendDisabled = false,
+  fileReferenceRoot,
+  fileReferenceBackendId,
 }: MessageListProps) {
+  const fileRefContextValue = useMemo<FileRefContextValue>(
+    () => ({ projectRoot: fileReferenceRoot, backendId: fileReferenceBackendId }),
+    [fileReferenceRoot, fileReferenceBackendId],
+  );
   // Subscribe to filePushStore for download status updates
   const filePushItems = useFilePushStore((state) => state.items);
   const [previewItem, setPreviewItem] = useState<FilePushItem | null>(null);
@@ -405,17 +423,17 @@ export const MessageList = memo(function MessageList({
 
   if (!shouldVirtualize) {
     return (
-      <>
+      <FileRefContext.Provider value={fileRefContextValue}>
         <div data-testid="message-list" className="space-y-5">
           {filteredMessages.map((message, index) => renderMessage(message, index))}
         </div>
         {previewModal}
-      </>
+      </FileRefContext.Provider>
     );
   }
 
   return (
-    <>
+    <FileRefContext.Provider value={fileRefContextValue}>
       <div data-testid="message-list">
         {virtualWindow.topPadding > 0 && (
           <div style={{ height: virtualWindow.topPadding }} />
@@ -437,7 +455,7 @@ export const MessageList = memo(function MessageList({
         )}
       </div>
       {previewModal}
-    </>
+    </FileRefContext.Provider>
   );
 });
 
@@ -840,6 +858,7 @@ const MessageItem = memo(function MessageItem({ message, streamingContentBlocks,
 /** Renders assistant message markdown (thinking blocks already extracted at MessageItem level) */
 const AssistantContent = memo(function AssistantContent({ content }: { content: string }) {
   const normalizedContent = useMemo(() => normalizeMarkdownForRender(content), [content]);
+  const fileRef = useContext(FileRefContext);
 
   useEffect(() => {
     logSuspiciousMarkdownRender(content, normalizedContent);
@@ -853,9 +872,20 @@ const AssistantContent = memo(function AssistantContent({ content }: { content: 
           components={{
             code({ className, children, ...props }) {
               const match = /language-(\w+)/.exec(className || '');
-              const isInline = !match && !String(children).includes('\n');
+              const codeText = String(children);
+              const isInline = !match && !codeText.includes('\n');
 
               if (isInline) {
+                const trimmed = codeText.trim();
+                if (FILE_LINE_REF_REGEX.test(trimmed)) {
+                  return (
+                    <FileLineReference
+                      text={trimmed}
+                      projectRoot={fileRef.projectRoot}
+                      backendId={fileRef.backendId}
+                    />
+                  );
+                }
                 return (
                   <code
                     className="bg-secondary px-1.5 py-0.5 rounded text-sm text-primary break-all"

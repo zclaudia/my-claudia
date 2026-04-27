@@ -268,6 +268,8 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
         onCancelRun={handleCancelRun}
         permissionRequests={permissionRequests}
         onPermissionDecision={handlePermissionDecision}
+        fileReferenceRoot={fileReferenceRoot}
+        fileReferenceBackendId={fileReferenceBackendId}
       />
 
       {/* Background Tasks Panel */}

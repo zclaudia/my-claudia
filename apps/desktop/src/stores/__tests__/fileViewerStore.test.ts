@@ -11,6 +11,9 @@ describe('fileViewerStore', () => {
       content: null,
       loading: false,
       error: null,
+      targetLine: null,
+      targetEndLine: null,
+      targetNonce: 0,
       searchOpen: false,
       fullscreen: false,
       contentCache: new Map(),
@@ -73,6 +76,30 @@ describe('fileViewerStore', () => {
       const state = useFileViewerStore.getState();
       expect(state.error).toBeNull();
       expect(state.searchOpen).toBe(false);
+    });
+
+    it('records the target line and increments the nonce', () => {
+      useFileViewerStore.getState().openFile('/project', 'src/index.ts', 42);
+      const state = useFileViewerStore.getState();
+      expect(state.targetLine).toBe(42);
+      expect(state.targetEndLine).toBeNull();
+      expect(state.targetNonce).toBe(1);
+    });
+
+    it('records a target line range when given start and end', () => {
+      useFileViewerStore.getState().openFile('/project', 'src/index.ts', 10, 20);
+      const state = useFileViewerStore.getState();
+      expect(state.targetLine).toBe(10);
+      expect(state.targetEndLine).toBe(20);
+    });
+
+    it('clears the target when reopening without one', () => {
+      useFileViewerStore.getState().openFile('/project', 'src/index.ts', 42);
+      useFileViewerStore.getState().openFile('/project', 'src/other.ts');
+      const state = useFileViewerStore.getState();
+      expect(state.targetLine).toBeNull();
+      expect(state.targetEndLine).toBeNull();
+      expect(state.targetNonce).toBe(2);
     });
   });
 
@@ -181,6 +208,14 @@ describe('fileViewerStore', () => {
       const state = useFileViewerStore.getState();
       expect(state.searchOpen).toBe(false);
       expect(state.fullscreen).toBe(false);
+    });
+
+    it('clears any pending line target', () => {
+      useFileViewerStore.getState().openFile('/project', 'src/index.ts', 5, 10);
+      useFileViewerStore.getState().close();
+      const state = useFileViewerStore.getState();
+      expect(state.targetLine).toBeNull();
+      expect(state.targetEndLine).toBeNull();
     });
   });
 

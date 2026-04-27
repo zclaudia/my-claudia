@@ -13,6 +13,13 @@ interface FileViewerState {
   content: string | null;
   loading: boolean;
   error: string | null;
+  // Optional line target — when set, FileViewerPanel scrolls to targetLine
+  // and highlights the [targetLine, targetEndLine ?? targetLine] range.
+  targetLine: number | null;
+  targetEndLine: number | null;
+  // Bumped each time a target is set so the panel can re-scroll even when
+  // the user clicks the same reference twice.
+  targetNonce: number;
   // Search mode (Cmd+P)
   searchOpen: boolean;
   // Full-screen overlay (mobile)
@@ -20,7 +27,7 @@ interface FileViewerState {
   // LRU content cache  (key = "projectRoot\0relativePath")
   contentCache: Map<string, string>;
 
-  openFile: (projectRoot: string, relativePath: string) => void;
+  openFile: (projectRoot: string, relativePath: string, targetLine?: number, targetEndLine?: number) => void;
   setContent: (content: string) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
@@ -40,21 +47,27 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   content: null,
   loading: false,
   error: null,
+  targetLine: null,
+  targetEndLine: null,
+  targetNonce: 0,
   searchOpen: false,
   fullscreen: false,
   contentCache: new Map(),
 
-  openFile: (projectRoot: string, relativePath: string) => {
+  openFile: (projectRoot: string, relativePath: string, targetLine?: number, targetEndLine?: number) => {
     const cached = get().contentCache.get(cacheKey(projectRoot, relativePath));
-    set({
+    set((state) => ({
       isOpen: true,
       filePath: relativePath,
       projectRoot,
       content: cached ?? null,
       loading: !cached,
       error: null,
+      targetLine: targetLine ?? null,
+      targetEndLine: targetEndLine ?? null,
+      targetNonce: state.targetNonce + 1,
       searchOpen: false,
-    });
+    }));
     // Show file viewer panel in bottom panel
     usePluginStore.getState().updatePanelVisibility('file-viewer', true);
   },
@@ -81,7 +94,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     set({ error, loading: false }),
 
   close: () => {
-    set({ isOpen: false, searchOpen: false, fullscreen: false });
+    set({ isOpen: false, searchOpen: false, fullscreen: false, targetLine: null, targetEndLine: null });
     // Hide file viewer panel in bottom panel
     usePluginStore.getState().updatePanelVisibility('file-viewer', false);
   },

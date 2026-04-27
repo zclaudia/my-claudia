@@ -52,6 +52,10 @@ interface ChatMessagePaneProps {
   // Permission / ask-user
   permissionRequests: PermissionRequest[];
   onPermissionDecision: (requestId: string, allow: boolean, remember?: boolean, credential?: string, feedback?: string) => Promise<void>;
+
+  // File reference resolution context
+  fileReferenceRoot?: string;
+  fileReferenceBackendId?: string | null;
 }
 
 export const ChatMessagePane = memo(function ChatMessagePane({
@@ -86,6 +90,8 @@ export const ChatMessagePane = memo(function ChatMessagePane({
   onCancelRun,
   permissionRequests,
   onPermissionDecision,
+  fileReferenceRoot,
+  fileReferenceBackendId,
 }: ChatMessagePaneProps) {
   const interactionsMap = useInteractionStore((state) => state.interactions);
   const promptInteractions = useMemo(() =>
@@ -229,6 +235,8 @@ export const ChatMessagePane = memo(function ChatMessagePane({
         highlightedMessageId={highlightedMessageId}
         resendDisabled={resendDisabled}
         onResendTarget={onResendTarget}
+        fileReferenceRoot={fileReferenceRoot}
+        fileReferenceBackendId={fileReferenceBackendId}
       />
 
       <LoadingIndicator

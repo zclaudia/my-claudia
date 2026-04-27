@@ -145,6 +145,65 @@ describe('projectStore', () => {
       ]);
     });
 
+    it('replaceProjectsForBackend preserves relative position across backends', () => {
+      // Repro for "project jumps to the end after a snapshot replay" — the
+      // old [...otherProjects, ...currentBackendProjects] strategy moved this
+      // backend's projects to the tail every time a snapshot fired.
+      const local1 = createProject({ id: 'local-1', name: 'Local 1' });
+      const remote1 = createProject({ id: 'remote-1', name: 'Remote 1' });
+      const local2 = createProject({ id: 'local-2', name: 'Local 2' });
+      const remote2 = createProject({ id: 'remote-2', name: 'Remote 2' });
+      useOwnershipStore.getState().setProjectOwner('local-1', 'local-backend-1');
+      useOwnershipStore.getState().setProjectOwner('remote-1', 'remote-1');
+      useOwnershipStore.getState().setProjectOwner('local-2', 'local-backend-1');
+      useOwnershipStore.getState().setProjectOwner('remote-2', 'remote-1');
+      useProjectStore.setState({ projects: [local1, remote1, local2, remote2] });
+
+      // Server replays the remote-1 snapshot with bumped updatedAt for remote-1
+      useProjectStore.getState().replaceProjectsForBackend('remote-1', [
+        createProject({ id: 'remote-1', name: 'Remote 1 Updated', updatedAt: remote1.updatedAt + 1 }),
+        createProject({ id: 'remote-2', name: 'Remote 2', updatedAt: remote2.updatedAt }),
+      ]);
+
+      const ids = useProjectStore.getState().projects.map((p) => p.id);
+      expect(ids).toEqual(['local-1', 'remote-1', 'local-2', 'remote-2']);
+      expect(useProjectStore.getState().projects[1].name).toBe('Remote 1 Updated');
+    });
+
+    it('replaceProjectsForBackend drops backend projects no longer in the snapshot', () => {
+      const a = createProject({ id: 'a', name: 'A' });
+      const b = createProject({ id: 'b', name: 'B' });
+      const c = createProject({ id: 'c', name: 'C' });
+      useOwnershipStore.getState().setProjectOwner('a', 'remote-1');
+      useOwnershipStore.getState().setProjectOwner('b', 'remote-1');
+      useOwnershipStore.getState().setProjectOwner('c', 'remote-1');
+      useProjectStore.setState({ projects: [a, b, c] });
+
+      // Snapshot loses 'b'
+      useProjectStore.getState().replaceProjectsForBackend('remote-1', [a, c]);
+
+      const ids = useProjectStore.getState().projects.map((p) => p.id);
+      expect(ids).toEqual(['a', 'c']);
+      expect(useOwnershipStore.getState().getProjectBackendId('b')).toBeFalsy();
+    });
+
+    it('replaceProjectsForBackend appends genuinely new backend projects at the end', () => {
+      const a = createProject({ id: 'a', name: 'A' });
+      const b = createProject({ id: 'b', name: 'B' });
+      useOwnershipStore.getState().setProjectOwner('a', 'remote-1');
+      useOwnershipStore.getState().setProjectOwner('b', 'remote-1');
+      useProjectStore.setState({ projects: [a, b] });
+
+      useProjectStore.getState().replaceProjectsForBackend('remote-1', [
+        a,
+        b,
+        createProject({ id: 'c', name: 'C' }),
+      ]);
+
+      const ids = useProjectStore.getState().projects.map((p) => p.id);
+      expect(ids).toEqual(['a', 'b', 'c']);
+    });
+
     it('addProject appends to projects', () => {
       const p1 = createProject({ id: 'p1' });
       const p2 = createProject({ id: 'p2' });
@@ -220,6 +279,42 @@ describe('projectStore', () => {
 
       expect(useProjectStore.getState().projects).toEqual([remoteProject, localProject]);
       expect(useOwnershipStore.getState().getProjectBackendId('shared-id')).toBe('remote-1');
+    });
+
+    it('upsertProjectForBackend preserves array position when ownership was missing', () => {
+      // Repro: setProjects ran before activeServerId was ready, so ownership
+      // was never recorded. The first project_upsert event for an existing
+      // project must NOT shove it to the end of the list.
+      const a = createProject({ id: 'p-a', name: 'A' });
+      const b = createProject({ id: 'p-b', name: 'B' });
+      const c = createProject({ id: 'p-c', name: 'C' });
+      useProjectStore.setState({ projects: [a, b, c] });
+      // Note: no setProjectOwner calls — this is the bug condition.
+      expect(useOwnershipStore.getState().getProjectBackendId('p-b')).toBeFalsy();
+
+      useProjectStore.getState().upsertProjectForBackend('remote-1', createProject({
+        id: 'p-b',
+        name: 'B Updated',
+        updatedAt: b.updatedAt + 1,
+      }));
+
+      const ids = useProjectStore.getState().projects.map((p) => p.id);
+      expect(ids).toEqual(['p-a', 'p-b', 'p-c']);
+      expect(useProjectStore.getState().projects[1].name).toBe('B Updated');
+      expect(useOwnershipStore.getState().getProjectBackendId('p-b')).toBe('remote-1');
+    });
+
+    it('upsertProjectForBackend appends genuinely new projects', () => {
+      const a = createProject({ id: 'p-a', name: 'A' });
+      useProjectStore.setState({ projects: [a] });
+
+      useProjectStore.getState().upsertProjectForBackend('remote-1', createProject({
+        id: 'p-new',
+        name: 'New',
+      }));
+
+      const ids = useProjectStore.getState().projects.map((p) => p.id);
+      expect(ids).toEqual(['p-a', 'p-new']);
     });
 
     it('upsertProjectForBackend ignores collisions from a different backend', () => {
