@@ -20,6 +20,7 @@ const PluginWindow = lazy(() => import('../components/PluginWindow').then(m => (
 const ClaudiaBallWindow = lazy(() => import('../components/claudia/ClaudiaBallWindow').then(m => ({ default: m.ClaudiaBallWindow })));
 const NotchWindowLazy = lazy(() => import('../components/NotchWindow').then(m => ({ default: m.NotchWindow })));
 const ClaudiaChatWindow = lazy(() => import('../components/claudia/ClaudiaChatWindow').then(m => ({ default: m.ClaudiaChatWindow })));
+const WindowManagerWindow = lazy(() => import('../components/windowmanager/WindowManagerWindow').then(m => ({ default: m.WindowManagerWindow })));
 
 const LazyFallback = () => (
   <div className="flex items-center justify-center h-full">
@@ -194,6 +195,19 @@ export function WindowRouter({ children }: { children: React.ReactNode }) {
           contextProjectId={params.get('contextProjectId') || undefined}
         />
       </Suspense>
+    );
+  }
+
+  // Window manager
+  if (params.get('windowManager')) {
+    return (
+      <ThemeProvider defaultTheme="dark-neutral">
+        <ErrorBoundary label="WindowManager">
+          <Suspense fallback={<LazyFallback />}>
+            <WindowManagerWindow />
+          </Suspense>
+        </ErrorBoundary>
+      </ThemeProvider>
     );
   }
 

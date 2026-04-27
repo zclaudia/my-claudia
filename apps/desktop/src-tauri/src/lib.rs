@@ -518,6 +518,50 @@ fn set_notch_frame(window: &WebviewWindow, x: f64, width: f64, height: f64) {
 
 #[cfg(not(target_os = "android"))]
 #[derive(Serialize)]
+struct WindowInfo {
+    label: String,
+    title: String,
+    visible: bool,
+    focused: bool,
+    width: u32,
+    height: u32,
+    x: i32,
+    y: i32,
+    pid: u32,
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn list_windows(app: tauri::AppHandle) -> Vec<WindowInfo> {
+    let pid = std::process::id();
+    let mut windows: Vec<WindowInfo> = app
+        .webview_windows()
+        .into_iter()
+        .map(|(label, window)| {
+            let title = window.title().unwrap_or_default();
+            let visible = window.is_visible().unwrap_or(false);
+            let focused = window.is_focused().unwrap_or(false);
+            let size = window.inner_size().unwrap_or_default();
+            let pos = window.outer_position().unwrap_or_default();
+            WindowInfo {
+                label,
+                title,
+                visible,
+                focused,
+                width: size.width,
+                height: size.height,
+                x: pos.x,
+                y: pos.y,
+                pid,
+            }
+        })
+        .collect();
+    windows.sort_by(|a, b| a.label.cmp(&b.label));
+    windows
+}
+
+#[cfg(not(target_os = "android"))]
+#[derive(Serialize)]
 struct MonitorInfo {
     name: Option<String>,
     width: u32,
@@ -1056,6 +1100,7 @@ pub fn run() {
             permissions::open_files_and_folders_settings,
             focus_window,
             close_window,
+            list_windows,
             create_claudia_ball,
             toggle_claudia_chat,
             show_claudia_chat,

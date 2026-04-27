@@ -1,7 +1,9 @@
-import { Bell } from 'lucide-react';
+import { SquareStack, Bell } from 'lucide-react';
 import { BrandMark } from '../BrandMark';
 import { ServerSelector } from '../ServerSelector';
 import type { MobileSidebarHeaderProps } from './types';
+import { isDesktopTauri } from '../../utils/platform';
+import { openWindowManagerWindow } from '../../utils/windowManagerWindow';
 
 export function MobileSidebarHeader({
   onClose,
@@ -64,6 +66,16 @@ export function MobileSidebarHeader({
               </span>
             )}
           </button>
+          {isDesktopTauri() && (
+            <button
+              onClick={() => { void openWindowManagerWindow(); onClose?.(); }}
+              className="relative h-10 w-10 flex-shrink-0 flex items-center justify-center rounded-full transition-colors text-muted-foreground hover:text-foreground hover:bg-secondary"
+              title="Windows"
+              aria-label="Open window manager"
+            >
+              <SquareStack size={18} strokeWidth={1.75} />
+            </button>
+          )}
           <button
             onClick={() => {
               setClaudiaExpanded(true);

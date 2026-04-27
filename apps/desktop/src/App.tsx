@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
-import { ChevronsRight, ChevronsLeft } from 'lucide-react';
+import { SquareStack, ChevronsRight, ChevronsLeft } from 'lucide-react';
+import { openWindowManagerWindow } from './utils/windowManagerWindow';
 import { Sidebar } from './components/Sidebar';
 import { ChatInterface } from './components/chat/ChatInterface';
 import { ServerSelector } from './components/ServerSelector';
@@ -647,6 +648,14 @@ function AppContent() {
                   </button>
                 </div>
               )}
+              <button
+                onClick={() => { void openWindowManagerWindow(); }}
+                className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                title="Windows"
+                aria-label="Open window manager"
+              >
+                <SquareStack size={16} strokeWidth={1.75} />
+              </button>
             </>
           )}
         </div>
