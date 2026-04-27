@@ -3,6 +3,7 @@ import { useProjectStore } from '../../stores/projectStore';
 import { useProviderMetaStore } from '../../stores/providerMetaStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
 import { useChatStore } from '../../stores/chatStore';
+import { activatePanel } from '../../utils/openPanel';
 import * as api from '../../services/api';
 import type { CommandExecuteResponse, SlashCommand, Session, Project, MessageRole } from '@my-claudia/shared';
 
@@ -30,7 +31,6 @@ interface UseCommandHandlerParams {
   providerId: string | undefined;
   commandsCacheKey: string;
   setDrawerOpen: (projectId: string, open: boolean) => void;
-  setBottomPanelTab: (tab: string) => void;
 }
 
 export function useCommandHandler({
@@ -48,7 +48,6 @@ export function useCommandHandler({
   providerId,
   commandsCacheKey,
   setDrawerOpen,
-  setBottomPanelTab,
 }: UseCommandHandlerParams) {
   // Handle built-in command response
   const handleBuiltInCommand = useCallback((result: CommandExecuteResponse) => {
@@ -190,11 +189,11 @@ export function useCommandHandler({
         return; // Skip the scrollToBottom below since we handle it in the .then
 
       case 'show_panel': {
-        // Plugin command: open the panel in the bottom drawer
+        // Plugin command: activate the panel in its effective placement (bottom or right)
         const panelId = data?.panelId as string | undefined;
         if (panelId && currentProject?.id) {
           setDrawerOpen(currentProject.id, true);
-          setBottomPanelTab(panelId);
+          activatePanel(panelId);
         }
         break;
       }
@@ -211,7 +210,7 @@ export function useCommandHandler({
 
     // Scroll to bottom after command output
     setTimeout(() => scrollToBottom(), 100);
-  }, [sessionId, clearMessages, addMessage, scrollToBottom, providerId, currentProject?.rootPath, commandsCacheKey, currentProject?.id, setDrawerOpen, setBottomPanelTab]);
+  }, [sessionId, clearMessages, addMessage, scrollToBottom, providerId, currentProject?.rootPath, commandsCacheKey, currentProject?.id, setDrawerOpen]);
 
   const handleWorktreeChange = useCallback(async (worktreePath: string) => {
     if (isForcedPlanSession) {

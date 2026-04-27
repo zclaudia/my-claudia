@@ -91,6 +91,9 @@ vi.mock('../../../stores/fileViewerStore', () => ({
 
 const pluginStoreState = {
   disabledBuiltinPanels: [] as string[],
+  panels: [] as Array<{ id: string; visible?: boolean; defaultPlacement?: 'bottom' | 'right' }>,
+  panelPlacements: {} as Record<string, 'bottom' | 'right'>,
+  setPanelPlacement: vi.fn(),
 };
 
 vi.mock('../../../stores/pluginStore', () => ({
@@ -101,6 +104,29 @@ vi.mock('../../../stores/pluginStore', () => ({
       getState: () => pluginStoreState,
     },
   ),
+  getEffectivePlacement: (state: typeof pluginStoreState, panelId: string) => {
+    return state.panelPlacements[panelId]
+      ?? state.panels.find((p) => p.id === panelId)?.defaultPlacement
+      ?? 'bottom';
+  },
+}));
+
+const rightSidebarState = {
+  widthPx: 380,
+  activeTab: null as string | null,
+  setActiveTab: vi.fn(),
+  setWidth: vi.fn(),
+};
+
+vi.mock('../../../stores/rightSidebarStore', () => ({
+  useRightSidebarStore: Object.assign(
+    vi.fn((selector?: (state: typeof rightSidebarState) => unknown) =>
+      selector ? selector(rightSidebarState) : rightSidebarState),
+    {
+      getState: () => rightSidebarState,
+    },
+  ),
+  RIGHT_SIDEBAR_LIMITS: { MIN_WIDTH_PX: 240, MAX_WIDTH_VW: 50, DEFAULT_WIDTH_PX: 380 },
 }));
 
 const draftEditorState = {

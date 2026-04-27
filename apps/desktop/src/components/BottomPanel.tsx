@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useBottomPanelStore } from '../stores/bottomPanelStore';
 import { usePluginStore, selectPluginPanels, type UIExtension } from '../stores/pluginStore';
+import { useRightSidebarStore } from '../stores/rightSidebarStore';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import { useAndroidBack } from '../hooks/useAndroidBack';
 import { PluginPanelRenderer } from './PluginPanelRenderer';
@@ -49,14 +50,24 @@ export function BottomPanel({ projectId, projectRoot, workingDirectory }: Bottom
   const platform = isMobile ? 'mobile' : 'desktop';
   const allPanels = usePluginStore(selectPluginPanels);
   const disabledBuiltinPanels = usePluginStore((s) => s.disabledBuiltinPanels);
+  const panelPlacements = usePluginStore((s) => s.panelPlacements);
+  const setPanelPlacement = usePluginStore((s) => s.setPanelPlacement);
+  const setRightSidebarTab = useRightSidebarStore((s) => s.setActiveTab);
   const activeTab = useBottomPanelStore((s) => s.activeTab);
   const setActiveTab = useBottomPanelStore((s) => s.setActiveTab);
 
-  // Filter panels by current platform, excluding disabled built-in panels
-  const platformPanels = allPanels.filter((p) =>
-    (p.platforms ?? ['desktop']).includes(platform) &&
-    !disabledBuiltinPanels.includes(p.id)
-  );
+  // Filter panels by current platform, excluding disabled built-in panels.
+  // On desktop, also filter out panels whose effective placement is 'right'
+  // (those render in RightSidebar instead). Mobile ignores placement.
+  const platformPanels = allPanels.filter((p) => {
+    if (!(p.platforms ?? ['desktop']).includes(platform)) return false;
+    if (disabledBuiltinPanels.includes(p.id)) return false;
+    if (!isMobile) {
+      const placement = panelPlacements[p.id] ?? p.defaultPlacement ?? 'bottom';
+      if (placement === 'right') return false;
+    }
+    return true;
+  });
 
   // Panels whose tab should appear
   const visiblePanels = platformPanels.filter((p) => p.visible !== false);
@@ -145,6 +156,13 @@ export function BottomPanel({ projectId, projectRoot, workingDirectory }: Bottom
         updatePanelVisibility(p.id, false);
       }
     });
+  };
+
+  const handleMoveToRight = () => {
+    if (!activePanel) return;
+    setPanelPlacement(activePanel.id, 'right');
+    // Activate this panel as the right sidebar's active tab so it stays in focus.
+    setRightSidebarTab(activePanel.id);
   };
 
   // Keep mounted if any alwaysMount panel exists (e.g. terminal preserving xterm state)
@@ -250,6 +268,20 @@ export function BottomPanel({ projectId, projectRoot, workingDirectory }: Bottom
         {/* Tab-specific actions */}
         <div className="flex items-center gap-0.5" onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
           {activePanel && <PanelActions panel={activePanel} projectId={projectId} />}
+
+          {/* Move to right sidebar (desktop only) */}
+          {activePanel && (
+            <button
+              onClick={handleMoveToRight}
+              className="p-1 rounded text-muted-foreground hover:bg-secondary hover:text-foreground flex-shrink-0"
+              title="Move to right sidebar"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M4 12h16m0 0l-4-4m4 4l-4 4M4 4v16" />
+              </svg>
+            </button>
+          )}
 
           {/* Close button */}
           <button

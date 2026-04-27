@@ -76,7 +76,7 @@ function registerPluginPanel(id: string, label: string) {
 
 describe('BottomPanel', () => {
   beforeEach(() => {
-    usePluginStore.setState({ panels: [] });
+    usePluginStore.setState({ panels: [], panelPlacements: {} });
     useBottomPanelStore.setState({ activeTab: 'terminal' });
     mockTerminalOnClose.mockClear();
     mockFileViewerOnClose.mockClear();
@@ -405,5 +405,82 @@ describe('BottomPanel', () => {
     const { container } = render(<BottomPanel projectId="p1" projectRoot="/test" />);
     const panel = container.firstChild as HTMLElement;
     expect(panel.className).not.toContain('border-t');
+  });
+
+  // ── Placement filtering ───────────────────────────────────────────────
+
+  it('filters out panels with placement=right on desktop', () => {
+    registerTerminalPanel(true);
+    registerFileViewerPanel(true);
+    usePluginStore.setState({ panelPlacements: { 'file-viewer': 'right' } });
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
+
+    render(<BottomPanel projectId="p1" projectRoot="/test" />);
+    expect(screen.queryByText('File')).toBeNull(); // file-viewer tab hidden
+    expect(screen.getByText('Terminal')).toBeInTheDocument();
+  });
+
+  it('honors defaultPlacement=right', () => {
+    usePluginStore.getState().registerPanel({
+      id: 'rightside',
+      pluginId: 'test',
+      type: 'panel',
+      label: 'Rightside',
+      component: () => <div data-testid="rightside">RS</div>,
+      defaultPlacement: 'right',
+      visible: true,
+      order: 0,
+    });
+
+    const { container } = render(<BottomPanel projectId="p1" projectRoot="/test" />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('user override beats defaultPlacement (right→bottom)', () => {
+    usePluginStore.getState().registerPanel({
+      id: 'rightside',
+      pluginId: 'test',
+      type: 'panel',
+      label: 'Rightside',
+      component: () => <div data-testid="rightside">RS</div>,
+      defaultPlacement: 'right',
+      visible: true,
+      order: 0,
+    });
+    usePluginStore.setState({ panelPlacements: { rightside: 'bottom' } });
+    useBottomPanelStore.setState({ activeTab: 'rightside' });
+
+    render(<BottomPanel projectId="p1" projectRoot="/test" />);
+    expect(screen.getByTestId('rightside')).toBeInTheDocument();
+  });
+
+  it('mobile ignores placement and shows all visible panels', () => {
+    (useIsMobile as any).mockReturnValue(true);
+    registerTerminalPanel(true);
+    registerFileViewerPanel(true);
+    usePluginStore.setState({ panelPlacements: { terminal: 'right', 'file-viewer': 'right' } });
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
+
+    const { container } = render(<BottomPanel projectId="p1" projectRoot="/test" />);
+    expect(container.querySelector('.fixed.inset-0')).toBeInTheDocument();
+    expect(screen.getByText('Terminal')).toBeInTheDocument();
+    expect(screen.getByText('File')).toBeInTheDocument();
+  });
+
+  it('shows "Move to right sidebar" button on desktop when a panel is active', () => {
+    registerTerminalPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
+
+    render(<BottomPanel projectId="p1" projectRoot="/test" />);
+    expect(screen.getByTitle('Move to right sidebar')).toBeInTheDocument();
+  });
+
+  it('clicking "Move to right sidebar" updates placement to right', () => {
+    registerTerminalPanel(true);
+    useBottomPanelStore.setState({ activeTab: 'terminal' });
+
+    render(<BottomPanel projectId="p1" projectRoot="/test" />);
+    fireEvent.click(screen.getByTitle('Move to right sidebar'));
+    expect(usePluginStore.getState().panelPlacements.terminal).toBe('right');
   });
 });

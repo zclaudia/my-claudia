@@ -8,13 +8,13 @@ import { PlanStatusBar } from './PlanStatusBar';
 import { QueuedMessageBanner } from './QueuedMessageBanner';
 import { SessionHeader } from './SessionHeader';
 import { BottomPanel } from '../BottomPanel';
+import { RightSidebar } from '../RightSidebar';
 import { BackgroundTaskPanel } from '../BackgroundTaskPanel';
 import { DraftLockPrompt } from '../draft/DraftLockPrompt';
 import { TaskCardStrip } from '../../features/supervision/components/TaskCardStrip';
 import { useChatStore, type SessionDraft } from '../../stores/chatStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useTerminalStore } from '../../stores/terminalStore';
-import { useBottomPanelStore } from '../../stores/bottomPanelStore';
 import { useUIStore } from '../../stores/uiStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useDraftEditorStore } from '../../stores/draftEditorStore';
@@ -46,7 +46,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   const isMobile = useIsMobile();
   const activeServerId = useServerStore((s) => s.activeServerId);
   const setDrawerOpen = useTerminalStore((s) => s.setDrawerOpen);
-  const setBottomPanelTab = useBottomPanelStore((s) => s.setActiveTab);
   const advancedInput = useUIStore((s) => s.advancedInput);
   const poppedOutSessions = useUIStore((s) => s.poppedOutSessions);
   const route = useSessionRoute(sessionId);
@@ -137,7 +136,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   const { handleCommand, handleResetProviderSession, handleWorktreeChange } = useCommandHandler({
     sessionId, commands, currentSession, currentProject, isForcedPlanSession,
     mode: effectiveMode, modelOverride, addMessage, clearMessages, scrollToBottom, startRun,
-    providerId, commandsCacheKey, setDrawerOpen, setBottomPanelTab,
+    providerId, commandsCacheKey, setDrawerOpen,
   });
 
   // Plan status
@@ -162,7 +161,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   const poppedOutLabel = poppedOutSessions.get(sessionId);
 
   return (
-    <div ref={chatRootRef} className="flex flex-col h-full bg-background">
+    <div ref={chatRootRef} className="flex flex-row h-full bg-background">
       {/* Popped-out placeholder */}
       {poppedOutLabel && (
         <PoppedOutPlaceholder
@@ -172,6 +171,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
         />
       )}
       {!poppedOutLabel && <>
+      <div className="flex flex-col flex-1 min-w-0 h-full">
       {/* Task card strip for supervisor main session */}
       {currentSession?.projectRole === 'main' && currentProject?.id && (
         <TaskCardStrip projectId={currentProject.id} />
@@ -343,6 +343,13 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
           onCommand={handleCommand}
         />
       )}
+      </div>
+      {/* Right sidebar — desktop-only; renders panels with placement='right' */}
+      <RightSidebar
+        projectId={currentSession?.projectId}
+        projectRoot={fileReferenceRoot}
+        workingDirectory={currentSession?.workingDirectory}
+      />
       </>}
 
       {/* Draft lock conflict dialog */}

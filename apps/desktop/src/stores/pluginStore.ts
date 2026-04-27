@@ -36,6 +36,8 @@ export interface InstalledPlugin {
   updatedAt: string;
 }
 
+export type PanelPlacement = 'bottom' | 'right';
+
 export interface UIExtension {
   id: string;
   pluginId: string;
@@ -51,6 +53,7 @@ export interface UIExtension {
   visible?: boolean;       // For alwaysMount panels: controls tab visibility without unmounting
   actions?: unknown;       // React component for tab-specific action buttons
   onClose?: () => void;    // Called when user closes this panel
+  defaultPlacement?: PanelPlacement; // Where panel appears by default (desktop). Defaults to 'bottom'
 }
 
 export interface PluginNotchTab {
@@ -96,6 +99,10 @@ interface PluginStoreState {
   disabledBuiltinPanels: string[];
   toggleBuiltinPanel: (panelId: string) => void;
 
+  // Per-panel placement override (persisted across sessions)
+  panelPlacements: Record<string, PanelPlacement>;
+  setPanelPlacement: (panelId: string, placement: PanelPlacement) => void;
+
   // Actions - UI Extensions
   registerPanel: (extension: UIExtension) => void;
   unregisterPanel: (id: string) => void;
@@ -139,6 +146,7 @@ export const usePluginStore = create<PluginStoreState>()(
       settings: {},
       pendingPermissionRequest: null,
       disabledBuiltinPanels: [],
+      panelPlacements: {},
 
       // Plugin Actions
       setPlugins: (plugins) => set({ plugins }),
@@ -184,6 +192,12 @@ export const usePluginStore = create<PluginStoreState>()(
               : [...state.disabledBuiltinPanels, panelId],
           };
         }),
+
+      // Panel placement override
+      setPanelPlacement: (panelId, placement) =>
+        set((state) => ({
+          panelPlacements: { ...state.panelPlacements, [panelId]: placement },
+        })),
 
       // UI Extension Actions
       registerPanel: (extension) =>
@@ -281,6 +295,7 @@ export const usePluginStore = create<PluginStoreState>()(
         // Only persist user preferences — plugin list is server-authoritative
         settings: state.settings,
         disabledBuiltinPanels: state.disabledBuiltinPanels,
+        panelPlacements: state.panelPlacements,
       }),
       merge: (persistedState, currentState) => {
         const persisted = (persistedState as Partial<PluginStoreState> | undefined) ?? {};
@@ -289,6 +304,7 @@ export const usePluginStore = create<PluginStoreState>()(
           // Only restore user preferences — ignore stale plugins from old localStorage data
           settings: persisted.settings ?? currentState.settings,
           disabledBuiltinPanels: normalizeDisabledBuiltinPanels(persisted.disabledBuiltinPanels),
+          panelPlacements: persisted.panelPlacements ?? currentState.panelPlacements,
         };
       },
     }
@@ -313,3 +329,17 @@ export const selectPluginSettingsTabs = (state: PluginStoreState): UIExtension[]
 
 export const selectPluginNotchTabs = (state: PluginStoreState): PluginNotchTab[] =>
   [...state.notchTabs].sort((a, b) => a.order - b.order);
+
+/**
+ * Resolve effective placement for a panel.
+ * Priority: user override → panel default → 'bottom'.
+ */
+export function getEffectivePlacement(
+  state: PluginStoreState,
+  panelId: string,
+): PanelPlacement {
+  const override = state.panelPlacements[panelId];
+  if (override) return override;
+  const panel = state.panels.find((p) => p.id === panelId);
+  return panel?.defaultPlacement ?? 'bottom';
+}

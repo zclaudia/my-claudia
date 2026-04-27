@@ -9,12 +9,12 @@ import { TokenUsageDisplay } from './TokenUsageDisplay';
 import { MessageInput, type Attachment } from './MessageInput';
 import { useServerStore } from '../../stores/serverStore';
 import { useTerminalStore } from '../../stores/terminalStore';
-import { useBottomPanelStore } from '../../stores/bottomPanelStore';
 import { useFileViewerStore } from '../../stores/fileViewerStore';
 import { usePluginStore } from '../../stores/pluginStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useDraftEditorStore } from '../../stores/draftEditorStore';
 import { useUIStore } from '../../stores/uiStore';
+import { activatePanel, usePanelIsActive } from '../../utils/openPanel';
 import * as api from '../../services/api';
 import type { UnifiedPermissionPolicy, ProviderCapabilities, SlashCommand, Session, Project, SystemInfo } from '@my-claudia/shared';
 import type { SessionDraft } from '../../stores/chatStore';
@@ -90,13 +90,15 @@ export function ChatInputArea({
 }: ChatInputAreaProps) {
   const setDrawerOpen = useTerminalStore((s) => s.setDrawerOpen);
   const isDrawerOpen = useTerminalStore((s) => s.isDrawerOpen);
-  const bottomPanelTab = useBottomPanelStore((s) => s.activeTab);
-  const setBottomPanelTab = useBottomPanelStore((s) => s.setActiveTab);
   const disabledBuiltinPanels = usePluginStore((s) => s.disabledBuiltinPanels);
   const fileViewerOpen = useFileViewerStore((s) => s.isOpen);
   const setAdvancedInput = useUIStore((s) => s.setAdvancedInput);
   const openDraftEditor = useDraftEditorStore((s) => s.openEditor);
   const setSendCallback = useDraftEditorStore((s) => s.setSendCallback);
+  // Reactive active-tab checks (work for both bottom and right placement)
+  const draftPanelActive = usePanelIsActive('draft');
+  const fileViewerPanelActive = usePanelIsActive('file-viewer');
+  const terminalPanelActive = usePanelIsActive('terminal');
   // Mobile toolbar popover state
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
   const mobileToolsRef = useRef<HTMLDivElement>(null);
@@ -221,7 +223,7 @@ export function ChatInputArea({
         <div className="flex-1 min-w-[8px]" />
         {/* Desktop: Draft button */}
         {!isMobile && !disabledBuiltinPanels.includes('draft') && (() => {
-          const isActive = bottomPanelTab === 'draft';
+          const isActive = draftPanelActive;
           return (
             <button
               onClick={() => {
@@ -246,19 +248,19 @@ export function ChatInputArea({
         {!isMobile && currentProject?.rootPath && !disabledBuiltinPanels.includes('file-viewer') && (
           <button
             onClick={() => {
-              if (fileViewerOpen && bottomPanelTab === 'file-viewer') {
+              if (fileViewerPanelActive) {
                 useFileViewerStore.getState().close();
               } else if (fileViewerOpen) {
-                setBottomPanelTab('file-viewer');
+                activatePanel('file-viewer');
               } else {
                 const store = useFileViewerStore.getState();
                 store.togglePanel();
                 store.setSearchOpen(true);
-                setBottomPanelTab('file-viewer');
+                activatePanel('file-viewer');
               }
             }}
-            className={`p-1.5 rounded hover:bg-secondary ${fileViewerOpen && bottomPanelTab === 'file-viewer' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-            title={fileViewerOpen && bottomPanelTab === 'file-viewer' ? 'Close file viewer' : 'Open file viewer (Cmd+P)'}
+            className={`p-1.5 rounded hover:bg-secondary ${fileViewerPanelActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+            title={fileViewerPanelActive ? 'Close file viewer' : 'Open file viewer (Cmd+P)'}
           >
             <FileText size={16} strokeWidth={1.75} />
           </button>
@@ -267,24 +269,25 @@ export function ChatInputArea({
         {!isMobile && !disabledBuiltinPanels.includes('terminal') && useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
           const pid = currentSession.projectId;
           const isOpen = isDrawerOpen(pid);
+          const isActive = isOpen && terminalPanelActive;
           return (
             <button
               onClick={() => {
-                if (isOpen && bottomPanelTab === 'terminal') {
+                if (isActive) {
                   setDrawerOpen(pid, false);
                 } else if (isOpen) {
-                  setBottomPanelTab('terminal');
+                  activatePanel('terminal');
                 } else {
                   const store = useTerminalStore.getState();
                   if (!store.getTerminalId(pid)) {
                     store.openTerminal(pid);
                   }
                   setDrawerOpen(pid, true);
-                  setBottomPanelTab('terminal');
+                  activatePanel('terminal');
                 }
               }}
-              className={`p-1.5 rounded hover:bg-secondary ${isOpen && bottomPanelTab === 'terminal' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-              title={isOpen && bottomPanelTab === 'terminal' ? 'Hide terminal (Ctrl+`)' : 'Open terminal (Ctrl+`)'}
+              className={`p-1.5 rounded hover:bg-secondary ${isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+              title={isActive ? 'Hide terminal (Ctrl+`)' : 'Open terminal (Ctrl+`)'}
             >
               <TerminalIcon size={16} strokeWidth={1.75} />
             </button>
@@ -327,7 +330,7 @@ export function ChatInputArea({
           const toolItems: Array<{ key: string; icon: React.ReactNode; label: string; isActive: boolean; hasBadge?: boolean; onClick: () => void }> = [];
 
           if (!disabledBuiltinPanels.includes('draft')) {
-            const isActive = bottomPanelTab === 'draft';
+            const isActive = draftPanelActive;
             toolItems.push({
               key: 'draft',
               icon: <FileEdit size={18} strokeWidth={1.75} />,
@@ -347,22 +350,22 @@ export function ChatInputArea({
           }
 
           if (currentProject?.rootPath && !disabledBuiltinPanels.includes('file-viewer')) {
-            const isActive = fileViewerOpen && bottomPanelTab === 'file-viewer';
+            const isActive = fileViewerPanelActive;
             toolItems.push({
               key: 'file-viewer',
               icon: <FileText size={18} strokeWidth={1.75} />,
               label: isActive ? 'Close Files' : 'File Viewer',
               isActive,
               onClick: () => {
-                if (fileViewerOpen && bottomPanelTab === 'file-viewer') {
+                if (isActive) {
                   useFileViewerStore.getState().close();
                 } else if (fileViewerOpen) {
-                  setBottomPanelTab('file-viewer');
+                  activatePanel('file-viewer');
                 } else {
                   const store = useFileViewerStore.getState();
                   store.togglePanel();
                   store.setSearchOpen(true);
-                  setBottomPanelTab('file-viewer');
+                  activatePanel('file-viewer');
                 }
                 closeMobileTools();
               },
@@ -372,24 +375,24 @@ export function ChatInputArea({
           if (!disabledBuiltinPanels.includes('terminal') && useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId) {
             const pid = currentSession.projectId;
             const isOpen = isDrawerOpen(pid);
-            const isActive = isOpen && bottomPanelTab === 'terminal';
+            const isActive = isOpen && terminalPanelActive;
             toolItems.push({
               key: 'terminal',
               icon: <TerminalIcon size={18} strokeWidth={1.75} />,
               label: isActive ? 'Hide Terminal' : 'Terminal',
               isActive,
               onClick: () => {
-                if (isOpen && bottomPanelTab === 'terminal') {
+                if (isActive) {
                   setDrawerOpen(pid, false);
                 } else if (isOpen) {
-                  setBottomPanelTab('terminal');
+                  activatePanel('terminal');
                 } else {
                   const store = useTerminalStore.getState();
                   if (!store.getTerminalId(pid)) {
                     store.openTerminal(pid);
                   }
                   setDrawerOpen(pid, true);
-                  setBottomPanelTab('terminal');
+                  activatePanel('terminal');
                 }
                 closeMobileTools();
               },
