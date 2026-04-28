@@ -2,7 +2,7 @@ import { SquareStack, ChevronsRight, ChevronsLeft } from 'lucide-react';
 import { emit as emitTauri } from '@tauri-apps/api/event';
 import { NOTCH_EVENT } from '../services/notchBridge';
 import { openWindowManagerWindow } from '../utils/windowManagerWindow';
-import { ServerSelector } from '../components/ServerSelector';
+import { ServerSelector } from '../components/settings/ServerSelector';
 import { BrandMark } from '../components/BrandMark';
 import { PluginWindowButtons } from './PluginDock';
 

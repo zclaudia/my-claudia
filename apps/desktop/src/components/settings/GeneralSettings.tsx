@@ -4,7 +4,7 @@ import { useConnection } from '../../contexts/ConnectionContext';
 import { useUIStore, type FontSizePreset } from '../../stores/uiStore';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import { isMacOS } from '../../utils/platform';
-import { ThemeToggle } from '../ThemeToggle';
+import { ThemeToggle } from './ThemeToggle';
 import type { SdkVersionReport } from '@my-claudia/shared';
 import * as api from '../../services/api';
 

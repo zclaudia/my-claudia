@@ -1,14 +1,14 @@
 import { useEffect, useRef, useMemo, useCallback } from 'react';
-import { useToastStore, type Toast, type ToastIcon } from '../stores/toastStore';
-import { useProjectStore } from '../stores/projectStore';
-import { useNotificationFeedStore } from '../stores/notificationFeedStore';
-import { useNotchPanelStore } from '../stores/notchPanelStore';
-import { useConnection } from '../contexts/ConnectionContext';
-import { useSelectionCoordinator } from '../hooks/useSelectionCoordinator';
-import { timeAgo } from '../utils/timeAgo';
-import { classifyToast, classifyFeedItem, type NotchTab } from '../utils/notchTabCategory';
+import { useToastStore, type Toast, type ToastIcon } from '../../stores/toastStore';
+import { useProjectStore } from '../../stores/projectStore';
+import { useNotificationFeedStore } from '../../stores/notificationFeedStore';
+import { useNotchPanelStore } from '../../stores/notchPanelStore';
+import { useConnection } from '../../contexts/ConnectionContext';
+import { useSelectionCoordinator } from '../../hooks/useSelectionCoordinator';
+import { timeAgo } from '../../utils/timeAgo';
+import { classifyToast, classifyFeedItem, type NotchTab } from '../../utils/notchTabCategory';
 import { NotchTabBar } from './NotchPanelVisuals';
-import { usePluginStore, selectPluginNotchTabs } from '../stores/pluginStore';
+import { usePluginStore, selectPluginNotchTabs } from '../../stores/pluginStore';
 import type { NotificationItem as NotificationItemData } from '@my-claudia/shared';
 
 // ---------------------------------------------------------------------------

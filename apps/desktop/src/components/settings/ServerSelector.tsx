@@ -1,16 +1,16 @@
 import { useState } from 'react';
-import { useServerStore } from '../stores/serverStore';
-import { useGatewayStore, shouldShowNonCurrentInstanceBackend } from '../stores/gatewayStore';
-import { useFacadeStore } from '../stores/facadeStore';
-import { useConnection } from '../contexts/ConnectionContext';
-import { useIsMobile } from '../hooks/useMediaQuery';
+import { useServerStore } from '../../stores/serverStore';
+import { useGatewayStore, shouldShowNonCurrentInstanceBackend } from '../../stores/gatewayStore';
+import { useFacadeStore } from '../../stores/facadeStore';
+import { useConnection } from '../../contexts/ConnectionContext';
+import { useIsMobile } from '../../hooks/useMediaQuery';
 import type { BackendSnapshot } from '@my-claudia/shared';
-import type { BackendRecoveryViewState } from '../stores/recoveryStore';
+import type { BackendRecoveryViewState } from '../../stores/recoveryStore';
 import {
   getMobileBackendViewState,
   isMobileGatewayConnected,
   type MobileBackendViewState,
-} from '../services/mobileConnectionState';
+} from '../../services/mobileConnectionState';
 
 function formatLatency(latencyMs?: number | null): string | null {
   if (latencyMs == null) return null;

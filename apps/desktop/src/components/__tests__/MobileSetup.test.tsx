@@ -7,7 +7,7 @@ vi.mock('../../contexts/ConnectionContext', () => ({
   }),
 }));
 
-import { MobileSetup } from '../MobileSetup';
+import { MobileSetup } from '../setup/MobileSetup';
 import { useGatewayStore } from '../../stores/gatewayStore';
 import { useFacadeStore } from '../../stores/facadeStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';

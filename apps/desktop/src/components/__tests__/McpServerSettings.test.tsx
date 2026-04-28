@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { McpServerSettings } from '../McpServerSettings';
+import { McpServerSettings } from '../settings/McpServerSettings';
 import { useMcpServerStore } from '../../stores/mcpServerStore';
 
 describe('McpServerSettings', () => {

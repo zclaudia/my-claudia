@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { ChevronDown, Check } from 'lucide-react';
 import type { ProviderConfig } from '@my-claudia/shared';
-import { useServerStore } from '../stores/serverStore';
-import { useFacadeStore } from '../stores/facadeStore';
-import { useProviderMetaStore } from '../stores/providerMetaStore';
-import * as api from '../services/api';
-import { useAndroidBack } from '../hooks/useAndroidBack';
-import { isMobileBackendUsable } from '../services/mobileConnectionState';
+import { useServerStore } from '../../stores/serverStore';
+import { useFacadeStore } from '../../stores/facadeStore';
+import { useProviderMetaStore } from '../../stores/providerMetaStore';
+import * as api from '../../services/api';
+import { useAndroidBack } from '../../hooks/useAndroidBack';
+import { isMobileBackendUsable } from '../../services/mobileConnectionState';
 
 /** Lightweight PCP capability summary for UI display (mirrors server manifests) */
 type CapLevel = 'strict' | 'best_effort' | 'none';

@@ -24,7 +24,7 @@ vi.mock('../../services/api', () => ({
   disconnectServerFromGateway: vi.fn().mockResolvedValue({}),
 }));
 
-import { ServerGatewayConfig } from '../ServerGatewayConfig';
+import { ServerGatewayConfig } from '../settings/ServerGatewayConfig';
 import { useGatewayStore } from '../../stores/gatewayStore';
 import * as apiModule from '../../services/api';
 

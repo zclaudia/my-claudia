@@ -12,8 +12,8 @@
  */
 
 import { useEffect, useRef } from 'react';
-import { usePluginStore, selectPluginPanels } from '../stores/pluginStore';
-import { useServerStore } from '../stores/serverStore';
+import { usePluginStore, selectPluginPanels } from '../../stores/pluginStore';
+import { useServerStore } from '../../stores/serverStore';
 
 interface PluginPanelRendererProps {
   activePluginPanelId: string | null;

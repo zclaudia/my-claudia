@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { useTheme, isDarkTheme, type Theme } from '../contexts/ThemeContext';
+import { useTheme, isDarkTheme, type Theme } from '../../contexts/ThemeContext';
 import { Sun, Moon, Flame, Snowflake, Monitor, Check, ChevronDown, type LucideIcon } from 'lucide-react';
 
 const THEME_OPTIONS: { value: Theme; label: string; icon: LucideIcon }[] = [

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, act } from '@testing-library/react';
-import { PluginSettings } from '../PluginSettings';
+import { PluginSettings } from '../settings/PluginSettings';
 import { usePluginStore } from '../../stores/pluginStore';
 
 // Mock api

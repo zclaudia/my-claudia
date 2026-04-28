@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useMcpServerStore } from '../stores/mcpServerStore';
+import { useMcpServerStore } from '../../stores/mcpServerStore';
 import type { McpServerConfig } from '@my-claudia/shared';
 
 const PROVIDER_OPTIONS = [

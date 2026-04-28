@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bot, Monitor, ChevronRight } from 'lucide-react';
-import { useGatewayStore } from '../stores/gatewayStore';
-import { useServerStore } from '../stores/serverStore';
-import { useFacadeStore } from '../stores/facadeStore';
-import { useConnection } from '../contexts/ConnectionContext';
+import { useGatewayStore } from '../../stores/gatewayStore';
+import { useServerStore } from '../../stores/serverStore';
+import { useFacadeStore } from '../../stores/facadeStore';
+import { useConnection } from '../../contexts/ConnectionContext';
 import type { BackendSnapshot } from '@my-claudia/shared';
-import { getVisibleMobileBackends, isMobileGatewayConnected } from '../services/mobileConnectionState';
+import { getVisibleMobileBackends, isMobileGatewayConnected } from '../../services/mobileConnectionState';
 
 function shouldShowMobileDebug(): boolean {
   if (typeof window === 'undefined') return false;

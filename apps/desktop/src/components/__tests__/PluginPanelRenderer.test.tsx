@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent, waitFor, act } from '@testing-library/react';
-import { PluginPanelRenderer, usePluginPanelTabs } from '../PluginPanelRenderer';
+import { PluginPanelRenderer, usePluginPanelTabs } from '../notch/PluginPanelRenderer';
 import { usePluginStore } from '../../stores/pluginStore';
 import { useServerStore } from '../../stores/serverStore';
 import { renderHook } from '@testing-library/react';

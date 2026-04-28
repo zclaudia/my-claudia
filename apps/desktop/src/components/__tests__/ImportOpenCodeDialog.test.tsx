@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import { ImportOpenCodeDialog } from '../ImportOpenCodeDialog';
+import { ImportOpenCodeDialog } from '../import/ImportOpenCodeDialog';
 import { useServerStore } from '../../stores/serverStore';
 import { useProjectStore } from '../../stores/projectStore';
 import * as api from '../../services/api';

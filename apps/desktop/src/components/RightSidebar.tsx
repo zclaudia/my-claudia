@@ -7,7 +7,7 @@ import {
 } from '../stores/pluginStore';
 import { useBottomPanelStore } from '../stores/bottomPanelStore';
 import { useIsMobile } from '../hooks/useMediaQuery';
-import { PluginPanelRenderer } from './PluginPanelRenderer';
+import { PluginPanelRenderer } from './notch/PluginPanelRenderer';
 
 interface RightSidebarProps {
   projectId: string | undefined;

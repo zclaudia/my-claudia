@@ -13,12 +13,12 @@ import {
 import {
   NOTCH_EVENT,
   type NotchStateSnapshot,
-} from '../services/notchBridge';
-import { classifyToast, classifyFeedItem, type NotchTab } from '../utils/notchTabCategory';
-import { NOTCH_WINDOW_TIMINGS } from '../config/notch';
+} from '../../services/notchBridge';
+import { classifyToast, classifyFeedItem, type NotchTab } from '../../utils/notchTabCategory';
+import { NOTCH_WINDOW_TIMINGS } from '../../config/notch';
 import { EMPTY_NOTIFICATION_UNREAD_COUNTS_BY_TAB, type NotificationItem } from '@my-claudia/shared';
-import type { Toast } from '../stores/toastStore';
-import type { PluginNotchTab } from '../stores/pluginStore';
+import type { Toast } from '../../stores/toastStore';
+import type { PluginNotchTab } from '../../stores/pluginStore';
 
 function NotchEmptyState({ activeTab, pluginNotchTabs }: { activeTab: NotchTab; pluginNotchTabs: PluginNotchTab[] }) {
   const pluginTab = activeTab.startsWith('plugin:')

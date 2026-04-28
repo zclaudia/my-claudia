@@ -1,8 +1,8 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import type { Toast, ToastIcon } from '../stores/toastStore';
-import { timeAgo } from '../utils/timeAgo';
-import { NOTCH_TABS, NOTCH_TAB_LABELS, type NotchTab } from '../utils/notchTabCategory';
-import type { PluginNotchTab } from '../stores/pluginStore';
+import type { Toast, ToastIcon } from '../../stores/toastStore';
+import { timeAgo } from '../../utils/timeAgo';
+import { NOTCH_TABS, NOTCH_TAB_LABELS, type NotchTab } from '../../utils/notchTabCategory';
+import type { PluginNotchTab } from '../../stores/pluginStore';
 
 // ---------------------------------------------------------------------------
 // Pure visual building blocks used by both:

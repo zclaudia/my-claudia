@@ -1,10 +1,10 @@
 import { useState, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useSwipeBack } from '../hooks/useSwipeBack';
-import { ProjectSettings } from './ProjectSettings';
+import { ProjectSettings } from './settings/ProjectSettings';
 import { SettingsPanel } from './SettingsPanel';
 import { ActiveSessionsPanel } from './ActiveSessionsPanel';
-import { PluginPermissionDialog } from './PluginPermissionDialog';
+import { PluginPermissionDialog } from './permission/PluginPermissionDialog';
 import { SortableList, SortableItem } from './SortableList';
 
 import { useSearchSidebar } from './sidebar/useSearchSidebar';

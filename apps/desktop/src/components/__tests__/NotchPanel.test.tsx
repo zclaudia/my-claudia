@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { NotchPanel } from '../NotchPanel';
+import { NotchPanel } from '../notch/NotchPanel';
 import { useNotchPanelStore } from '../../stores/notchPanelStore';
 import { useToastStore } from '../../stores/toastStore';
 import { useNotificationFeedStore } from '../../stores/notificationFeedStore';

@@ -1,14 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Bot, Monitor, ChevronRight, Terminal, RefreshCw, ExternalLink, Copy, Check, AlertCircle, Globe, ArrowLeft } from 'lucide-react';
-import { useWslDiscovery } from '../hooks/useWslDiscovery';
-import { useServerStore } from '../stores/serverStore';
-import { useRecoveryStore } from '../stores/recoveryStore';
-import { useGatewayStore, shouldShowNonCurrentInstanceBackend } from '../stores/gatewayStore';
-import { useFacadeStore } from '../stores/facadeStore';
-import { useConnection } from '../contexts/ConnectionContext';
+import { useWslDiscovery } from '../../hooks/useWslDiscovery';
+import { useServerStore } from '../../stores/serverStore';
+import { useRecoveryStore } from '../../stores/recoveryStore';
+import { useGatewayStore, shouldShowNonCurrentInstanceBackend } from '../../stores/gatewayStore';
+import { useFacadeStore } from '../../stores/facadeStore';
+import { useConnection } from '../../contexts/ConnectionContext';
 import { open } from '@tauri-apps/plugin-shell';
 import type { BackendSnapshot } from '@my-claudia/shared';
-import { LEGACY_LOCAL_SERVER_ID, resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/controlPlane';
+import { LEGACY_LOCAL_SERVER_ID, resolveCanonicalBackendId, resolveLocalBackendId } from '../../utils/controlPlane';
 
 type SetupPath = 'choose' | 'wsl' | 'gateway' | 'manual';
 

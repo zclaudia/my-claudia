@@ -7,9 +7,9 @@
  */
 
 import { useState, useCallback } from 'react';
-import { usePluginStore } from '../stores/pluginStore';
-import { useConnection } from '../contexts/ConnectionContext';
-import { useAndroidBack } from '../hooks/useAndroidBack';
+import { usePluginStore } from '../../stores/pluginStore';
+import { useConnection } from '../../contexts/ConnectionContext';
+import { useAndroidBack } from '../../hooks/useAndroidBack';
 
 // Permission risk levels (mirrors server PERMISSION_LEVELS)
 const PERMISSION_LEVELS: Record<string, number> = {

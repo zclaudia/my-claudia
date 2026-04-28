@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useServerStore } from '../stores/serverStore';
-import { useProjectStore } from '../stores/projectStore';
-import { useIsMobile } from '../hooks/useMediaQuery';
-import { useAndroidBack } from '../hooks/useAndroidBack';
-import * as api from '../services/api';
+import { useServerStore } from '../../stores/serverStore';
+import { useProjectStore } from '../../stores/projectStore';
+import { useIsMobile } from '../../hooks/useMediaQuery';
+import { useAndroidBack } from '../../hooks/useAndroidBack';
+import * as api from '../../services/api';
 
 interface ImportOpenCodeDialogProps {
   isOpen: boolean;

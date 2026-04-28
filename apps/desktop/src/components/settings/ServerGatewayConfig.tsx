@@ -5,9 +5,9 @@ import {
   getServerGatewayStatus,
   connectServerToGateway,
   disconnectServerFromGateway
-} from '../services/api';
+} from '../../services/api';
 import type { ServerGatewayConfig as GatewayConfig, ServerGatewayStatus } from '@my-claudia/shared';
-import { useGatewayStore, shouldShowNonCurrentInstanceBackend } from '../stores/gatewayStore';
+import { useGatewayStore, shouldShowNonCurrentInstanceBackend } from '../../stores/gatewayStore';
 
 export function ServerGatewayConfig() {
   const [config, setConfig] = useState<GatewayConfig | null>(null);

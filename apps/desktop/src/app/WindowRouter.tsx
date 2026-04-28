@@ -16,9 +16,9 @@ const AutomationWindow = lazy(() => import('../features/automation/AutomationWin
 const SessionChatWindow = lazy(() => import('../components/chat/SessionChatWindow').then(m => ({ default: m.SessionChatWindow })));
 const TerminalWindow = lazy(() => import('../components/terminal/TerminalWindow').then(m => ({ default: m.TerminalWindow })));
 const DraftWindow = lazy(() => import('../components/draft/DraftWindow').then(m => ({ default: m.DraftWindow })));
-const PluginWindow = lazy(() => import('../components/PluginWindow').then(m => ({ default: m.PluginWindow })));
+const PluginWindow = lazy(() => import('../components/notch/PluginWindow').then(m => ({ default: m.PluginWindow })));
 const ClaudiaBallWindow = lazy(() => import('../components/claudia/ClaudiaBallWindow').then(m => ({ default: m.ClaudiaBallWindow })));
-const NotchWindowLazy = lazy(() => import('../components/NotchWindow').then(m => ({ default: m.NotchWindow })));
+const NotchWindowLazy = lazy(() => import('../components/notch/NotchWindow').then(m => ({ default: m.NotchWindow })));
 const ClaudiaChatWindow = lazy(() => import('../components/claudia/ClaudiaChatWindow').then(m => ({ default: m.ClaudiaChatWindow })));
 const WindowManagerWindow = lazy(() => import('../components/windowmanager/WindowManagerWindow').then(m => ({ default: m.WindowManagerWindow })));
 

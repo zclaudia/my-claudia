@@ -6,8 +6,8 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import * as api from '../services/api';
-import type { WorkspaceSkillInfo, RegisteredSkillTool } from '../services/api';
+import * as api from '../../services/api';
+import type { WorkspaceSkillInfo, RegisteredSkillTool } from '../../services/api';
 
 export function WorkspaceSkillsSettings({ readOnly = false }: { readOnly?: boolean }) {
   const [skills, setSkills] = useState<WorkspaceSkillInfo[]>([]);

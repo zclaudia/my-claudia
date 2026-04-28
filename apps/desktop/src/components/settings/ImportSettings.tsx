@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { ImportDialog } from '../ImportDialog';
-import { ImportOpenCodeDialog } from '../ImportOpenCodeDialog';
+import { ImportDialog } from '../import/ImportDialog';
+import { ImportOpenCodeDialog } from '../import/ImportOpenCodeDialog';
 
 export function ImportSettings() {
   const [importDialogOpen, setImportDialogOpen] = useState(false);

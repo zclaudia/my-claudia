@@ -6,9 +6,9 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
-import { usePluginStore, selectPluginPanels } from '../stores/pluginStore';
-import type { InstalledPlugin, PluginStatus, UIExtension } from '../stores/pluginStore';
-import { getBaseUrl, fetchAndSyncPlugins } from '../services/api';
+import { usePluginStore, selectPluginPanels } from '../../stores/pluginStore';
+import type { InstalledPlugin, PluginStatus, UIExtension } from '../../stores/pluginStore';
+import { getBaseUrl, fetchAndSyncPlugins } from '../../services/api';
 
 /** Plugin IDs hardcoded in builtinPanels.ts — only these count as built-in */
 const BUILTIN_PLUGIN_IDS = new Set([

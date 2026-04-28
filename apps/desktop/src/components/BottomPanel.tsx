@@ -4,7 +4,7 @@ import { usePluginStore, selectPluginPanels, type UIExtension } from '../stores/
 import { useRightSidebarStore } from '../stores/rightSidebarStore';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import { useAndroidBack } from '../hooks/useAndroidBack';
-import { PluginPanelRenderer } from './PluginPanelRenderer';
+import { PluginPanelRenderer } from './notch/PluginPanelRenderer';
 
 const MIN_HEIGHT = 100;
 const MAX_HEIGHT_VH = 70;

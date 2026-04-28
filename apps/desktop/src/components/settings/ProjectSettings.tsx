@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Project, ProviderConfig, UnifiedPermissionPolicy, PermissionCategory, CategoryAction, CategoryProfile, Workflow } from '@my-claudia/shared';
-import { useServerStore } from '../stores/serverStore';
-import { useFacadeStore } from '../stores/facadeStore';
-import { useProjectStore } from '../stores/projectStore';
-import { useProviderMetaStore } from '../stores/providerMetaStore';
-import { useSupervisionStore } from '../stores/supervisionStore';
-import * as api from '../services/api';
-import { useAndroidBack } from '../hooks/useAndroidBack';
-import { isMobileBackendUsable } from '../services/mobileConnectionState';
+import { useServerStore } from '../../stores/serverStore';
+import { useFacadeStore } from '../../stores/facadeStore';
+import { useProjectStore } from '../../stores/projectStore';
+import { useProviderMetaStore } from '../../stores/providerMetaStore';
+import { useSupervisionStore } from '../../stores/supervisionStore';
+import * as api from '../../services/api';
+import { useAndroidBack } from '../../hooks/useAndroidBack';
+import { isMobileBackendUsable } from '../../services/mobileConnectionState';
 
 const CATEGORY_LABELS: Record<PermissionCategory, { label: string; description: string }> = {
   fileRead: { label: 'File Read', description: 'Read, Glob, Grep, WebFetch' },
