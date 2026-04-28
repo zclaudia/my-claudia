@@ -263,11 +263,19 @@ export function FileViewerActions() {
 
 /** File viewer content (renders inside the shared BottomPanel) */
 export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
+  const store = useFileViewerStore();
   const {
-    filePath, content, loading, error, searchOpen,
+    loading, error, searchOpen,
     targetLine, targetEndLine, targetNonce,
     openFile, setContent, setError, setSearchOpen,
-  } = useFileViewerStore();
+  } = store;
+  // Guard: when the store still holds state pointing at a different project
+  // (e.g. user just switched session/project), treat the viewer as if no file
+  // is selected. SessionChatLayout's effect will close()/reset the store
+  // shortly; this prevents rendering stale content during the transition.
+  const projectMatches = !store.projectRoot || store.projectRoot === projectRoot;
+  const filePath = projectMatches ? store.filePath : null;
+  const content = projectMatches ? store.content : null;
   const fileBackendId = resolveProjectBackendId(projectRoot);
   const listRef = useListRef(null);
 

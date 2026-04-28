@@ -1,5 +1,6 @@
 import { useCallback, useRef, useEffect } from 'react';
 import { useDraftEditorStore } from '../../stores/draftEditorStore';
+import { useSelectionStore } from '../../stores/selectionStore';
 
 const MAX_CONTENT_BYTES = 100 * 1024;
 
@@ -20,12 +21,19 @@ export function DraftPanel() {
     discardDraft,
   } = useDraftEditorStore();
 
+  // Guard: when the store's activeSessionId doesn't match the currently
+  // selected session (e.g. user just switched), the editor is briefly out of
+  // sync. Render a transient "Loading..." instead of the previous session's
+  // draft. SessionChatLayout will call openEditor(currentSession) to converge.
+  const selectedSessionId = useSelectionStore((s) => s.selectedSessionId);
+  const sessionMatches = !!activeSessionId && (!selectedSessionId || activeSessionId === selectedSessionId);
+
   // Auto-focus textarea when panel mounts
   useEffect(() => {
-    if (textareaRef.current && !isReadOnly) {
+    if (textareaRef.current && !isReadOnly && sessionMatches) {
       textareaRef.current.focus();
     }
-  }, [activeSessionId, isReadOnly]);
+  }, [activeSessionId, isReadOnly, sessionMatches]);
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -55,6 +63,14 @@ export function DraftPanel() {
   }
 
   const effectiveReadOnly = isReadOnly || sessionArchived;
+
+  if (!sessionMatches) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+        Loading draft...
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full">
