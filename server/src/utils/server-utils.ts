@@ -22,10 +22,6 @@ export function normalizeSessionWorkingDirectory(
   return normalizedWorkingDirectory;
 }
 
-export function isSlashCommand(input: string): boolean {
-  return input.trim().startsWith('/');
-}
-
 /**
  * Detect if a tool call is a sudo command that needs a password.
  * Returns true for Bash/shell tool calls containing sudo.

@@ -61,22 +61,3 @@ export function mapPermissionMode(
   return map.supervised ?? Object.values(map)[0] ?? 'default';
 }
 
-/**
- * Check if a provider supports a specific PCP permission mode.
- */
-export function supportsPermissionMode(
-  manifest: PCPProviderManifest,
-  pcpMode: PCPPermissionMode,
-): boolean {
-  return !!manifest.permissionModeMap?.[pcpMode];
-}
-
-/**
- * Get all PCP permission modes supported by a provider.
- */
-export function getSupportedPermissionModes(
-  manifest: PCPProviderManifest,
-): PCPPermissionMode[] {
-  if (!manifest.permissionModeMap) return [];
-  return Object.keys(manifest.permissionModeMap) as PCPPermissionMode[];
-}

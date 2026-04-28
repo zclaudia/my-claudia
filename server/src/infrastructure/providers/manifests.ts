@@ -158,11 +158,3 @@ export const KIMI_MANIFEST: PCPProviderManifest = {
   },
 };
 
-/** All built-in provider manifests */
-export const BUILTIN_MANIFESTS: Record<string, PCPProviderManifest> = {
-  claude: CLAUDE_MANIFEST,
-  opencode: OPENCODE_MANIFEST,
-  codex: CODEX_MANIFEST,
-  cursor: CURSOR_MANIFEST,
-  kimi: KIMI_MANIFEST,
-};

@@ -1218,14 +1218,6 @@ export async function* runCodexAppServer(
 
 const activeThreadIds = new Map<string, { client: CodexAppServerClient; threadId: string }>();
 
-export function trackActiveThread(sessionId: string, client: CodexAppServerClient, threadId: string): void {
-  activeThreadIds.set(sessionId, { client, threadId });
-}
-
-export function untrackActiveThread(sessionId: string): void {
-  activeThreadIds.delete(sessionId);
-}
-
 export async function abortCodexAppServer(sessionId: string): Promise<void> {
   const entry = activeThreadIds.get(sessionId);
   if (entry) {

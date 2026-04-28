@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useUpdateStore } from '../stores/updateStore';
-import { areUpdatesEnabledForBuild, checkForUpdates, downloadAndInstallApk, isDevAppIdentity, isDevBuild } from '../hooks/useAutoUpdate';
-import { isDesktopTauri } from '../utils/platform';
+import { downloadAndInstallApk } from '../hooks/useAutoUpdate';
 
 export function UpdateBanner() {
   const status = useUpdateStore((s) => s.status);
@@ -106,63 +105,3 @@ export function UpdateBanner() {
   );
 }
 
-/** Button to manually trigger an update check. Use in settings or header. */
-export function CheckForUpdatesButton() {
-  const status = useUpdateStore((s) => s.status);
-  const isChecking = status === 'checking';
-  const [updatesEnabled, setUpdatesEnabled] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!isDesktopTauri()) {
-      setUpdatesEnabled(true);
-      return;
-    }
-
-    if (!areUpdatesEnabledForBuild()) {
-      setUpdatesEnabled(false);
-      return;
-    }
-
-    const effectiveVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : useUpdateStore.getState().currentVersion;
-    if (effectiveVersion) {
-      useUpdateStore.setState({ currentVersion: effectiveVersion });
-    }
-    if (effectiveVersion && isDevBuild(effectiveVersion)) {
-      setUpdatesEnabled(false);
-      return;
-    }
-
-    (async () => {
-      try {
-        const { getIdentifier, getName, getVersion } = await import('@tauri-apps/api/app');
-        const [identifier, appName, version] = await Promise.all([getIdentifier(), getName(), getVersion()]);
-        if (!cancelled) {
-          const currentVersion = effectiveVersion || version;
-          useUpdateStore.setState({ currentVersion });
-          setUpdatesEnabled(areUpdatesEnabledForBuild() && !isDevBuild(currentVersion) && !isDevAppIdentity(identifier, appName));
-        }
-      } catch {
-        if (!cancelled) setUpdatesEnabled(true);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (!updatesEnabled) return null;
-
-  return (
-    <button
-      onClick={() => checkForUpdates(true)}
-      disabled={isChecking || status === 'downloading' || status === 'ready'}
-      className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-      title="Check for updates"
-    >
-      {isChecking ? 'Checking...' : 'Check for Updates'}
-    </button>
-  );
-}

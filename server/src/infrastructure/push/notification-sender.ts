@@ -26,7 +26,3 @@ export class GatewayNotificationSender implements NotificationSender {
   }
 }
 
-/** No-op sender when no gateway is configured. */
-export class NoopNotificationSender implements NotificationSender {
-  async notify(): Promise<void> { /* no-op */ }
-}

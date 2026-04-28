@@ -1,49 +1,7 @@
 import { useCallback, useRef, useEffect } from 'react';
 import { useDraftEditorStore } from '../../stores/draftEditorStore';
-import { usePluginStore } from '../../stores/pluginStore';
-import { useOwnershipStore } from '../../stores/ownershipStore';
-import { useIsMobile } from '../../hooks/useMediaQuery';
-import { isDesktopTauri } from '../../utils/platform';
-import { openPopoutWindow, getConnectionParams } from '../../utils/popoutWindow';
 
 const MAX_CONTENT_BYTES = 100 * 1024;
-
-async function openDraftInNewWindow(sessionId: string) {
-  const ownerBackendId = useOwnershipStore.getState().getSessionBackendId(sessionId);
-  const conn = getConnectionParams({ sessionId, backendId: ownerBackendId });
-  const label = await openPopoutWindow({
-    type: 'draft',
-    params: { draftWindow: sessionId },
-    title: `Draft — ${conn.serverName || 'Local'}`,
-    width: 700,
-    height: 500,
-    dragDropEnabled: true,
-    connectionTarget: { sessionId, backendId: ownerBackendId },
-  });
-
-  useDraftEditorStore.getState().setPoppedOut(true, label);
-  usePluginStore.getState().updatePanelVisibility('draft', false);
-}
-
-/** Draft panel toolbar actions (pop-out button) */
-export function DraftActions() {
-  const activeSessionId = useDraftEditorStore((s) => s.activeSessionId);
-  const isMobile = useIsMobile();
-
-  if (!isDesktopTauri() || isMobile || !activeSessionId) return null;
-
-  return (
-    <button
-      onClick={() => openDraftInNewWindow(activeSessionId)}
-      className="p-1 rounded hover:bg-secondary text-muted-foreground"
-      title="Open in new window"
-    >
-      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-      </svg>
-    </button>
-  );
-}
 
 /** Draft panel content rendered inside BottomPanel */
 export function DraftPanel() {

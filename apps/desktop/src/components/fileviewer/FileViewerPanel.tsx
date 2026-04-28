@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, type CSSProperties } from 'react';
+import { useState, useEffect, useMemo, type CSSProperties } from 'react';
 import { useFileViewerStore } from '../../stores/fileViewerStore';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { Highlight, themes as prismThemes, type PrismTheme, type Token } from 'prism-react-renderer';
+import { List, useListRef, type RowComponentProps, type ListImperativeAPI } from 'react-window';
 import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import * as api from '../../services/api';
@@ -37,6 +37,134 @@ function detectLanguage(filePath: string): string {
 
 interface FileViewerPanelProps {
   projectRoot: string;
+}
+
+/** Row height (px) — must match lineHeight below so virtualization aligns rows. */
+const ROW_HEIGHT_PX = 20;
+
+type CodeRowExtraProps = {
+  tokens: Token[][];
+  getLineProps: (input: { line: Token[] }) => { style?: CSSProperties; className?: string };
+  getTokenProps: (input: { token: Token }) => {
+    style?: CSSProperties;
+    className?: string;
+    children?: React.ReactNode;
+  };
+  highlightStart: number | null;
+  highlightEnd: number | null;
+  lineNumberWidth: string;
+};
+
+function CodeRow({
+  index,
+  style,
+  tokens,
+  getLineProps,
+  getTokenProps,
+  highlightStart,
+  highlightEnd,
+  lineNumberWidth,
+}: RowComponentProps<CodeRowExtraProps>) {
+  const line = tokens[index];
+  if (!line) return null;
+  const lineNumber = index + 1;
+  const inRange =
+    highlightStart != null && highlightEnd != null
+      && lineNumber >= highlightStart && lineNumber <= highlightEnd;
+  const lineProps = getLineProps({ line });
+  const themeBg = (lineProps.style?.backgroundColor as string | undefined) ?? undefined;
+  return (
+    <div
+      style={{
+        ...style,
+        display: 'flex',
+        whiteSpace: 'pre',
+        backgroundColor: inRange ? 'rgba(250, 204, 21, 0.2)' : themeBg,
+      }}
+    >
+      <span
+        style={{
+          display: 'inline-block',
+          width: lineNumberWidth,
+          paddingLeft: '0.5rem',
+          paddingRight: '0.75rem',
+          textAlign: 'right',
+          userSelect: 'none',
+          opacity: 0.5,
+          flexShrink: 0,
+        }}
+      >
+        {lineNumber}
+      </span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        {line.map((token, key) => {
+          const tokenProps = getTokenProps({ token });
+          return (
+            <span key={key} style={tokenProps.style} className={tokenProps.className}>
+              {token.content}
+            </span>
+          );
+        })}
+      </span>
+    </div>
+  );
+}
+
+interface VirtualizedCodeViewProps {
+  content: string;
+  language: string;
+  theme: PrismTheme;
+  highlightStart: number | null;
+  highlightEnd: number | null;
+  listRef: React.RefObject<ListImperativeAPI>;
+}
+
+/**
+ * Tokenizes once via Prism and renders only the visible rows via react-window.
+ * Bounds main-thread work so even 10k-line files don't block the UI on render
+ * (Prism tokenization itself is still synchronous but the DOM cost is constant).
+ */
+function VirtualizedCodeView({
+  content,
+  language,
+  theme,
+  highlightStart,
+  highlightEnd,
+  listRef,
+}: VirtualizedCodeViewProps) {
+  const lineCount = useMemo(() => content.split(/\r?\n/).length, [content]);
+  const lineNumberWidth = `${Math.max(2, String(lineCount).length) + 2}ch`;
+
+  return (
+    <Highlight code={content} language={language} theme={theme}>
+      {({ tokens, getLineProps, getTokenProps, style: themeStyle }) => (
+        <List<CodeRowExtraProps>
+          rowCount={tokens.length}
+          rowHeight={ROW_HEIGHT_PX}
+          rowComponent={CodeRow}
+          rowProps={{
+            tokens,
+            getLineProps,
+            getTokenProps,
+            highlightStart,
+            highlightEnd,
+            lineNumberWidth,
+          }}
+          listRef={listRef}
+          style={{
+            ...themeStyle,
+            height: '100%',
+            width: '100%',
+            margin: 0,
+            fontFamily: 'Menlo, Monaco, Consolas, monospace',
+            fontSize: '0.75rem',
+            lineHeight: `${ROW_HEIGHT_PX}px`,
+          }}
+          data-testid="code-viewer"
+        />
+      )}
+    </Highlight>
+  );
 }
 
 function resolveProjectBackendId(projectRoot: string): string | null {
@@ -141,7 +269,7 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
     openFile, setContent, setError, setSearchOpen,
   } = useFileViewerStore();
   const fileBackendId = resolveProjectBackendId(projectRoot);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const listRef = useListRef(null);
 
   const { resolvedTheme } = useTheme();
 
@@ -170,20 +298,30 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
   };
 
   const lang = filePath ? detectLanguage(filePath) : 'text';
-  const codeStyle = isDarkTheme(resolvedTheme) ? oneDark : oneLight;
+  const codeTheme = isDarkTheme(resolvedTheme) ? prismThemes.oneDark : prismThemes.oneLight;
   const isMarkdown = lang === 'markdown';
   const highlightStart = targetLine ?? null;
   const highlightEnd = targetEndLine ?? targetLine ?? null;
 
-  // Scroll to the target line whenever a new target is set or content arrives
+  // Scroll the virtualized list to the target line when one is set / changed.
   useEffect(() => {
     if (!highlightStart || isMarkdown) return;
     if (loading || !content) return;
-    const node = scrollRef.current?.querySelector('[data-line-target="start"]');
-    if (node && 'scrollIntoView' in node) {
-      (node as HTMLElement).scrollIntoView({ block: 'center', behavior: 'auto' });
-    }
-  }, [highlightStart, content, loading, isMarkdown, targetNonce]);
+    // Defer one tick so Highlight has already produced tokens by the time
+    // the list responds to scrollToRow.
+    const id = window.setTimeout(() => {
+      try {
+        listRef.current?.scrollToRow({
+          index: Math.max(0, highlightStart - 1),
+          align: 'center',
+          behavior: 'auto',
+        });
+      } catch {
+        // Out-of-range can happen during transitions; ignore safely.
+      }
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [highlightStart, content, loading, isMarkdown, targetNonce, listRef]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -208,7 +346,7 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
       )}
 
       {/* Content area */}
-      <div ref={scrollRef} className="flex-1 overflow-auto">
+      <div className="flex-1 min-h-0 overflow-hidden">
         {loading && (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
             Loading...
@@ -221,44 +359,18 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
         )}
         {content && !loading && (
           isMarkdown ? (
-            <MarkdownFileContent content={content} />
+            <div className="h-full overflow-auto">
+              <MarkdownFileContent content={content} />
+            </div>
           ) : (
-            <SyntaxHighlighter
-              style={codeStyle}
+            <VirtualizedCodeView
+              content={content}
               language={lang}
-              showLineNumbers
-              wrapLines
-              lineProps={(lineNumber: number) => {
-                const inRange = highlightStart != null && highlightEnd != null
-                  && lineNumber >= highlightStart && lineNumber <= highlightEnd;
-                const isStart = highlightStart != null && lineNumber === highlightStart;
-                const props: { style: CSSProperties; 'data-line-target'?: string } = {
-                  style: {
-                    display: 'block',
-                    backgroundColor: inRange ? 'rgba(250, 204, 21, 0.2)' : undefined,
-                  },
-                };
-                if (isStart) props['data-line-target'] = 'start';
-                return props;
-              }}
-              PreTag="div"
-              customStyle={{
-                margin: 0,
-                borderRadius: 0,
-                padding: '0.5rem 0',
-                fontSize: '0.75rem',
-                lineHeight: '1.25rem',
-              }}
-              lineNumberStyle={{
-                minWidth: '3em',
-                paddingRight: '1em',
-                textAlign: 'right',
-                userSelect: 'none',
-                opacity: 0.5,
-              }}
-            >
-              {content}
-            </SyntaxHighlighter>
+              theme={codeTheme}
+              highlightStart={highlightStart}
+              highlightEnd={highlightEnd}
+              listRef={listRef}
+            />
           )
         )}
         {!filePath && !loading && !searchOpen && (

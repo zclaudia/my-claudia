@@ -26,8 +26,6 @@ export type Epoch = number;
 export type Offset = number;
 export type Seq = number;
 
-/** Current protocol version. */
-export const GATEWAY_PROTOCOL_VERSION: ProtocolVersion = 2;
 
 // ============================================================================
 // Peer Handshake Protocol
@@ -335,35 +333,6 @@ export interface PushNotificationRequestMessage {
 // Union Types
 // ============================================================================
 
-export type PeerToGatewayMessage =
-  | PeerHelloMessage
-  | RequestRegistrySnapshotMessage
-  | BackendHeartbeatMessage
-  | BackendDataSnapshotMessage
-  | BackendDataEventMessage
-  | SubscribeBackendMessage
-  | UnsubscribeBackendMessage
-  | BackendClientMessage
-  | BackendServerMessage
-  | BackendRunStreamEvent
-  | CatchUpSessionContentMessage
-  | PushNotificationRequestMessage;
-
-export type GatewayToPeerMessage =
-  | PeerReadyMessage
-  | RegistrySnapshotMessage
-  | HeartbeatAckMessage
-  | StreamDemandMessage
-  | BackendDataSnapshotMessage
-  | BackendDataEventMessage
-  | BackendSubscribedMessage
-  | BackendUnsubscribedMessage
-  | BackendServerMessage
-  | RunStreamEvent
-  | SessionContentPatchMessage
-  | SessionContentPatchErrorMessage
-  | GatewayErrorMessage;
-
 export type BackendToGatewayMessage =
   | PeerHelloMessage
   | RequestRegistrySnapshotMessage
@@ -392,41 +361,6 @@ export type ClientToGatewayMessage =
   | BackendClientMessage
   | RequestBackendDataSnapshotMessage
   | CatchUpSessionContentMessage;
-
-export type GatewayToClientMessage =
-  | PeerReadyMessage
-  | RegistrySnapshotMessage
-  | BackendDataSnapshotMessage
-  | BackendDataEventMessage
-  | BackendSubscribedMessage
-  | BackendUnsubscribedMessage
-  | BackendServerMessage
-  | RunStreamEvent
-  | SessionContentPatchMessage
-  | SessionContentPatchErrorMessage
-  | GatewayErrorMessage;
-
-// ============================================================================
-// Client State Model (for reference)
-// ============================================================================
-
-export interface ClientRegistryCache {
-  items: Record<BackendId, BackendPresence>;
-}
-
-export interface BackendDataCache {
-  backendId: BackendId;
-  sessions: Record<string, SessionItem>;
-  projects: Record<string, ProjectItem>;
-}
-
-export interface SessionContentCache {
-  backendId: BackendId;
-  epoch: Epoch;
-  sessionId: string;
-  maxOffset: Offset;
-  messages: SessionMessage[];
-}
 
 // ============================================================================
 // HTTP Proxy Protocol (shared between gateway server and backend)

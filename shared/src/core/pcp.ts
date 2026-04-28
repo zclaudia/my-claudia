@@ -35,10 +35,6 @@ export type ReliabilityTier = 'strict' | 'best_effort' | 'display_only';
 /** What happens when the capability is unavailable */
 export type DegradationPolicy = 'reject' | 'fallback_to_text' | 'fallback_to_notice' | 'server_emulation';
 
-// === Input Modes ===
-
-export type ImageAttachmentMode = 'data_uri' | 'file_path' | 'temp_file';
-
 // === Unified Permission Modes ===
 
 export type PCPPermissionMode = 'supervised' | 'auto_edit' | 'autonomous' | 'plan_only';
@@ -120,12 +116,3 @@ export function hasCapability(
   return capTierIndex <= minTierIndex;
 }
 
-/** Get the degradation policy for a capability */
-export function getDegradation(
-  profile: PCPEffectiveProfile,
-  id: PCPCapabilityId,
-): DegradationPolicy {
-  const cap = profile.capabilities.find(c => c.id === id);
-  if (cap?.enabled) return cap.degradation ?? 'reject';
-  return cap?.degradation ?? 'reject';
-}

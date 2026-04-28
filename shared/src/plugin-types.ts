@@ -300,9 +300,7 @@ export interface PluginInstance {
   isActive: boolean;
   module?: unknown;
   error?: string;
-  /** Permissions not yet granted — will be requested on first tool/command use */
   pendingPermissions?: string[];
-  /** Result of capability negotiation (requires check) */
   capabilities?: CapabilityNegotiationResult;
 }
 
@@ -591,9 +589,6 @@ export interface PluginValidationResult {
   warnings: string[];
 }
 
-/**
- * Validate a plugin manifest
- */
 export function validatePluginManifest(manifest: unknown): PluginValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -604,7 +599,6 @@ export function validatePluginManifest(manifest: unknown): PluginValidationResul
 
   const m = manifest as Record<string, unknown>;
 
-  // Required fields
   if (!m.id || typeof m.id !== 'string') {
     errors.push('Missing required field: id');
   } else if (!/^[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)*$/.test(m.id as string)) {
@@ -625,7 +619,6 @@ export function validatePluginManifest(manifest: unknown): PluginValidationResul
     errors.push('Missing required field: description');
   }
 
-  // Validate engines
   if (m.engines && typeof m.engines === 'object') {
     const engines = m.engines as Record<string, unknown>;
     if (!engines.claudia || typeof engines.claudia !== 'string') {
@@ -633,7 +626,6 @@ export function validatePluginManifest(manifest: unknown): PluginValidationResul
     }
   }
 
-  // Validate contributions
   if (m.contributes && typeof m.contributes === 'object') {
     const contributes = m.contributes as Record<string, unknown>;
 
@@ -688,11 +680,7 @@ export function validatePluginManifest(manifest: unknown): PluginValidationResul
     }
   }
 
-  return {
-    valid: errors.length === 0,
-    errors,
-    warnings,
-  };
+  return { valid: errors.length === 0, errors, warnings };
 }
 
 /**

@@ -27,13 +27,33 @@ vi.mock('react-markdown', () => ({
 
 vi.mock('remark-gfm', () => ({ default: () => {} }));
 
-vi.mock('react-syntax-highlighter', () => ({
-  Prism: (props: any) => <pre data-testid="syntax-highlighter">{props.children}</pre>,
+vi.mock('prism-react-renderer', () => ({
+  Highlight: ({ code, children }: any) =>
+    children({
+      tokens: code.split(/\r?\n/).map((line: string) => [{ types: ['plain'], content: line }]),
+      getLineProps: () => ({ style: {}, className: '' }),
+      getTokenProps: ({ token }: any) => ({ style: {}, className: '', children: token.content }),
+      style: {},
+      className: '',
+    }),
+  themes: { oneDark: {}, oneLight: {} },
 }));
 
-vi.mock('react-syntax-highlighter/dist/esm/styles/prism', () => ({
-  oneDark: {},
-  oneLight: {},
+vi.mock('react-window', () => ({
+  List: ({ rowComponent: Row, rowCount, rowProps }: any) => (
+    <div data-testid="code-viewer">
+      {Array.from({ length: rowCount }).map((_, idx) => (
+        <Row
+          key={idx}
+          index={idx}
+          style={{}}
+          ariaAttributes={{ role: 'listitem', 'aria-posinset': idx + 1, 'aria-setsize': rowCount }}
+          {...rowProps}
+        />
+      ))}
+    </div>
+  ),
+  useListRef: () => ({ current: null }),
 }));
 
 const mockFileViewerState = {
@@ -93,11 +113,11 @@ describe('FileViewerPanel', () => {
     expect(screen.getByText('File not found')).toBeInTheDocument();
   });
 
-  it('renders syntax highlighter when content is available', () => {
+  it('renders code viewer when content is available', () => {
     mockFileViewerState.filePath = 'src/app.tsx';
     mockFileViewerState.content = 'const x = 1;';
     render(<FileViewerPanel projectRoot="/project" />);
-    expect(screen.getByTestId('syntax-highlighter')).toBeInTheDocument();
+    expect(screen.getByTestId('code-viewer')).toBeInTheDocument();
     expect(screen.getByText('const x = 1;')).toBeInTheDocument();
   });
 
@@ -106,7 +126,7 @@ describe('FileViewerPanel', () => {
     mockFileViewerState.content = '| A |\n| - |\n| B |';
     render(<FileViewerPanel projectRoot="/project" />);
     expect(screen.getByTestId('markdown')).toBeInTheDocument();
-    expect(screen.queryByTestId('syntax-highlighter')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('code-viewer')).not.toBeInTheDocument();
   });
 
   it('shows empty state prompt when no file and not loading', () => {

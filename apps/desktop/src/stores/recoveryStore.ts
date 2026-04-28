@@ -4,7 +4,6 @@ import type {
   BackendFacadeMode,
   BackendFacadeSnapshot,
   BackendRuntimeState,
-  SessionStreamSnapshot,
 } from '@my-claudia/shared';
 
 export type RecoveryCoordinatorStatus = 'ready' | 'background' | 'recovering' | 'error';
@@ -198,16 +197,6 @@ function updateActiveSession(
   };
 }
 
-export const RECOVERY_TIMEOUTS = {
-  TRANSPORT_CONNECT: 10_000,
-  BACKEND_SUBSCRIBE: 15_000,
-  DATA_SYNC: 10_000,
-  SESSION_STREAM_OPEN: 10_000,
-  SESSION_CATCHUP: 15_000,
-  RECONCILE_INTERVAL: 30_000,
-  DATA_STALENESS_ACTIVE: 5 * 60_000,
-  DATA_STALENESS_INACTIVE: 15 * 60_000,
-} as const;
 
 export const RECOVERY_MAX_RETRIES = {
   TRANSPORT: 5,
@@ -780,15 +769,6 @@ export const useRecoveryStore = create<RecoveryState>()((set, get) => ({
     return 'ready';
   },
 }));
-
-export function getRecoverySessionStream(
-  streams: Record<string, SessionStreamSnapshot>,
-  backendId: string | null | undefined,
-  sessionId: string | null | undefined,
-): SessionStreamSnapshot | null {
-  if (!backendId || !sessionId) return null;
-  return streams[`${backendId}:${sessionId}`] ?? null;
-}
 
 export function isBackendReady(backendId: string | null | undefined): boolean {
   if (!backendId) return false;

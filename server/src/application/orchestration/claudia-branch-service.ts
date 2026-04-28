@@ -16,15 +16,6 @@ export type BranchAction = 'reused' | 'forked' | 'created';
 
 const ACTIVE_STATUSES = ['running', 'queued', 'waiting'] as const;
 
-/** Port interface — conversation domain depends on this, not on the concrete class. */
-export interface BranchAllocatorPort {
-  allocateBranch(opts: { hostProjectId: string; activeBranchId?: string | null; forceNew?: boolean; title: string; sessionId: string }): BranchAllocation;
-  allocateForContinue(opts: { taskBranchId: string | null; hostProjectId: string; title: string; sessionId: string }): BranchAllocation;
-  setActiveBranchId(hostProjectId: string, branchId: string | null): void;
-  attachSession(branchId: string, sessionId: string): void;
-  updateBranchTask(branchId: string, taskId: string, sessionId?: string): void;
-}
-
 export interface BranchAllocation {
   branchId: string;
   sessionId: string;

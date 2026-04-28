@@ -10,13 +10,6 @@ export interface FileEntry {
   size?: number;          // file size in bytes (only for files)
 }
 
-export interface DirectoryListingRequest {
-  projectRoot: string;    // absolute path to project root
-  relativePath?: string;  // path relative to project root (default: "")
-  query?: string;         // filter query (fuzzy match)
-  maxResults?: number;    // limit results (default: 50)
-}
-
 export interface DirectoryListingResponse {
   entries: FileEntry[];
   currentPath: string;    // the resolved relative path

@@ -160,9 +160,7 @@ export const ICONS = {
 // Type exports for type-safe icon access
 export type ToolIconKey = keyof typeof ICONS.tools;
 export type FileTypeIconKey = keyof typeof ICONS.fileTypes;
-export type SystemInfoIconKey = keyof typeof ICONS.systemInfo;
 export type StatusIconKey = keyof typeof ICONS.status;
-export type MessageIconKey = keyof typeof ICONS.message;
 
 // Helper functions — return LucideIcon components
 export function getToolIcon(toolName: string): LucideIcon {

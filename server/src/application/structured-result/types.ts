@@ -38,15 +38,6 @@ export interface StructuredResultFallbackOutcome<T = unknown> {
   error?: string;
 }
 
-export interface StructuredResultTelemetry {
-  resultType: string;
-  acceptedOnAttempt?: number;
-  validationFailures: number;
-  finalized: boolean;
-  fallbackTriggered: boolean;
-  fallbackStrategy?: FallbackPolicy['strategy'];
-}
-
 export interface StructuredResultRunContext<T = unknown> {
   finalized: boolean;
   acceptedResult?: {
@@ -72,6 +63,3 @@ export interface FinalizationExecutorResult {
   finalized: boolean;
 }
 
-export interface FinalizationSessionPolicy {
-  maxValidationFailures: number;
-}

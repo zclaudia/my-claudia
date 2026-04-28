@@ -185,32 +185,6 @@ export function createResponse<T>(
 }
 
 /**
- * Create an error Response from a Request
- */
-export function createErrorResponse(
-  request: Request,
-  code: string,
-  message: string,
-  details?: unknown
-): Response<null> {
-  return {
-    id: generateId(),
-    type: request.type.replace('.request', '.response'),
-    payload: null,
-    timestamp: Date.now(),
-    metadata: {
-      requestId: request.id,
-      success: false,
-      error: {
-        code,
-        message,
-        details
-      }
-    }
-  };
-}
-
-/**
  * Generate a unique ID for messages
  * Uses simple timestamp + random for universally compatible ID generation
  */

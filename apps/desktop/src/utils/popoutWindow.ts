@@ -108,19 +108,6 @@ export function buildWindowTitle(name: string, ...contextParts: (string | undefi
   return `${name} — ${filtered.join(' · ')}`;
 }
 
-/** Parse connection params from current URL (used by pop-out window receivers). */
-export function parseWindowConnectionParams(): ConnectionParams {
-  const params = new URLSearchParams(window.location.search);
-  return {
-    serverUrl: params.get('serverUrl') || '',
-    authToken: params.get('authToken') || '',
-    serverId: params.get('serverId') || '',
-    serverName: params.get('serverName') || '',
-    gatewayUrl: params.get('gatewayUrl') || undefined,
-    gatewaySecret: params.get('gatewaySecret') || undefined,
-  };
-}
-
 function canonicalizeBackendId(backendId: string | null | undefined): string {
   if (!backendId) return '';
   const parsedBackendId = parseBackendId(backendId) ?? backendId;

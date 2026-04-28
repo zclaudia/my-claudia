@@ -81,8 +81,6 @@ export interface InteractionResolvedMessage {
   sessionId?: string;
 }
 
-export type AskUserFormField = InteractionPromptField;
-
 /** Approval request interaction (from internal request_approval tool) */
 export interface ApprovalInteractionMessage extends InteractionBase {
   type: 'interaction_approval';
