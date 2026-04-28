@@ -94,6 +94,32 @@ export const useDraftEditorStore = create<DraftEditorState>((set, get) => ({
   sessionArchived: false,
 
   openEditor: async (sessionId: string) => {
+    // If switching from a previous session, flush its pending save and
+    // release its lock in the background — otherwise the previous draft
+    // is lost and the lock leaks until the TTL expires.
+    const prev = get();
+    if (prev.activeSessionId && prev.activeSessionId !== sessionId && !prev.isReadOnly) {
+      if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+      }
+      const prevSession = prev.activeSessionId;
+      const prevContent = prev.localContent;
+      if (hasDraftContent(prevContent)) {
+        saveDraftToServer(prevSession, prevContent).catch((err) =>
+          console.error('[DraftEditor] Background save on switch failed:', err)
+        );
+      } else {
+        set({ draftExists: { ...get().draftExists, [prevSession]: false } });
+        api.deleteSessionDraft(prevSession).catch((err) =>
+          console.error('[DraftEditor] Failed to delete empty draft on switch:', err)
+        );
+      }
+      api.unlockSessionDraft(prevSession, CLIENT_DEVICE_ID).catch((err) =>
+        console.error('[DraftEditor] Failed to release lock on switch:', err)
+      );
+    }
+
     // Show panel immediately with empty content for responsive UI
     set({
       activeSessionId: sessionId,
