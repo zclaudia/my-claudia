@@ -120,26 +120,113 @@ describe('FileLineReference', () => {
     expect(button.textContent).toBe('foo.ts:42');
   });
 
-  it('opens a relative path directly without searching', () => {
+  it('resolves an exact relative path via search', async () => {
+    mockListDirectory.mockResolvedValueOnce({
+      entries: [
+        { name: 'foo.ts', path: 'src/foo.ts', type: 'file' },
+      ],
+      currentPath: '',
+      hasMore: false,
+    });
+
     render(<FileLineReference text="src/foo.ts:42" projectRoot="/repo" />);
     fireEvent.click(screen.getByRole('button'));
-    expect(mockListDirectory).not.toHaveBeenCalled();
-    expect(mockOpenFile).toHaveBeenCalledWith('/repo', 'src/foo.ts', 42, undefined);
+
+    await waitFor(() => {
+      expect(mockOpenFile).toHaveBeenCalledWith('/repo', 'src/foo.ts', 42, undefined);
+    });
     expect(mockSetActiveTab).toHaveBeenCalledWith('file-viewer');
+    // searches by basename, not full path
+    expect(mockListDirectory).toHaveBeenCalledWith({
+      projectRoot: '/repo',
+      backendId: undefined,
+      query: 'foo.ts',
+      maxResults: 20,
+    });
   });
 
-  it('forwards a line range when present', () => {
+  it('forwards a line range when present', async () => {
+    mockListDirectory.mockResolvedValueOnce({
+      entries: [{ name: 'foo.ts', path: 'src/foo.ts', type: 'file' }],
+      currentPath: '',
+      hasMore: false,
+    });
+
     render(<FileLineReference text="src/foo.ts:5-12" projectRoot="/repo" />);
     fireEvent.click(screen.getByRole('button'));
-    expect(mockOpenFile).toHaveBeenCalledWith('/repo', 'src/foo.ts', 5, 12);
+
+    await waitFor(() => {
+      expect(mockOpenFile).toHaveBeenCalledWith('/repo', 'src/foo.ts', 5, 12);
+    });
   });
 
-  it('opens a relative file path without a line target', () => {
+  it('resolves a relative file path without a line target', async () => {
+    mockListDirectory.mockResolvedValueOnce({
+      entries: [{ name: 'foo.ts', path: 'src/foo.ts', type: 'file' }],
+      currentPath: '',
+      hasMore: false,
+    });
+
     render(<FileLineReference text="src/foo.ts" projectRoot="/repo" />);
     fireEvent.click(screen.getByRole('button'));
-    expect(mockListDirectory).not.toHaveBeenCalled();
-    expect(mockOpenFile).toHaveBeenCalledWith('/repo', 'src/foo.ts', undefined, undefined);
+
+    await waitFor(() => {
+      expect(mockOpenFile).toHaveBeenCalledWith('/repo', 'src/foo.ts', undefined, undefined);
+    });
     expect(mockSetActiveTab).toHaveBeenCalledWith('file-viewer');
+  });
+
+  it('matches a partial path by suffix (app/Foo.tsx → apps/desktop/src/app/Foo.tsx)', async () => {
+    mockListDirectory.mockResolvedValueOnce({
+      entries: [
+        { name: 'MobileOverlays.tsx', path: 'apps/desktop/src/app/MobileOverlays.tsx', type: 'file' },
+      ],
+      currentPath: '',
+      hasMore: false,
+    });
+
+    render(<FileLineReference text="app/MobileOverlays.tsx:1" projectRoot="/repo" />);
+    fireEvent.click(screen.getByRole('button'));
+
+    await waitFor(() => {
+      expect(mockOpenFile).toHaveBeenCalledWith(
+        '/repo',
+        'apps/desktop/src/app/MobileOverlays.tsx',
+        1,
+        undefined,
+      );
+    });
+    expect(mockListDirectory).toHaveBeenCalledWith({
+      projectRoot: '/repo',
+      backendId: undefined,
+      query: 'MobileOverlays.tsx',
+      maxResults: 20,
+    });
+  });
+
+  it('prefers a path-suffix match over an unrelated basename hit', async () => {
+    mockListDirectory.mockResolvedValueOnce({
+      entries: [
+        // unrelated basename match
+        { name: 'index.ts', path: 'src/lib/index.ts', type: 'file' },
+        // suffix-matching candidate
+        { name: 'index.ts', path: 'apps/desktop/src/utils/index.ts', type: 'file' },
+      ],
+      currentPath: '',
+      hasMore: false,
+    });
+
+    render(<FileLineReference text="utils/index.ts:3" projectRoot="/repo" />);
+    fireEvent.click(screen.getByRole('button'));
+
+    await waitFor(() => {
+      expect(mockOpenFile).toHaveBeenCalledWith(
+        '/repo',
+        'apps/desktop/src/utils/index.ts',
+        3,
+        undefined,
+      );
+    });
   });
 
   it('looks up a bare basename via listDirectory and prefers an exact match', async () => {
@@ -164,7 +251,7 @@ describe('FileLineReference', () => {
       projectRoot: '/repo',
       backendId: 'b1',
       query: 'foo.ts',
-      maxResults: 10,
+      maxResults: 20,
     });
   });
 
@@ -182,12 +269,6 @@ describe('FileLineReference', () => {
 
     await waitFor(() => {
       expect(mockOpenFile).toHaveBeenCalledWith('/repo', 'src/App.tsx', undefined, undefined);
-    });
-    expect(mockListDirectory).toHaveBeenCalledWith({
-      projectRoot: '/repo',
-      backendId: undefined,
-      query: 'App.tsx',
-      maxResults: 10,
     });
   });
 

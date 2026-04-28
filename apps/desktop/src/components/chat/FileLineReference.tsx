@@ -55,9 +55,10 @@ interface Props {
  * Renders an inline file/line reference badge — clicking it opens the file in
  * the bottom file-viewer panel and scrolls to the referenced line.
  *
- * Path resolution:
- *  - if `pathOrName` contains "/", treat as project-relative path
- *  - otherwise use listDirectory's fuzzy search and pick the best basename match
+ * Path resolution: search by basename across the project, then pick the best
+ * match — preferring an exact path, then a path-suffix match (so a partial
+ * path like "app/Foo.tsx" matches "apps/desktop/src/app/Foo.tsx"), then the
+ * first basename hit.
  */
 export function FileLineReference({ text, projectRoot, backendId }: Props) {
   const openFile = useFileViewerStore((s) => s.openFile);
@@ -81,21 +82,30 @@ export function FileLineReference({ text, projectRoot, backendId }: Props) {
       useBottomPanelStore.getState().setActiveTab('file-viewer');
     };
 
-    if (pathOrName.includes('/')) {
-      openResolved(pathOrName);
-      return;
-    }
+    const basename = pathOrName.split('/').pop() ?? pathOrName;
 
     try {
       const result = await api.listDirectory({
         projectRoot,
         backendId: backendId ?? undefined,
-        query: pathOrName,
-        maxResults: 10,
+        query: basename,
+        maxResults: 20,
       });
       const fileEntries = result.entries.filter((e) => e.type === 'file');
-      const exact = fileEntries.find((e) => e.name === pathOrName);
-      const chosen = exact ?? fileEntries[0];
+
+      // Resolution priority:
+      //   1. exact path match
+      //   2. path ends with the requested partial path (e.g. "app/Foo.tsx"
+      //      matches "apps/desktop/src/app/Foo.tsx")
+      //   3. exact basename match
+      //   4. first basename hit
+      const exact = fileEntries.find((e) => e.path === pathOrName);
+      const suffix = pathOrName.includes('/')
+        ? fileEntries.find((e) => e.path === pathOrName || e.path.endsWith('/' + pathOrName))
+        : undefined;
+      const byName = fileEntries.find((e) => e.name === basename);
+      const chosen = exact ?? suffix ?? byName ?? fileEntries[0];
+
       if (!chosen) {
         useToastStore.getState().add({
           title: 'File not found',
