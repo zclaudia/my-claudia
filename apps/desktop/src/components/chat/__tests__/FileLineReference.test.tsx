@@ -4,6 +4,7 @@ import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/re
 import {
   FileLineReference,
   parseFileLineRef,
+  INLINE_FILE_REF_REGEX,
   FILE_LINE_REF_REGEX,
 } from '../FileLineReference';
 
@@ -79,6 +80,31 @@ describe('FILE_LINE_REF_REGEX', () => {
   });
 });
 
+describe('INLINE_FILE_REF_REGEX', () => {
+  it.each([
+    'foo.ts',
+    'foo.tsx',
+    'a/b/c.ts',
+    'snake_case.py',
+    '.hidden.json',
+    'foo.ts:1',
+    'foo.ts:1-3',
+  ])('matches %s', (s) => {
+    expect(INLINE_FILE_REF_REGEX.test(s)).toBe(true);
+  });
+
+  it.each([
+    'foo',
+    'foo:42',
+    '4 + 2',
+    'const x = 1',
+    'see foo.ts',
+    'foo.ts:abc',
+  ])('does not match %s', (s) => {
+    expect(INLINE_FILE_REF_REGEX.test(s)).toBe(false);
+  });
+});
+
 describe('FileLineReference', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -108,6 +134,14 @@ describe('FileLineReference', () => {
     expect(mockOpenFile).toHaveBeenCalledWith('/repo', 'src/foo.ts', 5, 12);
   });
 
+  it('opens a relative file path without a line target', () => {
+    render(<FileLineReference text="src/foo.ts" projectRoot="/repo" />);
+    fireEvent.click(screen.getByRole('button'));
+    expect(mockListDirectory).not.toHaveBeenCalled();
+    expect(mockOpenFile).toHaveBeenCalledWith('/repo', 'src/foo.ts', undefined, undefined);
+    expect(mockSetActiveTab).toHaveBeenCalledWith('file-viewer');
+  });
+
   it('looks up a bare basename via listDirectory and prefers an exact match', async () => {
     mockListDirectory.mockResolvedValueOnce({
       entries: [
@@ -130,6 +164,29 @@ describe('FileLineReference', () => {
       projectRoot: '/repo',
       backendId: 'b1',
       query: 'foo.ts',
+      maxResults: 10,
+    });
+  });
+
+  it('looks up a bare basename without a line target', async () => {
+    mockListDirectory.mockResolvedValueOnce({
+      entries: [
+        { name: 'App.tsx', path: 'src/App.tsx', type: 'file' },
+      ],
+      currentPath: '',
+      hasMore: false,
+    });
+
+    render(<FileLineReference text="App.tsx" projectRoot="/repo" />);
+    fireEvent.click(screen.getByRole('button'));
+
+    await waitFor(() => {
+      expect(mockOpenFile).toHaveBeenCalledWith('/repo', 'src/App.tsx', undefined, undefined);
+    });
+    expect(mockListDirectory).toHaveBeenCalledWith({
+      projectRoot: '/repo',
+      backendId: undefined,
+      query: 'App.tsx',
       maxResults: 10,
     });
   });

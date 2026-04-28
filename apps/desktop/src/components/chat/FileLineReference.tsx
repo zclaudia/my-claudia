@@ -5,10 +5,15 @@ import * as api from '../../services/api';
 
 /**
  * Matches inline-code content of the form `path/to/file.ext:N` or
- * `name.ext:N-M` (the entire string must match — no extra text). Used to
- * detect file/line references in assistant markdown.
+ * `name.ext:N-M` (the entire string must match — no extra text).
  */
 export const FILE_LINE_REF_REGEX = /^([\w\-./]+\.[a-zA-Z0-9]+):(\d+)(?:-(\d+))?$/;
+
+/**
+ * Matches inline-code content that looks like a concrete file reference:
+ * `path/to/file.ext`, `path/to/file.ext:N`, or `name.ext:N-M`.
+ */
+export const INLINE_FILE_REF_REGEX = /^([\w\-./]+\.[a-zA-Z0-9]+)(?::(\d+)(?:-(\d+))?)?$/;
 
 export interface ParsedFileLineRef {
   pathOrName: string;
@@ -16,16 +21,28 @@ export interface ParsedFileLineRef {
   end?: number;
 }
 
-export function parseFileLineRef(text: string): ParsedFileLineRef | null {
-  const match = FILE_LINE_REF_REGEX.exec(text.trim());
+interface ParsedInlineFileRef {
+  pathOrName: string;
+  start?: number;
+  end?: number;
+}
+
+function parseInlineFileRef(text: string): ParsedInlineFileRef | null {
+  const match = INLINE_FILE_REF_REGEX.exec(text.trim());
   if (!match) return null;
   const [, pathOrName, startStr, endStr] = match;
-  const start = parseInt(startStr, 10);
+  const start = startStr ? parseInt(startStr, 10) : undefined;
   const end = endStr ? parseInt(endStr, 10) : undefined;
-  if (!Number.isFinite(start) || (end !== undefined && !Number.isFinite(end))) {
+  if ((start !== undefined && !Number.isFinite(start)) || (end !== undefined && !Number.isFinite(end))) {
     return null;
   }
   return { pathOrName, start, end };
+}
+
+export function parseFileLineRef(text: string): ParsedFileLineRef | null {
+  const parsed = parseInlineFileRef(text);
+  if (!parsed || parsed.start === undefined) return null;
+  return { pathOrName: parsed.pathOrName, start: parsed.start, end: parsed.end };
 }
 
 interface Props {
@@ -46,7 +63,7 @@ export function FileLineReference({ text, projectRoot, backendId }: Props) {
   const openFile = useFileViewerStore((s) => s.openFile);
 
   const handleClick = async () => {
-    const parsed = parseFileLineRef(text);
+    const parsed = parseInlineFileRef(text);
     if (!parsed) return;
     if (!projectRoot) {
       useToastStore.getState().add({

@@ -35,8 +35,10 @@ export function useNotchBridgeHost(params: { enabled: boolean }): void {
   const showNotchPanel = useUIStore((s) => s.showNotchPanel);
   const notchMonitor = useUIStore((s) => s.notchMonitor);
   const shouldEnable = enabled && showNotchPanel;
-  const { sendMessage } = useConnection();
+  const { sendMessage, isConnected } = useConnection();
   const { selectSession } = useSelectionCoordinator();
+  const notificationHydrated = useNotificationFeedStore((s) => s.hydrated);
+  const notificationLoading = useNotificationFeedStore((s) => s.loading);
 
   // Keep the latest callbacks without re-subscribing listeners.
   const handlersRef = useRef({ sendMessage, selectSession });
@@ -56,17 +58,27 @@ export function useNotchBridgeHost(params: { enabled: boolean }): void {
         await invoke('create_notch_window', { notchUrl, monitorIndex });
         await invoke('resize_notch_window', { expanded: false });
       } catch (err) {
-        // eslint-disable-next-line no-console
         console.warn('[NotchBridge] create_notch_window failed:', err);
       }
     })();
   }, [shouldEnable]);
 
+  // The independent notch window only receives mirrored store snapshots. Unlike
+  // the in-app NotchPanel, it does not mount code that fetches the persisted
+  // notification list, so hydrate the feed from the main host when the notch is
+  // enabled. Otherwise the badge can show the backend unread total from
+  // heartbeats while the opened list only contains live `notification_update`
+  // items received during this app session.
+  useEffect(() => {
+    if (!shouldEnable || !isConnected || notificationHydrated || notificationLoading) return;
+    useNotificationFeedStore.getState().setLoading(true);
+    sendMessage({ type: 'get_notifications', limit: 50 });
+  }, [isConnected, notificationHydrated, notificationLoading, sendMessage, shouldEnable]);
+
   // Move notch to a different monitor when the setting changes.
   useEffect(() => {
     if (!spawnedRef.current || notchMonitor === null) return;
     invoke('move_notch_to_monitor', { monitorIndex: notchMonitor }).catch((err) => {
-      // eslint-disable-next-line no-console
       console.warn('[NotchBridge] move_notch_to_monitor failed:', err);
     });
   }, [notchMonitor]);

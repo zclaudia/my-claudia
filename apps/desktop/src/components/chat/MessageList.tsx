@@ -20,7 +20,7 @@ import { useProjectStore } from '../../stores/projectStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useServerStore } from '../../stores/serverStore';
 import { TextWithFileRefs, MarkdownChildrenWithFileRefs } from './FileReference';
-import { FileLineReference, FILE_LINE_REF_REGEX } from './FileLineReference';
+import { FileLineReference, INLINE_FILE_REF_REGEX } from './FileLineReference';
 
 interface FileRefContextValue {
   projectRoot?: string;
@@ -340,7 +340,7 @@ export const MessageList = memo(function MessageList({
         <div
           key={message.id}
           data-message-id={message.id}
-          className={`max-w-[calc(100vw-1.5rem)] md:max-w-3xl lg:max-w-4xl xl:max-w-5xl scroll-mt-24 rounded-2xl transition-colors ${isHighlighted ? 'ring-2 ring-primary/40 bg-primary/5' : ''}`}
+          className={`max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl min-w-0 scroll-mt-24 rounded-2xl transition-colors ${isHighlighted ? 'ring-2 ring-primary/40 bg-primary/5' : ''}`}
         >
           <FilePushCard item={item} onPreview={setPreviewItem} />
         </div>
@@ -358,7 +358,7 @@ export const MessageList = memo(function MessageList({
       <div
         key={message.id}
         data-message-id={message.id}
-        className={`scroll-mt-24 rounded-2xl transition-colors ${isHighlighted ? 'ring-2 ring-primary/40 bg-primary/5' : ''}`}
+        className={`scroll-mt-24 rounded-2xl transition-colors min-w-0 max-w-full ${isHighlighted ? 'ring-2 ring-primary/40 bg-primary/5' : ''}`}
       >
         <MessageItem
           message={message}
@@ -424,7 +424,7 @@ export const MessageList = memo(function MessageList({
   if (!shouldVirtualize) {
     return (
       <FileRefContext.Provider value={fileRefContextValue}>
-        <div data-testid="message-list" className="space-y-5">
+        <div data-testid="message-list" className="space-y-5 min-w-0 max-w-full">
           {filteredMessages.map((message, index) => renderMessage(message, index))}
         </div>
         {previewModal}
@@ -434,7 +434,7 @@ export const MessageList = memo(function MessageList({
 
   return (
     <FileRefContext.Provider value={fileRefContextValue}>
-      <div data-testid="message-list">
+      <div data-testid="message-list" className="min-w-0 max-w-full">
         {virtualWindow.topPadding > 0 && (
           <div style={{ height: virtualWindow.topPadding }} />
         )}
@@ -444,7 +444,7 @@ export const MessageList = memo(function MessageList({
             <div
               key={message.id}
               ref={(el) => setMeasuredRef(absoluteIndex, el)}
-              className="mb-4"
+              className="mb-4 min-w-0 max-w-full"
             >
               {renderMessage(message, absoluteIndex)}
             </div>
@@ -697,7 +697,7 @@ const SegmentedContent = memo(function SegmentedContent({
           const tc = toolCallMap.get(block.toolUseId);
           if (!tc) return null;
           return (
-            <div key={`tool-${block.toolUseId}-${i}`} className="w-full max-w-[calc(100vw-1.5rem)] md:max-w-3xl lg:max-w-4xl xl:max-w-5xl">
+            <div key={`tool-${block.toolUseId}-${i}`} className="w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl min-w-0">
               <ToolCallItem toolCall={tc} />
             </div>
           );
@@ -708,13 +708,13 @@ const SegmentedContent = memo(function SegmentedContent({
           // Last text block: render fully with thinking extraction
           const { thinking, content: mainContent } = extractThinking(block.content);
           return (
-            <div key={`text-${i}`}>
+            <div key={`text-${i}`} className="w-full max-w-full min-w-0">
               {thinking && (
-                <div className="w-full max-w-[calc(100vw-1.5rem)] md:max-w-3xl lg:max-w-4xl xl:max-w-5xl mb-2">
+                <div className="w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl mb-2 min-w-0">
                   <ThinkingBlock content={thinking} />
                 </div>
               )}
-              <div className="rounded-2xl px-3 md:px-4 py-2 w-full max-w-[calc(100vw-1.5rem)] md:max-w-3xl lg:max-w-4xl xl:max-w-5xl bg-card text-card-foreground">
+              <div className="rounded-2xl px-3 md:px-4 py-2 w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl bg-card text-card-foreground min-w-0">
                 <AssistantContent content={mainContent} />
               </div>
             </div>
@@ -723,7 +723,7 @@ const SegmentedContent = memo(function SegmentedContent({
 
         // Intermediate text block: collapsed
         return (
-          <div key={`text-${i}`} className="w-full max-w-[calc(100vw-1.5rem)] md:max-w-3xl lg:max-w-4xl xl:max-w-5xl">
+          <div key={`text-${i}`} className="w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl min-w-0">
             <CollapsedTextBlock content={block.content} />
           </div>
         );
@@ -776,7 +776,7 @@ const MessageItem = memo(function MessageItem({ message, streamingContentBlocks,
     return (
       <div
         data-role={message.role}
-        className="flex flex-col items-start"
+        className="flex flex-col items-start min-w-0 max-w-full"
       >
         <SegmentedContent
           contentBlocks={blocks}
@@ -798,14 +798,14 @@ const MessageItem = memo(function MessageItem({ message, streamingContentBlocks,
     >
       {/* Tool calls section (shown before the message content for assistant) — legacy rendering */}
       {!isUser && hasToolCalls && (
-        <div className="w-full max-w-[calc(100vw-1.5rem)] md:max-w-3xl lg:max-w-4xl xl:max-w-5xl mb-2">
+        <div className="w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl mb-2 min-w-0">
           <ToolCallList toolCalls={message.toolCalls!} defaultCollapsed={true} />
         </div>
       )}
 
       {/* Thinking block (same level as tool calls for consistent width) */}
       {!isUser && thinking && (
-        <div className="w-full max-w-[calc(100vw-1.5rem)] md:max-w-3xl lg:max-w-4xl xl:max-w-5xl mb-2">
+        <div className="w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl mb-2 min-w-0">
           <ThinkingBlock content={thinking} />
         </div>
       )}
@@ -816,7 +816,7 @@ const MessageItem = memo(function MessageItem({ message, streamingContentBlocks,
             ? 'max-w-[85%] md:max-w-3xl lg:max-w-4xl xl:max-w-5xl bg-primary text-primary-foreground shadow-apple-sm'
             : isSystem
             ? 'max-w-[85%] md:max-w-3xl lg:max-w-4xl xl:max-w-5xl bg-muted text-muted-foreground text-sm'
-            : 'w-full max-w-[calc(100vw-1.5rem)] md:max-w-3xl lg:max-w-4xl xl:max-w-5xl bg-card text-card-foreground min-w-0'
+            : 'w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl bg-card text-card-foreground min-w-0'
         }`}
       >
         {isUser ? (
@@ -877,7 +877,7 @@ const AssistantContent = memo(function AssistantContent({ content }: { content: 
 
               if (isInline) {
                 const trimmed = codeText.trim();
-                if (FILE_LINE_REF_REGEX.test(trimmed)) {
+                if (INLINE_FILE_REF_REGEX.test(trimmed)) {
                   return (
                     <FileLineReference
                       text={trimmed}
@@ -918,7 +918,7 @@ const AssistantContent = memo(function AssistantContent({ content }: { content: 
             },
             table({ children }) {
               return (
-                <div className="w-full overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch]">
+                <div className="w-full max-w-full min-w-0 overflow-x-auto overscroll-x-contain touch-pan-x [-webkit-overflow-scrolling:touch]">
                   <table className="w-max min-w-full border-collapse border border-border">
                     {children}
                   </table>
