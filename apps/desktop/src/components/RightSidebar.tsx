@@ -162,7 +162,11 @@ export function RightSidebar({ projectId, projectRoot, workingDirectory }: Right
   return (
     <div
       className={`flex flex-col flex-shrink-0 bg-card ${isOpen ? 'border-l border-border' : ''} relative`}
-      style={{ width: isOpen ? `${clampedWidth}px` : '0px', overflow: 'hidden' }}
+      style={{
+        width: isOpen ? `${clampedWidth}px` : '0px',
+        overflow: 'hidden',
+        contain: 'layout paint style',
+      }}
     >
       {/* Drag handle on left edge */}
       {isOpen && (
@@ -231,7 +235,7 @@ export function RightSidebar({ projectId, projectRoot, workingDirectory }: Right
       </div>
 
       {/* Content — alwaysMount panels stay in DOM even when hidden */}
-      <div className="flex-1 overflow-hidden relative">
+      <div className="flex-1 overflow-hidden relative [contain:layout_paint]">
         {mountedPanels.map((panel) => (
           <div key={panel.id} className={`absolute inset-0 ${effectiveTab === panel.id && isOpen ? '' : 'invisible'}`}>
             <PanelContent panel={panel} projectId={projectId} projectRoot={projectRoot} workingDirectory={workingDirectory} />
@@ -241,4 +245,3 @@ export function RightSidebar({ projectId, projectRoot, workingDirectory }: Right
     </div>
   );
 }
-

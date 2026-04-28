@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo, type ReactNode } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { ChatInputArea } from './ChatInputArea';
 import { ChatMessagePane } from './ChatMessagePane';
@@ -7,8 +7,6 @@ import { InterruptedBanner } from './InterruptedBanner';
 import { PlanStatusBar } from './PlanStatusBar';
 import { QueuedMessageBanner } from './QueuedMessageBanner';
 import { SessionHeader } from './SessionHeader';
-import { BottomPanel } from '../BottomPanel';
-import { RightSidebar } from '../RightSidebar';
 import { BackgroundTaskPanel } from '../BackgroundTaskPanel';
 import { DraftLockPrompt } from '../draft/DraftLockPrompt';
 import { TaskCardStrip } from '../../features/supervision/components/TaskCardStrip';
@@ -35,9 +33,10 @@ interface ChatInterfaceProps {
   sessionId: string;
   onReturnToDashboard?: (projectId: string) => void;
   onOpenSidebar?: () => void;
+  beforeComposer?: ReactNode;
 }
 
-export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }: ChatInterfaceProps) {
+export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar, beforeComposer }: ChatInterfaceProps) {
   const {
     sendMessage: activeServerSendMessage,
     sendToServer,
@@ -161,7 +160,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
   const poppedOutLabel = poppedOutSessions.get(sessionId);
 
   return (
-    <div ref={chatRootRef} className="flex flex-row h-full bg-background">
+    <div ref={chatRootRef} className="flex flex-col flex-1 min-w-0 h-full bg-background">
       {/* Popped-out placeholder */}
       {poppedOutLabel && (
         <PoppedOutPlaceholder
@@ -171,7 +170,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
         />
       )}
       {!poppedOutLabel && <>
-      <div className="flex flex-col flex-1 min-w-0 h-full">
       {/* Task card strip for supervisor main session */}
       {currentSession?.projectRole === 'main' && currentProject?.id && (
         <TaskCardStrip projectId={currentProject.id} />
@@ -191,7 +189,9 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
             });
           }}
           onDismiss={async () => {
-            try { await clearInterruptedStatus(); } catch {}
+            try { await clearInterruptedStatus(); } catch {
+              // Ignore transient backend errors while dismissing the local banner.
+            }
           }}
         />
       )}
@@ -284,12 +284,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
         });
       }} />
 
-      {/* Bottom panel */}
-      <BottomPanel
-        projectId={currentSession?.projectId}
-        projectRoot={fileReferenceRoot}
-        workingDirectory={currentSession?.workingDirectory}
-      />
+      {beforeComposer}
 
       {/* Queued message banner */}
       {queuedMessage && (
@@ -343,13 +338,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar }:
           onCommand={handleCommand}
         />
       )}
-      </div>
-      {/* Right sidebar — desktop-only; renders panels with placement='right' */}
-      <RightSidebar
-        projectId={currentSession?.projectId}
-        projectRoot={fileReferenceRoot}
-        workingDirectory={currentSession?.workingDirectory}
-      />
       </>}
 
       {/* Draft lock conflict dialog */}

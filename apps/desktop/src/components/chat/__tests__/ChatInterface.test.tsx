@@ -470,9 +470,14 @@ describe('ChatInterface', () => {
     expect(container.querySelector('[data-testid="message-list"]')).toBeTruthy();
   });
 
-  it('renders bottom panel', () => {
-    const { container } = render(<ChatInterface sessionId="sess-1" />);
-    expect(container.querySelector('[data-testid="bottom-panel"]')).toBeTruthy();
+  it('renders beforeComposer content', () => {
+    const { container } = render(
+      <ChatInterface
+        sessionId="sess-1"
+        beforeComposer={<div data-testid="before-composer-basic" />}
+      />
+    );
+    expect(container.querySelector('[data-testid="before-composer-basic"]')).toBeTruthy();
   });
 
   it('renders background task panel', () => {
@@ -1466,12 +1471,20 @@ describe('ChatInterface', () => {
     expect(input?.getAttribute('data-disabled')).toBe('false');
   });
 
-  // ─── BottomPanel projectId ────────────────────────────────────────────
+  // ─── Panel slot ───────────────────────────────────────────────────────
 
-  it('passes projectId to BottomPanel', () => {
-    const { container } = render(<ChatInterface sessionId="sess-1" />);
-    const bp = container.querySelector('[data-testid="bottom-panel"]');
-    expect(bp?.getAttribute('data-project-id')).toBe('proj-1');
+  it('renders beforeComposer slot before the input area', () => {
+    const { container } = render(
+      <ChatInterface
+        sessionId="sess-1"
+        beforeComposer={<div data-testid="before-composer-slot" />}
+      />
+    );
+    const slot = container.querySelector('[data-testid="before-composer-slot"]');
+    const input = container.querySelector('[data-testid="message-input"]');
+    expect(slot).toBeTruthy();
+    expect(input).toBeTruthy();
+    expect(Boolean(slot?.compareDocumentPosition(input!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
   });
 
   // ─── BackgroundTaskPanel sessionId ────────────────────────────────────

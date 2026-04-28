@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Loader2, Server, FolderOpen } from 'lucide-react';
 import { ConnectionProvider } from '../../contexts/ConnectionContext';
-import { ChatInterface } from './ChatInterface';
+import { SessionChatLayout } from './SessionChatLayout';
 import { useServerStore } from '../../stores/serverStore';
 import { useFacadeStore } from '../../stores/facadeStore';
 import { useProjectStore } from '../../stores/projectStore';
@@ -220,7 +220,7 @@ function SessionChatContent({ sessionId, projectId }: SessionChatContentProps) {
   }
 
   return (
-    <ChatInterface
+    <SessionChatLayout
       sessionId={sessionId}
       onReturnToDashboard={() => { void closeCurrentWindow(); }}
     />

@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useMemo, useCallback, lazy, Suspense } fro
 import { emit as emitTauri } from '@tauri-apps/api/event';
 import { NOTCH_EVENT } from './services/notchBridge';
 import { Sidebar } from './components/Sidebar';
-import { ChatInterface } from './components/chat/ChatInterface';
+import { SessionChatLayout } from './components/chat/SessionChatLayout';
 import { MobileSetup } from './components/MobileSetup';
 import { WindowsSetup } from './components/WindowsSetup';
 import { ToastContainer } from './components/ToastContainer';
@@ -318,7 +318,7 @@ function AppContent() {
                 />
               </Suspense>
             ) : selectedSessionId ? (
-              <ChatInterface
+              <SessionChatLayout
                 key={selectedSessionId}
                 sessionId={selectedSessionId}
                 onOpenSidebar={() => setSidebarOpen(true)}

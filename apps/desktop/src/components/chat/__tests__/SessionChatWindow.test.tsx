@@ -65,9 +65,9 @@ vi.mock('@tauri-apps/api/dpi', () => ({
   },
 }));
 
-// Mock ChatInterface (heavy child)
-vi.mock('../ChatInterface', () => ({
-  ChatInterface: ({ sessionId, onReturnToDashboard }: any) => (
+// Mock SessionChatLayout (heavy child)
+vi.mock('../SessionChatLayout', () => ({
+  SessionChatLayout: ({ sessionId, onReturnToDashboard }: any) => (
     <div data-testid="chat-interface">
       ChatInterface: {sessionId}
       <button onClick={onReturnToDashboard}>Return</button>

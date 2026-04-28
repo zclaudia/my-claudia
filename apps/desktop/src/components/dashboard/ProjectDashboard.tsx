@@ -7,7 +7,7 @@ import { TaskBoard } from '../../features/supervision/components/TaskBoard';
 import { ContextBrowser } from '../../features/supervision/components/ContextBrowser';
 import { CheckpointFeed } from '../../features/supervision/components/CheckpointFeed';
 import { SupervisorWorkspacePanel } from '../../features/supervision/components/SupervisorWorkspacePanel';
-import { ChatInterface } from '../chat/ChatInterface';
+import { SessionChatLayout } from '../chat/SessionChatLayout';
 import { LocalPRsPanel } from '../../features/local-pr/components/LocalPRsPanel';
 import { WorkflowsPanel } from '../../features/workflows/components/WorkflowsPanel';
 import { DashboardHome } from './DashboardHome';
@@ -162,7 +162,7 @@ export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations
               {supervisorPane === 'workspace' ? (
                 <SupervisorWorkspacePanel projectId={projectId} agent={agent} />
               ) : agent?.mainSessionId ? (
-                <ChatInterface sessionId={agent.mainSessionId} />
+                <SessionChatLayout sessionId={agent.mainSessionId} />
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
                   <div className="text-center">
