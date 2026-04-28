@@ -305,6 +305,7 @@ export function handleServerMessage(
       console.log(`[${logTag}] run_completed runId=${msg.runId} sessionId=${completedSession ?? 'unknown'} seq=${msg.seq ?? 'none'}`);
       if (completedSession) {
         usePromptRequestStore.getState().clearRequestsForSession(completedSession);
+        usePermissionStore.getState().clearRequestsForSession(completedSession);
         useInteractionStore.getState().clearSession(completedSession);
         useChatStore.getState().finalizeRunToMessage(msg.runId);
         if (msg.usage) {
@@ -335,6 +336,7 @@ export function handleServerMessage(
       console.log(`[${logTag}] run_failed runId=${msg.runId} sessionId=${failedSession ?? 'unknown'} seq=${msg.seq ?? 'none'}`);
       if (failedSession) {
         usePromptRequestStore.getState().clearRequestsForSession(failedSession);
+        usePermissionStore.getState().clearRequestsForSession(failedSession);
         useInteractionStore.getState().clearSession(failedSession);
         if (msg.error) {
           useChatStore.getState().appendToLastMessage(failedSession, `\n\n**Error:** ${msg.error}`);

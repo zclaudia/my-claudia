@@ -56,6 +56,7 @@ interface PermissionState {
   clearRequest: () => void;
   clearRequestById: (requestId: string) => void;
   clearAllRequests: () => void;
+  clearRequestsForSession: (sessionId: string) => void;
   clearStaleRequests: (serverId: string, validIds: Set<string>) => void;
   hasRequest: (requestId: string) => boolean;
   getRequestsForSession: (sessionId: string) => PermissionRequest[];
@@ -77,7 +78,13 @@ export const usePermissionStore = create<PermissionState>((set, get) => ({
   setPendingRequest: (request) => {
     if (!request) {
       // null clears the queue (backward compat)
-      set({ pendingRequests: [], pendingRequest: null });
+      set({
+        pendingRequests: [],
+        pendingRequest: null,
+        feedbackDrafts: {},
+        aiReviewResults: {},
+        workflowProgress: {},
+      });
       return;
     }
     set((state) => {
@@ -100,15 +107,18 @@ export const usePermissionStore = create<PermissionState>((set, get) => ({
       const remaining = state.pendingRequests.slice(1);
       const feedbackDrafts = { ...state.feedbackDrafts };
       const aiReviewResults = { ...state.aiReviewResults };
+      const workflowProgress = { ...state.workflowProgress };
       if (removed) {
         delete feedbackDrafts[removed.requestId];
         delete aiReviewResults[removed.requestId];
+        delete workflowProgress[removed.requestId];
       }
       return {
         pendingRequests: remaining,
         pendingRequest: remaining[0] || null,
         feedbackDrafts,
         aiReviewResults,
+        workflowProgress,
       };
     }),
 
@@ -118,19 +128,55 @@ export const usePermissionStore = create<PermissionState>((set, get) => ({
       const remaining = state.pendingRequests.filter(r => r.requestId !== requestId);
       const feedbackDrafts = { ...state.feedbackDrafts };
       const aiReviewResults = { ...state.aiReviewResults };
+      const workflowProgress = { ...state.workflowProgress };
       delete feedbackDrafts[requestId];
       delete aiReviewResults[requestId];
+      delete workflowProgress[requestId];
       return {
         pendingRequests: remaining,
         pendingRequest: remaining[0] || null,
         feedbackDrafts,
         aiReviewResults,
+        workflowProgress,
       };
     }),
 
   // Clear everything (e.g. on run end)
   clearAllRequests: () =>
-    set({ pendingRequests: [], pendingRequest: null, feedbackDrafts: {}, aiReviewResults: {} }),
+    set({
+      pendingRequests: [],
+      pendingRequest: null,
+      feedbackDrafts: {},
+      aiReviewResults: {},
+      workflowProgress: {},
+    }),
+
+  // Remove all requests belonging to a completed/failed session.
+  clearRequestsForSession: (sessionId) =>
+    set((state) => {
+      const removedIds = state.pendingRequests
+        .filter(r => r.sessionId === sessionId)
+        .map(r => r.requestId);
+      if (removedIds.length === 0) return state;
+
+      const removedSet = new Set(removedIds);
+      const remaining = state.pendingRequests.filter(r => r.sessionId !== sessionId);
+      const feedbackDrafts = { ...state.feedbackDrafts };
+      const aiReviewResults = { ...state.aiReviewResults };
+      const workflowProgress = { ...state.workflowProgress };
+      for (const requestId of removedSet) {
+        delete feedbackDrafts[requestId];
+        delete aiReviewResults[requestId];
+        delete workflowProgress[requestId];
+      }
+      return {
+        pendingRequests: remaining,
+        pendingRequest: remaining[0] || null,
+        feedbackDrafts,
+        aiReviewResults,
+        workflowProgress,
+      };
+    }),
 
   // Remove requests for a server that are not in the valid set (state heartbeat reconciliation)
   clearStaleRequests: (serverId, validIds) =>
@@ -148,15 +194,18 @@ export const usePermissionStore = create<PermissionState>((set, get) => ({
       );
       const feedbackDrafts = { ...state.feedbackDrafts };
       const aiReviewResults = { ...state.aiReviewResults };
+      const workflowProgress = { ...state.workflowProgress };
       for (const requestId of removedIds) {
         delete feedbackDrafts[requestId];
         delete aiReviewResults[requestId];
+        delete workflowProgress[requestId];
       }
       return {
         pendingRequests: remaining,
         pendingRequest: remaining[0] || null,
         feedbackDrafts,
         aiReviewResults,
+        workflowProgress,
       };
     }),
 

@@ -346,7 +346,6 @@ const mockServerStore = createMockStore({
   setServerLatency: vi.fn(),
   setLocalServerPort: vi.fn(),
   setControlPlaneMode: vi.fn(),
-  updateLastConnected: vi.fn(),
   getActiveServer: vi.fn(() => ({ id: 'local', name: 'Local', address: 'localhost:3100', isDefault: true, createdAt: Date.now() })),
   getServerConnection: vi.fn((serverId: string) => mockServerStore.getState().connections[serverId]),
   getActiveServerConnection: vi.fn(() => {

@@ -18,8 +18,26 @@ interface PendingEntry {
   workflowRunId?: string;
 }
 
+export interface PermissionBridgeResolvedEvent {
+  requestId: string;
+  decision: 'allow' | 'deny';
+  reason?: string;
+  context: PermissionEscalationContext;
+}
+
+export interface PermissionBridgeOptions {
+  /**
+   * Called synchronously before the provider permission promise is resolved.
+   * This lets the UI observe the permission resolution before the provider can
+   * continue and emit run_completed/run_failed.
+   */
+  onWorkflowResolved?: (event: PermissionBridgeResolvedEvent) => void;
+}
+
 export class PermissionBridge implements PermissionBridgePort {
   private pending = new Map<string, PendingEntry>();
+
+  constructor(private options: PermissionBridgeOptions = {}) {}
 
   /**
    * Register a pending permission request that will be resolved by a workflow.
@@ -58,6 +76,16 @@ export class PermissionBridge implements PermissionBridgePort {
     if (!entry) return false;
 
     this.pending.delete(requestId);
+    try {
+      this.options.onWorkflowResolved?.({
+        requestId,
+        decision,
+        reason,
+        context: entry.context,
+      });
+    } catch (error) {
+      console.error('[PermissionBridge] onWorkflowResolved failed:', error);
+    }
     entry.resolve({
       behavior: decision,
       message: decision === 'deny' ? (reason || 'Denied by permission workflow') : undefined,

@@ -8,6 +8,8 @@ describe('permissionStore', () => {
       pendingRequests: [],
       pendingRequest: null,
       feedbackDrafts: {},
+      aiReviewResults: {},
+      workflowProgress: {},
     });
   });
 
@@ -175,6 +177,46 @@ describe('permissionStore', () => {
     });
   });
 
+  describe('clearRequestsForSession', () => {
+    it('removes requests and scoped state for a completed session', () => {
+      usePermissionStore.getState().setPendingRequest(
+        createRequest({ requestId: 'req-1', sessionId: 'session-1' })
+      );
+      usePermissionStore.getState().setPendingRequest(
+        createRequest({ requestId: 'req-2', sessionId: 'session-2' })
+      );
+      usePermissionStore.getState().setFeedbackDraft('req-1', 'Feedback');
+      usePermissionStore.getState().setAIReviewResult('req-1', {
+        decision: 'approve',
+        reasoning: 'safe',
+        confidence: 0.9,
+      });
+      usePermissionStore.getState().setWorkflowProgress('req-1', {
+        workflowRunId: 'wf-1',
+        currentStep: { id: 'decide', type: 'permission_decide', status: 'completed', label: 'Auto-Approve' },
+        completedSteps: ['decide'],
+        totalSteps: 1,
+      });
+
+      usePermissionStore.getState().clearRequestsForSession('session-1');
+
+      expect(usePermissionStore.getState().pendingRequests.map(r => r.requestId)).toEqual(['req-2']);
+      expect(usePermissionStore.getState().pendingRequest?.requestId).toBe('req-2');
+      expect(usePermissionStore.getState().feedbackDrafts['req-1']).toBeUndefined();
+      expect(usePermissionStore.getState().aiReviewResults['req-1']).toBeUndefined();
+      expect(usePermissionStore.getState().workflowProgress['req-1']).toBeUndefined();
+    });
+
+    it('does nothing when no requests belong to the session', () => {
+      const req = createRequest({ requestId: 'req-1', sessionId: 'session-1' });
+      usePermissionStore.getState().setPendingRequest(req);
+
+      usePermissionStore.getState().clearRequestsForSession('session-other');
+
+      expect(usePermissionStore.getState().pendingRequests).toEqual([req]);
+    });
+  });
+
   describe('hasRequest', () => {
     it('returns true for existing request', () => {
       usePermissionStore.getState().setPendingRequest(
@@ -267,6 +309,25 @@ describe('permissionStore', () => {
 
       expect(usePermissionStore.getState().feedbackDrafts['req-1']).toBeUndefined();
       expect(usePermissionStore.getState().feedbackDrafts['req-2']).toBe('Feedback for req-2');
+    });
+
+    it('clearRequestById removes AI review and workflow progress for that request', () => {
+      usePermissionStore.getState().setAIReviewResult('req-1', {
+        decision: 'approve',
+        reasoning: 'safe',
+        confidence: 0.9,
+      });
+      usePermissionStore.getState().setWorkflowProgress('req-1', {
+        workflowRunId: 'wf-1',
+        currentStep: { id: 'decide', type: 'permission_decide', status: 'completed', label: 'Auto-Approve' },
+        completedSteps: ['decide'],
+        totalSteps: 1,
+      });
+
+      usePermissionStore.getState().clearRequestById('req-1');
+
+      expect(usePermissionStore.getState().aiReviewResults['req-1']).toBeUndefined();
+      expect(usePermissionStore.getState().workflowProgress['req-1']).toBeUndefined();
     });
 
     it('clearAllRequests removes all feedbackDrafts', () => {

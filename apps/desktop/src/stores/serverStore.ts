@@ -46,7 +46,6 @@ interface ServerState {
   setServerLatency: (serverId: string, latencyMs: number | null) => void;
   recordHeartbeat: (serverId: string) => void;
   setConnectionQuality: (serverId: string, quality: ConnectionQuality) => void;
-  updateLastConnected: (id: string) => void;
   setLocalServerPort: (port: number) => void;
   setControlPlaneMode: (mode: ControlPlaneMode) => void;
 
@@ -146,10 +145,6 @@ export const useServerStore = create<ServerState>()((set, get) => ({
         [serverId]: { ...DEFAULT_CONNECTION, ...existing, connectionQuality: quality },
       },
     });
-  },
-
-  updateLastConnected: (_id) => {
-    // No-op: previously updated servers array which no longer exists
   },
 
   setLocalServerPort: (port) => {

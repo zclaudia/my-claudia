@@ -3,9 +3,8 @@ import { createInterface } from 'readline';
 import path from 'path';
 import { writeFileSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
-import type { MessageInput } from '@my-claudia/shared/core/message';
 import type { ClaudeMessage, SystemInfo, PermissionCallback } from './message-types.js';
-import { buildNonImageAttachmentNotes } from './attachment-utils.js';
+import { parseMessageInput, prependNonImageNotes } from './provider-input.js';
 import { sanitizeInheritedProviderEnv } from '../../utils/startup-env.js';
 import { getGlobalProcessSupervisor } from '../services/process-supervisor.js';
 import { createTraceRecorder, summarizeProviderMessage } from '../../utils/provider-trace.js';
@@ -200,31 +199,17 @@ function unbindProcess(processKey: string): void {
 // ── Input preparation ─────────────────────────────────────────
 
 function prepareKimiInput(input: string): string {
-  let messageInput: MessageInput;
-  try {
-    messageInput = JSON.parse(input);
-    if (typeof messageInput !== 'object' || !('text' in messageInput)) {
-      return input;
-    }
-  } catch {
-    return input;
-  }
+  const parsed = parseMessageInput(input);
+  if (!parsed) return input;
 
-  let text = messageInput.text || input;
-
-  // Log unsupported attachments (image support can be added later)
-  if (messageInput.attachments && messageInput.attachments.length > 0) {
-    const imageCount = messageInput.attachments.filter((a) => a.type === 'image').length;
+  if (parsed.attachments.length > 0) {
+    const imageCount = parsed.attachments.filter((a) => a.type === 'image').length;
     if (imageCount > 0) {
       console.warn(`[Kimi SDK] ${imageCount} image attachment(s) not yet supported, sending text only`);
     }
-    const nonImageNotes = buildNonImageAttachmentNotes(messageInput.attachments);
-    if (nonImageNotes.length > 0) {
-      text = `${nonImageNotes.join('\n\n')}\n\n${text}`;
-    }
   }
 
-  return text;
+  return prependNonImageNotes(parsed.text, parsed.attachments);
 }
 
 // ── Kimi event → ClaudeMessage mapping ───────────────────────

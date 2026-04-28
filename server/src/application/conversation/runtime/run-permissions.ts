@@ -330,23 +330,25 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
         db.prepare('UPDATE sessions SET last_run_status = ?, updated_at = ? WHERE id = ?')
           .run('waiting', Date.now(), activeRun.sessionId);
 
-        void permissionWorkflowResolver.triggerPermissionEscalation(session.project_id, {
-          eventPayload: escalationContext as unknown as Record<string, unknown>,
-          triggerContext: {
-            type: 'event',
-            event: 'permission.escalated',
-          },
-        }).then(({ resolved, run }) => {
-          permissionBridge.setWorkflowRunId(request.requestId, run.id);
-          console.log(
-            `[Permission] Delegated ${request.requestId} (${request.toolName}) to ${resolved.source} workflow ${resolved.workflowId} run=${run.id}`,
-          );
-        }).catch((error) => {
-          console.error(
-            `[Permission] Failed to trigger permission workflow for ${request.requestId} (${request.toolName}):`,
-            error,
-          );
-        });
+        const triggerPermissionWorkflow = () => {
+          void permissionWorkflowResolver.triggerPermissionEscalation(session.project_id, {
+            eventPayload: escalationContext as unknown as Record<string, unknown>,
+            triggerContext: {
+              type: 'event',
+              event: 'permission.escalated',
+            },
+          }).then(({ resolved, run }) => {
+            permissionBridge.setWorkflowRunId(request.requestId, run.id);
+            console.log(
+              `[Permission] Delegated ${request.requestId} (${request.toolName}) to ${resolved.source} workflow ${resolved.workflowId} run=${run.id}`,
+            );
+          }).catch((error) => {
+            console.error(
+              `[Permission] Failed to trigger permission workflow for ${request.requestId} (${request.toolName}):`,
+              error,
+            );
+          });
+        };
 
         // Send request to frontend (user can still manually approve/deny)
         if (sessionType !== 'background') {
@@ -395,6 +397,10 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
             });
           }
         }
+
+        // Start workflow after the UI request is visible so a fast auto-approve
+        // cannot be delivered before permission_request and leave a stale card.
+        triggerPermissionWorkflow();
       };
 
       continueWithUserFlow();

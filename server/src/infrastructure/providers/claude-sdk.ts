@@ -2,13 +2,12 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { ModelInfo } from '@anthropic-ai/claude-agent-sdk';
 import type { ProviderConfig, PermissionMode } from '@my-claudia/shared/core/provider';
 import type { PermissionRequest } from '@my-claudia/shared/interaction/permissions';
-import type { MessageInput, MessageAttachment } from '@my-claudia/shared/core/message';
 import type { PermissionDecision, PermissionCallback, SystemInfo, ClaudeMessage } from './message-types.js';
 export type { PermissionDecision, PermissionCallback, SystemInfo, ClaudeMessage };
 import { fileStore } from '../storage/fileStore.js';
 import { loadMcpServers, loadPlugins } from '../../utils/claude-config.js';
 import { loadMcpServersFromDb } from '../../utils/mcp-config.js';
-import { buildNonImageAttachmentNotes } from './attachment-utils.js';
+import { parseMessageInput, prependNonImageNotes } from './provider-input.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -189,28 +188,16 @@ async function sleep(ms: number): Promise<void> {
  * will use its Read tool to view the images.
  */
 export async function prepareInput(input: string): Promise<PreparedInput> {
-  let messageInput: MessageInput;
-  try {
-    messageInput = JSON.parse(input);
-    if (typeof messageInput !== 'object' || !('text' in messageInput)) {
-      return { text: input, tempFiles: [] };
-    }
-  } catch {
-    return { text: input, tempFiles: [] };
-  }
-
-  // No attachments — just return the text
-  if (!messageInput.attachments || messageInput.attachments.length === 0) {
-    return { text: messageInput.text || input, tempFiles: [] };
-  }
+  const parsed = parseMessageInput(input);
+  if (!parsed) return { text: input, tempFiles: [] };
+  if (parsed.attachments.length === 0) return { text: parsed.text, tempFiles: [] };
 
   const tempFiles: string[] = [];
   const imageRefs: string[] = [];
-  const nonImageNotes = buildNonImageAttachmentNotes(messageInput.attachments);
 
   ensureTmpDir();
 
-  for (const attachment of messageInput.attachments) {
+  for (const attachment of parsed.attachments) {
     if (attachment.type === 'image') {
       const sourceFilePath = getFileStorePath(attachment.fileId);
       if (sourceFilePath) {
@@ -218,7 +205,6 @@ export async function prepareInput(input: string): Promise<PreparedInput> {
         const fileName = `${crypto.randomUUID()}.${ext}`;
         const tempFilePath = path.join(UPLOAD_TMP_DIR, fileName);
 
-        // Direct file copy — no base64 round-trip
         fs.copyFileSync(sourceFilePath, tempFilePath);
         tempFiles.push(tempFilePath);
         imageRefs.push(tempFilePath);
@@ -229,17 +215,14 @@ export async function prepareInput(input: string): Promise<PreparedInput> {
     }
   }
 
-  // Build prompt text with image file references
-  let text = messageInput.text || '';
+  let text = parsed.text;
   if (imageRefs.length > 0) {
     const refs = imageRefs
       .map(p => `[Attached image: ${p}]`)
       .join('\n');
     text = `${refs}\n\n${text}`;
   }
-  if (nonImageNotes.length > 0) {
-    text = `${nonImageNotes.join('\n\n')}\n\n${text}`;
-  }
+  text = prependNonImageNotes(text, parsed.attachments);
 
   return { text, tempFiles };
 }

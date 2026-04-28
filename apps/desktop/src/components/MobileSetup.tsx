@@ -25,7 +25,7 @@ export function MobileSetup() {
   const backends = useFacadeStore((s) => s.backends);
   const currentInstanceId = useFacadeStore((s) => s.currentInstanceId);
 
-  const { setActiveServer } = useServerStore();
+  const setActiveServer = useServerStore((s) => s.setActiveServer);
   const { connectServer } = useConnection();
 
   const [gatewayUrl, setGatewayUrl] = useState(directGatewayUrl || '');

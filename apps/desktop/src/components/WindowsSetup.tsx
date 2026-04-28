@@ -27,7 +27,8 @@ function Spinner({ className = 'w-4 h-4' }: { className?: string }) {
 export function WindowsSetup() {
   const { wslAvailable, distros, runDiscovery } = useWslDiscovery();
   const { wslServer, connectServer } = useConnection();
-  const { setActiveServer, setLocalServerPort } = useServerStore();
+  const setActiveServer = useServerStore((s) => s.setActiveServer);
+  const setLocalServerPort = useServerStore((s) => s.setLocalServerPort);
 
   const {
     directGatewayUrl,

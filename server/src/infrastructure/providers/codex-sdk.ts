@@ -9,13 +9,12 @@ import {
   type UserInput,
   type Usage as CodexUsage,
 } from '@openai/codex-sdk';
-import type { MessageInput } from '@my-claudia/shared/core/message';
 import type { PermissionRequest } from '@my-claudia/shared/interaction/permissions';
 import type Database from 'better-sqlite3';
 import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
 import { fileStore } from '../storage/fileStore.js';
 import { extractRetryDelayMsFromError } from '../../utils/retry-window.js';
-import { buildNonImageAttachmentNotes } from './attachment-utils.js';
+import { parseMessageInput, prependNonImageNotes } from './provider-input.js';
 import { sanitizeInheritedProviderEnv } from '../../utils/startup-env.js';
 import { buildMcpBridgeEntry } from '../../utils/mcp-bridge-launch.js';
 import { loadMcpServersFromDb } from '../../utils/mcp-config.js';
@@ -116,29 +115,15 @@ function mapModeToPolicies(mode?: string): Pick<ThreadOptions, 'approvalPolicy' 
 // ── Input preparation (handle images) ────────────────────────
 
 function prepareCodexInput(input: string): Input {
-  let messageInput: MessageInput;
-  try {
-    messageInput = JSON.parse(input);
-    if (typeof messageInput !== 'object' || !('text' in messageInput)) {
-      return input;
-    }
-  } catch {
-    return input;
-  }
+  const parsed = parseMessageInput(input);
+  if (!parsed) return input;
 
-  let text = messageInput.text || input;
-  if (!messageInput.attachments || messageInput.attachments.length === 0) {
-    return text;
-  }
-  const nonImageNotes = buildNonImageAttachmentNotes(messageInput.attachments);
-  if (nonImageNotes.length > 0) {
-    text = `${nonImageNotes.join('\n\n')}\n\n${text}`;
-  }
+  const text = prependNonImageNotes(parsed.text, parsed.attachments);
+  if (parsed.attachments.length === 0) return text;
 
-  // Build UserInput array with text + images
   const parts: UserInput[] = [{ type: 'text', text }];
 
-  for (const attachment of messageInput.attachments) {
+  for (const attachment of parsed.attachments) {
     if (attachment.type === 'image') {
       const filePath = fileStore.getFilePath(attachment.fileId);
       if (filePath) {

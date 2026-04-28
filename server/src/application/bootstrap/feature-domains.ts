@@ -160,7 +160,31 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
   });
 
   // Permission bridge — connects workflow engine to conversation permission system
-  const permissionBridge = new PermissionBridge();
+  const clearPendingPermissionFromActiveRun = (requestId: string): boolean => {
+    for (const [, run] of activeRuns) {
+      const pending = run.pendingPermissions.get(requestId);
+      if (!pending) continue;
+      if (pending.timeout) clearTimeout(pending.timeout);
+      run.pendingPermissions.delete(requestId);
+      run.db.prepare('UPDATE sessions SET last_run_status = ?, updated_at = ? WHERE id = ?')
+        .run('running', Date.now(), run.sessionId);
+      return true;
+    }
+    return false;
+  };
+
+  const permissionBridge = new PermissionBridge({
+    onWorkflowResolved: ({ requestId, decision, reason, context }) => {
+      broadcastToAuthenticatedClients(clients, {
+        type: 'permission_auto_resolved',
+        requestId,
+        sessionId: context.sessionId,
+        behavior: decision === 'allow' ? 'approve' : 'deny',
+        reason: reason || 'Auto-resolved by permission workflow',
+      });
+      clearPendingPermissionFromActiveRun(requestId);
+    },
+  });
 
   // --- OneShotTaskRuntime bootstrap (before AIRiskAnalysisAdapter which uses it) ---
   const oneShotRuntime = createOneShotRuntime({
@@ -242,24 +266,19 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
         // When permission_decide step resolves the permission, notify the frontend
         // and clean up pendingPermissions (mirrors what handlePermissionDecision does)
         if (stepRun?.stepType === 'permission_decide' && stepRun.output?.resolved) {
-          const decision = stepRun.output.decision === 'allow' || stepRun.output.decision === 'approve'
-            ? 'approve' : 'deny';
-          broadcastToAuthenticatedClients(clients, {
-            type: 'permission_auto_resolved',
-            requestId,
-            sessionId,
-            behavior: decision,
-            reason: (stepRun.output.reason as string) || 'Auto-resolved by permission workflow',
-          });
-
-          // Clean up pending permission from active run
-          for (const [, run] of activeRuns) {
-            if (run.pendingPermissions.has(requestId)) {
-              run.pendingPermissions.delete(requestId);
-              run.db.prepare('UPDATE sessions SET last_run_status = ?, updated_at = ? WHERE id = ?')
-                .run('running', Date.now(), run.sessionId);
-              break;
-            }
+          // PermissionBridge normally broadcasts and clears the pending request
+          // before releasing the provider. Keep this fallback for older/custom
+          // bridge implementations that only resolve the promise.
+          if (clearPendingPermissionFromActiveRun(requestId)) {
+            const decision = stepRun.output.decision === 'allow' || stepRun.output.decision === 'approve'
+              ? 'approve' : 'deny';
+            broadcastToAuthenticatedClients(clients, {
+              type: 'permission_auto_resolved',
+              requestId,
+              sessionId,
+              behavior: decision,
+              reason: (stepRun.output.reason as string) || 'Auto-resolved by permission workflow',
+            });
           }
         }
       }

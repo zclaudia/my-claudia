@@ -167,6 +167,9 @@ export function handleHeartbeat(
         chatState.finalizeRunToMessage(runId);
         chatState.endRun(runId);
         if (sessionId) {
+          usePermissionStore.getState().clearRequestsForSession(sessionId);
+          usePromptRequestStore.getState().clearRequestsForSession(sessionId);
+          useInteractionStore.getState().clearSession(sessionId);
           useProjectStore.getState().setSessionActive(sessionId, false);
           useSessionsStore.getState().setSessionActiveFlag(
             getSessionBucketKeyForBackend(backendId),

@@ -297,4 +297,39 @@ describe('permission workflow routing integration', () => {
       }),
     );
   });
+
+  it('sends permission_request before starting the permission workflow', async () => {
+    insertWorkflow(db, { id: 'wf-global' });
+    db.prepare(`UPDATE agent_config SET permission_workflow_override_id = 'wf-global' WHERE id = 1`).run();
+
+    const resolver = new PermissionWorkflowResolver(db, workflowService as any);
+    const callback = createPermissionCallback(createInput(db, resolver) as any);
+
+    void callback({
+      requestId: 'req-order',
+      toolName: 'Bash',
+      toolInput: { command: 'grep -n "foo" /tmp/outside/file' },
+      detail: 'grep -n "foo" /tmp/outside/file',
+      timeoutSeconds: 0,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(broadcastRunMessageMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        type: 'permission_request',
+        requestId: 'req-order',
+      }),
+    );
+    expect(triggerWorkflowMock).toHaveBeenCalledWith(
+      'wf-global',
+      'event',
+      'event: permission.escalated',
+      expect.any(Object),
+    );
+    expect(broadcastRunMessageMock.mock.invocationCallOrder[0])
+      .toBeLessThan(triggerWorkflowMock.mock.invocationCallOrder[0]);
+  });
 });

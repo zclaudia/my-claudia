@@ -54,13 +54,6 @@ describe('serverStore', () => {
     });
   });
 
-  describe('updateLastConnected', () => {
-    it('is a no-op compatibility shim', () => {
-      useServerStore.getState().updateLastConnected('local');
-      expect(useServerStore.getState().activeServerId).toBe('local');
-    });
-  });
-
   describe('setLocalServerPort', () => {
     it('updates embedded local server port', () => {
       useServerStore.getState().setLocalServerPort(5555);

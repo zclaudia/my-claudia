@@ -42,6 +42,7 @@ const mockPermissionStore = {
   aiReviewResults: {} as Record<string, any>,
   setPendingRequest: vi.fn(),
   clearRequestById: vi.fn(),
+  clearRequestsForSession: vi.fn(),
   clearStaleRequests: vi.fn(),
   hasRequest: vi.fn(() => false),
   setAIReviewResult: vi.fn((requestId: string, result: any) => {
@@ -302,6 +303,7 @@ describe('handleServerMessage', () => {
       handleServerMessage({ type: 'run_completed', runId: 'r1', usage: { tokens: 100 } }, ctx);
 
       expect(mockPromptRequestStore.clearRequestsForSession).toHaveBeenCalledWith('s1');
+      expect(mockPermissionStore.clearRequestsForSession).toHaveBeenCalledWith('s1');
       expect(mockInteractionStore.clearSession).toHaveBeenCalledWith('s1');
       expect(mockChatStore.finalizeRunToMessage).toHaveBeenCalledWith('r1');
       expect(mockChatStore.addSessionUsage).toHaveBeenCalledWith('s1', { tokens: 100 });
@@ -315,6 +317,7 @@ describe('handleServerMessage', () => {
     it('uses sessionId from message when available', () => {
       handleServerMessage({ type: 'run_completed', runId: 'r1', sessionId: 's2' }, makeCtx());
       expect(mockPromptRequestStore.clearRequestsForSession).toHaveBeenCalledWith('s2');
+      expect(mockPermissionStore.clearRequestsForSession).toHaveBeenCalledWith('s2');
       expect(mockInteractionStore.clearSession).toHaveBeenCalledWith('s2');
     });
 
@@ -350,6 +353,7 @@ describe('handleServerMessage', () => {
 
       handleServerMessage({ type: 'run_failed', runId: 'r1', error: 'boom' }, makeCtx());
 
+      expect(mockPermissionStore.clearRequestsForSession).toHaveBeenCalledWith('s1');
       expect(mockInteractionStore.clearSession).toHaveBeenCalledWith('s1');
       expect(mockChatStore.appendToLastMessage).toHaveBeenCalledWith('s1', expect.stringContaining('boom'));
       expect(mockChatStore.finalizeRunToMessage).toHaveBeenCalledWith('r1');
@@ -405,7 +409,7 @@ describe('handleServerMessage', () => {
   it('handles mode_change', () => {
     handleServerMessage({ type: 'mode_change', sessionId: 's1', mode: 'plan' }, makeCtx());
     expect(mockChatStore.setRuntimeMode).toHaveBeenCalledWith('s1', 'plan');
-    expect(mockChatStore.setMode).not.toHaveBeenCalled();
+    expect(mockChatStore.setMode).toHaveBeenCalledWith('s1', 'plan');
   });
 
   it('handles permission_request', () => {

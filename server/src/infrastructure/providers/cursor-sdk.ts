@@ -3,9 +3,8 @@ import { createInterface } from 'readline';
 import path from 'path';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
-import type { MessageInput } from '@my-claudia/shared/core/message';
 import type { ClaudeMessage, SystemInfo, PermissionCallback } from './message-types.js';
-import { buildNonImageAttachmentNotes } from './attachment-utils.js';
+import { parseMessageInput, prependNonImageNotes } from './provider-input.js';
 import { sanitizeInheritedProviderEnv } from '../../utils/startup-env.js';
 import { getGlobalProcessSupervisor } from '../services/process-supervisor.js';
 import { buildMcpBridgeEntry } from '../../utils/mcp-bridge-launch.js';
@@ -109,22 +108,15 @@ const activeProcesses = new Map<string, ReturnType<typeof spawn>>();
 // ── Input preparation ─────────────────────────────────────────
 
 function prepareCursorInput(input: string): string {
-  let messageInput: MessageInput;
-  try {
-    messageInput = JSON.parse(input);
-    if (typeof messageInput !== 'object' || !('text' in messageInput)) {
-      return input;
-    }
-  } catch {
-    return input;
-  }
+  const parsed = parseMessageInput(input);
+  if (!parsed) return input;
 
-  let text = messageInput.text || input;
+  let text = parsed.text;
 
-  if (messageInput.attachments && messageInput.attachments.length > 0) {
+  if (parsed.attachments.length > 0) {
     const imageRefs: string[] = [];
 
-    for (const attachment of messageInput.attachments) {
+    for (const attachment of parsed.attachments) {
       if (attachment.type !== 'image') continue;
 
       const filePath = fileStore.getFilePath(attachment.fileId);
@@ -143,10 +135,7 @@ function prepareCursorInput(input: string): string {
       text = `${refs}\n\n${text}`;
     }
 
-    const nonImageNotes = buildNonImageAttachmentNotes(messageInput.attachments);
-    if (nonImageNotes.length > 0) {
-      text = `${nonImageNotes.join('\n\n')}\n\n${text}`;
-    }
+    text = prependNonImageNotes(text, parsed.attachments);
   }
 
   return text;

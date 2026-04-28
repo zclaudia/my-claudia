@@ -3,7 +3,6 @@ import { createInterface, type Interface as ReadlineInterface } from 'readline';
 import { EventEmitter } from 'events';
 import { appendFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync, readFileSync, realpathSync } from 'fs';
 import { join, extname } from 'path';
-import type { MessageInput } from '@my-claudia/shared/core/message';
 import type { PermissionRequest } from '@my-claudia/shared/interaction/permissions';
 
 // File-based debug log (stdout is captured by Tauri)
@@ -17,7 +16,7 @@ function debugLog(msg: string): void {
 import type Database from 'better-sqlite3';
 import type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './claude-sdk.js';
 import { fileStore } from '../storage/fileStore.js';
-import { buildNonImageAttachmentNotes } from './attachment-utils.js';
+import { parseMessageInput, prependNonImageNotes } from './provider-input.js';
 import { sanitizeInheritedProviderEnv } from '../../utils/startup-env.js';
 import { buildMcpBridgeEntry } from '../../utils/mcp-bridge-launch.js';
 import { loadMcpServersFromDb } from '../../utils/mcp-config.js';
@@ -107,42 +106,28 @@ interface AppServerInputBlock {
 }
 
 function prepareAppServerInput(rawInput: string): AppServerInputBlock[] {
-  let messageInput: MessageInput;
-  try {
-    messageInput = JSON.parse(rawInput);
-    if (typeof messageInput !== 'object' || !('text' in messageInput)) {
-      return [{ type: 'text', text: rawInput }];
-    }
-  } catch {
-    return [{ type: 'text', text: rawInput }];
-  }
+  const parsed = parseMessageInput(rawInput);
+  if (!parsed) return [{ type: 'text', text: rawInput }];
 
-  let text = messageInput.text || rawInput;
+  let text = prependNonImageNotes(parsed.text, parsed.attachments);
   const blocks: AppServerInputBlock[] = [];
 
-  if (messageInput.attachments && messageInput.attachments.length > 0) {
-    const nonImageNotes = buildNonImageAttachmentNotes(messageInput.attachments);
-    if (nonImageNotes.length > 0) {
-      text = `${nonImageNotes.join('\n\n')}\n\n${text}`;
-    }
-
-    for (const attachment of messageInput.attachments) {
-      if (attachment.type === 'image') {
-        const filePath = fileStore.getFilePath(attachment.fileId);
-        if (filePath) {
-          try {
-            const base64Data = readFileSync(filePath, { encoding: 'base64' });
-            const ext = extname(filePath).toLowerCase().replace('.', '');
-            const mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
-              : ext === 'png' ? 'image/png'
-              : ext === 'gif' ? 'image/gif'
-              : ext === 'webp' ? 'image/webp'
-              : 'image/png';
-            blocks.push({ type: 'image', url: `data:${mimeType};base64,${base64Data}` });
-            debugLog(`[Codex AppServer] Attached image: ${attachment.name} → base64 (${base64Data.length} chars)`);
-          } catch (err) {
-            debugLog(`[Codex AppServer] WARN: Could not read image ${filePath}: ${err}`);
-          }
+  for (const attachment of parsed.attachments) {
+    if (attachment.type === 'image') {
+      const filePath = fileStore.getFilePath(attachment.fileId);
+      if (filePath) {
+        try {
+          const base64Data = readFileSync(filePath, { encoding: 'base64' });
+          const ext = extname(filePath).toLowerCase().replace('.', '');
+          const mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+            : ext === 'png' ? 'image/png'
+            : ext === 'gif' ? 'image/gif'
+            : ext === 'webp' ? 'image/webp'
+            : 'image/png';
+          blocks.push({ type: 'image', url: `data:${mimeType};base64,${base64Data}` });
+          debugLog(`[Codex AppServer] Attached image: ${attachment.name} → base64 (${base64Data.length} chars)`);
+        } catch (err) {
+          debugLog(`[Codex AppServer] WARN: Could not read image ${filePath}: ${err}`);
         }
       }
     }
