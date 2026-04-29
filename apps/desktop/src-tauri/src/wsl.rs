@@ -1,16 +1,47 @@
 //! Windows-only WSL helpers invoked from the renderer.
 //!
-//! The Tauri JS shell-plugin's `Command.execute()` hangs when it spawns
-//! `wsl.exe bash -c "..."`: the plugin lets the child inherit the
-//! GUI-parent's stdin handle, which is never a usable console and never
-//! signals EOF. wsl.exe's stdio relay then waits forever for the parent
-//! to close its end. Routing through `std::process::Command` with an
-//! explicit `Stdio::null()` stdin gives wsl.exe a valid NUL handle that
-//! reports EOF immediately, and the call returns as fast as it does
-//! from PowerShell.
+//! Two distinct Windows quirks both manifest as `wsl bash -c "..."`
+//! hanging forever when called from the Tauri main (windowed) process:
+//!
+//! 1. **stdin handle inheritance.** Without `Stdio::null()`, the child
+//!    inherits the windowed parent's stdin handle, which never signals
+//!    EOF, so wsl.exe's stdio relay waits indefinitely.
+//!
+//! 2. **Console allocation.** A windowed Tauri parent has no console.
+//!    Without `CREATE_NO_WINDOW`, wsl.exe wedges while Windows tries
+//!    to attach the child to a non-existent console — calls from
+//!    PowerShell return instantly while calls from Tauri hang forever.
+//!
+//! Both must be set; either alone still hangs in some scenarios.
 
-use std::io::{BufRead, BufReader};
+use std::ffi::OsStr;
+use std::io::{BufRead, BufReader, Read};
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+const WSL_EXEC_TIMEOUT: Duration = Duration::from_secs(30);
+
+fn wsl_command<I, S>(args: I) -> Command
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let mut cmd = Command::new("wsl");
+    cmd.args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -23,18 +54,51 @@ pub struct WslExecResult {
 #[tauri::command]
 pub async fn wsl_exec(args: Vec<String>) -> Result<WslExecResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let output = Command::new("wsl")
-            .args(&args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
+        let mut child = wsl_command(&args)
+            .spawn()
             .map_err(|e| format!("Failed to spawn wsl: {}", e))?;
 
+        let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
+        let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
+
+        // Drain pipes in parallel so a chatty child can't deadlock on a full pipe.
+        let stdout_thread = std::thread::spawn(move || {
+            let mut s = String::new();
+            let _ = BufReader::new(stdout).read_to_string(&mut s);
+            s
+        });
+        let stderr_thread = std::thread::spawn(move || {
+            let mut s = String::new();
+            let _ = BufReader::new(stderr).read_to_string(&mut s);
+            s
+        });
+
+        let started = Instant::now();
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(s)) => break s,
+                Ok(None) => {
+                    if started.elapsed() >= WSL_EXEC_TIMEOUT {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(format!(
+                            "wsl command timed out after {}s",
+                            WSL_EXEC_TIMEOUT.as_secs()
+                        ));
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Err(e) => return Err(format!("wsl wait error: {}", e)),
+            }
+        };
+
+        let stdout = stdout_thread.join().unwrap_or_default();
+        let stderr = stderr_thread.join().unwrap_or_default();
+
         Ok(WslExecResult {
-            code: output.status.code().unwrap_or(-1),
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            code: status.code().unwrap_or(-1),
+            stdout,
+            stderr,
         })
     })
     .await
@@ -50,27 +114,36 @@ pub struct WslStartServerResult {
 #[tauri::command]
 pub async fn wsl_start_server() -> Result<WslStartServerResult, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        let mut child = Command::new("wsl")
-            .args([
-                "bash",
-                "-c",
-                "cd ~/.my-claudia && exec ./server/node ./server/server.mjs",
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Failed to spawn wsl: {}", e))?;
+        let mut child = wsl_command([
+            "bash",
+            "-c",
+            "cd ~/.my-claudia && exec ./server/node ./server/server.mjs",
+        ])
+        .spawn()
+        .map_err(|e| format!("Failed to spawn wsl: {}", e))?;
 
         let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
         let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
 
-        std::thread::spawn(move || {
-            let reader = BufReader::new(stderr);
-            for line in reader.lines().map_while(Result::ok) {
-                eprintln!("[WslServer/Rust] stderr: {}", line);
-            }
-        });
+        // Buffer the tail of stderr so we can surface the real cause when the
+        // server dies before printing SERVER_READY. Keep eprintln'ing each
+        // line so app-side logs still capture the full stream.
+        let stderr_tail: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        {
+            let tail = Arc::clone(&stderr_tail);
+            std::thread::spawn(move || {
+                let reader = BufReader::new(stderr);
+                for line in reader.lines().map_while(Result::ok) {
+                    eprintln!("[WslServer/Rust] stderr: {}", line);
+                    if let Ok(mut t) = tail.lock() {
+                        if t.len() >= 50 {
+                            t.remove(0);
+                        }
+                        t.push(line);
+                    }
+                }
+            });
+        }
 
         let mut reader = BufReader::new(stdout);
         let mut buf = String::new();
@@ -123,7 +196,20 @@ pub async fn wsl_start_server() -> Result<WslStartServerResult, String> {
             None => {
                 let _ = child.kill();
                 let _ = child.wait();
-                Err("Server exited before emitting SERVER_READY".to_string())
+                // Give the stderr reader a tick to flush whatever was buffered.
+                std::thread::sleep(Duration::from_millis(150));
+                let detail = stderr_tail
+                    .lock()
+                    .map(|t| t.join("\n"))
+                    .unwrap_or_default();
+                Err(if detail.trim().is_empty() {
+                    "Server exited before emitting SERVER_READY".to_string()
+                } else {
+                    format!(
+                        "Server exited before emitting SERVER_READY:\n{}",
+                        detail.trim_end()
+                    )
+                })
             }
         }
     })
