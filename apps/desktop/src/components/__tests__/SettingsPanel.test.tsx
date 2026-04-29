@@ -7,14 +7,105 @@ const mockRestartEmbeddedServer = vi.fn().mockResolvedValue(undefined);
 // Mock Tauri
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue([]) }));
 
+// Mock providerMetaStore (used by projectStore internally)
+const { mockProviderMetaStore } = vi.hoisted(() => {
+  const state = {
+    providersByBackend: {},
+    providerCommands: {},
+    providerCapabilities: {},
+    setProviders: vi.fn(),
+    getProviders: vi.fn().mockReturnValue([]),
+    setProviderCommands: vi.fn(),
+    setProviderCapabilities: vi.fn(),
+  };
+  const store: any = (selector?: (s: any) => any) => selector ? selector(state) : state;
+  store.getState = () => state;
+  store.setState = vi.fn();
+  store.subscribe = vi.fn(() => vi.fn());
+  store.destroy = vi.fn();
+  return { mockProviderMetaStore: store };
+});
+vi.mock('../../stores/providerMetaStore', () => ({
+  useProviderMetaStore: mockProviderMetaStore,
+}));
+
 // Mock child components
-vi.mock('../ProviderManager', () => ({ ProviderManager: ({ isOpen, inline }: any) => isOpen ? <div data-testid="provider-manager" data-inline={inline}>ProviderManager</div> : null }));
-vi.mock('../ThemeToggle', () => ({ ThemeToggle: () => <button data-testid="theme-toggle">ThemeToggle</button> }));
-vi.mock('../ServerGatewayConfig', () => ({ ServerGatewayConfig: () => <div data-testid="server-gateway-config">ServerGatewayConfig</div> }));
-vi.mock('../ImportDialog', () => ({ ImportDialog: ({ isOpen, onClose }: any) => isOpen ? <div data-testid="import-dialog"><button onClick={onClose}>close-import</button></div> : null }));
-vi.mock('../ImportOpenCodeDialog', () => ({ ImportOpenCodeDialog: ({ isOpen, onClose }: any) => isOpen ? <div data-testid="import-opencode-dialog"><button onClick={onClose}>close-opencode</button></div> : null }));
-vi.mock('../PluginSettings', () => ({ PluginSettings: () => <div data-testid="plugin-settings">PluginSettings</div> }));
-vi.mock('../McpServerSettings', () => ({ McpServerSettings: () => <div data-testid="mcp-settings">McpServerSettings</div> }));
+vi.mock('../../features/settings/ProviderManager', () => ({ ProviderManager: ({ isOpen, inline }: any) => isOpen ? <div data-testid="provider-manager" data-inline={inline}>ProviderManager</div> : null }));
+vi.mock('../../features/settings/GeneralSettings', async () => {
+  const React = await import('react');
+  const uiStoreModule = await import('../../stores/uiStore');
+  const connectionModule = await import('../../contexts/ConnectionContext');
+  const apiModule = await import('../../services/api');
+
+  function GeneralSettings({ isOpen, activeServerExists, embeddedServerPort }: any) {
+    const { fontSize, setFontSize } = uiStoreModule.useUIStore();
+    const { embeddedServerStatus, restartEmbeddedServer } = connectionModule.useConnection();
+    const [sdkVersions, setSdkVersions] = React.useState<any>(null);
+
+    React.useEffect(() => {
+      if (!isOpen || !activeServerExists || !embeddedServerPort) return;
+      const address = `localhost:${embeddedServerPort}`;
+      (apiModule.getServerInfo as any)(address)
+        .then((info: any) => setSdkVersions(info?.sdkVersions ?? null))
+        .catch(() => setSdkVersions(null));
+    }, [isOpen, activeServerExists, embeddedServerPort]);
+
+    return React.createElement('div', { 'data-testid': 'general-settings' },
+      React.createElement('h3', null, 'Appearance'),
+      React.createElement('span', null, 'Theme'),
+      React.createElement('div', { 'data-testid': 'theme-toggle' }, 'ThemeToggle'),
+      React.createElement('span', null, 'Font Size'),
+      React.createElement('div', null,
+        ['small', 'medium', 'large'].map((size) =>
+          React.createElement('button', {
+            key: size,
+            onClick: () => setFontSize(size as any),
+          }, size.charAt(0).toUpperCase() + size.slice(1))
+        )
+      ),
+      React.createElement('h3', null, 'Local Server'),
+      React.createElement('div', null, 'Embedded Server: ', embeddedServerStatus),
+      embeddedServerStatus !== 'disabled'
+        ? React.createElement('button', {
+            onClick: () => { void restartEmbeddedServer(); },
+          }, 'Restart Embedded Server')
+        : null,
+      React.createElement('h3', null, 'About'),
+      React.createElement('span', null, 'Version'),
+      sdkVersions && sdkVersions.sdks
+        ? sdkVersions.sdks.map((sdk: any) =>
+            React.createElement('div', { key: sdk.name },
+              React.createElement('span', null, sdk.name),
+              React.createElement('span', null, sdk.current)
+            )
+          )
+        : null,
+    );
+  }
+  return { GeneralSettings };
+});
+vi.mock('../../features/settings/ServerGatewayConfig', () => ({ ServerGatewayConfig: () => <div data-testid="server-gateway-config">ServerGatewayConfig</div> }));
+vi.mock('../../features/settings/ImportSettings', async () => {
+  const React = await import('react');
+
+  function ImportSettings() {
+    const [importDialogOpen, setImportDialogOpen] = React.useState(false);
+    const [openCodeImportDialogOpen, setOpenCodeImportDialogOpen] = React.useState(false);
+    return React.createElement('div', { 'data-testid': 'import-settings' },
+      React.createElement('h3', null, 'Import Data'),
+      React.createElement('h4', null, 'Claude CLI Sessions'),
+      React.createElement('h4', null, 'OpenCode Sessions'),
+      React.createElement('button', { onClick: () => setImportDialogOpen(true) }, 'Import from Claude CLI'),
+      React.createElement('button', { onClick: () => setOpenCodeImportDialogOpen(true) }, 'Import from OpenCode'),
+      React.createElement('div', null, 'Import functionality is only available when connected to a local server'),
+      importDialogOpen ? React.createElement('div', { 'data-testid': 'import-dialog' }, 'ImportDialog') : null,
+      openCodeImportDialogOpen ? React.createElement('div', { 'data-testid': 'import-opencode-dialog' }, 'ImportOpenCodeDialog') : null,
+    );
+  }
+  return { ImportSettings };
+});
+vi.mock('../../features/settings/PluginSettings', () => ({ PluginSettings: () => <div data-testid="plugin-settings">PluginSettings</div> }));
+vi.mock('../../features/settings/McpServerSettings', () => ({ McpServerSettings: () => <div data-testid="mcp-settings">McpServerSettings</div> }));
 vi.mock('../../features/workflows/api', () => ({
   listAllWorkflows: vi.fn().mockResolvedValue([]),
 }));

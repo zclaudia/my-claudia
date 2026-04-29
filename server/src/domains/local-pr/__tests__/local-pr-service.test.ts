@@ -13,6 +13,7 @@ const {
   mockMergeBranch,
   mockAbortMerge,
   mockRemoveWorktree,
+  mockHasCommits,
 } = vi.hoisted(() => ({
   mockGetGitStatus: vi.fn().mockResolvedValue({ hasChanges: false }),
   mockCommitAllChanges: vi.fn().mockResolvedValue(undefined),
@@ -24,6 +25,7 @@ const {
   mockMergeBranch: vi.fn().mockResolvedValue({ success: true }),
   mockAbortMerge: vi.fn().mockResolvedValue(undefined),
   mockRemoveWorktree: vi.fn().mockResolvedValue(undefined),
+  mockHasCommits: vi.fn().mockResolvedValue(true),
 }));
 
 // Mock git operations (path relative to THIS test file, not the source)
@@ -38,6 +40,7 @@ vi.mock('../../../utils/git-operations.js', () => ({
   mergeBranch: mockMergeBranch,
   abortMerge: mockAbortMerge,
   removeWorktree: mockRemoveWorktree,
+  hasCommits: mockHasCommits,
 }));
 
 const mockBroadcast = vi.fn();

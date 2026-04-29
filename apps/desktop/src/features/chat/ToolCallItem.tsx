@@ -2,7 +2,7 @@ import { useState, useMemo, memo } from 'react';
 import { AnsiUp } from 'ansi_up';
 import type { ToolCallState } from '../../stores/chatStore';
 import { getToolIcon } from '../../config/icons';
-import { Icon } from '../ui/Icon';
+import { Icon } from '../../components/ui/Icon';
 import { CheckCircle2, XCircle, Loader2, ChevronDown, ChevronRight, Wrench, Square } from 'lucide-react';
 import { DiffViewer } from './DiffViewer';
 import { CodeViewer } from './CodeViewer';

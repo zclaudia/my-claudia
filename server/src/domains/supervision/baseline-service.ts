@@ -3,7 +3,7 @@ import type {
   ProjectChange,
   SupervisionLogEvent,
 } from '@my-claudia/shared/features/supervision';
-import { ProjectChangeRepository } from '../../infrastructure/repositories/project-change.js';
+import { ProjectChangeRepository } from './repositories/project-change.js';
 import type { SupervisionProjectPort } from './ports.js';
 import type { ContextManager, ContextDocument } from './context-manager.js';
 import { SupervisorContextService } from './supervisor-context.js';

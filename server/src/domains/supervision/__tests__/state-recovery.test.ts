@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { StateRecovery } from '../state-recovery.js';
-import { SupervisionTaskRepository } from '../../../infrastructure/repositories/supervision-task.js';
+import { SupervisionTaskRepository } from '../repositories/supervision-task.js';
 import { SessionRepository } from '../../sessions/repository.js';
 import { ProjectRepository } from '../../../infrastructure/repositories/project.js';
 import type { ProjectAgent } from '@my-claudia/shared/features/supervision';

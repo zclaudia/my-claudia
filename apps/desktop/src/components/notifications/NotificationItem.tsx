@@ -1,5 +1,5 @@
 import type { NotificationItem as NotificationItemData } from '@my-claudia/shared';
-import { extractThinking } from '../chat/MessageList';
+import { extractThinking } from '../../features/chat/MessageList';
 import { useNotificationFeedStore } from '../../stores/notificationFeedStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useSelectionCoordinator } from '../../hooks/useSelectionCoordinator';

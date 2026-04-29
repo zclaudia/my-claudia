@@ -9,7 +9,7 @@ import type {
   TaskStatus,
   SupervisionLogEvent,
 } from '@my-claudia/shared/features/supervision';
-import type { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
+import type { SupervisionTaskRepository } from './repositories/supervision-task.js';
 import type { SupervisionProjectPort, SupervisionSessionPort } from './ports.js';
 import type { CheckpointEngine } from './checkpoint-engine.js';
 import { computeNextCronRun } from '../../utils/cron.js';

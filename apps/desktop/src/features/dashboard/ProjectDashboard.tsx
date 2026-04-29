@@ -7,7 +7,7 @@ import { TaskBoard } from '../../features/supervision/components/TaskBoard';
 import { ContextBrowser } from '../../features/supervision/components/ContextBrowser';
 import { CheckpointFeed } from '../../features/supervision/components/CheckpointFeed';
 import { SupervisorWorkspacePanel } from '../../features/supervision/components/SupervisorWorkspacePanel';
-import { SessionChatLayout } from '../chat/SessionChatLayout';
+import { SessionChatLayout } from '../../features/chat/SessionChatLayout';
 import { LocalPRsPanel } from '../../features/local-pr/components/LocalPRsPanel';
 import { WorkflowsPanel } from '../../features/workflows/components/WorkflowsPanel';
 import { DashboardHome } from './DashboardHome';

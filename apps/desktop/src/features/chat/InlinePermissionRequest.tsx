@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Check, X, Lock, AlertTriangle, Bot } from 'lucide-react';
 import { usePermissionStore, type PermissionRequest } from '../../stores/permissionStore';
-import { PermissionDetailView } from '../permission/PermissionDetailView';
+import { PermissionDetailView } from '../../components/permission/PermissionDetailView';
 
 interface InlinePermissionRequestProps {
   request: PermissionRequest;

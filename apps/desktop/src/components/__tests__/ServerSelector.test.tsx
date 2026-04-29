@@ -16,7 +16,7 @@ vi.mock('../../utils/platform', async (importOriginal) => {
   };
 });
 
-import { ServerSelector } from '../settings/ServerSelector';
+import { ServerSelector } from '../../features/settings/ServerSelector';
 import { useServerStore } from '../../stores/serverStore';
 import { useGatewayStore } from '../../stores/gatewayStore';
 import { useFacadeStore } from '../../stores/facadeStore';

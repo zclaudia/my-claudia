@@ -8,10 +8,10 @@ import type {
   SupervisionTask,
   SupervisionLogEvent,
 } from '@my-claudia/shared/features/supervision';
-import { ProjectChangeRepository } from '../../infrastructure/repositories/project-change.js';
-import { ChangeGateReviewRepository } from '../../infrastructure/repositories/change-gate-review.js';
-import { ChangeSyncRunRepository } from '../../infrastructure/repositories/change-sync-run.js';
-import { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
+import { ProjectChangeRepository } from './repositories/project-change.js';
+import { ChangeGateReviewRepository } from './repositories/change-gate-review.js';
+import { ChangeSyncRunRepository } from './repositories/change-sync-run.js';
+import { SupervisionTaskRepository } from './repositories/supervision-task.js';
 import type { SupervisionProjectPort } from './ports.js';
 import type { ContextManager } from './context-manager.js';
 import {

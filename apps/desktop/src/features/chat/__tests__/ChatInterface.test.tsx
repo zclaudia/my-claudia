@@ -11,6 +11,24 @@ import { useFileViewerStore } from '../../../stores/fileViewerStore';
 import { useOwnershipStore } from '../../../stores/ownershipStore';
 import { useRecoveryStore } from '../../../stores/recoveryStore';
 
+// Mock providerMetaStore
+const { mockProviderMetaStore } = vi.hoisted(() => {
+  const state = {
+    providersByBackend: {}, providerCommands: {}, providerCapabilities: {},
+    setProviders: vi.fn(), getProviders: vi.fn().mockReturnValue([]),
+    setProviderCommands: vi.fn(), setProviderCapabilities: vi.fn(),
+  };
+  const store: any = (selector?: (s: any) => any) => selector ? selector(state) : state;
+  store.getState = () => state;
+  store.setState = vi.fn();
+  store.subscribe = vi.fn(() => vi.fn());
+  store.destroy = vi.fn();
+  return { mockProviderMetaStore: store };
+});
+vi.mock('../../../stores/providerMetaStore', () => ({
+  useProviderMetaStore: mockProviderMetaStore,
+}));
+
 const { paginationHookState, planStatusHookState } = vi.hoisted(() => ({
   paginationHookState: new Map<string, any>(),
   planStatusHookState: {
@@ -121,13 +139,13 @@ vi.mock('../TokenUsageDisplay', () => ({
     <div data-testid="token-usage" data-input={props.inputTokens} data-output={props.outputTokens} />
   ),
 }));
-vi.mock('../../BottomPanel', () => ({
+vi.mock('../../../components/BottomPanel', () => ({
   BottomPanel: (props: any) => <div data-testid="bottom-panel" data-project-id={props.projectId || ''} />,
 }));
 vi.mock('../../../features/supervision/components/TaskCardStrip', () => ({
   TaskCardStrip: (props: any) => <div data-testid="task-card-strip" data-project-id={props.projectId} />,
 }));
-vi.mock('../../BackgroundTaskPanel', () => ({
+vi.mock('../../../components/BackgroundTaskPanel', () => ({
   BackgroundTaskPanel: (props: any) => (
     <div data-testid="bg-task-panel" data-session-id={props.sessionId}>
       <button

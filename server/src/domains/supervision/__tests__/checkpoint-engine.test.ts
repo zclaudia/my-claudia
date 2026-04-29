@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi, afterEach } 
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { CheckpointEngine, type CheckpointResult } from '../checkpoint-engine.js';
-import { SupervisionTaskRepository } from '../../../infrastructure/repositories/supervision-task.js';
+import { SupervisionTaskRepository } from '../repositories/supervision-task.js';
 import { ProjectRepository } from '../../../infrastructure/repositories/project.js';
 import { SessionRepository } from '../../sessions/repository.js';
 import type { ServerMessage } from '@my-claudia/shared/protocol/messages';

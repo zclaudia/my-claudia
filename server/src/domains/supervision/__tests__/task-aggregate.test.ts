@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { SupervisionTask, TaskStatus } from '@my-claudia/shared/features/supervision';
-import type { SupervisionTaskRepository } from '../../../infrastructure/repositories/supervision-task.js';
+import type { SupervisionTaskRepository } from '../repositories/supervision-task.js';
 import { TaskAggregate } from '../task-aggregate.js';
 import type { SupervisionTaskEvent } from '../task-events.js';
 

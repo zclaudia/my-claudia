@@ -1,5 +1,5 @@
 import { FileText, Wrench } from 'lucide-react';
-import { SearchFilters } from '../SearchFilters';
+import { SearchFilters } from '../../components/SearchFilters';
 import type { SidebarSearchProps } from './types';
 
 function normalizeSearchPreview(content: string): string {

@@ -4,8 +4,30 @@ import { usePluginStore } from '../../stores/pluginStore';
 import { useBottomPanelStore } from '../../stores/bottomPanelStore';
 
 // Mock PluginPanelRenderer (used for iframe panels)
-vi.mock('../PluginPanelRenderer', () => ({
+vi.mock('../notch/PluginPanelRenderer', () => ({
   PluginPanelRenderer: ({ activePluginPanelId }: any) => <div data-testid="plugin-panel">Plugin:{activePluginPanelId}</div>,
+}));
+
+// Mock providerMetaStore (used by projectStore internally)
+const { mockProviderMetaStore } = vi.hoisted(() => {
+  const state = {
+    providersByBackend: {},
+    providerCommands: {},
+    providerCapabilities: {},
+    setProviders: vi.fn(),
+    getProviders: vi.fn().mockReturnValue([]),
+    setProviderCommands: vi.fn(),
+    setProviderCapabilities: vi.fn(),
+  };
+  const store: any = (selector?: (s: any) => any) => selector ? selector(state) : state;
+  store.getState = () => state;
+  store.setState = vi.fn();
+  store.subscribe = vi.fn(() => vi.fn());
+  store.destroy = vi.fn();
+  return { mockProviderMetaStore: store };
+});
+vi.mock('../../stores/providerMetaStore', () => ({
+  useProviderMetaStore: mockProviderMetaStore,
 }));
 
 // Mock useIsMobile

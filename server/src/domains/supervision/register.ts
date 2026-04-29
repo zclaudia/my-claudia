@@ -12,9 +12,9 @@ import { SupervisorService } from './supervisor-service.js';
 import { StateRecovery } from './state-recovery.js';
 import { CheckpointEngine } from './checkpoint-engine.js';
 import { ContextManager } from './context-manager.js';
-import { ProjectChangeRepository } from '../../infrastructure/repositories/project-change.js';
-import { ChangeSyncRunRepository } from '../../infrastructure/repositories/change-sync-run.js';
-import { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
+import { ProjectChangeRepository } from './repositories/project-change.js';
+import { ChangeSyncRunRepository } from './repositories/change-sync-run.js';
+import { SupervisionTaskRepository } from './repositories/supervision-task.js';
 import { createSupervisionRoutes } from './routes.js';
 import type {
   SupervisionAiRunPort,

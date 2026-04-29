@@ -46,7 +46,7 @@ describe('AutomationWindow', () => {
         return ok([{ id: 'p1', name: 'Project 1' }]);
       }
 
-      if (url.endsWith('/api/automations')) {
+      if (url.includes('/api/automations')) {
         return ok([{
           id: 'w1',
           name: 'Build',
@@ -72,8 +72,13 @@ describe('AutomationWindow', () => {
       expect(screen.getByText('Build')).toBeTruthy();
     });
 
-    const automationCalls = mockFetch.mock.calls.filter(([input]) => String(input).endsWith('/api/automations'));
-    expect(automationCalls).toHaveLength(1);
+    const automationCalls = mockFetch.mock.calls.filter(
+      ([input]) => String(input).includes('/api/automations') && !(input as RequestInit | undefined)?.method,
+    );
+    // May fetch once (no project) or twice (once empty + once with projectId after projects load).
+    // The key invariant is that it does NOT refetch on every render.
+    expect(automationCalls.length).toBeGreaterThanOrEqual(1);
+    expect(automationCalls.length).toBeLessThanOrEqual(2);
   });
 
   it('sends onceAt when creating a one-time automation', async () => {
@@ -81,8 +86,8 @@ describe('AutomationWindow', () => {
       const url = String(input);
 
       if (url.endsWith('/api/projects')) return ok([{ id: 'p1', name: 'Project 1' }]);
-      if (url.endsWith('/api/automations') && init?.method === 'POST') return ok({ id: 'created' });
-      if (url.endsWith('/api/automations')) return ok([]);
+      if (url.includes('/api/automations') && init?.method === 'POST') return ok({ id: 'created' });
+      if (url.includes('/api/automations')) return ok([]);
 
       throw new Error(`Unhandled fetch: ${url}`);
     });

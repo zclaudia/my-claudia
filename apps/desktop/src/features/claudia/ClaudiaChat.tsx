@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useMemo } from 'react';
-import { MessageInput } from '../chat/MessageInput';
+import { MessageInput } from '../../features/chat/MessageInput';
 import { useClaudiaStore } from '../../stores/claudiaStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useProjectStore } from '../../stores/projectStore';
@@ -10,7 +10,7 @@ import { fetchApi } from '../../services/api';
 import { dismissInterrupted } from '../../services/api/sessions';
 import { openPopoutWindow } from '../../utils/popoutWindow';
 import { resolveLocalBackendId } from '../../utils/controlPlane';
-import { InlinePermissionRequest } from '../chat/InlinePermissionRequest';
+import { InlinePermissionRequest } from '../../features/chat/InlinePermissionRequest';
 import { TaskCard } from './TaskCard';
 import { InlineResponse } from './InlineResponse';
 import { ActiveTasksPanel } from './ActiveTasksPanel';

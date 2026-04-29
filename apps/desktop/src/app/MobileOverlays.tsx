@@ -1,5 +1,5 @@
 import type { RefObject } from 'react';
-import { ClaudiaChat } from '../components/claudia/ClaudiaChat';
+import { ClaudiaChat } from '../features/claudia/ClaudiaChat';
 import { NotificationsPanel } from '../components/notifications/NotificationsPanel';
 
 interface MobileOverlaysProps {

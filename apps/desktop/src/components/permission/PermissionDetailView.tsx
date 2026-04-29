@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Maximize2, X } from 'lucide-react';
-import { DiffViewer } from '../chat/DiffViewer';
-import { CodeViewer } from '../chat/CodeViewer';
+import { DiffViewer } from '../../features/chat/DiffViewer';
+import { CodeViewer } from '../../features/chat/CodeViewer';
 import { useAndroidBack } from '../../hooks/useAndroidBack';
 
 interface PermissionDetailViewProps {

@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { ConnectionProvider, useConnection } from '../../contexts/ConnectionContext';
-import { WindowContextBar } from '../chat/SessionChatWindow';
+import { WindowContextBar } from '../../features/chat/SessionChatWindow';
 import { XTerminal } from './XTerminal';
 
 /** Notify main window when this terminal window closes */

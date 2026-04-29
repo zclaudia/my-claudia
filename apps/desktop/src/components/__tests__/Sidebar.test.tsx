@@ -16,7 +16,7 @@ vi.mock('../SettingsPanel', () => ({ SettingsPanel: ({ isOpen, onClose }: any) =
 vi.mock('../SearchFilters', () => ({ SearchFilters: ({ onClose, onFiltersChange }: any) => <div data-testid="search-filters"><button onClick={onClose}>close-filters</button><button onClick={() => onFiltersChange({ sessionId: 's1' })}>apply-filter</button></div> }));
 vi.mock('../ActiveSessionsPanel', () => ({ ActiveSessionsPanel: ({ onSessionSelect }: any) => <div data-testid="active-sessions"><button onClick={() => onSessionSelect('local', 'sess-1')}>select-active</button><button onClick={() => onSessionSelect('backend-1', 'sess-2')}>select-gw</button></div> }));
 vi.mock('../PluginPermissionDialog', () => ({ PluginPermissionDialog: () => null }));
-vi.mock('../sidebar/SessionItem', () => ({
+vi.mock('../../features/sidebar/SessionItem', () => ({
   SessionItem: ({ session, onSelect, isSelected, hasPending, isActive, providerName, worktreeBranch, isMobile, onPopOut }: any) => (
     <div data-testid="session-item" data-selected={isSelected} data-pending={hasPending} data-active={isActive} data-mobile={isMobile}>
       <span>{session.name}</span>
@@ -27,8 +27,8 @@ vi.mock('../sidebar/SessionItem', () => ({
     </div>
   )
 }));
-vi.mock('../sidebar/WorktreeGroupItem', () => ({ WorktreeGroupItem: ({ children }: any) => <div data-testid="worktree-group">{children}</div> }));
-vi.mock('../sidebar/SupervisorGroupItem', () => ({
+vi.mock('../../features/sidebar/WorktreeGroupItem', () => ({ WorktreeGroupItem: ({ children }: any) => <div data-testid="worktree-group">{children}</div> }));
+vi.mock('../../features/sidebar/SupervisorGroupItem', () => ({
   SupervisorGroupItem: ({ onSelect, taskChildren, taskCount, phase }: any) => (
     <div data-testid="supervisor-group" data-phase={phase} data-task-count={taskCount}>
       <button onClick={onSelect}>select-supervisor</button>
@@ -36,7 +36,7 @@ vi.mock('../sidebar/SupervisorGroupItem', () => ({
     </div>
   )
 }));
-vi.mock('../sidebar/worktreeGrouping', () => ({ groupSessionsByWorktree: vi.fn().mockReturnValue([]) }));
+vi.mock('../../features/sidebar/worktreeGrouping', () => ({ groupSessionsByWorktree: vi.fn().mockReturnValue([]) }));
 vi.mock('../../hooks/useSwipeBack', () => ({ useSwipeBack: vi.fn().mockReturnValue({ current: null }) }));
 vi.mock('../../hooks/useSelectionCoordinator', () => ({
   useSelectionCoordinator: () => ({
@@ -65,7 +65,7 @@ vi.mock('../../services/api', async (importOriginal) => {
   return stubbed;
 });
 
-import { Sidebar } from '../Sidebar';
+import { Sidebar } from '../../features/sidebar/Sidebar';
 import { useProjectStore } from '../../stores/projectStore';
 import { useProviderMetaStore } from '../../stores/providerMetaStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
@@ -78,7 +78,7 @@ import { useInteractionStore } from '../../stores/interactionStore';
 import { useChatStore } from '../../stores/chatStore';
 import { useUIStore } from '../../stores/uiStore';
 import * as api from '../../services/api';
-import { groupSessionsByWorktree } from '../sidebar/worktreeGrouping';
+import { groupSessionsByWorktree } from '../../features/sidebar/worktreeGrouping';
 import { isAndroid } from '../../utils/platform';
 import { resolveCanonicalBackendId } from '../../utils/controlPlane';
 

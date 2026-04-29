@@ -19,6 +19,7 @@ import {
   pollSessionMessages,
   mapOpenCodeEvent,
   emitAssistantFallbackFromSession,
+  isLatestAssistantMessageCompleted,
   OPENCODE_SSE_PRIME_DELAY_MS,
   OPENCODE_SSE_FALLBACK_TIMEOUT_MS,
 } from './opencode-stream.js';
@@ -27,7 +28,7 @@ import type {
   Event as OpenCodeEvent,
 } from '@opencode-ai/sdk';
 
-export { openCodeServerManager };
+export { openCodeServerManager, isLatestAssistantMessageCompleted };
 export type { ClaudeMessage, PermissionDecision, PermissionCallback };
 
 // ── OpenCode prompt part types ─────────────────────────────────

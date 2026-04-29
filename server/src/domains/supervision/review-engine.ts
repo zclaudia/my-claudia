@@ -8,7 +8,7 @@ import type {
   SupervisionLogEvent,
   TrustLevel,
 } from '@my-claudia/shared/features/supervision';
-import { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
+import { SupervisionTaskRepository } from './repositories/supervision-task.js';
 import type { SupervisionProjectPort, SupervisionSessionPort } from './ports.js';
 import type { ContextManager } from './context-manager.js';
 import type { WorktreePool } from './worktree-pool.js';

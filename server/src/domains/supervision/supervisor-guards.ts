@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 import type { ProjectAgent, SupervisionLogEvent } from '@my-claudia/shared/features/supervision';
-import type { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
+import type { SupervisionTaskRepository } from './repositories/supervision-task.js';
 import type { SupervisionProjectPort } from './ports.js';
 import { canPauseAgentPhase } from './model.js';
 

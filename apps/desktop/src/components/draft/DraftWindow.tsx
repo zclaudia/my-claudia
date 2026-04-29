@@ -1,7 +1,7 @@
 import { useCallback, useRef, useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { ConnectionProvider, useConnection } from '../../contexts/ConnectionContext';
-import { WindowContextBar } from '../chat/SessionChatWindow';
+import { WindowContextBar } from '../../features/chat/SessionChatWindow';
 import * as api from '../../services/api';
 
 const MAX_CONTENT_BYTES = 100 * 1024;

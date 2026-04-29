@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { RunHealthStatus } from '@my-claudia/shared';
-import { BrandMark } from '../BrandMark';
+import { BrandMark } from '../../components/BrandMark';
 
 interface LoadingIndicatorProps {
   isLoading: boolean;

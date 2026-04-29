@@ -4,7 +4,7 @@ import type { Project } from '@my-claudia/shared/core/project';
 import type { Session } from '@my-claudia/shared/core/session';
 import type { ServerMessage } from '@my-claudia/shared/protocol/messages';
 import type { SupervisionLogEvent, SupervisionTask } from '@my-claudia/shared/features/supervision';
-import type { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
+import type { SupervisionTaskRepository } from './repositories/supervision-task.js';
 import type { SupervisionProjectPort, SupervisionSessionPort, SupervisionSessionModelPort } from './ports.js';
 import type { ContextManager } from './context-manager.js';
 import type { WorktreeManager } from './worktree-manager.js';

@@ -34,7 +34,7 @@ vi.mock('../context-manager.js', () => {
 });
 
 import { ReviewEngine } from '../review-engine.js';
-import { SupervisionTaskRepository } from '../../../infrastructure/repositories/supervision-task.js';
+import { SupervisionTaskRepository } from '../repositories/supervision-task.js';
 import { ProjectRepository } from '../../../infrastructure/repositories/project.js';
 import { SessionRepository } from '../../sessions/repository.js';
 import { ContextManager } from '../context-manager.js';

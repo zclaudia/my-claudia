@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useClaudiaStore } from '../../stores/claudiaStore';
-import { extractThinking } from '../chat/MessageList';
+import { extractThinking } from '../../features/chat/MessageList';
 import type { ClaudiaTask } from '../../stores/claudiaStore';
 import type { ClaudiaTaskStatus, BranchAction } from '@my-claudia/shared';
 

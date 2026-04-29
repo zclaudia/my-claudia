@@ -1,5 +1,5 @@
 import { SquareStack, Bell } from 'lucide-react';
-import { BrandMark } from '../BrandMark';
+import { BrandMark } from '../../components/BrandMark';
 import { ServerSelector } from '../settings/ServerSelector';
 import type { MobileSidebarHeaderProps } from './types';
 import { isDesktopTauri } from '../../utils/platform';

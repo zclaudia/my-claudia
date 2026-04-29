@@ -5,7 +5,7 @@ import { SessionItem } from './SessionItem';
 import { WorktreeGroupItem } from './WorktreeGroupItem';
 import { SupervisorGroupItem } from './SupervisorGroupItem';
 import { groupSessionsByWorktree } from './worktreeGrouping';
-import { SortableList, SortableItem } from '../SortableList';
+import { SortableList, SortableItem } from '../../components/SortableList';
 import type { Session } from '@my-claudia/shared';
 import type { ProjectListItemProps } from './types';
 

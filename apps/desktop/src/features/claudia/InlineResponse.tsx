@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { extractThinking } from '../chat/MessageList';
+import { extractThinking } from '../../features/chat/MessageList';
 import type { InlineResponse as InlineResponseType } from '../../stores/claudiaStore';
 
 interface InlineResponseProps {

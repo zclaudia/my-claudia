@@ -14,7 +14,7 @@ vi.mock('../../contexts/ThemeContext', () => ({
   isDarkTheme: (t: string) => t !== 'light',
 }));
 
-import { ThemeToggle } from '../settings/ThemeToggle';
+import { ThemeToggle } from '../../features/settings/ThemeToggle';
 
 describe('ThemeToggle', () => {
   beforeEach(() => {

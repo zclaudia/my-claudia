@@ -1,26 +1,26 @@
 import { useState, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { useSwipeBack } from '../hooks/useSwipeBack';
-import { ProjectSettings } from './settings/ProjectSettings';
-import { SettingsPanel } from './SettingsPanel';
-import { ActiveSessionsPanel } from './ActiveSessionsPanel';
-import { PluginPermissionDialog } from './permission/PluginPermissionDialog';
-import { SortableList, SortableItem } from './SortableList';
+import { useSwipeBack } from '../../hooks/useSwipeBack';
+import { ProjectSettings } from '../settings/ProjectSettings';
+import { SettingsPanel } from '../../components/SettingsPanel';
+import { ActiveSessionsPanel } from '../../components/ActiveSessionsPanel';
+import { PluginPermissionDialog } from '../../components/permission/PluginPermissionDialog';
+import { SortableList, SortableItem } from '../../components/SortableList';
 
-import { useSearchSidebar } from './sidebar/useSearchSidebar';
-import { groupSessionsByWorktree as groupSessionsByWorktreeFn } from './sidebar/worktreeGrouping';
-import { SidebarHeader } from './sidebar/SidebarHeader';
-import { MobileSidebarHeader } from './sidebar/MobileSidebarHeader';
-import { SidebarSearch } from './sidebar/SidebarSearch';
-import { ProjectListItem } from './sidebar/ProjectListItem';
-import { NewProjectForm } from './sidebar/NewProjectForm';
-import { SidebarFooter } from './sidebar/SidebarFooter';
-import { useSidebarData } from './sidebar/useSidebarData';
-import { useSidebarActions } from './sidebar/useSidebarActions';
+import { useSearchSidebar } from './useSearchSidebar';
+import { groupSessionsByWorktree as groupSessionsByWorktreeFn } from './worktreeGrouping';
+import { SidebarHeader } from './SidebarHeader';
+import { MobileSidebarHeader } from './MobileSidebarHeader';
+import { SidebarSearch } from './SidebarSearch';
+import { ProjectListItem } from './ProjectListItem';
+import { NewProjectForm } from './NewProjectForm';
+import { SidebarFooter } from './SidebarFooter';
+import { useSidebarData } from './useSidebarData';
+import { useSidebarActions } from './useSidebarActions';
 
-import * as api from '../services/api';
+import * as api from '../../services/api';
 import type { GitWorktree } from '@my-claudia/shared';
-import type { WorktreeGroup } from './sidebar/worktreeGrouping';
+import type { WorktreeGroup } from './worktreeGrouping';
 
 interface SidebarProps {
   collapsed: boolean;

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, KeyboardEvent, ClipboardEvent, ChangeEvent, useCallback, useMemo } from 'react';
 import { Paperclip, X, Send, File as FileIcon, ChevronRight } from 'lucide-react';
-import { Icon } from '../ui/Icon';
+import { Icon } from '../../components/ui/Icon';
 import { getFileIcon } from '../../config/icons';
 import type { SlashCommand, FileEntry } from '@my-claudia/shared';
 import * as api from '../../services/api';

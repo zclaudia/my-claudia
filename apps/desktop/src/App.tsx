@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import { emit as emitTauri } from '@tauri-apps/api/event';
 import { NOTCH_EVENT } from './services/notchBridge';
-import { Sidebar } from './components/Sidebar';
-import { SessionChatLayout } from './components/chat/SessionChatLayout';
+import { Sidebar } from './features/sidebar/Sidebar';
+import { SessionChatLayout } from './features/chat/SessionChatLayout';
 import { MobileSetup } from './components/setup/MobileSetup';
 import { WindowsSetup } from './components/setup/WindowsSetup';
 import { ToastContainer } from './components/ToastContainer';
@@ -42,7 +42,7 @@ import { shouldShowDirectGatewaySetup } from './utils/directGatewaySetup';
 import { getMobileControlPlaneState } from './services/mobileConnectionState';
 
 const FileViewerWindow = lazy(() => import('./components/fileviewer/FileViewerWindow').then(m => ({ default: m.FileViewerWindow })));
-const ProjectDashboard = lazy(() => import('./components/dashboard/ProjectDashboard').then(m => ({ default: m.ProjectDashboard })));
+const ProjectDashboard = lazy(() => import('./features/dashboard/ProjectDashboard').then(m => ({ default: m.ProjectDashboard })));
 
 const LazyFallback = () => (
   <div className="flex items-center justify-center h-full">

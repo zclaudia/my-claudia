@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import { ProjectSettings } from '../settings/ProjectSettings';
+import { ProjectSettings } from '../../features/settings/ProjectSettings';
 import { useServerStore } from '../../stores/serverStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useProviderMetaStore } from '../../stores/providerMetaStore';

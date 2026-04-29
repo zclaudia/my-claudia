@@ -2,6 +2,24 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { PermissionDetailView } from '../PermissionDetailView';
 
+// Mock providerMetaStore
+const { mockProviderMetaStore } = vi.hoisted(() => {
+  const state = {
+    providersByBackend: {}, providerCommands: {}, providerCapabilities: {},
+    setProviders: vi.fn(), getProviders: vi.fn().mockReturnValue([]),
+    setProviderCommands: vi.fn(), setProviderCapabilities: vi.fn(),
+  };
+  const store: any = (selector?: (s: any) => any) => selector ? selector(state) : state;
+  store.getState = () => state;
+  store.setState = vi.fn();
+  store.subscribe = vi.fn(() => vi.fn());
+  store.destroy = vi.fn();
+  return { mockProviderMetaStore: store };
+});
+vi.mock('../../../stores/providerMetaStore', () => ({
+  useProviderMetaStore: mockProviderMetaStore,
+}));
+
 // Mock ThemeContext
 vi.mock('../../../contexts/ThemeContext', () => ({
   useTheme: () => ({ resolvedTheme: 'dark' }),
@@ -9,7 +27,7 @@ vi.mock('../../../contexts/ThemeContext', () => ({
 }));
 
 // Mock DiffViewer
-vi.mock('../../chat/DiffViewer', () => ({
+vi.mock('../../../features/chat/DiffViewer', () => ({
   DiffViewer: ({ oldString, newString, filePath }: any) => (
     <div data-testid="diff-viewer" data-old={oldString} data-new={newString} data-file={filePath}>
       Diff
@@ -18,7 +36,7 @@ vi.mock('../../chat/DiffViewer', () => ({
 }));
 
 // Mock CodeViewer
-vi.mock('../../chat/CodeViewer', () => ({
+vi.mock('../../../features/chat/CodeViewer', () => ({
   CodeViewer: ({ content, filePath }: any) => (
     <div data-testid="code-viewer" data-content={content} data-file={filePath}>
       Code

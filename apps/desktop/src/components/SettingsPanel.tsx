@@ -5,26 +5,26 @@ import { useGatewayStore } from '../stores/gatewayStore';
 import { useConnection } from '../contexts/ConnectionContext';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import { useAndroidBack } from '../hooks/useAndroidBack';
-import { ProviderManager } from './settings/ProviderManager';
-import { ServerGatewayConfig } from './settings/ServerGatewayConfig';
-import { PluginSettings } from './settings/PluginSettings';
-import { McpServerSettings } from './settings/McpServerSettings';
-import { WorkspaceSkillsSettings } from './settings/WorkspaceSkillsSettings';
+import { ProviderManager } from '../features/settings/ProviderManager';
+import { ServerGatewayConfig } from '../features/settings/ServerGatewayConfig';
+import { PluginSettings } from '../features/settings/PluginSettings';
+import { McpServerSettings } from '../features/settings/McpServerSettings';
+import { WorkspaceSkillsSettings } from '../features/settings/WorkspaceSkillsSettings';
 import { usePluginStore, selectPluginSettingsTabs } from '../stores/pluginStore';
 import type { BackendConnectionState, BackendSnapshot, GatewayBackendInfo } from '@my-claudia/shared';
-import { AgentSettings } from './settings/AgentSettings';
-import { PermissionSettings } from './settings/PermissionSettings';
-import { NotificationSettingsInline } from './settings/NotificationSettings';
-import { MobileGatewayConfig } from './settings/MobileGatewayConfig';
-import { DebugSettings } from './settings/DebugSettings';
-import { GeneralSettings } from './settings/GeneralSettings';
-import { ImportSettings } from './settings/ImportSettings';
+import { AgentSettings } from '../features/settings/AgentSettings';
+import { PermissionSettings } from '../features/settings/PermissionSettings';
+import { NotificationSettingsInline } from '../features/settings/NotificationSettings';
+import { MobileGatewayConfig } from '../features/settings/MobileGatewayConfig';
+import { DebugSettings } from '../features/settings/DebugSettings';
+import { GeneralSettings } from '../features/settings/GeneralSettings';
+import { ImportSettings } from '../features/settings/ImportSettings';
 import {
   type SettingsTab,
   type SettingsTabDef,
   getAppTabs,
   getServerTabs,
-} from './settings/settingsTabDefs';
+} from '../features/settings/settingsTabDefs';
 
 import {
   getMobileBackendViewState,

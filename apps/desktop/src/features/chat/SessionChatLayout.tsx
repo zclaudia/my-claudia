@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { ChatInterface } from './ChatInterface';
-import { BottomPanel } from '../BottomPanel';
-import { RightSidebar } from '../RightSidebar';
+import { BottomPanel } from '../../components/BottomPanel';
+import { RightSidebar } from '../../components/RightSidebar';
 import { useProjectStore } from '../../stores/projectStore';
 import { useUIStore } from '../../stores/uiStore';
 import { usePluginStore } from '../../stores/pluginStore';

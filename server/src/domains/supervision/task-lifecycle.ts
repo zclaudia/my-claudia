@@ -1,7 +1,7 @@
 import type { Session } from '@my-claudia/shared/core/session';
 import type { RunFailedMessage, ServerMessage } from '@my-claudia/shared/protocol/messages';
 import type { ProjectAgent, SupervisionLogEvent } from '@my-claudia/shared/features/supervision';
-import { SupervisionTaskRepository } from '../../infrastructure/repositories/supervision-task.js';
+import { SupervisionTaskRepository } from './repositories/supervision-task.js';
 import type { SupervisionProjectPort, SupervisionSessionPort, SupervisionSessionModelPort } from './ports.js';
 import { TaskRunner } from './task-runner.js';
 import { WorktreeManager } from './worktree-manager.js';
