@@ -122,7 +122,9 @@ gateway/.deploy-version*
 
 .version
 
-plugins/
+# Top-level runtime plugin installs (anchored to repo root so it does not
+# match source dirs like shared/src/plugins/, server/src/application/plugins/).
+/plugins/
 
 # Superpowers plugin generated docs
 docs/superpowers/
