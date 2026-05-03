@@ -89,16 +89,32 @@ export function useWslServer(): WslServerState & {
    * Returns the version string, or null if not deployed.
    */
   const getDeployedVersion = useCallback(async (): Promise<string | null> => {
+    // Heartbeat so a hung wslExec surfaces as visible elapsed time in the UI
+    // instead of dead silence. Tick every 3s, clear when the call returns.
+    let elapsed = 0;
+    const heartbeat = setInterval(() => {
+      elapsed += 3;
+      appendOutput(`[Check] Still reading version... (${elapsed}s elapsed)`);
+    }, 3000);
+
     try {
       const result = await wslExec(['bash', '-c', `cat ${WSL_DEPLOY_DIR}/.version 2>/dev/null`]);
       if (result.code === 0 && result.stdout.trim()) {
         return result.stdout.trim();
       }
-    } catch {
-      // Not deployed
+      // Surface non-zero exit so we can distinguish "file missing" from a real failure.
+      if (result.stderr.trim()) {
+        appendOutput(`[Check] WSL stderr: ${result.stderr.trim()}`);
+      }
+      appendOutput(`[Check] Version file not readable (exit=${result.code})`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendOutput(`[Check] Version check failed: ${msg}`);
+    } finally {
+      clearInterval(heartbeat);
     }
     return null;
-  }, []);
+  }, [appendOutput]);
 
   /**
    * Deploy the bundled server to WSL.

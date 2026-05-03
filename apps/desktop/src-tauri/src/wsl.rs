@@ -26,7 +26,11 @@ use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-const WSL_EXEC_TIMEOUT: Duration = Duration::from_secs(30);
+// 60s is a deliberate compromise: a hot wsl call returns in <1s, but a cold
+// distro start (first invocation after Windows boot, or after `wsl --shutdown`)
+// can chew through 20-40s before the VM responds. The frontend layers a 3s
+// heartbeat on top of this so the user sees progress while we wait.
+const WSL_EXEC_TIMEOUT: Duration = Duration::from_secs(60);
 
 fn wsl_command<I, S>(args: I) -> Command
 where
@@ -79,6 +83,11 @@ pub async fn wsl_exec(args: Vec<String>) -> Result<WslExecResult, String> {
                 Ok(Some(s)) => break s,
                 Ok(None) => {
                     if started.elapsed() >= WSL_EXEC_TIMEOUT {
+                        eprintln!(
+                            "[wsl_exec] timeout after {}s for args={:?}",
+                            WSL_EXEC_TIMEOUT.as_secs(),
+                            args
+                        );
                         let _ = child.kill();
                         let _ = child.wait();
                         return Err(format!(
