@@ -1,5 +1,5 @@
 import type { ProviderAdapter, RunOptions, ClaudeMessage, PermissionCallback } from './types.js';
-import { runCodexAppServer, abortCodexAppServer } from './codex-app-server.js';
+import { runCodexAppServer, abortCodexAppServer, setAppServerClientMode } from './codex-app-server.js';
 import { CODEX_MANIFEST } from './manifests.js';
 
 export class CodexAppServerAdapter implements ProviderAdapter {
@@ -27,5 +27,9 @@ export class CodexAppServerAdapter implements ProviderAdapter {
 
   async abort(sessionId: string): Promise<void> {
     await abortCodexAppServer(sessionId);
+  }
+
+  setSessionMode(sessionId: string, mode: string): void {
+    setAppServerClientMode(sessionId, mode);
   }
 }

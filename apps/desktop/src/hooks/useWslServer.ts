@@ -51,8 +51,8 @@ async function checkHealth(port: number = DEFAULT_PORT): Promise<boolean> {
  * `Stdio::null()` for stdin and returns as fast as a direct PowerShell
  * invocation.
  */
-async function wslExec(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-  return await invoke<{ code: number; stdout: string; stderr: string }>('wsl_exec', { args });
+async function wslExec(args: string[], timeoutSecs?: number): Promise<{ code: number; stdout: string; stderr: string }> {
+  return await invoke<{ code: number; stdout: string; stderr: string }>('wsl_exec', { args, timeoutSecs });
 }
 
 /**
@@ -217,6 +217,37 @@ export function useWslServer(): WslServerState & {
       appendOutput('[Check] Server already running');
       if (mountedRef.current) {
         setState(prev => ({ ...prev, port: DEFAULT_PORT, status: 'ready', error: null }));
+      }
+      return;
+    }
+
+    // 1.5 Quick WSL availability probe — fail fast if WSL is broken/missing.
+    // Use a trivial command (`echo ok`) with a short implicit timeout.
+    appendOutput('[Check] Verifying WSL availability...');
+    try {
+      const probe = await wslExec(['bash', '-c', 'echo ok'], 15);
+      if (probe.code !== 0 || !probe.stdout.includes('ok')) {
+        const detail = probe.stderr.trim() || `exit code ${probe.code}`;
+        appendOutput(`[Check] WSL probe failed: ${detail}`);
+        if (mountedRef.current) {
+          setState(prev => ({
+            ...prev,
+            status: 'error',
+            error: `WSL is not responding: ${detail}`,
+          }));
+        }
+        return;
+      }
+      appendOutput('[Check] WSL is available');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendOutput(`[Check] WSL not available: ${msg}`);
+      if (mountedRef.current) {
+        setState(prev => ({
+          ...prev,
+          status: 'error',
+          error: `WSL is not available: ${msg}`,
+        }));
       }
       return;
     }

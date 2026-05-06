@@ -65,16 +65,28 @@ interface AppServerItem {
   [key: string]: any;
 }
 
+// ── claudia-plugins MCP tool name normalization ─────────────
+// Plan mode tools are registered as MCP tools (snake_case) but run-handler
+// expects PascalCase names matching Claude SDK's native tools.
+const CLAUDIA_TOOL_NAME_MAP: Record<string, string> = {
+  'enter_plan_mode': 'EnterPlanMode',
+  'exit_plan_mode': 'ExitPlanMode',
+};
+
+function normalizeClaudiaToolName(namespace: string | undefined, name: string): string {
+  if (namespace === 'claudia-plugins') {
+    const mapped = CLAUDIA_TOOL_NAME_MAP[name];
+    if (mapped) return mapped;
+  }
+  return namespace ? `mcp:${namespace}:${name}` : name || 'Unknown';
+}
+
 // ── Mode → sandbox/approval config args ──────────────────────
 //
 // NOTE: `sandbox_permissions` via `-c` has no effect in app-server mode
-// (sandbox is always workspaceWrite). Instead, we control behavior through
-// `approval_policy`:
-//   - "never"      → auto-approve all operations within sandbox (bypass mode)
-//   - "on-request" → send approval requests to the client (default/supervised)
-//
-// For plan mode, we keep "on-request" and our handleServerRequest always
-// declines approvals, effectively making it read-only.
+// (sandbox is always workspaceWrite). Keep approval requests enabled for every
+// mode and make the decision in handleServerRequest so dynamic mode switches
+// (for example EnterPlanMode during a bypass run) take effect immediately.
 
 function mapModeToConfigArgs(mode?: string): string[] {
   const args: string[] = [];
@@ -84,8 +96,8 @@ function mapModeToConfigArgs(mode?: string): string[] {
       args.push('-c', 'approval_policy="on-request"');
       break;
     case 'bypassPermissions':
-      // Skip all approval prompts — auto-approve everything
-      args.push('-c', 'approval_policy="never"');
+      // Keep requests enabled; our handler auto-approves while this mode is active.
+      args.push('-c', 'approval_policy="on-request"');
       break;
     case 'acceptEdits':
     case 'default':
@@ -487,9 +499,26 @@ export class CodexAppServerClient {
     if (method.includes('requestApproval') || method.includes('Approval') || method.includes('approval')) {
       debugLog(`[Codex AppServer] Approval request: method=${method} params=${JSON.stringify(params).slice(0, 500)}`);
 
+      // In plan mode: decline all write operations
+      if (this.currentMode === 'plan') {
+        debugLog(`[Codex AppServer] Declining in plan mode: ${method}`);
+        if (method === 'item/permissions/requestApproval') {
+          this.sendResponse(id, { permissions: {}, scope: 'turn' });
+        } else {
+          this.sendResponse(id, { decision: 'decline' });
+        }
+        return;
+      }
+
       // Handle permissions requests separately (different response schema)
       if (method === 'item/permissions/requestApproval') {
         await this.handlePermissionsApproval(id, params);
+        return;
+      }
+
+      if (this.currentMode === 'bypassPermissions') {
+        debugLog(`[Codex AppServer] Auto-accepting in bypassPermissions mode: ${method}`);
+        this.sendResponse(id, { decision: 'accept' });
         return;
       }
 
@@ -497,13 +526,6 @@ export class CodexAppServerClient {
       if (this.currentMode === 'acceptEdits' && method === 'item/fileChange/requestApproval') {
         debugLog(`[Codex AppServer] Auto-accepting file change in acceptEdits mode`);
         this.sendResponse(id, { decision: 'accept' });
-        return;
-      }
-
-      // In plan mode: decline all write operations
-      if (this.currentMode === 'plan') {
-        debugLog(`[Codex AppServer] Declining in plan mode: ${method}`);
-        this.sendResponse(id, { decision: 'decline' });
         return;
       }
 
@@ -573,6 +595,18 @@ export class CodexAppServerClient {
       fileSystem?: { read?: string[] | null; write?: string[] | null };
       network?: { enabled?: boolean | null };
     } | undefined;
+
+    if (this.currentMode === 'bypassPermissions' && requestedPermissions) {
+      debugLog('[Codex AppServer] Auto-granting permissions in bypassPermissions mode');
+      this.sendResponse(id, {
+        permissions: {
+          fileSystem: requestedPermissions.fileSystem || undefined,
+          network: requestedPermissions.network || undefined,
+        },
+        scope: 'session',
+      });
+      return;
+    }
 
     if (this.permissionCallback) {
       try {
@@ -962,7 +996,7 @@ export class CodexAppServerClient {
         return [{
           type: 'tool_use',
           toolUseId: item.id,
-          toolName: item.namespace ? `mcp:${item.namespace}:${item.name}` : item.name || 'Unknown',
+          toolName: normalizeClaudiaToolName(item.namespace, item.name),
           toolInput,
         }];
       }
@@ -1016,7 +1050,7 @@ export class CodexAppServerClient {
         return [{
           type: 'tool_result',
           toolUseId: item.id,
-          toolName: item.namespace ? `mcp:${item.namespace}:${item.name}` : item.name || 'Unknown',
+          toolName: normalizeClaudiaToolName(item.namespace, item.name),
           toolResult: resultText,
           isToolError: item.status === 'failed',
         }];
@@ -1089,8 +1123,8 @@ export function getOrCreateAppServerClient(options: CodexAppServerOptions): Code
     });
     appServerClients.set(key, client);
   } else {
-    // If sandbox/model args changed (e.g., mode switched from plan to default),
-    // kill the old process so it restarts with the correct sandbox permissions.
+    // If process args changed (currently model/config), kill the old process so
+    // ensureRunning() respawns it with the new args.
     client.updateExtraArgs(extraArgs);
   }
   return client;
@@ -1119,6 +1153,11 @@ export async function* runCodexAppServer(
 ): AsyncGenerator<ClaudeMessage, void, void> {
   const client = getOrCreateAppServerClient(options);
   client.currentMode = options.mode;
+
+  // Track session → client for dynamic mode switching (e.g. AI-initiated plan mode)
+  if (options.sessionId) {
+    sessionClientMap.set(options.sessionId, client);
+  }
 
   // Start or resume thread
   let threadId: string;
@@ -1217,12 +1256,31 @@ export async function* runCodexAppServer(
 // ── Abort ────────────────────────────────────────────────────
 
 const activeThreadIds = new Map<string, { client: CodexAppServerClient; threadId: string }>();
+const sessionClientMap = new Map<string, CodexAppServerClient>();
+
+function deleteSessionClientRefs(client: CodexAppServerClient): void {
+  for (const [sessionId, mappedClient] of sessionClientMap) {
+    if (mappedClient === client) {
+      sessionClientMap.delete(sessionId);
+    }
+  }
+}
 
 export async function abortCodexAppServer(sessionId: string): Promise<void> {
   const entry = activeThreadIds.get(sessionId);
   if (entry) {
     await entry.client.interruptTurn(entry.threadId);
     activeThreadIds.delete(sessionId);
+  }
+  sessionClientMap.delete(sessionId);
+}
+
+/** Dynamically switch a session's mode (e.g. when AI calls EnterPlanMode/ExitPlanMode). */
+export function setAppServerClientMode(sessionId: string, mode: string): void {
+  const client = sessionClientMap.get(sessionId);
+  if (client) {
+    client.currentMode = mode;
+    debugLog(`[Codex AppServer] Dynamic mode change for session ${sessionId}: ${mode}`);
   }
 }
 
@@ -1239,6 +1297,7 @@ export function runIdleCleanup(now = Date.now()): void {
       debugLog(`[Codex AppServer] Idle cleanup: ${key}`);
       client.destroy();
       appServerClients.delete(key);
+      deleteSessionClientRefs(client);
     }
   }
 }
@@ -1254,9 +1313,11 @@ export function destroyAllAppServerClients(): void {
     client.destroy();
   }
   appServerClients.clear();
+  sessionClientMap.clear();
   clearInterval(cleanupTimer);
 }
 
 export function resetAppServerClientsForTests(): void {
   appServerClients.clear();
+  sessionClientMap.clear();
 }

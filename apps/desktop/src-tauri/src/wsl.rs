@@ -16,7 +16,7 @@
 
 use std::ffi::OsStr;
 use std::io::{BufRead, BufReader, Read};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -32,19 +32,73 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 // heartbeat on top of this so the user sees progress while we wait.
 const WSL_EXEC_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// Build a `wsl` command that won't hang from a GUI (no-console) parent.
+///
+/// Running `wsl.exe` directly from a windowless Tauri process hangs on
+/// some Windows builds even with `Stdio::null()` + `CREATE_NO_WINDOW`,
+/// because wsl.exe internally depends on console subsystem initialization.
+///
+/// Workaround: launch via `cmd.exe /C wsl ...` so that cmd allocates a
+/// hidden console for wsl.exe to attach to. `CREATE_NO_WINDOW` ensures
+/// this console is invisible to the user.
 fn wsl_command<I, S>(args: I) -> Command
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let mut cmd = Command::new("wsl");
-    cmd.args(args)
+    let mut wsl_args: Vec<String> = vec!["/C".to_string(), "wsl".to_string()];
+    for arg in args {
+        wsl_args.push(arg.as_ref().to_string_lossy().into_owned());
+    }
+    let mut cmd = Command::new("cmd.exe");
+    cmd.args(&wsl_args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
     cmd
+}
+
+fn spawn_pipe_reader<R>(mut reader: R, buf: Arc<Mutex<String>>, done: Arc<Mutex<bool>>)
+where
+    R: Read + Send + 'static,
+{
+    std::thread::spawn(move || {
+        let mut chunk = [0_u8; 8192];
+        loop {
+            match reader.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let text = String::from_utf8_lossy(&chunk[..n]);
+                    if let Ok(mut b) = buf.lock() {
+                        b.push_str(&text);
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        if let Ok(mut d) = done.lock() {
+            *d = true;
+        }
+    });
+}
+
+#[cfg(windows)]
+fn kill_child_tree(child: &mut Child) {
+    let pid = child.id().to_string();
+    let mut cmd = Command::new("taskkill");
+    cmd.args(["/PID", &pid, "/T", "/F"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let _ = cmd.status();
+}
+
+#[cfg(not(windows))]
+fn kill_child_tree(child: &mut Child) {
+    let _ = child.kill();
 }
 
 #[derive(serde::Serialize)]
@@ -56,8 +110,12 @@ pub struct WslExecResult {
 }
 
 #[tauri::command]
-pub async fn wsl_exec(args: Vec<String>) -> Result<WslExecResult, String> {
+pub async fn wsl_exec(
+    args: Vec<String>,
+    timeout_secs: Option<u64>,
+) -> Result<WslExecResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let timeout = Duration::from_secs(timeout_secs.unwrap_or(WSL_EXEC_TIMEOUT.as_secs()));
         let mut child = wsl_command(&args)
             .spawn()
             .map_err(|e| format!("Failed to spawn wsl: {}", e))?;
@@ -66,33 +124,45 @@ pub async fn wsl_exec(args: Vec<String>) -> Result<WslExecResult, String> {
         let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
 
         // Drain pipes in parallel so a chatty child can't deadlock on a full pipe.
-        let stdout_thread = std::thread::spawn(move || {
-            let mut s = String::new();
-            let _ = BufReader::new(stdout).read_to_string(&mut s);
-            s
-        });
-        let stderr_thread = std::thread::spawn(move || {
-            let mut s = String::new();
-            let _ = BufReader::new(stderr).read_to_string(&mut s);
-            s
-        });
+        // We use Arc<Mutex<String>> so we can read partial output even if the
+        // thread never finishes (leaked pipe handle from WSL background processes).
+        let stdout_buf: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+        let stderr_buf: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+        let stdout_done: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
+        let stderr_done: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
+        spawn_pipe_reader(stdout, Arc::clone(&stdout_buf), Arc::clone(&stdout_done));
+        spawn_pipe_reader(stderr, Arc::clone(&stderr_buf), Arc::clone(&stderr_done));
 
         let started = Instant::now();
         let status = loop {
             match child.try_wait() {
                 Ok(Some(s)) => break s,
                 Ok(None) => {
-                    if started.elapsed() >= WSL_EXEC_TIMEOUT {
+                    if started.elapsed() >= timeout {
                         eprintln!(
                             "[wsl_exec] timeout after {}s for args={:?}",
-                            WSL_EXEC_TIMEOUT.as_secs(),
+                            timeout.as_secs(),
                             args
                         );
-                        let _ = child.kill();
-                        let _ = child.wait();
+                        kill_child_tree(&mut child);
+                        // Wait with a bounded spin — don't block forever if
+                        // the wrapped wsl.exe refuses to exit after termination.
+                        let kill_deadline = Instant::now() + Duration::from_secs(5);
+                        loop {
+                            match child.try_wait() {
+                                Ok(Some(_)) | Err(_) => break,
+                                Ok(None) => {
+                                    if Instant::now() >= kill_deadline {
+                                        eprintln!("[wsl_exec] child did not exit within 5s after kill, abandoning");
+                                        break;
+                                    }
+                                    std::thread::sleep(Duration::from_millis(50));
+                                }
+                            }
+                        }
                         return Err(format!(
                             "wsl command timed out after {}s",
-                            WSL_EXEC_TIMEOUT.as_secs()
+                            timeout.as_secs()
                         ));
                     }
                     std::thread::sleep(Duration::from_millis(50));
@@ -101,8 +171,21 @@ pub async fn wsl_exec(args: Vec<String>) -> Result<WslExecResult, String> {
             }
         };
 
-        let stdout = stdout_thread.join().unwrap_or_default();
-        let stderr = stderr_thread.join().unwrap_or_default();
+        // Process exited. Give the reader threads a short window to finish
+        // draining — if WSL background processes hold the pipe open, don't
+        // wait forever.
+        let drain_deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let out_ok = stdout_done.lock().map(|d| *d).unwrap_or(true);
+            let err_ok = stderr_done.lock().map(|d| *d).unwrap_or(true);
+            if (out_ok && err_ok) || Instant::now() >= drain_deadline {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        let stdout = stdout_buf.lock().map(|s| s.clone()).unwrap_or_default();
+        let stderr = stderr_buf.lock().map(|s| s.clone()).unwrap_or_default();
 
         Ok(WslExecResult {
             code: status.code().unwrap_or(-1),
@@ -203,14 +286,11 @@ pub async fn wsl_start_server() -> Result<WslStartServerResult, String> {
                 Ok(WslStartServerResult { port: p })
             }
             None => {
-                let _ = child.kill();
+                kill_child_tree(&mut child);
                 let _ = child.wait();
                 // Give the stderr reader a tick to flush whatever was buffered.
                 std::thread::sleep(Duration::from_millis(150));
-                let detail = stderr_tail
-                    .lock()
-                    .map(|t| t.join("\n"))
-                    .unwrap_or_default();
+                let detail = stderr_tail.lock().map(|t| t.join("\n")).unwrap_or_default();
                 Err(if detail.trim().is_empty() {
                     "Server exited before emitting SERVER_READY".to_string()
                 } else {

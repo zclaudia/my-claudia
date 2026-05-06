@@ -103,7 +103,7 @@ export function handleProviderEvent({
       }
       break;
 
-    case 'assistant':
+    case 'assistant': {
       if (!msg.content) break;
 
       activeRun.fullContent += msg.content;
@@ -120,6 +120,7 @@ export function handleProviderEvent({
         content: msg.content,
       });
       break;
+    }
 
     case 'tool_use': {
       if (msg.toolUseId && msg.toolName) {
@@ -219,11 +220,19 @@ export function handleProviderEvent({
           sendRunEvent({ type: 'mode_change', runId, sessionId: activeRun.sessionId, mode: 'plan' });
           if (modeValue !== 'plan') {
             activeRun.aiInitiatedPlanMode = true;
+            activeRun.originalMode = activeRun.originalMode ?? modeValue;
             console.log(`[Permission] AI entered plan mode during ${modeValue} run`);
           }
+          // Dynamically switch provider's mode so approval handler enforces read-only
+          const adapter = providerRegistry.get(activeRun.providerType!);
+          adapter?.setSessionMode?.(activeRun.sessionId, 'plan');
         } else if (toolName === 'ExitPlanMode') {
-          sendRunEvent({ type: 'mode_change', runId, sessionId: activeRun.sessionId, mode: 'default' });
+          const restoreMode = activeRun.originalMode || 'default';
+          sendRunEvent({ type: 'mode_change', runId, sessionId: activeRun.sessionId, mode: restoreMode });
           activeRun.aiInitiatedPlanMode = false;
+          // Restore provider's original mode so writes are allowed again
+          const adapter = providerRegistry.get(activeRun.providerType!);
+          adapter?.setSessionMode?.(activeRun.sessionId, restoreMode);
         }
       }
       break;

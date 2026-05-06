@@ -60,6 +60,8 @@ export interface ActiveRun {
   allowedOutsideWorkspaceRoots: Set<string>;
   /** True when AI called EnterPlanMode during a non-plan-mode run (not user-initiated). */
   aiInitiatedPlanMode?: boolean;
+  /** Original mode before AI-initiated plan mode, used to restore after ExitPlanMode. */
+  originalMode?: string;
   // Stuck/loop detection
   startedAt: number;
   lastActivityAt: number;

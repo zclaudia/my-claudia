@@ -48,4 +48,7 @@ export interface ProviderAdapter {
 
   /** Get provider-specific state to store on ActiveRun */
   getRunState?(options: RunOptions): Record<string, unknown>;
+
+  /** Dynamically switch the session's mode (e.g. when AI calls EnterPlanMode/ExitPlanMode) */
+  setSessionMode?(sessionId: string, mode: string): void;
 }
