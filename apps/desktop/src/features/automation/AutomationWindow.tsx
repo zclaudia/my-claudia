@@ -28,14 +28,17 @@ interface AutomationWindowProps {
   serverUrl: string;
   authToken: string;
   serverId?: string;
+  initialTab?: 'automations' | 'workflows';
+  initialProjectId?: string;
 }
 
 type Tab = 'workflows' | 'automations' | 'runs' | 'system';
 
 // ── Main Component ───────────────────────────────────────────
 
-export function AutomationWindow({ serverUrl, authToken, serverId }: AutomationWindowProps) {
-  const [tab, setTab] = useState<Tab>('automations');
+export function AutomationWindow({ serverUrl, authToken, serverId, initialTab, initialProjectId }: AutomationWindowProps) {
+  const [tab, setTab] = useState<Tab>(initialTab ?? 'automations');
+  const [navigateProjectId, setNavigateProjectId] = useState<string | undefined>(initialProjectId);
   const backendOptions = useAutomationBackendOptions();
   const localBackendId = useFacadeStore((state) => state.localBackendId);
   const activeServerId = useServerStore((state) => state.activeServerId);
@@ -52,6 +55,18 @@ export function AutomationWindow({ serverUrl, authToken, serverId }: AutomationW
       return resolved !== prev ? resolved : prev;
     });
   }, [activeServerId, backendOptions, localBackendId, serverId]);
+
+  // Listen for navigation events from already-open window reuse
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    import('@tauri-apps/api/event').then(({ listen }) => {
+      listen<{ tab: Tab; projectId?: string }>('automation:navigate', ({ payload }) => {
+        setTab(payload.tab);
+        if (payload.projectId) setNavigateProjectId(payload.projectId);
+      }).then((fn) => { unlisten = fn; });
+    });
+    return () => { unlisten?.(); };
+  }, []);
 
   const selectedBackend = backendOptions.find((option) => option.backendId === selectedBackendId) ?? null;
   const api = useAutomationApi(selectedBackend?.backendId ?? null, serverUrl, authToken);
@@ -123,6 +138,7 @@ export function AutomationWindow({ serverUrl, authToken, serverId }: AutomationW
             api={api}
             projects={projects}
             projectName={projectName}
+            initialProjectId={navigateProjectId}
           />
         )}
         {tab === 'workflows' && (
@@ -134,6 +150,7 @@ export function AutomationWindow({ serverUrl, authToken, serverId }: AutomationW
             projectName={projectName}
             serverUrl={serverUrl}
             selectedBackendId={selectedBackendId}
+            initialProjectId={navigateProjectId}
           />
         )}
         {tab === 'runs' && (

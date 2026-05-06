@@ -9,24 +9,23 @@ import { CheckpointFeed } from '../../features/supervision/components/Checkpoint
 import { SupervisorWorkspacePanel } from '../../features/supervision/components/SupervisorWorkspacePanel';
 import { SessionChatLayout } from '../../features/chat/SessionChatLayout';
 import { LocalPRsPanel } from '../../features/local-pr/components/LocalPRsPanel';
-import { WorkflowsPanel } from '../../features/workflows/components/WorkflowsPanel';
 import { DashboardHome } from './DashboardHome';
 import { useSelectionStore } from '../../stores/selectionStore';
+import type { OpenAutomationWindowOptions } from '../automation/openAutomationWindow';
 
-export type DashboardView = 'home' | 'tasks' | 'local-prs' | 'workflows' | 'supervisor';
+export type DashboardView = 'home' | 'tasks' | 'local-prs' | 'supervisor';
 
 const VIEW_LABELS: Record<DashboardView, string> = {
   home: 'Dashboard',
   tasks: 'Tasks',
   'local-prs': 'Local Pull Requests',
-  workflows: 'Workflows',
   supervisor: 'Supervisor Workspace',
 };
 
 interface ProjectDashboardProps {
   projectId: string;
   projectRootPath?: string;
-  onOpenAutomations?: () => void;
+  onOpenAutomations?: (opts: OpenAutomationWindowOptions) => void;
 }
 
 export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations }: ProjectDashboardProps) {
@@ -39,7 +38,6 @@ export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations
   const savedView = useSelectionStore((s) => s.dashboardViews[projectId] ?? 'home');
   const setDashboardView = useSelectionStore((s) => s.setDashboardView);
   const [view, setView] = useState<DashboardView>(savedView);
-  const [workflowViewMode, setWorkflowViewMode] = useState<'list' | 'detail'>('list');
   const [supervisorPane, setSupervisorPane] = useState<'workspace' | 'chat'>('workspace');
 
   const navigate = useCallback((nextView: DashboardView) => {
@@ -50,7 +48,6 @@ export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations
   // Restore last dashboard sub-view for this project
   useEffect(() => {
     setView(savedView);
-    setWorkflowViewMode('list');
     setSupervisorPane('workspace');
   }, [projectId, savedView]);
 
@@ -83,7 +80,7 @@ export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Back button for drill-down views */}
-      {view !== 'home' && (view !== 'workflows' || workflowViewMode === 'list') && (
+      {view !== 'home' && (
         <div className="flex items-center gap-2 px-4 py-2 border-b border-border">
           <button
             onClick={() => navigate('home')}
@@ -126,16 +123,6 @@ export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations
       {view === 'local-prs' && (
         <div className="flex-1 overflow-hidden">
           <LocalPRsPanel projectId={projectId} projectRootPath={projectRootPath} />
-        </div>
-      )}
-
-      {view === 'workflows' && (
-        <div className="flex-1 overflow-hidden">
-          <WorkflowsPanel
-            projectId={projectId}
-            onViewModeChange={setWorkflowViewMode}
-            onOpenAutomations={onOpenAutomations}
-          />
         </div>
       )}
 

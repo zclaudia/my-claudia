@@ -20,13 +20,14 @@ interface WorkflowsTabProps {
   projectName: (id?: string) => string;
   serverUrl: string;
   selectedBackendId: string | null;
+  initialProjectId?: string;
 }
 
-export function WorkflowsTab({ api, projects, globalPermissionWorkflowOverrideId, projectName, serverUrl, selectedBackendId }: WorkflowsTabProps) {
+export function WorkflowsTab({ api, projects, globalPermissionWorkflowOverrideId, projectName, serverUrl, selectedBackendId, initialProjectId }: WorkflowsTabProps) {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
   const [loading, setLoading] = useState(true);
-  const [createProjectId, setCreateProjectId] = useState('');
+  const [createProjectId, setCreateProjectId] = useState(initialProjectId ?? '');
 
   const effectiveProjectId = createProjectId || projects[0]?.id || '';
   const selectedProject = projects.find(p => p.id === effectiveProjectId);

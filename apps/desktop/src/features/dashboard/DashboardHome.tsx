@@ -10,7 +10,7 @@ interface DashboardHomeProps {
   projectId: string;
   projectRootPath?: string;
   onNavigate: (view: DashboardView) => void;
-  onOpenAutomations?: () => void;
+  onOpenAutomations?: (opts: { tab: 'automations' | 'workflows'; projectId: string }) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -193,7 +193,7 @@ export function DashboardHome({ projectId, onNavigate, onOpenAutomations }: Dash
 
         {/* Workflows Card */}
         <button
-          onClick={() => onNavigate('workflows')}
+          onClick={() => onOpenAutomations?.({ tab: 'workflows', projectId })}
           className="text-left bg-card border border-border rounded-lg p-4 hover:border-primary/40 transition-colors group"
         >
           <div className="flex items-center justify-between mb-2">
@@ -214,7 +214,7 @@ export function DashboardHome({ projectId, onNavigate, onOpenAutomations }: Dash
 
         {/* Automations Card */}
         <button
-          onClick={() => onOpenAutomations?.()}
+          onClick={() => onOpenAutomations?.({ tab: 'automations', projectId })}
           className="text-left bg-card border border-border rounded-lg p-4 hover:border-primary/40 transition-colors group"
         >
           <div className="flex items-center justify-between mb-2">
@@ -277,7 +277,7 @@ export function DashboardHome({ projectId, onNavigate, onOpenAutomations }: Dash
       {activeWorkflows.length > 0 && (
         <PreviewSection
           title="Workflows"
-          onViewAll={() => onNavigate('workflows')}
+          onViewAll={() => onOpenAutomations?.({ tab: 'workflows', projectId })}
         >
           {activeWorkflows.slice(0, 3).map((wf) => {
             const latestRun = (runs[wf.id] ?? [])[0];

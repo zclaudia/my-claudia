@@ -118,8 +118,8 @@ function AppContent() {
     return isAgentExpanded ? 0.14 : 0;
   }, [agentSwipePreview.mode, claudiaSwipePreviewProgress, isAgentExpanded]);
 
-  const openAutomationWindowFn = useCallback(() => {
-    import('./features/automation/openAutomationWindow').then(m => m.openAutomationWindow());
+  const openAutomationWindowFn = useCallback((opts?: import('./features/automation/openAutomationWindow').OpenAutomationWindowOptions) => {
+    import('./features/automation/openAutomationWindow').then(m => m.openAutomationWindow(opts ?? {}));
   }, []);
 
   // --- Extracted hooks ---

@@ -10,14 +10,15 @@ interface AutomationsTabProps {
   api: AutomationApiType;
   projects: ProjectInfo[];
   projectName: (id?: string) => string;
+  initialProjectId?: string;
 }
 
-export function AutomationsTab({ api, projects, projectName }: AutomationsTabProps) {
+export function AutomationsTab({ api, projects, projectName, initialProjectId }: AutomationsTabProps) {
   const [simpleWorkflows, setSimpleWorkflows] = useState<Workflow[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Create form state
-  const [createProjectId, setCreateProjectId] = useState('');
+  const [createProjectId, setCreateProjectId] = useState(initialProjectId ?? '');
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newTriggerType, setNewTriggerType] = useState<string>('interval');

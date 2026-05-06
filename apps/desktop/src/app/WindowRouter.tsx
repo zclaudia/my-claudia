@@ -69,6 +69,8 @@ export function WindowRouter({ children }: { children: React.ReactNode }) {
                 serverUrl={params.get('serverUrl') || ''}
                 authToken={params.get('authToken') || ''}
                 serverId={params.get('serverId') || undefined}
+                initialTab={(params.get('initialTab') as 'automations' | 'workflows') || undefined}
+                initialProjectId={params.get('initialProjectId') || undefined}
               />
             </Suspense>
           </ConnectionProvider>
