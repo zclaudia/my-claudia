@@ -187,6 +187,28 @@ const VIRTUALIZE_THRESHOLD = 80;
 const VIRTUAL_ESTIMATED_HEIGHT = 120;
 const VIRTUAL_OVERSCAN_PX = 900;
 
+export function formatMessageTimestamp(timestamp: number, now: number = Date.now()): string {
+  const messageDate = new Date(timestamp);
+  const currentDate = new Date(now);
+  const isToday =
+    messageDate.getFullYear() === currentDate.getFullYear() &&
+    messageDate.getMonth() === currentDate.getMonth() &&
+    messageDate.getDate() === currentDate.getDate();
+
+  if (isToday) {
+    return messageDate.toLocaleTimeString();
+  }
+
+  return messageDate.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
 export const MessageList = memo(function MessageList({
   messages,
   streamingContentBlocks,
@@ -783,7 +805,7 @@ const MessageItem = memo(function MessageItem({ message, streamingContentBlocks,
           toolCalls={toolCalls}
         />
         <div className="mt-1 text-xs opacity-50 px-3">
-          {new Date(message.createdAt).toLocaleTimeString()}
+          {formatMessageTimestamp(message.createdAt)}
         </div>
       </div>
     );
@@ -836,7 +858,7 @@ const MessageItem = memo(function MessageItem({ message, streamingContentBlocks,
           <AssistantContent content={mainContent} />
         )}
         <div className="mt-1 text-xs opacity-50">
-          {new Date(message.createdAt).toLocaleTimeString()}
+          {formatMessageTimestamp(message.createdAt)}
         </div>
       </div>
       {isUser && showResend && onResend && (

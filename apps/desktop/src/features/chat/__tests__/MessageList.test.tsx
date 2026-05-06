@@ -220,6 +220,7 @@ describe('extractThinking', () => {
 // ── MessageList component tests ────────────────────────────────────────────────
 
 let MessageList: typeof import('../MessageList').MessageList;
+let formatMessageTimestamp: typeof import('../MessageList').formatMessageTimestamp;
 
 beforeEach(async () => {
   mockSendMessage.mockReset();
@@ -238,10 +239,12 @@ beforeEach(async () => {
   mockWaitForReady.mockResolvedValue(true);
   const mod = await import('../MessageList');
   MessageList = mod.MessageList;
+  formatMessageTimestamp = mod.formatMessageTimestamp;
 });
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
 });
 
 describe('MessageList', () => {
@@ -453,6 +456,46 @@ describe('MessageList', () => {
     render(<MessageList messages={messages} />);
     const timeEl = screen.getByText('Reply').closest('[data-role]')?.querySelector('.opacity-50');
     expect(timeEl).toBeTruthy();
+  });
+
+  it('formats same-day timestamps with time only', () => {
+    const now = new Date(2024, 5, 15, 14, 30, 0);
+    const messageTime = new Date(2024, 5, 15, 9, 5, 4);
+
+    expect(formatMessageTimestamp(messageTime.getTime(), now.getTime())).toBe(
+      messageTime.toLocaleTimeString()
+    );
+  });
+
+  it('formats cross-day timestamps with date and time', () => {
+    const now = new Date(2024, 5, 16, 9, 0, 0);
+    const messageTime = new Date(2024, 5, 15, 14, 30, 0);
+
+    expect(formatMessageTimestamp(messageTime.getTime(), now.getTime())).toBe(
+      messageTime.toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        second: '2-digit',
+      })
+    );
+  });
+
+  it('displays date and time for messages from another day', () => {
+    const now = new Date(2024, 5, 16, 9, 0, 0);
+    const messageTime = new Date(2024, 5, 15, 14, 30, 0);
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    const messages = [
+      makeMessage({ id: 'msg-1', role: 'user', content: 'Yesterday', createdAt: messageTime.getTime() }),
+    ];
+    render(<MessageList messages={messages} />);
+
+    const timeEl = screen.getByText('Yesterday').closest('[data-role]')?.querySelector('.opacity-50');
+    expect(timeEl?.textContent).toBe(formatMessageTimestamp(messageTime.getTime(), now.getTime()));
   });
 
   // ── User messages with styling ────────────────────────────────────────────
