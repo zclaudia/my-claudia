@@ -148,8 +148,12 @@ export class FacadeRegistryStore {
       if (prev) {
         // Same epoch — just update presence reference, no state change
         if (prev.currentEpoch === item.epoch || prev.currentEpoch === null) {
+          const previous = { ...prev };
           prev.presence = item;
           if (prev.currentEpoch === null) prev.currentEpoch = item.epoch;
+          updateDerived(prev);
+          const diff = makeDiff(item.backendId, previous, prev, 'registry_restored');
+          if (diff) diffs.push(diff);
           continue;
         }
 

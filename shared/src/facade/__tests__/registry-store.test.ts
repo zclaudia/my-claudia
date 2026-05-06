@@ -84,6 +84,28 @@ describe('FacadeRegistryStore', () => {
       expect(b1After!.openState).toBe('error');
       expect(b1After!.runtimeState).toBe('error');
     });
+
+    it('restores an unsubscribed backend when it reappears after going offline', () => {
+      store.applyRegistrySnapshot([makePresence({ backendId: 'b1', epoch: 1 })]);
+
+      store.applyRegistrySnapshot([]);
+      expect(store.getBackend('b1')!.runtimeState).toBe('offline');
+
+      const diffs = store.applyRegistrySnapshot([makePresence({ backendId: 'b1', epoch: 2 })]);
+      const b1After = store.getBackend('b1');
+
+      expect(b1After!.presence).toBeTruthy();
+      expect(b1After!.currentEpoch).toBe(2);
+      expect(b1After!.runtimeState).toBe('visible');
+      expect(b1After!.openState).toBe('unsubscribed');
+      expect(diffs).toHaveLength(1);
+      expect(diffs[0]).toMatchObject({
+        backendId: 'b1',
+        previousRuntimeState: 'offline',
+        nextRuntimeState: 'visible',
+        reason: 'registry_restored',
+      });
+    });
   });
 
   describe('applyRegistrySnapshot (upsert/remove equivalents)', () => {
