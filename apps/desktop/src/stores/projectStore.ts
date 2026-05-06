@@ -204,6 +204,15 @@ export const useProjectStore = create<ProjectState>((set) => ({
       if (activeBackendId) {
         useOwnershipStore.getState().setProjectOwner(project.id, activeBackendId);
       }
+      // Dedup by id: WebSocket project_upsert may have already added this project
+      // before the HTTP response returned (race window common with remote backends
+      // through the gateway). Without this guard the list shows the same project twice.
+      const existingIndex = state.projects.findIndex((p) => p.id === project.id);
+      if (existingIndex >= 0) {
+        const next = state.projects.slice();
+        next[existingIndex] = mergeProjectPreservingFields(next[existingIndex], project);
+        return { projects: next };
+      }
       return { projects: [...state.projects, project] };
     }),
 

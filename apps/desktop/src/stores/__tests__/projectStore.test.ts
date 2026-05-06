@@ -214,6 +214,19 @@ describe('projectStore', () => {
       expect(useProjectStore.getState().projects).toEqual([p1, p2]);
     });
 
+    it('addProject dedupes when the project was already inserted by a project_upsert event', () => {
+      // Repro: on a remote backend the WebSocket project_upsert event arrives
+      // before the HTTP createProject response, so upsertProjectForBackend pushes
+      // the project first. The HTTP callback then calls addProject(project) and
+      // used to append a second copy with the same id.
+      const project = createProject({ id: 'race-1', name: 'Race' });
+      useProjectStore.getState().upsertProjectForBackend('remote-1', project);
+      useProjectStore.getState().addProject(project);
+
+      const ids = useProjectStore.getState().projects.map((p) => p.id);
+      expect(ids).toEqual(['race-1']);
+    });
+
     it('upsertProjectForBackend updates only the matching backend project', () => {
       const remoteOriginal = createProject({ id: 'shared-id', name: 'Remote Original' });
       const localKeep = createProject({ id: 'local-p1', name: 'Local Keep' });
