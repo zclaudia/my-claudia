@@ -12,6 +12,7 @@ export interface SidebarProvider {
 /** Agent phase info from supervision store */
 export interface AgentPhaseInfo {
   phase?: string;
+  mainSessionId?: string;
 }
 
 /** Props for SidebarSearch */

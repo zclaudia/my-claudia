@@ -1,5 +1,4 @@
 import { createPortal } from 'react-dom';
-import { Bot } from 'lucide-react';
 import { isDesktopTauri } from '../../utils/platform';
 import { SessionItem } from './SessionItem';
 import { WorktreeGroupItem } from './WorktreeGroupItem';
@@ -9,14 +8,27 @@ import { SortableList, SortableItem } from '../../components/SortableList';
 import type { Session } from '@my-claudia/shared';
 import type { ProjectListItemProps } from './types';
 
-function splitProjectSessions(sessionList: Session[]) {
-  const mainSession = sessionList.find((session) => session.projectRole === 'main') ?? null;
+function splitProjectSessions(
+  sessionList: Session[],
+  hasSupervisor: boolean,
+  supervisorMainSessionId?: string,
+) {
+  if (!hasSupervisor) {
+    return { mainSession: null, taskSessions: [], regularSessions: sessionList };
+  }
+
+  const mainSession = (
+    supervisorMainSessionId
+      ? sessionList.find((session) => session.id === supervisorMainSessionId)
+      : undefined
+  ) ?? sessionList.find((session) => session.projectRole === 'main') ?? null;
+  const taskParentSessionId = supervisorMainSessionId ?? mainSession?.id;
   const taskSessions: Session[] = [];
   const regularSessions: Session[] = [];
 
   for (const session of sessionList) {
     if (mainSession && session.id === mainSession.id) continue;
-    if (mainSession && session.projectRole === 'task' && session.parentSessionId === mainSession.id) {
+    if (taskParentSessionId && session.projectRole === 'task' && session.parentSessionId === taskParentSessionId) {
       taskSessions.push(session);
       continue;
     }
@@ -125,7 +137,13 @@ export function ProjectListItem({
     </SortableList>
   );
 
-  const { mainSession, taskSessions, regularSessions } = splitProjectSessions(sessions);
+  const hasSupervisor = Boolean(supervisorAgent && supervisorAgent.phase !== 'archived');
+  const { mainSession, taskSessions, regularSessions } = splitProjectSessions(
+    sessions,
+    hasSupervisor,
+    supervisorAgent?.mainSessionId,
+  );
+  const supervisorSessionId = hasSupervisor ? (supervisorAgent?.mainSessionId ?? mainSession?.id) : undefined;
   const regularSessionIds = new Set(regularSessions.map((session) => session.id));
   const groups = groupSessionsByWorktree(sessions, project.rootPath, worktrees)
     .map((group) => ({
@@ -176,23 +194,6 @@ export function ProjectListItem({
           </svg>
           <span className="truncate text-sm font-bold uppercase tracking-wider text-foreground/80">{project.name}</span>
         </button>
-        {/* Supervisor dashboard button */}
-        {supervisorAgent && onOpenDashboard && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenDashboard(project.id);
-            }}
-            className={`w-8 h-8 rounded hover:bg-secondary active:bg-secondary flex-shrink-0 flex items-center justify-center ${
-              supervisorAgent.phase === 'active' ? 'text-green-500' :
-              supervisorAgent.phase === 'paused' ? 'text-yellow-500' :
-              'text-muted-foreground'
-            }`}
-            title="Supervisor Dashboard"
-          >
-            <Bot size={14} />
-          </button>
-        )}
         {/* Project menu button */}
         <button
           onClick={(e) => onOpenContextMenu(e, 'project', project.id)}
@@ -254,20 +255,20 @@ export function ProjectListItem({
       {/* Sessions */}
       {isExpanded && (
         <div className="ml-1 mt-0.5" data-testid="session-list">
-          {mainSession && (
+          {hasSupervisor && (
             <SupervisorGroupItem
-              key={mainSession.id}
+              key={supervisorSessionId ?? `${project.id}:supervisor`}
               onSelect={() => {
                 if (onOpenDashboard) onOpenDashboard(project.id);
               }}
-              isSelected={selectedSessionId === mainSession.id}
-              isActive={activeRunSessionIds.has(mainSession.id)}
+              isSelected={!!supervisorSessionId && selectedSessionId === supervisorSessionId}
+              isActive={!!supervisorSessionId && activeRunSessionIds.has(supervisorSessionId)}
               phase={supervisorAgent?.phase}
               taskCount={taskSessions.length}
               taskChildren={taskSessions.length > 0 ? renderSortableSessions(taskSessions) : null}
             />
           )}
-          {regularSessions.length > 0 && mainSession && (
+          {regularSessions.length > 0 && hasSupervisor && (
             <div className="mt-1">
               <button
                 onClick={onToggleRegularSessions}
@@ -293,7 +294,7 @@ export function ProjectListItem({
               )}
             </div>
           )}
-          {!mainSession && renderRegularSessions()}
+          {!hasSupervisor && renderRegularSessions()}
 
           {/* New session form */}
           {isCreatingSession && (

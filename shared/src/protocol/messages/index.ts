@@ -157,6 +157,7 @@ import type {
   WorkflowStepTypesChangedMessage, WorkflowTriggerSourcesChangedMessage,
   SystemTaskUpdateMessage, LocalPRUpdateMessage, LocalPRDeletedMessage,
   LocalIssueUpdateMessage, LocalIssueDeletedMessage,
+  AttachmentAddedMessage, AttachmentRemovedMessage,
 } from './workflow.js';
 import type {
   NotificationUpdateMessage, NotificationListMessage, NotificationReadMessage,
@@ -238,6 +239,8 @@ export type ServerMessage =
   | LocalPRDeletedMessage
   | LocalIssueUpdateMessage
   | LocalIssueDeletedMessage
+  | AttachmentAddedMessage
+  | AttachmentRemovedMessage
   | SystemTaskUpdateMessage
   | WorkflowUpdateMessage
   | WorkflowDeletedMessage

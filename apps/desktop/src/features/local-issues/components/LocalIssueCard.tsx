@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type { LocalIssue } from '@my-claudia/shared';
-import { ChevronDown, ChevronRight, Pencil, X, RotateCcw, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Paperclip, Pencil, X, RotateCcw, Trash2 } from 'lucide-react';
 import { useLocalIssueStore } from '../store';
+import { AttachmentList, useAttachments, useAttachmentCount } from '../../attachments';
 
 const PRIORITY_COLORS: Record<string, string> = {
   low: 'bg-gray-500/10 text-gray-400',
@@ -25,6 +26,10 @@ interface LocalIssueCardProps {
 export function LocalIssueCard({ issue, projectId, onEdit }: LocalIssueCardProps) {
   const [expanded, setExpanded] = useState(false);
   const { closeIssue, reopenIssue, deleteIssue, updateIssue } = useLocalIssueStore();
+  // Count comes from the lightweight store cache (populated by the panel's
+  // batch loader). The full list is fetched only when expanded.
+  const attachmentCount = useAttachmentCount('local_issue', issue.id);
+  const attachments = useAttachments(expanded ? 'local_issue' : null, expanded ? issue.id : null);
 
   const handleStatusToggle = async () => {
     if (issue.status === 'closed') {
@@ -75,6 +80,16 @@ export function LocalIssueCard({ issue, projectId, onEdit }: LocalIssueCardProps
           </div>
         )}
 
+        {attachmentCount > 0 && (
+          <span
+            className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground shrink-0"
+            title={`${attachmentCount} attachment${attachmentCount === 1 ? '' : 's'}`}
+          >
+            <Paperclip className="w-3 h-3" />
+            {attachmentCount}
+          </span>
+        )}
+
         <span className="text-xs text-muted-foreground shrink-0">{timeAgo}</span>
 
         <div className="flex items-center gap-1 shrink-0">
@@ -112,9 +127,20 @@ export function LocalIssueCard({ issue, projectId, onEdit }: LocalIssueCardProps
         </div>
       </div>
 
-      {expanded && issue.description && (
-        <div className="px-3 pb-2 pt-0 ml-6">
-          <div className="text-xs text-muted-foreground whitespace-pre-wrap">{issue.description}</div>
+      {expanded && (
+        <div className="px-3 pb-3 pt-0 ml-6 space-y-2">
+          {issue.description && (
+            <div className="text-xs text-muted-foreground whitespace-pre-wrap">{issue.description}</div>
+          )}
+          {attachmentCount > 0 && (
+            <AttachmentList
+              items={attachments.items}
+              onRemove={(id) => void attachments.remove(id)}
+              sortable
+              ownerKind="local_issue"
+              ownerId={issue.id}
+            />
+          )}
         </div>
       )}
     </div>

@@ -1137,35 +1137,41 @@ describe('Sidebar', () => {
 
   // ---- Supervision agents ----
 
-  it('shows agent status indicator for projects with agents', () => {
+  it('shows supervisor group phase for projects with agents', () => {
     setupStores({
       supervisionStore: {
-        agents: { 'proj-1': { phase: 'active' } },
+        agents: { 'proj-1': { phase: 'active', mainSessionId: 'main-sess' } },
       },
     });
 
     const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} isMobile={true} isOpen={true} />);
-    // The project should have a green-colored supervisor button
-    const greenIndicator = container.querySelector('.text-green-500');
-    expect(greenIndicator).toBeTruthy();
+    const projBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('Project One'))!;
+    fireEvent.click(projBtn);
+
+    expect(container.querySelector('[data-testid="supervisor-group"]')?.getAttribute('data-phase')).toBe('active');
   });
 
-  it('shows paused agent indicator', () => {
+  it('shows paused supervisor group phase', () => {
     setupStores({
       supervisionStore: {
-        agents: { 'proj-1': { phase: 'paused' } },
+        agents: { 'proj-1': { phase: 'paused', mainSessionId: 'main-sess' } },
       },
     });
 
     const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} isMobile={true} isOpen={true} />);
-    const yellowIndicator = container.querySelector('.text-yellow-500');
-    expect(yellowIndicator).toBeTruthy();
+    const projBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('Project One'))!;
+    fireEvent.click(projBtn);
+
+    expect(container.querySelector('[data-testid="supervisor-group"]')?.getAttribute('data-phase')).toBe('paused');
   });
 
   // ---- Supervisor groups ----
 
-  it('renders supervisor group when main session exists', () => {
+  it('renders supervisor group when agent exists', () => {
     setupStores({
+      supervisionStore: {
+        agents: { 'proj-1': { phase: 'idle', mainSessionId: 'main-sess' } },
+      },
       projectStore: {
         sessions: [
           { ...baseSession, id: 'main-sess', name: 'Main', projectRole: 'main', projectId: 'proj-1' },
@@ -1182,6 +1188,67 @@ describe('Sidebar', () => {
     expect(container.querySelector('[data-testid="supervisor-group"]')).toBeTruthy();
   });
 
+  it('renders supervisor group from agent even when main session is not loaded', () => {
+    setupStores({
+      supervisionStore: {
+        agents: { 'proj-1': { phase: 'idle', mainSessionId: 'main-sess' } },
+      },
+      projectStore: {
+        sessions: [
+          { ...baseSession, id: 'regular-1', name: 'Regular 1', projectId: 'proj-1' },
+        ],
+      },
+    });
+
+    const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
+    const buttons = Array.from(container.querySelectorAll('button'));
+    const projBtn = buttons.find(b => b.textContent?.includes('Project One'))!;
+    fireEvent.click(projBtn);
+
+    expect(container.querySelector('[data-testid="supervisor-group"]')).toBeTruthy();
+  });
+
+  it('renders supervisor group from project agent before supervision store hydration', () => {
+    setupStores({
+      projectStore: {
+        projects: [
+          { ...baseProject, agent: { phase: 'idle', mainSessionId: 'main-sess' } },
+        ],
+        sessions: [
+          { ...baseSession, id: 'main-sess', name: 'Main', projectRole: 'main', projectId: 'proj-1' },
+        ],
+      },
+    });
+
+    const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
+    const buttons = Array.from(container.querySelectorAll('button'));
+    const projBtn = buttons.find(b => b.textContent?.includes('Project One'))!;
+    fireEvent.click(projBtn);
+
+    expect(container.querySelector('[data-testid="supervisor-group"]')).toBeTruthy();
+    expect(useSupervisionStore.getState().agents['proj-1']).toMatchObject({
+      phase: 'idle',
+      mainSessionId: 'main-sess',
+    });
+  });
+
+  it('does not render supervisor group from stale main session without agent', () => {
+    setupStores({
+      projectStore: {
+        sessions: [
+          { ...baseSession, id: 'main-sess', name: 'Main', projectRole: 'main', projectId: 'proj-1' },
+        ],
+      },
+    });
+
+    const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);
+    const buttons = Array.from(container.querySelectorAll('button'));
+    const projBtn = buttons.find(b => b.textContent?.includes('Project One'))!;
+    fireEvent.click(projBtn);
+
+    expect(container.querySelector('[data-testid="supervisor-group"]')).toBeNull();
+  });
+
   it('keeps supervisor at project level when worktree groups exist', () => {
     vi.mocked(groupSessionsByWorktree).mockReturnValue([
       {
@@ -1193,6 +1260,9 @@ describe('Sidebar', () => {
     ] as any);
 
     setupStores({
+      supervisionStore: {
+        agents: { 'proj-1': { phase: 'idle', mainSessionId: 'main-sess' } },
+      },
       projectStore: {
         sessions: [
           { ...baseSession, id: 'main-sess', name: 'Main', projectRole: 'main', projectId: 'proj-1' },
@@ -1215,6 +1285,9 @@ describe('Sidebar', () => {
 
   it('preserves worktree grouping inputs when supervisor exists', () => {
     setupStores({
+      supervisionStore: {
+        agents: { 'proj-1': { phase: 'idle', mainSessionId: 'main-sess' } },
+      },
       projectStore: {
         sessions: [
           { ...baseSession, id: 'main-sess', name: 'Main', projectRole: 'main', projectId: 'proj-1', workingDirectory: '/tmp/proj1' },
@@ -1242,6 +1315,9 @@ describe('Sidebar', () => {
   it('calls onOpenDashboard when clicking supervisor in desktop mode', () => {
     const onOpenDashboard = vi.fn();
     setupStores({
+      supervisionStore: {
+        agents: { 'proj-1': { phase: 'idle', mainSessionId: 'main-sess' } },
+      },
       projectStore: {
         sessions: [
           { ...baseSession, id: 'main-sess', name: 'Main', projectRole: 'main', projectId: 'proj-1' },

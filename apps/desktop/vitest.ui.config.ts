@@ -27,6 +27,7 @@ export default defineConfig({
       'src/contexts/**/*.test.tsx',
       'src/hooks/**/*.test.ts',
       'src/features/**/*.test.tsx',
+      'src/features/**/*.test.ts',
     ],
     exclude: [
       '**/node_modules/**',

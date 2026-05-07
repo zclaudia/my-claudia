@@ -17,6 +17,7 @@ import { registerNotificationDomain } from '../../domains/notification-feed/inde
 import { registerSupervisionDomain, type SupervisionAiRunPort, type SupervisionProjectPort, type SupervisionSessionPort, type SupervisionSessionModelPort } from '../../domains/supervision/index.js';
 import { registerLocalPRDomain, type LocalPRAiSessionPort, type LocalPRSchedulingPort } from '../../domains/local-pr/index.js';
 import { registerLocalIssueDomain } from '../../domains/local-issues/index.js';
+import { registerAttachmentDomain } from '../../domains/attachments/index.js';
 import { registerWorkflowDomain, type WorkflowAiRunPort, type WorkflowSchedulingPort } from '../../domains/workflows/index.js';
 import { PermissionWorkflowResolver } from '../../domains/workflows/index.js';
 import { registerPluginsDomain } from '../plugins/register.js';
@@ -160,11 +161,25 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     scheduling: localPrScheduling,
   });
 
+  // Attachments must be registered before any domain that delegates cascade
+  // cleanup to it (e.g. local issues calling attachmentService.deleteByOwner).
+  const { attachmentService } = registerAttachmentDomain({
+    db,
+    app,
+    authMiddleware,
+    broadcast: (msg) => broadcastToAuthenticatedClients(clients, msg),
+  });
+
   registerLocalIssueDomain({
     db,
     app,
     authMiddleware,
     broadcast: (_projectId, msg) => broadcastToAuthenticatedClients(clients, msg),
+    hooks: {
+      onDelete: (issueId) => {
+        attachmentService.deleteByOwner('local_issue', issueId);
+      },
+    },
   });
 
   // Permission bridge — connects workflow engine to conversation permission system

@@ -18,7 +18,7 @@ vi.mock('../DashboardHome', () => ({
       <button onClick={() => props.onNavigate('tasks')}>go-tasks</button>
       <button onClick={() => props.onNavigate('supervisor')}>go-supervisor</button>
       <button onClick={() => props.onNavigate('local-prs')}>go-local-prs</button>
-      <button onClick={() => props.onNavigate('workflows')}>go-workflows</button>
+      <button onClick={() => props.onNavigate('issues')}>go-issues</button>
     </div>
   ),
 }));
@@ -47,8 +47,8 @@ vi.mock('../../../features/local-pr/components/LocalPRsPanel', () => ({
   LocalPRsPanel: () => <div data-testid="local-prs-panel" />,
 }));
 
-vi.mock('../../../features/workflows/components/WorkflowsPanel', () => ({
-  WorkflowsPanel: () => <div data-testid="workflows-panel" />,
+vi.mock('../../../features/local-issues/components/LocalIssuesPanel', () => ({
+  LocalIssuesPanel: () => <div data-testid="local-issues-panel" />,
 }));
 
 describe('ProjectDashboard', () => {
@@ -103,12 +103,12 @@ describe('ProjectDashboard', () => {
     expect(container.querySelector('[data-testid="local-prs-panel"]')).toBeTruthy();
   });
 
-  it('navigates to workflows view', async () => {
+  it('navigates to issues view', async () => {
     const { container, getByText } = await renderDashboard();
     await act(async () => {
-      fireEvent.click(getByText('go-workflows'));
+      fireEvent.click(getByText('go-issues'));
     });
-    expect(container.querySelector('[data-testid="workflows-panel"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="local-issues-panel"]')).toBeTruthy();
   });
 
   it('navigates back to home from tasks view', async () => {

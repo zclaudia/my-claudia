@@ -198,23 +198,33 @@ export function NotchWindow() {
   const rafRef = useRef<number | null>(null);
   const hoverPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Enable click pass-through and start polling cursor position.
-  // When cursor enters the pill area, disable pass-through so the webview
-  // receives hover/click events and triggers expansion.
+  // Enable click pass-through and start polling cursor position. The poll alone
+  // drives the closed→open decision: passthrough stays `true` until the expand
+  // timer actually fires AND cursor is still in the pill at that moment. This
+  // avoids leaving the window in a "passthrough disabled but isOpen=false"
+  // state if the cursor leaves during the hover-expand delay.
   const startPassthroughPolling = () => {
     invoke('set_notch_passthrough', { passthrough: true }).catch(() => undefined);
     if (hoverPollRef.current) clearInterval(hoverPollRef.current);
     hoverPollRef.current = setInterval(async () => {
       try {
         const inPill = await invoke<boolean>('check_notch_hover');
-        if (inPill) {
-          if (hoverPollRef.current) clearInterval(hoverPollRef.current);
-          hoverPollRef.current = null;
-          await invoke('set_notch_passthrough', { passthrough: false });
-          // Cursor is already inside — mouseEnter won't fire, so expand directly.
-          hoverExpandTimer.current = setTimeout(() => {
+
+        if (inPill && !hoverExpandTimer.current) {
+          // Queue expand; commit only on fire if cursor is still in the pill.
+          hoverExpandTimer.current = setTimeout(async () => {
+            hoverExpandTimer.current = null;
+            const stillIn = await invoke<boolean>('check_notch_hover').catch(() => false);
+            if (!stillIn) return;
+            if (hoverPollRef.current) { clearInterval(hoverPollRef.current); hoverPollRef.current = null; }
+            await invoke('set_notch_passthrough', { passthrough: false }).catch(() => undefined);
             setIsOpen(true);
           }, HOVER_EXPAND_DELAY);
+        } else if (!inPill && hoverExpandTimer.current) {
+          // Cursor left during the hover-expand wait — cancel and stay in
+          // passthrough+polling mode.
+          clearTimeout(hoverExpandTimer.current);
+          hoverExpandTimer.current = null;
         }
       } catch { /* ignore */ }
     }, 50);
@@ -323,6 +333,9 @@ export function NotchWindow() {
 
   const handleMouseLeave = () => {
     clearHoverTimers();
+    if (!isOpen && !hoverPollRef.current) {
+      startPassthroughPolling();
+    }
   };
 
   useEffect(() => () => clearHoverTimers(), []);

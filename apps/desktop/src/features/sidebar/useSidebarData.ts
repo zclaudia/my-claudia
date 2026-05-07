@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useEffect } from 'react';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useProviderMetaStore } from '../../stores/providerMetaStore';
@@ -41,7 +41,8 @@ export function useSidebarData() {
   const scopedProviders = useProviderMetaStore((s) => s.getProviders(activeServerId));
   const providers = scopedProviders.length > 0 ? scopedProviders : legacyProviders;
 
-  const supervisorAgents = useSupervisionStore((s) => s.agents);
+  const storeSupervisorAgents = useSupervisionStore((s) => s.agents);
+  const setSupervisionAgent = useSupervisionStore((s) => s.setAgent);
   const notificationUnreadCount = useNotificationFeedStore((s) => s.unreadCount);
   const { hasUnread: hasClaudiaUnread, hasRunning: hasClaudiaRunning, hasPermissionPending: hasClaudiaPermissionPending } = useClaudiaStatus();
   const isClaudiaExpanded = useClaudiaStore((s) => s.isExpanded);
@@ -85,6 +86,24 @@ export function useSidebarData() {
       return !ownerBackendId || ownerBackendId === activeServerId;
     });
   }, [activeServerId, ownershipStore, projects]);
+
+  useEffect(() => {
+    for (const project of visibleProjects) {
+      if (project.agent && !storeSupervisorAgents[project.id]) {
+        setSupervisionAgent(project.id, project.agent);
+      }
+    }
+  }, [visibleProjects, storeSupervisorAgents, setSupervisionAgent]);
+
+  const supervisorAgents = useMemo(() => {
+    let merged: typeof storeSupervisorAgents | null = null;
+    for (const project of visibleProjects) {
+      if (!project.agent || storeSupervisorAgents[project.id]) continue;
+      if (!merged) merged = { ...storeSupervisorAgents };
+      merged[project.id] = project.agent;
+    }
+    return merged ?? storeSupervisorAgents;
+  }, [visibleProjects, storeSupervisorAgents]);
 
   const visibleProjectIds = useMemo(
     () => new Set(visibleProjects.map((project) => project.id)),

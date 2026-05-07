@@ -3,6 +3,7 @@ import { handleLocalPRMessage } from './local-pr/handlers';
 import { handleLocalIssueMessage } from './local-issues/handlers';
 import { handleWorkflowMessage } from './workflows/handlers';
 import { handleSupervisionMessage } from './supervision/handlers';
+import { handleAttachmentMessage } from './attachments/handlers';
 
 export type FeatureMessageHandler = (msg: ServerMessage) => boolean;
 
@@ -11,6 +12,7 @@ const featureMessageHandlers: FeatureMessageHandler[] = [
   handleLocalIssueMessage,
   handleWorkflowMessage,
   handleSupervisionMessage,
+  handleAttachmentMessage,
 ];
 
 export function dispatchFeatureMessage(msg: ServerMessage): boolean {

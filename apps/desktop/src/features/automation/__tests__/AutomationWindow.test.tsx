@@ -2,6 +2,31 @@
 
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// AutomationWindow dynamically imports `@tauri-apps/api/event` to listen for
+// window-reuse navigation. In jsdom there is no `window.__TAURI_INTERNALS__`,
+// so the real module's `listen()` rejects asynchronously and surfaces as an
+// unhandled rejection that flips this suite to failed when run with the rest
+// of the suites. Stub it here so the dynamic import resolves to a no-op.
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn(() => Promise.resolve(() => {})),
+  emit: vi.fn(),
+  TauriEvent: {},
+}));
+
+// Defense-in-depth: even if the `vi.mock` above is bypassed (e.g. another
+// test in the same worker resets modules after this file is loaded), the
+// real `listen()` only needs `__TAURI_INTERNALS__.{transformCallback, invoke}`
+// to resolve without throwing. Stub a minimal shape so any leakage is silent.
+vi.stubGlobal('__TAURI_INTERNALS__', {
+  transformCallback: vi.fn(() => 'mock-callback-id'),
+  invoke: vi.fn(() => Promise.resolve(0)),
+  metadata: { currentWindow: { label: 'main' }, windows: {} },
+});
+vi.stubGlobal('__TAURI_EVENT_PLUGIN_INTERNALS__', {
+  unregisterListener: vi.fn(),
+});
+
 import { AutomationWindow } from '../AutomationWindow';
 import { useFacadeStore } from '../../../stores/facadeStore';
 import { useServerStore } from '../../../stores/serverStore';
@@ -82,10 +107,14 @@ describe('AutomationWindow', () => {
   });
 
   it('sends onceAt when creating a one-time automation', async () => {
+    // Use empty projects to avoid AutomationsTab re-running its `refresh()`
+    // effect once projects load (which briefly toggles `loading` and unmounts
+    // the "New" button between user interactions, causing a hard-to-pin flake
+    // in the full test suite).
     mockFetch.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
 
-      if (url.endsWith('/api/projects')) return ok([{ id: 'p1', name: 'Project 1' }]);
+      if (url.endsWith('/api/projects')) return ok([]);
       if (url.includes('/api/automations') && init?.method === 'POST') return ok({ id: 'created' });
       if (url.includes('/api/automations')) return ok([]);
 
@@ -94,21 +123,32 @@ describe('AutomationWindow', () => {
 
     render(<AutomationWindow serverUrl="http://localhost:3100" authToken="" />);
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'New' })).toBeTruthy();
+    // findByRole polls until the loading state resolves and the button mounts.
+    const newBtn = await screen.findByRole('button', { name: 'New' });
+    fireEvent.click(newBtn);
+
+    const nameInput = await screen.findByPlaceholderText('Automation name');
+    fireEvent.change(nameInput, { target: { value: 'One shot' } });
+
+    const triggerSelect = await waitFor(() => {
+      const selects = screen.getAllByRole('combobox');
+      const found = selects.find((select) =>
+        within(select).queryByRole('option', { name: 'Once' }),
+      );
+      if (!found) throw new Error('trigger select not ready');
+      return found;
     });
+    fireEvent.change(triggerSelect, { target: { value: 'once' } });
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'New' })[0]);
-    fireEvent.change(screen.getByPlaceholderText('Automation name'), { target: { value: 'One shot' } });
+    const onceInput = await waitFor(() => {
+      const el = document.querySelector('input[type="datetime-local"]');
+      if (!el) throw new Error('datetime input not ready');
+      return el as HTMLInputElement;
+    });
+    fireEvent.change(onceInput, { target: { value: '2026-03-25T09:30' } });
 
-    const selects = screen.getAllByRole('combobox');
-    const triggerSelect = selects.find((select) => within(select).queryByRole('option', { name: 'Once' }));
-    expect(triggerSelect).toBeTruthy();
-    fireEvent.change(triggerSelect as HTMLSelectElement, { target: { value: 'once' } });
-    const onceInput = document.querySelector('input[type="datetime-local"]');
-    expect(onceInput).not.toBeNull();
-    fireEvent.change(onceInput as HTMLInputElement, { target: { value: '2026-03-25T09:30' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    const createBtn = await screen.findByRole('button', { name: 'Create' });
+    fireEvent.click(createBtn);
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(

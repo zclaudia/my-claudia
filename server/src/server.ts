@@ -14,6 +14,7 @@ import type { Request as CorrelatedRequest } from '@my-claudia/shared/protocol/c
 import { ALL_SERVER_FEATURES } from '@my-claudia/shared/core/server';
 import { initDatabase } from './infrastructure/storage/db.js';
 import { initFileStore } from './infrastructure/storage/fileStore.js';
+import { initAttachmentStore } from './infrastructure/storage/attachmentStore.js';
 import { initWorkspace } from './application/services/workspace.js';
 import type { GatewayConfig, GatewayStatus } from './interfaces/http/gateway.js';
 import { TerminalManager } from './terminal-manager.js';
@@ -87,8 +88,10 @@ export async function createServer(): Promise<ServerContext> {
   serverState.database = db;
   serverState.branchAllocator = new ClaudiaBranchService(db);
 
-  // Initialize file store (DB + disk persistence)
+  // Initialize file store (DB + disk persistence) — for transient session files
   initFileStore(db);
+  // Initialize attachment store — for persistent business attachments
+  initAttachmentStore();
 
   // Initialize Agent Workspace (SOUL.md, AGENTS.md, TOOLS.md, skills)
   await initWorkspace();

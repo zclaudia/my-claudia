@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import type { LocalIssue, LocalIssueStatus } from '@my-claudia/shared';
 import { useLocalIssueStore } from '../store';
+import { useAttachmentCounts } from '../../attachments';
 import { LocalIssueCard } from './LocalIssueCard';
 import { CreateIssueDialog } from './CreateIssueDialog';
 
@@ -35,6 +36,11 @@ export function LocalIssuesPanel({ projectId }: LocalIssuesPanelProps) {
   useEffect(() => {
     loadIssues(projectId).catch(() => {});
   }, [projectId]);
+
+  // Batch fetch attachment counts so every card shows its badge without
+  // each card making its own request.
+  const issueIds = useMemo(() => issues.map((i) => i.id), [issues]);
+  useAttachmentCounts('local_issue', issueIds);
 
   const filtered = issues
     .filter((issue) => filter === 'all' || issue.status === filter)

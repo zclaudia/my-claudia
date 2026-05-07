@@ -4,12 +4,19 @@ import type { LocalIssue } from '@my-claudia/shared/features/local-issue';
 import type { LocalIssueUpdateMessage, LocalIssueDeletedMessage } from '@my-claudia/shared/protocol/messages/workflow';
 import { LocalIssueRepository } from './repository.js';
 
+export interface LocalIssueLifecycleHooks {
+  /** Invoked synchronously when an issue is deleted. Used for cascade cleanup
+   *  (e.g. removing all attachments owned by the issue). */
+  onDelete?: (issueId: string, projectId: string) => void;
+}
+
 export class LocalIssueService {
   private repo: LocalIssueRepository;
 
   constructor(
     db: Database,
     private broadcastToProject: (projectId: string, msg: ServerMessage) => void,
+    private hooks: LocalIssueLifecycleHooks = {},
   ) {
     this.repo = new LocalIssueRepository(db);
   }
@@ -76,12 +83,24 @@ export class LocalIssueService {
     const issue = this.repo.findById(issueId);
     if (!issue) return null;
     this.repo.delete(issueId);
+    // Cascade BEFORE broadcasting so clients receive remove events from
+    // dependent domains (attachments) ahead of the issue removal itself.
+    try {
+      this.hooks.onDelete?.(issueId, issue.projectId);
+    } catch (err) {
+      // Cleanup failures should not block the user-visible delete.
+      console.error('[LocalIssueService] onDelete hook failed:', err);
+    }
     this.broadcastToProject(issue.projectId, {
       type: 'local_issue_deleted',
       projectId: issue.projectId,
       issueId,
     } as LocalIssueDeletedMessage);
     return { projectId: issue.projectId };
+  }
+
+  issueExists(issueId: string): boolean {
+    return this.repo.findById(issueId) !== null;
   }
 
   private broadcastIssueUpdate(issue: LocalIssue): void {

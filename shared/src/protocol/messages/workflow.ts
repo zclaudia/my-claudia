@@ -4,6 +4,7 @@ import type { Workflow, WorkflowRun, WorkflowStepRun } from '../../features/work
 import type { SystemTaskInfo } from '../../features/system-tasks.js';
 import type { LocalPR } from '../../features/local-pr.js';
 import type { LocalIssue } from '../../features/local-issue.js';
+import type { Attachment, AttachmentOwnerKind } from '../../features/attachment.js';
 
 // Workflow messages (Server → Client)
 export interface WorkflowRunUpdateMessage {
@@ -65,4 +66,20 @@ export interface LocalIssueDeletedMessage {
   type: 'local_issue_deleted';
   projectId: string;
   issueId: string;
+}
+
+// Attachment added to an owner (Server → Client)
+export interface AttachmentAddedMessage {
+  type: 'attachment_added';
+  ownerKind: AttachmentOwnerKind;
+  ownerId: string;
+  attachment: Attachment;
+}
+
+// Attachment removed from an owner (Server → Client)
+export interface AttachmentRemovedMessage {
+  type: 'attachment_removed';
+  ownerKind: AttachmentOwnerKind;
+  ownerId: string;
+  attachmentId: string;
 }
