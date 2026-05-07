@@ -16,6 +16,7 @@ import { registerProvidersDomain } from '../../domains/providers/index.js';
 import { registerNotificationDomain } from '../../domains/notification-feed/index.js';
 import { registerSupervisionDomain, type SupervisionAiRunPort, type SupervisionProjectPort, type SupervisionSessionPort, type SupervisionSessionModelPort } from '../../domains/supervision/index.js';
 import { registerLocalPRDomain, type LocalPRAiSessionPort, type LocalPRSchedulingPort } from '../../domains/local-pr/index.js';
+import { registerLocalIssueDomain } from '../../domains/local-issues/index.js';
 import { registerWorkflowDomain, type WorkflowAiRunPort, type WorkflowSchedulingPort } from '../../domains/workflows/index.js';
 import { PermissionWorkflowResolver } from '../../domains/workflows/index.js';
 import { registerPluginsDomain } from '../plugins/register.js';
@@ -157,6 +158,13 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     },
     startAISession: localPrAiSessionPort.startAISession,
     scheduling: localPrScheduling,
+  });
+
+  registerLocalIssueDomain({
+    db,
+    app,
+    authMiddleware,
+    broadcast: (_projectId, msg) => broadcastToAuthenticatedClients(clients, msg),
   });
 
   // Permission bridge — connects workflow engine to conversation permission system

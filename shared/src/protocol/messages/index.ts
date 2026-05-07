@@ -156,6 +156,7 @@ import type {
   WorkflowRunUpdateMessage, WorkflowUpdateMessage, WorkflowDeletedMessage,
   WorkflowStepTypesChangedMessage, WorkflowTriggerSourcesChangedMessage,
   SystemTaskUpdateMessage, LocalPRUpdateMessage, LocalPRDeletedMessage,
+  LocalIssueUpdateMessage, LocalIssueDeletedMessage,
 } from './workflow.js';
 import type {
   NotificationUpdateMessage, NotificationListMessage, NotificationReadMessage,
@@ -235,6 +236,8 @@ export type ServerMessage =
   | PluginNotchTabUnregisteredMessage
   | LocalPRUpdateMessage
   | LocalPRDeletedMessage
+  | LocalIssueUpdateMessage
+  | LocalIssueDeletedMessage
   | SystemTaskUpdateMessage
   | WorkflowUpdateMessage
   | WorkflowDeletedMessage

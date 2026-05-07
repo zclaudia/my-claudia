@@ -3,6 +3,7 @@
 import type { Workflow, WorkflowRun, WorkflowStepRun } from '../../features/workflows.js';
 import type { SystemTaskInfo } from '../../features/system-tasks.js';
 import type { LocalPR } from '../../features/local-pr.js';
+import type { LocalIssue } from '../../features/local-issue.js';
 
 // Workflow messages (Server → Client)
 export interface WorkflowRunUpdateMessage {
@@ -50,4 +51,18 @@ export interface LocalPRDeletedMessage {
   type: 'local_pr_deleted';
   projectId: string;
   prId: string;
+}
+
+// Local Issue update (Server → Client)
+export interface LocalIssueUpdateMessage {
+  type: 'local_issue_update';
+  projectId: string;
+  issue: LocalIssue;
+}
+
+// Local Issue deleted (Server → Client)
+export interface LocalIssueDeletedMessage {
+  type: 'local_issue_deleted';
+  projectId: string;
+  issueId: string;
 }

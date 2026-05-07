@@ -12,6 +12,7 @@ export type ProjectDashboardView =
   | 'home'
   | 'tasks'
   | 'local-prs'
+  | 'issues'
   | 'supervisor';
 
 interface ProjectState {

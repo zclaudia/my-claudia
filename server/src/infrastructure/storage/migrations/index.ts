@@ -64,6 +64,7 @@ import { migration as m_061_system_permission_workflow } from './061_system_perm
 import { migration as m_062_permission_workflow_overrides } from './062_permission_workflow_overrides.js';
 import { migration as m_063_notification_initiator } from './063_notification_initiator.js';
 import { migration as m_064_supervisor_changes_v1 } from './064_supervisor_changes_v1.js';
+import { migration as m_065_local_issues } from './065_local_issues.js';
 
 export type { Migration };
 
@@ -132,4 +133,5 @@ export const migrations: Migration[] = [
   m_062_permission_workflow_overrides,
   m_063_notification_initiator,
   m_064_supervisor_changes_v1,
+  m_065_local_issues,
 ];

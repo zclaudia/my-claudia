@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
-import { Bot, ClipboardList, GitPullRequest, Workflow, ChevronRight, Zap } from 'lucide-react';
+import { Bot, ClipboardList, GitPullRequest, CircleDot, Workflow, ChevronRight, Zap } from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSupervisionStore } from '../../features/supervision/store';
 import { useLocalPRStore } from '../../features/local-pr/store';
+import { useLocalIssueStore } from '../../features/local-issues/store';
 import { useWorkflowStore } from '../../features/workflows/store';
 import type { DashboardView } from './ProjectDashboard';
 
@@ -26,6 +27,19 @@ const PR_STATUS_COLORS: Record<string, string> = {
   conflict: 'bg-red-500/10 text-red-500',
   merged: 'bg-gray-500/10 text-gray-400',
   closed: 'bg-gray-500/10 text-gray-400',
+};
+
+const ISSUE_STATUS_COLORS: Record<string, string> = {
+  open: 'bg-green-500/10 text-green-500',
+  in_progress: 'bg-blue-500/10 text-blue-500',
+  closed: 'bg-gray-500/10 text-gray-400',
+};
+
+const ISSUE_PRIORITY_COLORS: Record<string, string> = {
+  low: 'bg-gray-500/10 text-gray-400',
+  medium: 'bg-blue-500/10 text-blue-500',
+  high: 'bg-orange-500/10 text-orange-500',
+  critical: 'bg-red-500/10 text-red-500',
 };
 
 const TASK_STATUS_COLORS: Record<string, string> = {
@@ -93,6 +107,12 @@ export function DashboardHome({ projectId, onNavigate, onOpenAutomations }: Dash
     ['review_failed', 'conflict'].includes(pr.status),
   );
 
+  // Local Issues
+  const allIssues = useLocalIssueStore((s) => s.issues[projectId] ?? []);
+  const loadIssues = useLocalIssueStore((s) => s.loadIssues);
+  const openIssues = allIssues.filter((i) => i.status === 'open');
+  const inProgressIssues = allIssues.filter((i) => i.status === 'in_progress');
+
   // Workflows (DAG only) + Automations (simple)
   const allWorkflows = useWorkflowStore((s) => s.workflows[projectId] ?? []);
   const loadWorkflows = useWorkflowStore((s) => s.loadWorkflows);
@@ -105,6 +125,7 @@ export function DashboardHome({ projectId, onNavigate, onOpenAutomations }: Dash
   // Load data on mount
   useEffect(() => {
     loadPRs(projectId).catch(() => {});
+    loadIssues(projectId).catch(() => {});
     loadWorkflows(projectId).catch(() => {});
   }, [projectId]);
 
@@ -187,6 +208,27 @@ export function DashboardHome({ projectId, onNavigate, onOpenAutomations }: Dash
             <div className="text-xs text-muted-foreground">active</div>
             {needsAttentionPRs.length > 0 && (
               <div className="text-xs text-red-500">{needsAttentionPRs.length} needs attention</div>
+            )}
+          </div>
+        </button>
+
+        {/* Issues Card */}
+        <button
+          onClick={() => onNavigate('issues')}
+          className="text-left bg-card border border-border rounded-lg p-4 hover:border-primary/40 transition-colors group"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <CircleDot className="w-4 h-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Issues</span>
+            </div>
+            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+          </div>
+          <div className="space-y-1">
+            <div className="text-2xl font-bold">{openIssues.length}</div>
+            <div className="text-xs text-muted-foreground">open</div>
+            {inProgressIssues.length > 0 && (
+              <div className="text-xs text-blue-500">{inProgressIssues.length} in progress</div>
             )}
           </div>
         </button>
@@ -303,12 +345,35 @@ export function DashboardHome({ projectId, onNavigate, onOpenAutomations }: Dash
         </PreviewSection>
       )}
 
+      {/* Issues Preview */}
+      {allIssues.filter((i) => i.status !== 'closed').length > 0 && (
+        <PreviewSection
+          title="Issues"
+          onViewAll={() => onNavigate('issues')}
+        >
+          {allIssues
+            .filter((i) => i.status !== 'closed')
+            .slice(0, 3)
+            .map((issue) => (
+              <div key={issue.id} className="flex items-center justify-between py-1.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <StatusBadge status={issue.status} colors={ISSUE_STATUS_COLORS} />
+                  <span className="text-sm truncate">{issue.title}</span>
+                </div>
+                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${ISSUE_PRIORITY_COLORS[issue.priority] ?? ''}`}>
+                  {issue.priority}
+                </span>
+              </div>
+            ))}
+        </PreviewSection>
+      )}
+
       {/* Empty state */}
-      {tasks.length === 0 && prs.length === 0 && allWorkflows.length === 0 && (
+      {tasks.length === 0 && prs.length === 0 && allIssues.length === 0 && allWorkflows.length === 0 && (
         <div className="text-center py-12 text-muted-foreground">
           <p className="text-sm">No activity yet.</p>
           <p className="text-xs mt-1">
-            Create tasks, local PRs, or workflow automations to see them here.
+            Create tasks, local PRs, issues, or workflow automations to see them here.
           </p>
         </div>
       )}

@@ -32,6 +32,7 @@ export * from './core/pcp.js';
 export * from './features/commands.js';
 export * from './features/supervision.js';
 export * from './features/local-pr.js';
+export * from './features/local-issue.js';
 export * from './features/system-tasks.js';
 export * from './features/workflows.js';
 export * from './features/notification-feed.js';

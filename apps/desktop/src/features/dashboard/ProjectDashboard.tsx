@@ -9,16 +9,18 @@ import { CheckpointFeed } from '../../features/supervision/components/Checkpoint
 import { SupervisorWorkspacePanel } from '../../features/supervision/components/SupervisorWorkspacePanel';
 import { SessionChatLayout } from '../../features/chat/SessionChatLayout';
 import { LocalPRsPanel } from '../../features/local-pr/components/LocalPRsPanel';
+import { LocalIssuesPanel } from '../../features/local-issues/components/LocalIssuesPanel';
 import { DashboardHome } from './DashboardHome';
 import { useSelectionStore } from '../../stores/selectionStore';
 import type { OpenAutomationWindowOptions } from '../automation/openAutomationWindow';
 
-export type DashboardView = 'home' | 'tasks' | 'local-prs' | 'supervisor';
+export type DashboardView = 'home' | 'tasks' | 'local-prs' | 'issues' | 'supervisor';
 
 const VIEW_LABELS: Record<DashboardView, string> = {
   home: 'Dashboard',
   tasks: 'Tasks',
   'local-prs': 'Local Pull Requests',
+  issues: 'Issues',
   supervisor: 'Supervisor Workspace',
 };
 
@@ -123,6 +125,12 @@ export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations
       {view === 'local-prs' && (
         <div className="flex-1 overflow-hidden">
           <LocalPRsPanel projectId={projectId} projectRootPath={projectRootPath} />
+        </div>
+      )}
+
+      {view === 'issues' && (
+        <div className="flex-1 overflow-hidden">
+          <LocalIssuesPanel projectId={projectId} />
         </div>
       )}
 
