@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import type { SearchFilters as Filters, SearchScope } from '../services/api';
 import type { Session } from '@my-claudia/shared';
+import { Select } from './ui/Select';
 
 interface SearchFiltersProps {
   filters: Filters;
@@ -177,16 +178,18 @@ export function SearchFilters({ filters, sessions = [], onFiltersChange, onClose
       {/* Sort Order */}
       <div>
         <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Sort By</label>
-        <select
+        <Select<'relevance' | 'newest' | 'oldest' | 'session'>
           value={localFilters.sort || 'relevance'}
-          onChange={(e) => handleSortChange(e.target.value as any)}
-          className="w-full px-3 py-1.5 bg-secondary border border-border rounded text-xs focus:outline-none focus:border-primary"
-        >
-          <option value="relevance">Relevance</option>
-          <option value="newest">Newest First</option>
-          <option value="oldest">Oldest First</option>
-          <option value="session">By Session</option>
-        </select>
+          onChange={handleSortChange}
+          block
+          size="md"
+          options={[
+            { value: 'relevance', label: 'Relevance' },
+            { value: 'newest', label: 'Newest First' },
+            { value: 'oldest', label: 'Oldest First' },
+            { value: 'session', label: 'By Session' },
+          ]}
+        />
       </div>
 
       {/* Session Filter */}

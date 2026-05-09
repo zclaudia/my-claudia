@@ -494,9 +494,13 @@ describe('SupervisorWorkspacePanel', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Regenerate Baseline' }));
-    fireEvent.change(screen.getByLabelText('Mode'), { target: { value: 'ai_scan' } });
-    fireEvent.change(screen.getByLabelText('Language'), { target: { value: 'en' } });
-    fireEvent.change(screen.getByLabelText('AI Provider'), { target: { value: 'prov-2' } });
+    // Each baseline Select is a button + popover; click trigger then click the option
+    fireEvent.click(screen.getByRole('button', { name: 'Mode' }));
+    fireEvent.click(screen.getByRole('option', { name: 'AI Scan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Language' }));
+    fireEvent.click(screen.getByRole('option', { name: 'English' }));
+    fireEvent.click(screen.getByRole('button', { name: 'AI Provider' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Codex Worker (codex)' }));
     fireEvent.click(screen.getAllByRole('button', { name: 'Regenerate Baseline' })[1]);
 
     await waitFor(() => {

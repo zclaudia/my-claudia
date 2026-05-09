@@ -1,3 +1,5 @@
+import { Select } from '../../../components/ui/Select';
+
 /**
  * Lightweight JSON Schema form renderer for plugin workflow step config.
  * Supports: string, number, integer, boolean, enum (select).
@@ -32,16 +34,16 @@ export function JsonSchemaConfigForm({ schema, config, onChange }: JsonSchemaCon
               <label className="text-xs font-medium text-muted-foreground block mb-1">
                 {label}{isRequired ? ' *' : ''}
               </label>
-              <select
+              <Select
                 value={(value as string) ?? prop.default ?? ''}
-                onChange={(e) => updateField(key, e.target.value)}
-                className="w-full px-2.5 py-1.5 text-sm rounded-md border border-border bg-background"
-              >
-                <option value="">--</option>
-                {(prop.enum as string[]).map((opt: string) => (
-                  <option key={opt} value={opt}>{opt}</option>
-                ))}
-              </select>
+                onChange={(next) => updateField(key, next)}
+                block
+                size="md"
+                options={[
+                  { value: '', label: '--' },
+                  ...(prop.enum as string[]).map((opt: string) => ({ value: opt, label: opt })),
+                ]}
+              />
               {description && <p className="text-[10px] text-muted-foreground mt-0.5">{description}</p>}
             </div>
           );
@@ -77,7 +79,7 @@ export function JsonSchemaConfigForm({ schema, config, onChange }: JsonSchemaCon
                 max={prop.maximum}
                 step={prop.type === 'integer' ? 1 : undefined}
                 onChange={(e) => updateField(key, e.target.value ? Number(e.target.value) : undefined)}
-                className="w-full px-2.5 py-1.5 text-sm rounded-md border border-border bg-background focus:outline-none focus:border-primary"
+                className="w-full px-2.5 py-1.5 text-sm rounded-full border border-border bg-background focus:outline-none focus:border-primary"
               />
               {description && <p className="text-[10px] text-muted-foreground mt-0.5">{description}</p>}
             </div>

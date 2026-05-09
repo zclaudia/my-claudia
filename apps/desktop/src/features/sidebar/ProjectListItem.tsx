@@ -5,6 +5,7 @@ import { WorktreeGroupItem } from './WorktreeGroupItem';
 import { SupervisorGroupItem } from './SupervisorGroupItem';
 import { groupSessionsByWorktree } from './worktreeGrouping';
 import { SortableList, SortableItem } from '../../components/SortableList';
+import { Select } from '../../components/ui/Select';
 import type { Session } from '@my-claudia/shared';
 import type { ProjectListItemProps } from './types';
 
@@ -92,9 +93,6 @@ export function ProjectListItem({
   const inputClass = isMobile
     ? 'w-full px-3 py-2.5 bg-muted/60 border-0 rounded-lg text-sm shadow-apple-sm focus:outline-none focus:ring-1 focus:ring-primary/50'
     : 'w-full px-2 py-1.5 bg-muted/60 border-0 rounded-lg text-sm shadow-apple-sm focus:outline-none focus:ring-1 focus:ring-primary/50';
-  const selectClass = isMobile
-    ? 'w-full px-3 py-2.5 mt-2 bg-muted/60 border-0 rounded-lg text-sm shadow-apple-sm focus:outline-none focus:ring-1 focus:ring-primary/50'
-    : 'w-full px-2 py-1.5 mt-1 bg-muted/60 border-0 rounded-lg text-sm shadow-apple-sm focus:outline-none focus:ring-1 focus:ring-primary/50';
   const buttonRowClass = isMobile ? 'flex gap-2 mt-2' : 'flex gap-1 mt-1.5';
   const createBtnClass = isMobile
     ? 'flex-1 px-3 py-2.5 bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80 rounded-lg text-sm'
@@ -312,18 +310,20 @@ export function ProjectListItem({
                 autoFocus
               />
               {providers.length > 0 && (
-                <select
+                <Select
                   value={newSessionProviderId}
-                  onChange={(e) => onNewSessionProviderIdChange(e.target.value)}
-                  className={selectClass}
-                >
-                  <option value="">Default (from project)</option>
-                  {providers.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.type}){p.isDefault ? ' *' : ''}
-                    </option>
-                  ))}
-                </select>
+                  onChange={onNewSessionProviderIdChange}
+                  block
+                  size={isMobile ? 'lg' : 'md'}
+                  className={isMobile ? 'mt-2' : 'mt-1'}
+                  options={[
+                    { value: '', label: 'Default (from project)' },
+                    ...providers.map((p) => ({
+                      value: p.id,
+                      label: `${p.name} (${p.type})${p.isDefault ? ' *' : ''}`,
+                    })),
+                  ]}
+                />
               )}
               <div className={buttonRowClass}>
                 <button

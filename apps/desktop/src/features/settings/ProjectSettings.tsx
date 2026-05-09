@@ -8,6 +8,7 @@ import { useSupervisionStore } from '../../stores/supervisionStore';
 import * as api from '../../services/api';
 import { useAndroidBack } from '../../hooks/useAndroidBack';
 import { isMobileBackendUsable } from '../../services/mobileConnectionState';
+import { Select } from '../../components/ui/Select';
 
 const CATEGORY_LABELS: Record<PermissionCategory, { label: string; description: string }> = {
   fileRead: { label: 'File Read', description: 'Read, Glob, Grep, WebFetch' },
@@ -320,19 +321,19 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
             <label className="block text-sm font-medium text-muted-foreground mb-1">
               Provider
             </label>
-            <select
+            <Select
               value={providerId}
-              onChange={(e) => setProviderId(e.target.value)}
-              className="w-full h-[38px] px-3 bg-input border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary"
-            >
-              <option value="">Default Provider</option>
-              {providers.map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {provider.name} ({provider.type})
-                  {provider.isDefault ? ' - Default' : ''}
-                </option>
-              ))}
-            </select>
+              onChange={setProviderId}
+              block
+              size="lg"
+              options={[
+                { value: '', label: 'Default Provider' },
+                ...providers.map((provider) => ({
+                  value: provider.id,
+                  label: `${provider.name} (${provider.type})${provider.isDefault ? ' - Default' : ''}`,
+                })),
+              ]}
+            />
             <p className="text-xs text-muted-foreground mt-1">
               Select which Claude configuration to use for this project
             </p>
@@ -343,19 +344,19 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
             <label className="block text-sm font-medium text-muted-foreground mb-1">
               Review Provider
             </label>
-            <select
+            <Select
               value={reviewProviderId}
-              onChange={(e) => setReviewProviderId(e.target.value)}
-              className="w-full h-[38px] px-3 bg-input border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary"
-            >
-              <option value="">Same as Project Provider</option>
-              {providers.map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {provider.name} ({provider.type})
-                  {provider.isDefault ? ' - Default' : ''}
-                </option>
-              ))}
-            </select>
+              onChange={setReviewProviderId}
+              block
+              size="lg"
+              options={[
+                { value: '', label: 'Same as Project Provider' },
+                ...providers.map((provider) => ({
+                  value: provider.id,
+                  label: `${provider.name} (${provider.type})${provider.isDefault ? ' - Default' : ''}`,
+                })),
+              ]}
+            />
             <p className="text-xs text-muted-foreground mt-1">
               Provider used for AI review of Local Pull Requests. Defaults to the project provider above.
             </p>
@@ -382,18 +383,19 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
             <label className="block text-sm font-medium text-muted-foreground mb-1">
               Permission Workflow Override
             </label>
-            <select
+            <Select
               value={permissionWorkflowOverrideId}
-              onChange={(e) => setPermissionWorkflowOverrideId(e.target.value)}
-              className="w-full h-[38px] px-3 bg-input border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary"
-            >
-              <option value="">Inherit global or system fallback</option>
-              {workflowOptions.map((workflow) => (
-                <option key={workflow.id} value={workflow.id}>
-                  {workflow.projectId ? `[Project] ${workflow.name}` : `[Global] ${workflow.name}`}
-                </option>
-              ))}
-            </select>
+              onChange={setPermissionWorkflowOverrideId}
+              block
+              size="lg"
+              options={[
+                { value: '', label: 'Inherit global or system fallback' },
+                ...workflowOptions.map((workflow) => ({
+                  value: workflow.id,
+                  label: workflow.projectId ? `[Project] ${workflow.name}` : `[Global] ${workflow.name}`,
+                })),
+              ]}
+            />
             <p className="text-xs text-muted-foreground mt-1">
               Project override takes precedence over the global override. If unavailable, the system fallback still runs.
             </p>
@@ -451,10 +453,9 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
                           <span className="text-xs font-medium">{info.label}</span>
                           <p className="text-[10px] text-muted-foreground truncate">{info.description}</p>
                         </div>
-                        <select
+                        <Select
                           value={isLocked ? 'ask' : (currentValue ?? 'inherit')}
-                          onChange={(e) => {
-                            const val = e.target.value;
+                          onChange={(val) => {
                             if (val === 'inherit') {
                               const newProfile = { ...permOverride.profile } as Record<string, CategoryAction>;
                               delete newProfile[cat];
@@ -469,16 +470,13 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
                               }));
                             }
                           }}
+                          options={ACTION_OPTIONS}
                           disabled={isLocked}
-                          className={`h-6 px-1.5 text-[11px] bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary flex-shrink-0 ${
-                            isLocked ? 'opacity-50 cursor-not-allowed' : ''
-                          } ${currentValue ? 'text-primary font-medium' : 'text-muted-foreground'}`}
+                          align="right"
+                          triggerClassName={`min-w-[120px] ${currentValue ? 'text-primary' : ''}`}
+                          className="flex-shrink-0"
                           title={isLocked ? 'User questions always require approval' : undefined}
-                        >
-                          {ACTION_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                          ))}
-                        </select>
+                        />
                       </div>
                     );
                   })}

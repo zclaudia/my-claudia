@@ -234,6 +234,12 @@ describe('ProjectSettings', () => {
       expect(api.listAllWorkflows).toHaveBeenCalled();
     });
 
+    // Open the workflow override Select panel to inspect options
+    const triggers = screen.getAllByRole('button', { expanded: false }).filter(b =>
+      b.getAttribute('aria-haspopup') === 'listbox'
+    );
+    const overrideTrigger = triggers.find(b => b.textContent?.includes('Inherit global'));
+    fireEvent.click(overrideTrigger!);
     expect(screen.getByRole('option', { name: '[Global] Global Review' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: '[Project] Project Review' })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: '[Project] Other Project Review' })).toBeNull();
@@ -338,8 +344,9 @@ describe('ProjectSettings', () => {
 
     await renderProjectSettings();
     // The supervisor toggle is a rounded-full button near the Supervisor Agent label
+    // Toggle switches use w-10 h-5; other rounded-full buttons (e.g. Select triggers) don't.
     const toggleButtons = screen.getAllByRole('button').filter(b =>
-      b.className?.includes('rounded-full')
+      b.className?.includes('w-10') && b.className?.includes('rounded-full')
     );
     // Second rounded-full button is the supervisor toggle (first is permission override)
     if (toggleButtons.length >= 2) {
@@ -365,8 +372,9 @@ describe('ProjectSettings', () => {
     } as any);
 
     await renderProjectSettings();
+    // Toggle switches use w-10 h-5; other rounded-full buttons (e.g. Select triggers) don't.
     const toggleButtons = screen.getAllByRole('button').filter(b =>
-      b.className?.includes('rounded-full')
+      b.className?.includes('w-10') && b.className?.includes('rounded-full')
     );
     if (toggleButtons.length >= 2) {
       await clickAsync(toggleButtons[1]);
@@ -413,9 +421,13 @@ describe('ProjectSettings', () => {
 
     await renderProjectSettings();
 
-    fireEvent.change(screen.getByDisplayValue('Inherit global or system fallback'), {
-      target: { value: 'wf-project' },
-    });
+    // Open the workflow override Select and click the Project Review option
+    const triggers = screen.getAllByRole('button', { expanded: false }).filter(b =>
+      b.getAttribute('aria-haspopup') === 'listbox'
+    );
+    const overrideTrigger = triggers.find(b => b.textContent?.includes('Inherit global'));
+    fireEvent.click(overrideTrigger!);
+    fireEvent.click(screen.getByRole('option', { name: '[Project] Project Review' }));
     await clickAsync(screen.getByText('Save'));
 
     expect(api.updateProject).toHaveBeenCalledWith(

@@ -3,7 +3,8 @@ import { Plus, RefreshCw, Play, Pause, Trash2, FolderOpen, Globe } from 'lucide-
 import type { Workflow } from '@my-claudia/shared';
 import type { AutomationApiType } from './useAutomationApi';
 import type { ProjectInfo, AutomationItem } from './automation-types';
-import { renderProjectOptions, simpleWorkflowToItem } from './automation-types';
+import { projectSelectOptions, simpleWorkflowToItem } from './automation-types';
+import { Select } from '../../components/ui/Select';
 import { LoadingState, EmptyState } from './AutomationSharedComponents';
 
 interface AutomationsTabProps {
@@ -123,13 +124,14 @@ export function AutomationsTab({ api, projects, projectName, initialProjectId }:
         </h2>
         <div className="flex items-center gap-1.5">
           {projects.length > 0 && (
-            <select
+            <Select
               value={effectiveProjectId}
-              onChange={(e) => setCreateProjectId(e.target.value)}
-              className="px-2 py-1 text-xs rounded border border-border bg-background text-foreground"
-            >
-              {renderProjectOptions(projects)}
-            </select>
+              onChange={setCreateProjectId}
+              size="md"
+              align="right"
+              triggerClassName="min-w-[160px]"
+              options={projectSelectOptions(projects)}
+            />
           )}
           <button
             onClick={() => setShowCreate(!showCreate)}
@@ -156,13 +158,19 @@ export function AutomationsTab({ api, projects, projectName, initialProjectId }:
           <div className="flex gap-2 flex-wrap">
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground">Trigger:</span>
-              <select value={newTriggerType} onChange={(e) => setNewTriggerType(e.target.value)} className="px-2 py-1 text-xs rounded border border-border bg-background text-foreground">
-                <option value="manual">Manual</option>
-                <option value="interval">Interval</option>
-                <option value="cron">Cron</option>
-                <option value="once">Once</option>
-                <option value="event">Event</option>
-              </select>
+              <Select
+                value={newTriggerType}
+                onChange={setNewTriggerType}
+                size="md"
+                triggerClassName="min-w-[100px]"
+                options={[
+                  { value: 'manual', label: 'Manual' },
+                  { value: 'interval', label: 'Interval' },
+                  { value: 'cron', label: 'Cron' },
+                  { value: 'once', label: 'Once' },
+                  { value: 'event', label: 'Event' },
+                ]}
+              />
             </div>
             {newTriggerType === 'interval' && (
               <div className="flex items-center gap-1">
@@ -188,11 +196,17 @@ export function AutomationsTab({ api, projects, projectName, initialProjectId }:
           </div>
           <div className="flex items-center gap-1">
             <span className="text-[10px] text-muted-foreground">Action:</span>
-            <select value={newActionType} onChange={(e) => setNewActionType(e.target.value)} className="px-2 py-1 text-xs rounded border border-border bg-background text-foreground">
-              <option value="ai_prompt">AI Prompt</option>
-              <option value="shell">Shell Command</option>
-              <option value="webhook">Webhook</option>
-            </select>
+            <Select
+              value={newActionType}
+              onChange={setNewActionType}
+              size="md"
+              triggerClassName="min-w-[140px]"
+              options={[
+                { value: 'ai_prompt', label: 'AI Prompt' },
+                { value: 'shell', label: 'Shell Command' },
+                { value: 'webhook', label: 'Webhook' },
+              ]}
+            />
           </div>
           {newActionType === 'ai_prompt' && (
             <textarea value={newPrompt} onChange={(e) => setNewPrompt(e.target.value)} placeholder="Enter prompt... (supports {{event.key}} templates)" rows={3} className="w-full px-2 py-1 text-xs rounded border border-border bg-background text-foreground resize-y" />

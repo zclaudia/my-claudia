@@ -5,6 +5,7 @@ import { useLocalPRStore } from '../store';
 import { listLocalPRs } from '../api';
 import { getProjectWorktrees } from '../../../services/api';
 import { useAndroidBack } from '../../../hooks/useAndroidBack';
+import { Select } from '../../../components/ui/Select';
 
 interface CreateLocalPRDialogProps {
   projectId: string;
@@ -106,18 +107,19 @@ export function CreateLocalPRDialog({
                 Loading worktrees…
               </div>
             ) : availableWorktrees.length > 0 ? (
-              <select
+              <Select
                 value={worktreePath}
-                onChange={(e) => setWorktreePath(e.target.value)}
-                className="w-full text-sm text-base bg-muted border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
-              >
-                <option value="">Select a worktree…</option>
-                {availableWorktrees.map((wt) => (
-                  <option key={wt.path} value={wt.path}>
-                    {wt.branch} ({wt.path})
-                  </option>
-                ))}
-              </select>
+                onChange={setWorktreePath}
+                block
+                size="lg"
+                options={[
+                  { value: '', label: 'Select a worktree…' },
+                  ...availableWorktrees.map((wt) => ({
+                    value: wt.path,
+                    label: `${wt.branch} (${wt.path})`,
+                  })),
+                ]}
+              />
             ) : (
               <input
                 type="text"
@@ -133,20 +135,21 @@ export function CreateLocalPRDialog({
             <label className="text-xs font-medium text-muted-foreground block mb-1">
               Target Branch <span className="text-muted-foreground">(defaults to main branch)</span>
             </label>
-            <select
+            <Select
               value={baseBranch}
-              onChange={(e) => setBaseBranch(e.target.value)}
-              className="w-full text-sm text-base bg-muted border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
-            >
-              <option value="">Auto-detect (main/master)</option>
-              {allWorktrees
-                .filter((wt) => wt.path !== worktreePath)
-                .map((wt) => (
-                  <option key={wt.path} value={wt.branch}>
-                    {wt.branch}{wt.isMain ? ' (main worktree)' : ''}
-                  </option>
-                ))}
-            </select>
+              onChange={setBaseBranch}
+              block
+              size="lg"
+              options={[
+                { value: '', label: 'Auto-detect (main/master)' },
+                ...allWorktrees
+                  .filter((wt) => wt.path !== worktreePath)
+                  .map((wt) => ({
+                    value: wt.branch,
+                    label: `${wt.branch}${wt.isMain ? ' (main worktree)' : ''}`,
+                  })),
+              ]}
+            />
           </div>
 
           <div>

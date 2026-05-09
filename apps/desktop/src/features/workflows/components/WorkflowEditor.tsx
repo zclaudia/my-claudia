@@ -460,7 +460,7 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
                           maxIterations: Number.isFinite(nextValue) && nextValue > 0 ? nextValue : 1,
                         });
                       }}
-                      className="w-full px-2.5 py-1.5 text-sm rounded-md border border-border bg-background focus:outline-none focus:border-primary"
+                      className="w-full px-2.5 py-1.5 text-sm rounded-full border border-border bg-background focus:outline-none focus:border-primary"
                     />
                     <p className="text-xs text-muted-foreground mt-1">
                       Number of times this loop edge may revisit its target before taking `loop_exhausted`.

@@ -1,4 +1,5 @@
 import type { ProviderConfig } from '@my-claudia/shared';
+import { Select } from '../../../components/ui/Select';
 
 type BaselineSetupMode = 'template' | 'scan' | 'ai_scan';
 type BaselineSetupLanguage = 'zh-CN' | 'en';
@@ -42,50 +43,53 @@ export function BaselineSetupPanel({
       <div className="grid gap-2 md:grid-cols-3">
         <label className="grid gap-1">
           <span className="text-[11px] font-medium text-muted-foreground">Mode</span>
-          <select
-            aria-label="Mode"
+          <Select<BaselineSetupMode>
+            ariaLabel="Mode"
             value={baselineMode}
-            onChange={(event) => onModeChange(event.target.value as BaselineSetupMode)}
-            className="rounded border border-border bg-background px-3 py-2 text-xs"
-          >
-            <option value="template">Template Only</option>
-            <option value="scan">Project Scan</option>
-            <option value="ai_scan">AI Scan</option>
-          </select>
+            onChange={onModeChange}
+            block
+            size="md"
+            options={[
+              { value: 'template', label: 'Template Only' },
+              { value: 'scan', label: 'Project Scan' },
+              { value: 'ai_scan', label: 'AI Scan' },
+            ]}
+          />
         </label>
 
         <label className="grid gap-1">
           <span className="text-[11px] font-medium text-muted-foreground">Language</span>
-          <select
-            aria-label="Language"
+          <Select<BaselineSetupLanguage>
+            ariaLabel="Language"
             value={baselineLanguage}
-            onChange={(event) => onLanguageChange(event.target.value as BaselineSetupLanguage)}
-            className="rounded border border-border bg-background px-3 py-2 text-xs"
-          >
-            <option value="zh-CN">中文</option>
-            <option value="en">English</option>
-          </select>
+            onChange={onLanguageChange}
+            block
+            size="md"
+            options={[
+              { value: 'zh-CN', label: '中文' },
+              { value: 'en', label: 'English' },
+            ]}
+          />
         </label>
 
         <label className="grid gap-1">
           <span className="text-[11px] font-medium text-muted-foreground">AI Provider</span>
-          <select
-            aria-label="AI Provider"
+          <Select
+            ariaLabel="AI Provider"
             value={baselineProviderId}
-            onChange={(event) => onProviderChange(event.target.value)}
+            onChange={onProviderChange}
             disabled={baselineMode !== 'ai_scan'}
-            className="rounded border border-border bg-background px-3 py-2 text-xs disabled:opacity-50"
-          >
-            {aiCapableProviders.length === 0 ? (
-              <option value="">No supported provider</option>
-            ) : (
-              aiCapableProviders.map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {provider.name} ({provider.type})
-                </option>
-              ))
-            )}
-          </select>
+            block
+            size="md"
+            options={
+              aiCapableProviders.length === 0
+                ? [{ value: '', label: 'No supported provider' }]
+                : aiCapableProviders.map((provider) => ({
+                    value: provider.id,
+                    label: `${provider.name} (${provider.type})`,
+                  }))
+            }
+          />
         </label>
       </div>
 

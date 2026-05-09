@@ -5,6 +5,7 @@ import { exportLogs, getLogCount, clearLogs } from '../../services/logger';
 import { isTauri } from '../../utils/platform';
 import type { CrashReportEntry, ManagedProcessRecord, PermissionLogEntry, SimulateAIReviewResponse } from '../../services/api/debug';
 import type { ClientMessage, ProviderConfig } from '@my-claudia/shared';
+import { Select } from '../../components/ui/Select';
 
 interface DebugSettingsProps {
   isConnected: boolean;
@@ -547,16 +548,18 @@ export function DebugSettings({ isConnected, sendMessage, embeddedServerStatus }
           <div className="space-y-2">
             {/* Row 1: Tool + Command */}
             <div className="flex gap-2">
-              <select
+              <Select
                 value={simToolName}
-                onChange={(e) => setSimToolName(e.target.value)}
-                className="px-2 py-1 text-xs bg-background border border-border rounded-lg w-20 shrink-0"
-              >
-                <option value="Bash">Bash</option>
-                <option value="Write">Write</option>
-                <option value="Edit">Edit</option>
-                <option value="Read">Read</option>
-              </select>
+                onChange={setSimToolName}
+                size="md"
+                triggerClassName="w-20 shrink-0"
+                options={[
+                  { value: 'Bash', label: 'Bash' },
+                  { value: 'Write', label: 'Write' },
+                  { value: 'Edit', label: 'Edit' },
+                  { value: 'Read', label: 'Read' },
+                ]}
+              />
               <input
                 type="text"
                 value={simDetail}
@@ -577,16 +580,17 @@ export function DebugSettings({ isConnected, sendMessage, embeddedServerStatus }
 
             {/* Row 3: Provider + Threshold + Mode in a grid */}
             <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-center">
-              <select
+              <Select
                 value={simProviderId}
-                onChange={(e) => setSimProviderId(e.target.value)}
-                className="px-2 py-1 text-xs bg-background border border-border rounded-lg min-w-0"
-              >
-                {simProviders.length === 0 && <option value="">No providers</option>}
-                {simProviders.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name} ({p.type})</option>
-                ))}
-              </select>
+                onChange={setSimProviderId}
+                size="md"
+                block
+                options={
+                  simProviders.length === 0
+                    ? [{ value: '', label: 'No providers' }]
+                    : simProviders.map((p) => ({ value: p.id, label: `${p.name} (${p.type})` }))
+                }
+              />
 
               <input
                 type="number"
@@ -596,20 +600,21 @@ export function DebugSettings({ isConnected, sendMessage, embeddedServerStatus }
                 max={1}
                 step={0.1}
                 title="Confidence threshold"
-                className="w-14 px-1 py-1 text-xs bg-background border border-border rounded-lg text-center"
+                className="w-14 px-1 py-1 text-xs bg-background border border-border rounded-full text-center"
               />
 
-              <select
+              <Select<'quick' | 'full' | 'runtime' | 'workflow'>
                 value={simMode}
-                onChange={(e) => setSimMode(e.target.value as 'quick' | 'full' | 'runtime' | 'workflow')}
+                onChange={setSimMode}
+                size="md"
                 title="Evaluation mode"
-                className="px-2 py-1 text-xs bg-background border border-border rounded-lg"
-              >
-                <option value="quick">Quick — single-pass, no rate limit</option>
-                <option value="full">Full — multi-turn with file reading</option>
-                <option value="runtime">Runtime — oneshot task runtime</option>
-                <option value="workflow">Workflow — full permission pipeline</option>
-              </select>
+                options={[
+                  { value: 'quick', label: 'Quick — single-pass, no rate limit' },
+                  { value: 'full', label: 'Full — multi-turn with file reading' },
+                  { value: 'runtime', label: 'Runtime — oneshot task runtime' },
+                  { value: 'workflow', label: 'Workflow — full permission pipeline' },
+                ]}
+              />
             </div>
           </div>
 

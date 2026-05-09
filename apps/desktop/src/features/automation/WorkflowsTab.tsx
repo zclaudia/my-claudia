@@ -6,7 +6,8 @@ import {
 import type { Workflow, WorkflowTemplate } from '@my-claudia/shared';
 import type { AutomationApiType } from './useAutomationApi';
 import type { ProjectInfo } from './automation-types';
-import { isInternalProject, renderProjectOptions, CATEGORY_COLORS } from './automation-types';
+import { isInternalProject, projectSelectOptions, CATEGORY_COLORS } from './automation-types';
+import { Select } from '../../components/ui/Select';
 import { isDesktopTauri } from '../../utils/platform';
 import { buildPopoutUrl, openPopoutWindow } from '../../utils/popoutWindow';
 import { LoadingState, EmptyState } from './AutomationSharedComponents';
@@ -120,13 +121,14 @@ export function WorkflowsTab({ api, projects, globalPermissionWorkflowOverrideId
         <h2 className="text-sm font-medium text-muted-foreground">{workflows.length} workflow{workflows.length !== 1 ? 's' : ''}</h2>
         <div className="flex items-center gap-1.5">
           {projects.length > 0 && (
-            <select
+            <Select
               value={effectiveProjectId}
-              onChange={(e) => setCreateProjectId(e.target.value)}
-              className="px-2 py-1 text-xs rounded border border-border bg-background text-foreground"
-            >
-              {renderProjectOptions(projects)}
-            </select>
+              onChange={setCreateProjectId}
+              size="md"
+              align="right"
+              triggerClassName="min-w-[160px]"
+              options={projectSelectOptions(projects)}
+            />
           )}
           <button
             onClick={handleCreate}

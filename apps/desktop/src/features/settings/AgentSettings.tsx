@@ -4,6 +4,7 @@ import type { ProviderConfig } from '@my-claudia/shared';
 import { ShortcutSettings } from './ShortcutSettings';
 import { isDesktopTauri } from '../../utils/platform';
 import { useAgentConfigStore } from '../../stores/agentConfigStore';
+import { Select } from '../../components/ui/Select';
 
 interface AgentCapabilities {
   tools: Array<{ id: string; name: string; description: string; scope: string[] }>;
@@ -102,19 +103,21 @@ export function AgentSettings() {
           <div className="pt-2 border-t border-border">
             <div className="flex items-center justify-between">
               <span className="text-sm">Provider</span>
-              <select
+              <Select
                 value={config?.providerId || ''}
-                onChange={(e) => saveConfig({ providerId: e.target.value || null })}
+                onChange={(next) => saveConfig({ providerId: next || null })}
                 disabled={saving}
-                className="h-7 px-2 text-xs bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
-              >
-                <option value="">Default (same as chat)</option>
-                {providers.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}{p.isDefault ? ' (default)' : ''}
-                  </option>
-                ))}
-              </select>
+                size="md"
+                align="right"
+                triggerClassName="min-w-[180px]"
+                options={[
+                  { value: '', label: 'Default (same as chat)' },
+                  ...providers.map((p) => ({
+                    value: p.id,
+                    label: `${p.name}${p.isDefault ? ' (default)' : ''}`,
+                  })),
+                ]}
+              />
             </div>
             <p className="text-[10px] text-muted-foreground/70 mt-1">
               Choose which provider the agent uses

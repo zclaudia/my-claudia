@@ -132,7 +132,7 @@ export function CreateTaskDialog({ projectId, changeId, existingTasks, isOpen, o
                 onChange={(e) => setPriority(parseInt(e.target.value) || 0)}
                 min={0}
                 max={10}
-                className="w-20 px-2 py-1 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+                className="w-20 px-2.5 py-1 bg-secondary border border-border rounded-full text-sm focus:outline-none focus:border-primary"
               />
             </div>
 

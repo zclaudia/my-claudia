@@ -4,6 +4,7 @@ import { useProjectStore } from '../../stores/projectStore';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import { useAndroidBack } from '../../hooks/useAndroidBack';
 import * as api from '../../services/api';
+import { Select } from '../ui/Select';
 
 interface ImportOpenCodeDialogProps {
   isOpen: boolean;
@@ -435,29 +436,25 @@ export function ImportOpenCodeDialog({ isOpen, onClose }: ImportOpenCodeDialogPr
                           {selectedCount} session{selectedCount !== 1 ? 's' : ''}
                         </span>
                       </div>
-                      <div className="relative">
-                        <select
-                          value={currentValue}
-                          onChange={(e) => setProjectMapping(prev => ({
-                            ...prev,
-                            [srcProject.path]: e.target.value
-                          }))}
-                          className="w-full px-3 py-2 pr-8 bg-input border border-border rounded text-sm appearance-none"
-                        >
-                          <option value="">-- Select target project --</option>
-                          <option value={CREATE_PROJECT_VALUE}>+ Create new project: &quot;{dirName}&quot;</option>
-                          {projects
+                      <Select
+                        value={currentValue}
+                        onChange={(next) => setProjectMapping(prev => ({
+                          ...prev,
+                          [srcProject.path]: next,
+                        }))}
+                        block
+                        size="lg"
+                        options={[
+                          { value: '', label: '-- Select target project --' },
+                          { value: CREATE_PROJECT_VALUE, label: `+ Create new project: "${dirName}"` },
+                          ...projects
                             .filter(p => p && p.id && p.name)
-                            .map(p => (
-                              <option key={p.id} value={p.id}>
-                                {p.name}{p.rootPath === wp ? ' (matched)' : ''}
-                              </option>
-                            ))}
-                        </select>
-                        <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </div>
+                            .map(p => ({
+                              value: p.id,
+                              label: `${p.name}${p.rootPath === wp ? ' (matched)' : ''}`,
+                            })),
+                        ]}
+                      />
                     </div>
                   );
                 })}

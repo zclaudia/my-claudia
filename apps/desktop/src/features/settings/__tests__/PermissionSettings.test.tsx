@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { PermissionSettings } from '../PermissionSettings';
 import { useProviderMetaStore } from '../../../stores/providerMetaStore';
 import { useServerStore } from '../../../stores/serverStore';
@@ -87,6 +87,15 @@ describe('PermissionSettings', () => {
     mockGetProviders.mockResolvedValue([]);
   });
 
+  function findTriggerByText(textFragment: string): HTMLElement {
+    const triggers = screen.getAllByRole('button').filter(b =>
+      b.getAttribute('aria-haspopup') === 'listbox'
+    );
+    const match = triggers.find(b => b.textContent?.includes(textFragment));
+    if (!match) throw new Error(`No Select trigger found containing "${textFragment}"`);
+    return match;
+  }
+
   it('only lists providers that support AI review', async () => {
     render(<PermissionSettings />);
 
@@ -97,6 +106,7 @@ describe('PermissionSettings', () => {
       expect(mockGetProviderCapabilities).toHaveBeenCalledWith('prov-unsupported');
     });
 
+    fireEvent.click(findTriggerByText('Session default'));
     expect(screen.getByRole('option', { name: 'Session default' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Claude (claude)' })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'Legacy (claude)' })).toBeNull();
@@ -124,6 +134,7 @@ describe('PermissionSettings', () => {
       expect(mockGetProviderCapabilities).toHaveBeenCalledWith('prov-supported');
     });
 
+    fireEvent.click(findTriggerByText('Session default'));
     expect(screen.getByRole('option', { name: 'Claude (claude)' })).toBeInTheDocument();
   });
 
@@ -137,6 +148,7 @@ describe('PermissionSettings', () => {
     render(<PermissionSettings />);
 
     expect(await screen.findByText('Global override')).toBeInTheDocument();
+    fireEvent.click(findTriggerByText('System fallback only'));
     expect(screen.getByRole('option', { name: '[Global] Global Review' })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: '[Global] System Fallback' })).toBeNull();
     expect(screen.queryByRole('option', { name: '[Global] Disabled Review' })).toBeNull();

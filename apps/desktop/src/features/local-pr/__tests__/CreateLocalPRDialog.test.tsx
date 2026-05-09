@@ -126,9 +126,11 @@ describe('CreateLocalPRDialog', () => {
     );
 
     await waitFor(() => {
-      const select = screen.getByDisplayValue('feat/x (/wt/feat)') as HTMLSelectElement | null;
+      // The dropdown is now a button trigger displaying the selected label,
+      // or falls back to a text input if no worktrees are available.
+      const trigger = screen.queryByRole('button', { name: /feat\/x \(\/wt\/feat\)/ });
       const input = screen.queryByDisplayValue('/wt/feat') as HTMLInputElement | null;
-      expect(select || input).toBeTruthy();
+      expect(trigger || input).toBeTruthy();
     });
   });
 });

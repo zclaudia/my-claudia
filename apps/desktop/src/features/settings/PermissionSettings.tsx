@@ -5,6 +5,7 @@ import * as providersApi from '../../services/api/providers';
 import type { ProviderConfig } from '@my-claudia/shared/core/provider';
 import { useProviderMetaStore } from '../../stores/providerMetaStore';
 import { useServerStore } from '../../stores/serverStore';
+import { Select } from '../../components/ui/Select';
 import type {
   UnifiedPermissionPolicy,
   CategoryAction,
@@ -54,19 +55,15 @@ function CategoryRow({ category, value, onChange, disabled }: {
         <span className="text-xs font-medium">{info.label}</span>
         <p className="text-[10px] text-muted-foreground truncate">{info.description}</p>
       </div>
-      <select
+      <Select<CategoryAction>
         value={isLocked ? 'ask' : value}
-        onChange={(e) => onChange(e.target.value as CategoryAction)}
+        onChange={onChange}
+        options={ACTION_OPTIONS}
         disabled={disabled || isLocked}
-        className={`h-6 px-1.5 text-[11px] bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary flex-shrink-0 ${
-          isLocked ? 'opacity-50 cursor-not-allowed' : ''
-        }`}
         title={isLocked ? 'User questions always require approval' : undefined}
-      >
-        {ACTION_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
-        ))}
-      </select>
+        triggerClassName="min-w-[120px]"
+        className="flex-shrink-0"
+      />
     </div>
   );
 }
@@ -136,22 +133,25 @@ function AIReviewProviderSelector({ value, onChange, disabled }: {
         <p className="text-[10px] text-muted-foreground">Only providers that support AI review are shown here</p>
       </div>
       <div className="flex flex-col items-end gap-1">
-        <select
+        <Select
           value={value || ''}
-          onChange={(e) => onChange(e.target.value || undefined)}
+          onChange={(next) => onChange(next || undefined)}
           disabled={disabled}
-          className="h-6 px-1.5 text-[11px] bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary max-w-[220px]"
-        >
-          <option value="">Session default</option>
-          {selectedProvider && !selectedProviderSupported && (
-            <option value={selectedProvider.id}>
-              {selectedProvider.name} ({selectedProvider.type}) - unsupported
-            </option>
-          )}
-          {eligibleProviders.map((provider) => (
-            <option key={provider.id} value={provider.id}>{provider.name} ({provider.type})</option>
-          ))}
-        </select>
+          triggerClassName="max-w-[220px] min-w-[180px]"
+          options={[
+            { value: '', label: 'Session default' },
+            ...(selectedProvider && !selectedProviderSupported
+              ? [{
+                  value: selectedProvider.id,
+                  label: `${selectedProvider.name} (${selectedProvider.type}) - unsupported`,
+                }]
+              : []),
+            ...eligibleProviders.map((provider) => ({
+              value: provider.id,
+              label: `${provider.name} (${provider.type})`,
+            })),
+          ]}
+        />
         {selectedProvider && !selectedProviderSupported && (
           <p className="text-[10px] text-amber-600">
             The selected provider does not support AI review and cannot be used here.
@@ -359,7 +359,7 @@ export function PermissionSettings() {
                     defaultValue={policy.aiReview.timeoutBeforeReview}
                     onBlur={(e) => updateAIReview({ timeoutBeforeReview: Math.max(10, parseInt(e.target.value) || 60) })}
                     disabled={saving}
-                    className="w-16 h-6 px-1.5 text-[11px] text-right bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+                    className="w-16 h-6 px-2 text-[11px] text-right bg-background border border-border rounded-full focus:outline-none focus:ring-1 focus:ring-primary"
                   />
                 </div>
                 <div className="flex items-center justify-between">
@@ -374,7 +374,7 @@ export function PermissionSettings() {
                     defaultValue={Math.round(policy.aiReview.confidenceThreshold * 100)}
                     onBlur={(e) => updateAIReview({ confidenceThreshold: Math.max(0.5, Math.min(1, (parseInt(e.target.value) || 80) / 100)) })}
                     disabled={saving}
-                    className="w-16 h-6 px-1.5 text-[11px] text-right bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+                    className="w-16 h-6 px-2 text-[11px] text-right bg-background border border-border rounded-full focus:outline-none focus:ring-1 focus:ring-primary"
                   />
                 </div>
                 <div className="flex items-center justify-between">
@@ -389,7 +389,7 @@ export function PermissionSettings() {
                     defaultValue={policy.aiReview.maxAutoApprovalsPerMinute}
                     onBlur={(e) => updateAIReview({ maxAutoApprovalsPerMinute: Math.max(1, parseInt(e.target.value) || 10) })}
                     disabled={saving}
-                    className="w-16 h-6 px-1.5 text-[11px] text-right bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+                    className="w-16 h-6 px-2 text-[11px] text-right bg-background border border-border rounded-full focus:outline-none focus:ring-1 focus:ring-primary"
                   />
                 </div>
                 <AIReviewProviderSelector
@@ -413,19 +413,20 @@ export function PermissionSettings() {
                 Optional workflow override. If unavailable, the system fallback workflow is still used.
               </p>
             </div>
-            <select
+            <Select
               value={selectedWorkflowId}
-              onChange={(e) => { void updatePermissionWorkflowOverride(e.target.value); }}
+              onChange={(next) => { void updatePermissionWorkflowOverride(next); }}
               disabled={saving || loading}
-              className="h-7 min-w-[220px] px-2 text-[11px] bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
-            >
-              <option value="">System fallback only</option>
-              {workflowOptions.map((workflow) => (
-                <option key={workflow.id} value={workflow.id}>
-                  {workflow.projectId ? `[Project] ${workflow.name}` : `[Global] ${workflow.name}`}
-                </option>
-              ))}
-            </select>
+              size="md"
+              triggerClassName="min-w-[220px]"
+              options={[
+                { value: '', label: 'System fallback only' },
+                ...workflowOptions.map((workflow) => ({
+                  value: workflow.id,
+                  label: workflow.projectId ? `[Project] ${workflow.name}` : `[Global] ${workflow.name}`,
+                })),
+              ]}
+            />
           </div>
           <p className="text-[10px] text-muted-foreground">
             Resolution order: project override, then global override, then immutable system fallback.

@@ -7,6 +7,7 @@ import { isMacOS } from '../../utils/platform';
 import { ThemeToggle } from './ThemeToggle';
 import type { SdkVersionReport } from '@my-claudia/shared';
 import * as api from '../../services/api';
+import { Select } from '../../components/ui/Select';
 
 interface GeneralSettingsProps {
   isOpen: boolean;
@@ -288,18 +289,20 @@ function NotchMonitorSelector() {
         </svg>
         <span className="text-sm">Notification Display</span>
       </div>
-      <select
+      <Select
         value={notchMonitor === null ? '' : String(notchMonitor)}
-        onChange={(e) => setNotchMonitor(e.target.value === '' ? null : parseInt(e.target.value, 10))}
-        className="text-xs bg-secondary border border-border rounded px-2 py-1 text-foreground"
-      >
-        <option value="">Primary</option>
-        {monitors.map((m, i) => (
-          <option key={i} value={String(i)}>
-            {m.name || `Monitor ${i + 1}`} ({m.width}x{m.height})
-          </option>
-        ))}
-      </select>
+        onChange={(next) => setNotchMonitor(next === '' ? null : parseInt(next, 10))}
+        size="md"
+        align="right"
+        triggerClassName="min-w-[160px]"
+        options={[
+          { value: '', label: 'Primary' },
+          ...monitors.map((m, i) => ({
+            value: String(i),
+            label: `${m.name || `Monitor ${i + 1}`} (${m.width}x${m.height})`,
+          })),
+        ]}
+      />
     </div>
   );
 }

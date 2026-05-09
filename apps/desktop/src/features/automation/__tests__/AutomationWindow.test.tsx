@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // AutomationWindow dynamically imports `@tauri-apps/api/event` to listen for
@@ -130,15 +130,17 @@ describe('AutomationWindow', () => {
     const nameInput = await screen.findByPlaceholderText('Automation name');
     fireEvent.change(nameInput, { target: { value: 'One shot' } });
 
+    // Trigger Select is a button-based listbox; default value is "Interval"
     const triggerSelect = await waitFor(() => {
-      const selects = screen.getAllByRole('combobox');
-      const found = selects.find((select) =>
-        within(select).queryByRole('option', { name: 'Once' }),
+      const buttons = screen.getAllByRole('button').filter(b =>
+        b.getAttribute('aria-haspopup') === 'listbox'
       );
+      const found = buttons.find(b => b.textContent?.includes('Interval'));
       if (!found) throw new Error('trigger select not ready');
       return found;
     });
-    fireEvent.change(triggerSelect, { target: { value: 'once' } });
+    fireEvent.click(triggerSelect);
+    fireEvent.click(screen.getByRole('option', { name: 'Once' }));
 
     const onceInput = await waitFor(() => {
       const el = document.querySelector('input[type="datetime-local"]');

@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import type { Attachment, LocalIssue, LocalIssuePriority } from '@my-claudia/shared';
 import { useLocalIssueStore } from '../store';
 import { useAndroidBack } from '../../../hooks/useAndroidBack';
+import { Select } from '../../../components/ui/Select';
 import {
   AttachmentDropZone,
   AttachmentPicker,
   AttachmentList,
   uploadAttachment,
   useAttachments,
+  filesFromDataTransfer,
 } from '../../attachments';
 
 interface CreateIssueDialogProps {
@@ -17,7 +19,7 @@ interface CreateIssueDialogProps {
   editIssue?: LocalIssue;
 }
 
-const PRIORITY_OPTIONS = [
+const PRIORITY_OPTIONS: { value: LocalIssuePriority; label: string }[] = [
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },
@@ -52,22 +54,15 @@ export function CreateIssueDialog({ projectId, onClose, editIssue }: CreateIssue
   const editAttachments = useAttachments(isEdit ? 'local_issue' : null, isEdit ? editIssue?.id : null);
   const [pending, setPending] = useState<PendingAttachment[]>([]);
 
-  // Generate object URLs for image previews so the user can verify selection
-  // before submitting. Revoked on unmount / list change.
+  // Track URLs so we can revoke on unmount even if `pending` was cleared
+  // (e.g. via dialog close after submit) before the cleanup runs.
+  const previewUrlsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (isEdit) return;
-    const urls = pending.map((p) => {
-      if (p.previewUrl || !p.file.type.startsWith('image/')) return p.previewUrl;
-      const url = URL.createObjectURL(p.file);
-      p.previewUrl = url;
-      return url;
-    });
     return () => {
-      for (const u of urls) {
-        if (u) URL.revokeObjectURL(u);
-      }
+      for (const url of previewUrlsRef.current) URL.revokeObjectURL(url);
+      previewUrlsRef.current.clear();
     };
-  }, [pending, isEdit]);
+  }, []);
 
   const addFiles = async (files: File[]) => {
     if (files.length === 0) return;
@@ -81,17 +76,41 @@ export function CreateIssueDialog({ projectId, onClose, editIssue }: CreateIssue
       }
       return;
     }
-    setPending((prev) => [
-      ...prev,
-      ...files.map((file) => ({
+    // Create object URLs synchronously so the very first render after adding
+    // already shows the thumbnail. Mutating the URL onto the entry inside an
+    // effect would lose the thumbnail on the just-added file because no
+    // re-render is scheduled by that mutation.
+    const additions: PendingAttachment[] = files.map((file) => {
+      let previewUrl: string | undefined;
+      if (file.type.startsWith('image/')) {
+        previewUrl = URL.createObjectURL(file);
+        previewUrlsRef.current.add(previewUrl);
+      }
+      return {
         localId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         file,
-      })),
-    ]);
+        previewUrl,
+      };
+    });
+    setPending((prev) => [...prev, ...additions]);
   };
 
   const removePending = (localId: string) => {
-    setPending((prev) => prev.filter((p) => p.localId !== localId));
+    setPending((prev) => {
+      const target = prev.find((p) => p.localId === localId);
+      if (target?.previewUrl) {
+        URL.revokeObjectURL(target.previewUrl);
+        previewUrlsRef.current.delete(target.previewUrl);
+      }
+      return prev.filter((p) => p.localId !== localId);
+    });
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLFormElement>) => {
+    const files = filesFromDataTransfer(e.clipboardData?.items);
+    if (files.length === 0) return;
+    e.preventDefault();
+    void addFiles(files);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -189,7 +208,7 @@ export function CreateIssueDialog({ projectId, onClose, editIssue }: CreateIssue
         </div>
 
         <AttachmentDropZone onFiles={addFiles} className="rounded-b-lg" label="Drop files to attach">
-          <form onSubmit={handleSubmit} className="p-4 space-y-3">
+          <form onSubmit={handleSubmit} onPaste={handlePaste} className="p-4 space-y-3">
             <div>
               <label className="text-xs font-medium text-muted-foreground">Title</label>
               <input
@@ -214,17 +233,14 @@ export function CreateIssueDialog({ projectId, onClose, editIssue }: CreateIssue
 
             <div>
               <label className="text-xs font-medium text-muted-foreground">Priority</label>
-              <select
+              <Select<LocalIssuePriority>
                 value={priority}
-                onChange={(e) => setPriority(e.target.value as LocalIssuePriority)}
-                className="mt-1 w-full rounded border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-              >
-                {PRIORITY_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+                onChange={setPriority}
+                block
+                size="md"
+                className="mt-1"
+                options={PRIORITY_OPTIONS}
+              />
             </div>
 
             <div>

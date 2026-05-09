@@ -161,8 +161,9 @@ describe('StepConfigForm', () => {
     );
     expect(container.textContent).toContain('URL');
     expect(container.textContent).toContain('Method');
-    const select = container.querySelector('select');
-    expect(select).toBeTruthy();
+    const trigger = container.querySelector('button[aria-haspopup="listbox"]');
+    expect(trigger).toBeTruthy();
+    expect(trigger?.textContent).toContain('POST');
   });
 
   it('renders condition expression input', () => {
@@ -184,8 +185,9 @@ describe('StepConfigForm', () => {
       <StepConfigForm step={step} onChange={onChange} onDelete={onDelete} />,
     );
     expect(container.textContent).toContain('Wait Type');
-    const select = container.querySelector('select');
-    expect(select).toBeTruthy();
+    const trigger = container.querySelector('button[aria-haspopup="listbox"]');
+    expect(trigger).toBeTruthy();
+    expect(trigger?.textContent).toContain('Manual Approval');
   });
 
   it('shows no configuration message for unknown type without schema', () => {

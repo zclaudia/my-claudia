@@ -235,7 +235,7 @@ export function PermissionSelector({ value, onChange, disabled }: PermissionSele
                         }
                       }}
                       disabled={isLocked}
-                      className={`h-5 px-1 text-[10px] bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary ${
+                      className={`h-5 px-1.5 text-[10px] bg-background border border-border rounded-full focus:outline-none focus:ring-1 focus:ring-primary ${
                         isLocked ? 'opacity-50 cursor-not-allowed' : ''
                       } ${currentValue ? '' : 'text-muted-foreground'}`}
                     >

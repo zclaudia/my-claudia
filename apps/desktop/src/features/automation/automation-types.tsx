@@ -1,4 +1,5 @@
 import type { Project, Workflow } from '@my-claudia/shared';
+import type { SelectOption } from '../../components/ui/Select';
 
 export type ProjectInfo = Pick<Project, 'id' | 'name' | 'permissionWorkflowOverrideId'>;
 
@@ -30,27 +31,13 @@ export function displayProjectName(name: string): string {
   return stripped.charAt(0).toUpperCase() + stripped.slice(1);
 }
 
-export function renderProjectOptions(projects: ProjectInfo[]) {
+export function projectSelectOptions(projects: ProjectInfo[]): SelectOption[] {
   const internal = projects.filter(p => isInternalProject(p.name));
   const normal = projects.filter(p => !isInternalProject(p.name)).sort((a, b) => a.name.localeCompare(b.name));
-  return (
-    <>
-      {internal.length > 0 && (
-        <optgroup label="Global">
-          {internal.map(p => (
-            <option key={p.id} value={p.id}>{'\u25C8'} {displayProjectName(p.name)}</option>
-          ))}
-        </optgroup>
-      )}
-      {normal.length > 0 && (
-        <optgroup label="Projects">
-          {normal.map(p => (
-            <option key={p.id} value={p.id}>{'\u25B8'} {p.name}</option>
-          ))}
-        </optgroup>
-      )}
-    </>
-  );
+  return [
+    ...internal.map(p => ({ value: p.id, label: `\u25C8 ${displayProjectName(p.name)} (Global)` })),
+    ...normal.map(p => ({ value: p.id, label: `\u25B8 ${p.name}` })),
+  ];
 }
 
 export function formatInterval(ms: number): string {

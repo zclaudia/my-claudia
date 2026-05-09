@@ -1,6 +1,7 @@
 import type { WorkflowNodeDef, WorkflowStepOnError, BuiltinWorkflowStepType } from '@my-claudia/shared';
 import { useWorkflowStore } from '../store';
 import { JsonSchemaConfigForm } from './JsonSchemaConfigForm';
+import { Select } from '../../../components/ui/Select';
 
 interface StepConfigFormProps {
   step: WorkflowNodeDef;
@@ -205,15 +206,17 @@ function renderTypeConfig(step: WorkflowNodeDef, onChange: (s: WorkflowNodeDef) 
           />
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">Method</label>
-            <select
+            <Select
               value={(step.config.method as string) ?? 'POST'}
-              onChange={(e) => onChange(updateConfig(step, 'method', e.target.value))}
-              className="w-full px-2.5 py-1.5 text-sm rounded-md border border-border bg-background"
-            >
-              <option value="GET">GET</option>
-              <option value="POST">POST</option>
-              <option value="PUT">PUT</option>
-            </select>
+              onChange={(next) => onChange(updateConfig(step, 'method', next))}
+              block
+              size="md"
+              options={[
+                { value: 'GET', label: 'GET' },
+                { value: 'POST', label: 'POST' },
+                { value: 'PUT', label: 'PUT' },
+              ]}
+            />
           </div>
         </>
       );
@@ -223,14 +226,16 @@ function renderTypeConfig(step: WorkflowNodeDef, onChange: (s: WorkflowNodeDef) 
         <>
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">Type</label>
-            <select
+            <Select
               value={(step.config.type as string) ?? 'system'}
-              onChange={(e) => onChange(updateConfig(step, 'type', e.target.value))}
-              className="w-full px-2.5 py-1.5 text-sm rounded-md border border-border bg-background"
-            >
-              <option value="system">System</option>
-              <option value="webhook">Webhook</option>
-            </select>
+              onChange={(next) => onChange(updateConfig(step, 'type', next))}
+              block
+              size="md"
+              options={[
+                { value: 'system', label: 'System' },
+                { value: 'webhook', label: 'Webhook' },
+              ]}
+            />
           </div>
           <TextArea
             label="Message"
@@ -255,14 +260,16 @@ function renderTypeConfig(step: WorkflowNodeDef, onChange: (s: WorkflowNodeDef) 
       return (
         <div>
           <label className="text-xs font-medium text-muted-foreground block mb-1">Wait Type</label>
-          <select
+          <Select
             value={(step.config.type as string) ?? 'approval'}
-            onChange={(e) => onChange(updateConfig(step, 'type', e.target.value))}
-            className="w-full px-2.5 py-1.5 text-sm rounded-md border border-border bg-background"
-          >
-            <option value="approval">Manual Approval</option>
-            <option value="timeout">Timeout (wait)</option>
-          </select>
+            onChange={(next) => onChange(updateConfig(step, 'type', next))}
+            block
+            size="md"
+            options={[
+              { value: 'approval', label: 'Manual Approval' },
+              { value: 'timeout', label: 'Timeout (wait)' },
+            ]}
+          />
         </div>
       );
 
@@ -360,7 +367,7 @@ export function StepConfigForm({ step, onChange, onDelete }: StepConfigFormProps
             max={10}
             value={step.retryCount ?? 1}
             onChange={(e) => onChange({ ...step, retryCount: parseInt(e.target.value) || 1 })}
-            className="w-20 px-2.5 py-1.5 text-sm rounded-md border border-border bg-background"
+            className="w-20 px-2.5 py-1.5 text-sm rounded-full border border-border bg-background"
           />
         </div>
       )}
@@ -372,7 +379,7 @@ export function StepConfigForm({ step, onChange, onDelete }: StepConfigFormProps
           min={5}
           value={Math.floor((step.timeoutMs ?? 600000) / 1000)}
           onChange={(e) => onChange({ ...step, timeoutMs: (parseInt(e.target.value) || 600) * 1000 })}
-          className="w-24 px-2.5 py-1.5 text-sm rounded-md border border-border bg-background"
+          className="w-24 px-2.5 py-1.5 text-sm rounded-full border border-border bg-background"
         />
       </div>
     </div>

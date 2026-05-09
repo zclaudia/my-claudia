@@ -2,6 +2,7 @@ import { Plus, X, Clock, Timer, Zap, MousePointer, CalendarClock } from 'lucide-
 import type { WorkflowTrigger, WorkflowTriggerType } from '@my-claudia/shared';
 import { useState, useEffect } from 'react';
 import { useWorkflowStore } from '../store';
+import { Select } from '../../../components/ui/Select';
 
 interface TriggerConfigFormProps {
   triggers: WorkflowTrigger[];
@@ -53,27 +54,27 @@ function EventTriggerInput({ value, availableEvents, onChange }: {
   const isCustom = !isPreset && value !== '';
   const selectValue = isCustom ? CUSTOM_VALUE : value;
 
-  const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    if (e.target.value === CUSTOM_VALUE) {
+  const handleSelectChange = (next: string) => {
+    if (next === CUSTOM_VALUE) {
       onChange('');
     } else {
-      onChange(e.target.value);
+      onChange(next);
     }
   };
 
   return (
     <div className="space-y-1">
-      <select
+      <Select
         value={selectValue}
         onChange={handleSelectChange}
-        className="w-full px-2.5 py-1.5 text-sm rounded-md border border-border bg-background"
-      >
-        <option value="">Select event...</option>
-        {availableEvents.map((evt) => (
-          <option key={evt.value} value={evt.value}>{evt.label}</option>
-        ))}
-        <option value={CUSTOM_VALUE}>Custom pattern...</option>
-      </select>
+        block
+        size="md"
+        options={[
+          { value: '', label: 'Select event...' },
+          ...availableEvents.map((evt) => ({ value: evt.value, label: evt.label })),
+          { value: CUSTOM_VALUE, label: 'Custom pattern...' },
+        ]}
+      />
       {(isCustom || selectValue === CUSTOM_VALUE) && (
         <input
           type="text"
@@ -140,7 +141,7 @@ function TriggerCard({ trigger, onUpdate, onRemove, availableEvents }: {
             min={1}
             value={trigger.intervalMinutes ?? 30}
             onChange={(e) => onUpdate({ ...trigger, intervalMinutes: parseInt(e.target.value) || 30 })}
-            className="w-20 px-2.5 py-1.5 text-sm rounded-md border border-border bg-background"
+            className="w-20 px-2.5 py-1.5 text-sm rounded-full border border-border bg-background"
           />
           <span className="text-xs text-muted-foreground">minutes</span>
         </div>

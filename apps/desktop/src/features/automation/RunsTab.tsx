@@ -4,7 +4,8 @@ import type { Workflow, WorkflowRun, WorkflowStepRun } from '@my-claudia/shared'
 import { StepRunCard, RunStatusBadge, formatDuration } from '../workflows/components/RunComponents';
 import type { AutomationApiType } from './useAutomationApi';
 import type { ProjectInfo } from './automation-types';
-import { renderProjectOptions } from './automation-types';
+import { projectSelectOptions } from './automation-types';
+import { Select } from '../../components/ui/Select';
 
 interface RunsTabProps {
   api: AutomationApiType;
@@ -63,13 +64,14 @@ export function RunsTab({ api, projects }: RunsTabProps) {
         <h2 className="text-sm font-semibold">Run History</h2>
         <div className="flex items-center gap-2">
           {projects.length > 0 && (
-            <select
+            <Select
               value={effectiveProjectId}
-              onChange={(e) => setSelectedProjectId(e.target.value)}
-              className="px-2 py-1 text-xs rounded border border-border bg-background text-foreground"
-            >
-              {renderProjectOptions(projects)}
-            </select>
+              onChange={setSelectedProjectId}
+              size="md"
+              align="right"
+              triggerClassName="min-w-[160px]"
+              options={projectSelectOptions(projects)}
+            />
           )}
           <button
             onClick={refresh}

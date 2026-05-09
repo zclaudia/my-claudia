@@ -89,11 +89,13 @@ describe('JsonSchemaConfigForm', () => {
     const { container } = render(
       <JsonSchemaConfigForm schema={schema} config={{ color: 'green' }} onChange={onChange} />,
     );
-    const select = container.querySelector('select') as HTMLSelectElement;
-    expect(select).toBeTruthy();
-    expect(select.value).toBe('green');
-    // Check option count: 3 enum values + 1 placeholder
-    expect(select.querySelectorAll('option').length).toBe(4);
+    const trigger = container.querySelector('button[aria-haspopup="listbox"]') as HTMLButtonElement;
+    expect(trigger).toBeTruthy();
+    expect(trigger.textContent).toContain('green');
+    fireEvent.click(trigger);
+    const options = container.querySelectorAll('[role="option"]');
+    // 3 enum values + 1 placeholder
+    expect(options.length).toBe(4);
   });
 
   it('renders textarea for textarea format', () => {

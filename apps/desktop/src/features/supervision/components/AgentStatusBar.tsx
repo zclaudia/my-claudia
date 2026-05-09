@@ -6,6 +6,7 @@ import { useSupervisionStore } from '../store';
 import { useProjectStore } from '../../../stores/projectStore';
 import { useProviderMetaStore } from '../../../stores/providerMetaStore';
 import { useServerStore } from '../../../stores/serverStore';
+import { Select } from '../../../components/ui/Select';
 
 interface AgentStatusBarProps {
   projectId: string;
@@ -162,15 +163,16 @@ export function AgentStatusBar({ projectId, agent, onOpenSession: _onOpenSession
         {/* Provider */}
         <div>
           <label className="block text-xs text-muted-foreground mb-1">Provider</label>
-          <select
+          <Select
             value={selectedProviderId}
-            onChange={(e) => setSelectedProviderId(e.target.value)}
-            className="w-full px-2 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
-          >
-            {providers.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}{p.isDefault ? ' (default)' : ''}</option>
-            ))}
-          </select>
+            onChange={setSelectedProviderId}
+            block
+            size="md"
+            options={providers.map((p) => ({
+              value: p.id,
+              label: `${p.name}${p.isDefault ? ' (default)' : ''}`,
+            }))}
+          />
         </div>
 
         {/* Trust Level — full mode only */}
@@ -208,7 +210,7 @@ export function AgentStatusBar({ projectId, agent, onOpenSession: _onOpenSession
               onChange={(e) => setInitConfig((c) => ({ ...c, maxConcurrentTasks: parseInt(e.target.value) || 1 }))}
               min={1}
               max={5}
-              className="w-20 px-2 py-1.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+              className="w-20 px-2.5 py-1.5 bg-secondary border border-border rounded-full text-sm focus:outline-none focus:border-primary"
             />
           </div>
         )}
