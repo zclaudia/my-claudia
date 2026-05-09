@@ -85,8 +85,19 @@ export function ProviderManager({ isOpen, onClose, inline = false, readOnly = fa
   const [formEnv, setFormEnv] = useState('');
   const [formIsDefault, setFormIsDefault] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [pendingDeleteProviderId, setPendingDeleteProviderId] = useState<string | null>(null);
+  const [deletingProviderId, setDeletingProviderId] = useState<string | null>(null);
+  const deleteConfirmTimeoutRef = useRef<number | null>(null);
 
   useAndroidBack(onClose, isOpen && !inline, 20);
+
+  const clearDeleteConfirmation = () => {
+    if (deleteConfirmTimeoutRef.current !== null) {
+      window.clearTimeout(deleteConfirmTimeoutRef.current);
+      deleteConfirmTimeoutRef.current = null;
+    }
+    setPendingDeleteProviderId(null);
+  };
 
   const loadProviders = async () => {
     if (!isConnected) return;
@@ -127,7 +138,16 @@ export function ProviderManager({ isOpen, onClose, inline = false, readOnly = fa
     }
   }, [isOpen, isConnected, inline]);
 
+  useEffect(() => {
+    return () => {
+      if (deleteConfirmTimeoutRef.current !== null) {
+        window.clearTimeout(deleteConfirmTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const resetForm = () => {
+    clearDeleteConfirmation();
     setFormName('');
     setFormType('claude');
     setFormCliPath('');
@@ -138,6 +158,7 @@ export function ProviderManager({ isOpen, onClose, inline = false, readOnly = fa
   };
 
   const openEditForm = (provider: ProviderConfig) => {
+    clearDeleteConfirmation();
     setFormName(provider.name);
     setFormType(provider.type);
     setFormCliPath(provider.cliPath || '');
@@ -189,11 +210,20 @@ export function ProviderManager({ isOpen, onClose, inline = false, readOnly = fa
   };
 
   const handleDelete = async (id: string) => {
-    const shouldDelete = typeof window !== 'undefined' && typeof window.confirm === 'function'
-      ? window.confirm('Are you sure you want to delete this provider?')
-      : true;
-    if (!shouldDelete) return;
+    if (deletingProviderId) return;
 
+    if (pendingDeleteProviderId !== id) {
+      clearDeleteConfirmation();
+      setPendingDeleteProviderId(id);
+      deleteConfirmTimeoutRef.current = window.setTimeout(() => {
+        setPendingDeleteProviderId((current) => (current === id ? null : current));
+        deleteConfirmTimeoutRef.current = null;
+      }, 3000);
+      return;
+    }
+
+    clearDeleteConfirmation();
+    setDeletingProviderId(id);
     try {
       await api.deleteProvider(id);
       await loadProviders();
@@ -201,10 +231,13 @@ export function ProviderManager({ isOpen, onClose, inline = false, readOnly = fa
       console.error('Failed to delete provider:', error);
       const message = error instanceof Error ? error.message : String(error);
       alert(`Failed to delete provider: ${message}`);
+    } finally {
+      setDeletingProviderId(null);
     }
   };
 
   const handleSetDefault = async (id: string) => {
+    clearDeleteConfirmation();
     try {
       await api.setDefaultProvider(id);
       await loadProviders();
@@ -367,8 +400,13 @@ export function ProviderManager({ isOpen, onClose, inline = false, readOnly = fa
               </button>
               <button
                 onClick={() => handleDelete(provider.id)}
-                className="p-1.5 rounded-md hover:bg-secondary text-destructive hover:text-destructive"
-                title="Delete"
+                disabled={deletingProviderId !== null}
+                className={`p-1.5 rounded-md transition-colors disabled:opacity-50 ${
+                  pendingDeleteProviderId === provider.id
+                    ? 'bg-destructive/15 text-destructive hover:bg-destructive/25'
+                    : 'hover:bg-secondary text-destructive hover:text-destructive'
+                }`}
+                title={pendingDeleteProviderId === provider.id ? 'Click again to confirm delete' : 'Delete'}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -382,7 +420,10 @@ export function ProviderManager({ isOpen, onClose, inline = false, readOnly = fa
 
       {!readOnly && (
       <button
-        onClick={() => setShowAddForm(true)}
+        onClick={() => {
+          clearDeleteConfirmation();
+          setShowAddForm(true);
+        }}
         className="w-full py-2 border-2 border-dashed border-border rounded-lg text-muted-foreground hover:border-muted-foreground hover:text-foreground flex items-center justify-center gap-2"
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

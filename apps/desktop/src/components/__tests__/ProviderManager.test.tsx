@@ -44,6 +44,7 @@ const mockFacadeState = {
 const { mockProviderMetaState, useProviderMetaStoreMock } = vi.hoisted(() => {
   const state = {
     getProviders: vi.fn(() => []),
+    setProviders: vi.fn(),
   };
 
   const store = Object.assign(
@@ -385,27 +386,27 @@ describe('ProviderManager', () => {
   });
 
   describe('Delete Provider', () => {
-    it('calls deleteProvider when delete is confirmed', async () => {
-      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
-
+    it('calls deleteProvider after delete is confirmed with a second click', async () => {
       await renderProviderManager({ onClose: mockOnClose });
 
       await waitFor(() => {
         expect(screen.getByText('Claude Default')).toBeInTheDocument();
       });
 
-      const deleteButtons = screen.getAllByTitle('Delete');
-      await clickAsync(deleteButtons[0]);
+      const deleteButton = screen.getAllByTitle('Delete')[0];
+      await clickAsync(deleteButton);
 
-      expect(confirmSpy).toHaveBeenCalledWith('Are you sure you want to delete this provider?');
-      expect(api.deleteProvider).toHaveBeenCalledWith('p1');
+      expect(api.deleteProvider).not.toHaveBeenCalled();
+      expect(deleteButton).toHaveAttribute('title', 'Click again to confirm delete');
 
-      confirmSpy.mockRestore();
+      await clickAsync(deleteButton);
+
+      await waitFor(() => {
+        expect(api.deleteProvider).toHaveBeenCalledWith('p1');
+      });
     });
 
-    it('does not delete when confirm is cancelled', async () => {
-      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
-
+    it('does not delete on the first delete click', async () => {
       await renderProviderManager({ onClose: mockOnClose });
 
       await waitFor(() => {
@@ -415,10 +416,7 @@ describe('ProviderManager', () => {
       const deleteButtons = screen.getAllByTitle('Delete');
       await clickAsync(deleteButtons[0]);
 
-      expect(confirmSpy).toHaveBeenCalled();
       expect(api.deleteProvider).not.toHaveBeenCalled();
-
-      confirmSpy.mockRestore();
     });
   });
 
@@ -541,7 +539,6 @@ describe('ProviderManager', () => {
     it('shows alert when deleteProvider fails', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
-      vi.spyOn(window, 'confirm').mockReturnValue(true);
       vi.mocked(api.deleteProvider).mockRejectedValueOnce(new Error('Delete error'));
 
       await renderProviderManager({ onClose: mockOnClose });
@@ -550,7 +547,9 @@ describe('ProviderManager', () => {
         expect(screen.getByText('Claude Default')).toBeInTheDocument();
       });
 
-      await clickAsync(screen.getAllByTitle('Delete')[0]);
+      const deleteButton = screen.getAllByTitle('Delete')[0];
+      await clickAsync(deleteButton);
+      await clickAsync(deleteButton);
 
       await waitFor(() => {
         expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to delete provider'));
