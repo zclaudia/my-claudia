@@ -12,7 +12,7 @@ function formatTimeAgo(ts: number): string {
   return `${hours}h ago`;
 }
 
-function PidBadge({ pid, cliPid }: { pid: number; cliPid?: number }) {
+function PidBadge({ pid, cliPid, serverId }: { pid: number; cliPid?: number; serverId?: string }) {
   const [tooltip, setTooltip] = useState<string>(`PID: ${pid}${cliPid ? ` (CLI: ${cliPid})` : ''}\nHover to query process info...`);
   const fetchedRef = useRef(false);
 
@@ -21,7 +21,7 @@ function PidBadge({ pid, cliPid }: { pid: number; cliPid?: number }) {
     fetchedRef.current = true;
 
     const pidsToQuery = cliPid ? [pid, cliPid] : [pid];
-    Promise.all(pidsToQuery.map(p => getProcessInfo(p))).then((results) => {
+    Promise.all(pidsToQuery.map(p => getProcessInfo(p, serverId))).then((results) => {
       const lines: string[] = [];
       for (const info of results) {
         if (info.alive) {
@@ -80,7 +80,7 @@ function TaskItem({ task, onRemove, onStop }: { task: BackgroundTask; onRemove: 
           {task.description || 'Background Task'}
         </span>
         {task.taskRootPid && (
-          <PidBadge pid={task.taskRootPid} cliPid={task.cliPid} />
+          <PidBadge pid={task.taskRootPid} cliPid={task.cliPid} serverId={task.serverId} />
         )}
         <span className="text-muted-foreground/60 flex-shrink-0">
           {formatTimeAgo(task.startedAt)}

@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { getProcessInfo } from '../../services/api';
 import { useBackgroundTaskStore, type BackgroundTask } from '../backgroundTaskStore';
+
+vi.mock('../../services/api', () => ({
+  getProcessInfo: vi.fn(),
+}));
 
 const makeTask = (id: string, sessionId = 'sess-1', status: BackgroundTask['status'] = 'started'): BackgroundTask => ({
   id,
@@ -10,13 +15,17 @@ const makeTask = (id: string, sessionId = 'sess-1', status: BackgroundTask['stat
 });
 
 describe('backgroundTaskStore', () => {
+  const mockGetProcessInfo = vi.mocked(getProcessInfo);
+
   beforeEach(() => {
     vi.useFakeTimers();
     useBackgroundTaskStore.setState({ tasks: {} });
+    mockGetProcessInfo.mockReset();
   });
 
   afterEach(() => {
     useBackgroundTaskStore.getState().clearTasks();
+    useBackgroundTaskStore.getState().stopPidMonitor();
     vi.runOnlyPendingTimers();
     vi.useRealTimers();
   });
@@ -98,5 +107,34 @@ describe('backgroundTaskStore', () => {
 
   it('getTasksBySession returns empty for unknown session', () => {
     expect(useBackgroundTaskStore.getState().getTasksBySession('unknown')).toEqual([]);
+  });
+
+  it('starts PID monitor when an existing running task gains a PID', async () => {
+    mockGetProcessInfo.mockResolvedValue({ alive: false, pid: 71100 });
+    useBackgroundTaskStore.getState().addTask({
+      ...makeTask('t1'),
+      serverId: 'server-1',
+    });
+
+    useBackgroundTaskStore.getState().updateTask('t1', { taskRootPid: 71100 });
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(mockGetProcessInfo).toHaveBeenCalledWith(71100, 'server-1');
+    expect(useBackgroundTaskStore.getState().tasks.t1.status).toBe('stopped');
+  });
+
+  it('auto-removes running task after monitored PID exits', async () => {
+    mockGetProcessInfo.mockResolvedValue({ alive: false, pid: 71100 });
+
+    useBackgroundTaskStore.getState().addTask({
+      ...makeTask('t1'),
+      taskRootPid: 71100,
+    });
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(useBackgroundTaskStore.getState().tasks.t1.status).toBe('stopped');
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(useBackgroundTaskStore.getState().tasks.t1).toBeUndefined();
   });
 });

@@ -115,9 +115,9 @@ export interface ProcessInfo {
   args?: string;
 }
 
-export async function getProcessInfo(pid: number): Promise<ProcessInfo> {
-  const { fetchApi } = await import('./base');
-  const result = await fetchApi<ProcessInfo>(`/api/system/process-info/${pid}`);
+export async function getProcessInfo(pid: number, backendId?: string | null): Promise<ProcessInfo> {
+  const { fetchApiForBackend } = await import('./base');
+  const result = await fetchApiForBackend<ProcessInfo>(`/api/system/process-info/${pid}`, backendId);
   if (!result.success || !result.data) return { alive: false, pid };
   return result.data;
 }

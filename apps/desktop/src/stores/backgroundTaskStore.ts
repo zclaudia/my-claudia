@@ -51,6 +51,14 @@ function isTerminalStatus(status: BackgroundTask['status']): boolean {
   return status === 'completed' || status === 'failed' || status === 'stopped';
 }
 
+function isRunningStatus(status: BackgroundTask['status']): boolean {
+  return status === 'started' || status === 'in_progress';
+}
+
+function getMonitorPid(task: BackgroundTask): number | undefined {
+  return task.taskRootPid || task.cliPid;
+}
+
 function clearAutoRemoveTimer(taskId: string): void {
   const timer = autoRemoveTimers.get(taskId);
   if (timer) {
@@ -67,6 +75,12 @@ function scheduleAutoRemove(taskId: string, get: () => BackgroundTaskState): voi
   }, AUTO_REMOVE_DELAY_MS));
 }
 
+function maybeStartPidMonitor(task: BackgroundTask | undefined, get: () => BackgroundTaskState): void {
+  if (task && isRunningStatus(task.status) && getMonitorPid(task)) {
+    get().startPidMonitor();
+  }
+}
+
 export const useBackgroundTaskStore = create<BackgroundTaskState>((set, get) => ({
   tasks: {},
 
@@ -74,10 +88,7 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set, get) => 
     set((state) => ({
       tasks: { ...state.tasks, [task.id]: task }
     }));
-    // Auto-start PID monitor when a task with PID is added
-    if (task.taskRootPid || task.cliPid) {
-      get().startPidMonitor();
-    }
+    maybeStartPidMonitor(task, get);
     if (isTerminalStatus(task.status)) {
       scheduleAutoRemove(task.id, get);
     } else {
@@ -92,7 +103,9 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set, get) => 
         [taskId]: { ...state.tasks[taskId], ...updates }
       }
     }));
-    const status = updates.status || get().tasks[taskId]?.status;
+    const task = get().tasks[taskId];
+    maybeStartPidMonitor(task, get);
+    const status = task?.status;
     if (status && isTerminalStatus(status)) {
       scheduleAutoRemove(taskId, get);
     } else {
@@ -134,7 +147,7 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set, get) => 
     pidMonitorInterval = setInterval(async () => {
       const { tasks, updateTask } = get();
       const runningTasks = Object.values(tasks).filter(
-        t => (t.status === 'started' || t.status === 'in_progress') && (t.taskRootPid || t.cliPid),
+        t => isRunningStatus(t.status) && getMonitorPid(t),
       );
 
       if (runningTasks.length === 0) {
@@ -144,10 +157,14 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set, get) => 
       }
 
       for (const task of runningTasks) {
-        const pid = task.taskRootPid || task.cliPid;
+        const pid = getMonitorPid(task);
         if (!pid) continue;
         try {
-          const info = await getProcessInfo(pid);
+          const info = await getProcessInfo(pid, task.serverId);
+          const currentTask = get().tasks[task.id];
+          if (!currentTask || !isRunningStatus(currentTask.status) || getMonitorPid(currentTask) !== pid) {
+            continue;
+          }
           if (!info.alive) {
             console.log(`[PidMonitor] PID ${pid} for task "${task.description}" is no longer alive, marking as stopped`);
             updateTask(task.id, {
