@@ -1,11 +1,10 @@
-import { useEffect, useRef } from 'react';
-import { Terminal, type ITheme } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import { WebLinksAddon } from '@xterm/addon-web-links';
+import { useEffect, useRef, useCallback } from 'react';
+import type { ITheme } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
+import type { ClientMessage } from '@my-claudia/shared';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useTheme } from '../../contexts/ThemeContext';
-import { xtermRegistry } from '../../utils/xtermRegistry';
+import { useEnsureTerminalController } from '../../services/terminal/useTerminalController';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useFacadeStore } from '../../stores/facadeStore';
@@ -69,196 +68,136 @@ export function XTerminal({ terminalId, projectId, workingDirectory, mode = 'ope
   const containerRef = useRef<HTMLDivElement>(null);
   const { sendMessage, connectServer } = useConnection();
   const { resolvedTheme } = useTheme();
-  const terminalRef = useRef<Terminal | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
-  const resizeObserverRef = useRef<ResizeObserver | null>(null);
-  const clearNeedsReattach = useTerminalStore((s) => s.clearNeedsReattach);
-  const clearReattachFailed = useTerminalStore((s) => s.clearReattachFailed);
+
   const activeServerId = useServerStore((s) => s.activeServerId);
   const facadeConnectionState = useFacadeStore((s) => s.connectionState);
   const facadeBackends = useFacadeStore((s) => s.backends);
-  const activeServerStatus = isMobileBackendUsable({
-    backendId: activeServerId,
-    connectionState: facadeConnectionState,
-    backends: facadeBackends,
-  })
-    ? 'connected'
-    : (facadeConnectionState === 'error' ? 'error' : 'disconnected');
 
-  const focusTerminal = (requireVisible = true) => {
-    const terminal = terminalRef.current;
-    const container = containerRef.current;
-    if (!terminal || !container) return;
-    if (requireVisible && (container.clientHeight === 0 || container.clientWidth === 0)) return;
+  // sendMessage / connectServer are captured by the controller for its full lifetime.
+  // Wrap them in refs so the references seen by the controller stay valid even when the
+  // ConnectionContext rebuilds them.
+  const sendMessageRef = useRef(sendMessage);
+  sendMessageRef.current = sendMessage;
+  const connectServerRef = useRef(connectServer);
+  connectServerRef.current = connectServer;
 
-    requestAnimationFrame(() => {
-      try {
-        terminal.focus();
-      } catch {
-        // Ignore transient focus failures from mobile WebViews.
+  /**
+   * Wrap outgoing terminal_input with the sticky-Ctrl transform used on mobile, so the controller
+   * can keep its onData binding generic. Other message types pass through untouched.
+   */
+  const wrappedSend = useCallback((msg: ClientMessage) => {
+    if (msg.type === 'terminal_input' && msg.terminalId === terminalId) {
+      const store = useTerminalStore.getState();
+      if (store.ctrlActive[terminalId] && msg.data.length === 1) {
+        const code = msg.data.charCodeAt(0);
+        let data = msg.data;
+        if (code >= 97 && code <= 122) data = String.fromCharCode(code - 96);
+        else if (code >= 65 && code <= 90) data = String.fromCharCode(code - 64);
+        store.toggleCtrl(terminalId);
+        sendMessageRef.current({ ...msg, data });
+        return;
       }
-    });
-  };
-
-  // Update terminal theme when app theme changes
-  useEffect(() => {
-    const terminal = terminalRef.current;
-    if (!terminal) return;
-    const timer = setTimeout(() => {
-      terminal.options.theme = getTerminalTheme();
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [resolvedTheme]);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    // Reuse existing terminal if available (StrictMode re-mount or drawer reopen).
-    // The registry entry survives across StrictMode double-mount cycles.
-    let entry = xtermRegistry.get(terminalId);
-
-    if (!entry) {
-      const theme = getTerminalTheme();
-      const terminal = new Terminal({
-        cursorBlink: true,
-        fontSize: 14,
-        fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-        theme,
-        allowProposedApi: true,
-      });
-
-      const fitAddon = new FitAddon();
-      terminal.loadAddon(fitAddon);
-      terminal.loadAddon(new WebLinksAddon());
-      xtermRegistry.set(terminalId, terminal, fitAddon);
-      entry = xtermRegistry.get(terminalId)!;
     }
+    sendMessageRef.current(msg);
+  }, [terminalId]);
 
-    const { terminal, fitAddon } = entry;
-    terminalRef.current = terminal;
-    fitAddonRef.current = fitAddon;
+  const buildDeps = useCallback(
+    () => ({
+      terminalId,
+      sendMessage: wrappedSend,
+      getTheme: getTerminalTheme,
+    }),
+    [terminalId, wrappedSend],
+  );
 
+  const { controller, state } = useEnsureTerminalController(terminalId, buildDeps);
+
+  // Theme refresh — small debounce avoids flashing during cross-fade transitions
+  useEffect(() => {
+    const t = setTimeout(() => controller.refreshTheme(), 50);
+    return () => clearTimeout(t);
+  }, [controller, resolvedTheme]);
+
+  // Mount the xterm into the container; auto-detach on unmount
+  useEffect(() => {
     const container = containerRef.current;
+    if (!container) return;
+    return controller.bindView(container);
+  }, [controller]);
 
-    // Attach terminal to DOM and send terminal_open/terminal_attach when container is ready.
-    const attach = () => {
-      if (!container || container.clientHeight === 0 || container.clientWidth === 0) return false;
-      const termElement = (terminal as unknown as { element?: HTMLElement }).element;
-      if (termElement) {
-        if (termElement.parentElement !== container) {
-          container.appendChild(termElement);
-        }
+  /**
+   * Drive the lifecycle:
+   *   idle              → open() or attach() based on `mode`
+   *   detached          → reattach automatically (e.g. ws bounce)
+   *   failed (mode=attach, first time) → fall back to open()
+   * Other states are mid-flight; the controller is already on it.
+   */
+  const fallbackUsedRef = useRef(false);
+  useEffect(() => {
+    fallbackUsedRef.current = false;
+  }, [mode, terminalId]);
+
+  useEffect(() => {
+    if (state.kind === 'idle') {
+      if (mode === 'attach') {
+        controller.attach();
       } else {
-        // Clear any leftover DOM from a previously-disposed xterm instance before opening.
-        if (container.firstChild) container.replaceChildren();
-        terminal.open(container);
-      }
-      fitAddon.fit();
-      const reg = xtermRegistry.get(terminalId);
-      if (reg && !reg.serverOpened) {
-        if (!activeServerId) return true;
-        // Kick a connect attempt if the backend is reachable but currently dropped.
-        // The actual terminal_open / terminal_attach is sent unconditionally below — facade.send()
-        // queues messages while the ws is still opening, so gating on connection status here would
-        // miss the legitimate "first open right after app launch" path and leave the panel blank.
-        if (activeServerStatus === 'disconnected' || activeServerStatus === 'error') {
-          connectServer(activeServerId);
-        }
-        reg.serverOpened = true;
-
-        if (mode === 'attach') {
-          // Reattach to existing PTY session (for pop-out windows)
-          sendMessage({
-            type: 'terminal_attach',
-            terminalId,
-            cols: terminal.cols,
-            rows: terminal.rows,
-          });
-        } else {
-          // Create new PTY session
-          clearNeedsReattach(terminalId);
-          clearReattachFailed(terminalId);
-          sendMessage({
-            type: 'terminal_open',
-            terminalId,
-            projectId,
-            workingDirectory,
-            cols: terminal.cols,
-            rows: terminal.rows,
-          });
-        }
-
-        // Forward keystrokes to server (with sticky Ctrl support for mobile)
-        terminal.onData((data) => {
-          let sendData = data;
-          const store = useTerminalStore.getState();
-          if (store.ctrlActive[terminalId] && data.length === 1) {
-            const code = data.charCodeAt(0);
-            if (code >= 97 && code <= 122) {
-              sendData = String.fromCharCode(code - 96);
-            } else if (code >= 65 && code <= 90) {
-              sendData = String.fromCharCode(code - 64);
-            }
-            store.toggleCtrl(terminalId);
-          }
-          sendMessage({
-            type: 'terminal_input',
-            terminalId,
-            data: sendData,
-          });
+        // Match legacy connectServer side-effect when the backend transport is dropped.
+        const reachable = isMobileBackendUsable({
+          backendId: activeServerId,
+          connectionState: facadeConnectionState,
+          backends: facadeBackends,
         });
+        if (!reachable && activeServerId) {
+          connectServerRef.current(activeServerId);
+        }
+        controller.open({ projectId, workingDirectory });
       }
-
-      focusTerminal();
-      return true;
-    };
-
-    // Try to attach in the next animation frame
-    const rafId = requestAnimationFrame(() => attach());
-
-    // ResizeObserver handles both deferred init (if RAF fires at 0 height)
-    // and subsequent resize events.
-    resizeObserverRef.current?.disconnect();
-    const resizeObserver = new ResizeObserver(() => {
-      if (!container || container.clientHeight === 0) return;
-      const wasOpened = xtermRegistry.get(terminalId)?.serverOpened ?? false;
-      if (!attach()) return;
-      if (wasOpened) {
-        sendMessage({
-          type: 'terminal_resize',
-          terminalId,
-          cols: terminal.cols,
-          rows: terminal.rows,
-        });
-      }
-    });
-    resizeObserver.observe(container);
-    resizeObserverRef.current = resizeObserver;
-
-    return () => {
-      cancelAnimationFrame(rafId);
-      resizeObserver.disconnect();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      return;
+    }
+    if (state.kind === 'detached') {
+      controller.attach();
+      return;
+    }
+    if (state.kind === 'failed' && mode === 'attach' && !fallbackUsedRef.current) {
+      fallbackUsedRef.current = true;
+      controller.open({ projectId, workingDirectory });
+    }
   }, [
-    terminalId,
+    controller,
+    state.kind,
+    mode,
     projectId,
     workingDirectory,
-    mode,
-    clearNeedsReattach,
-    clearReattachFailed,
     activeServerId,
-    activeServerStatus,
-    connectServer,
-    sendMessage,
+    facadeConnectionState,
+    facadeBackends,
   ]);
+
+  // ---- render ----
+
+  if (state.kind === 'failed' && fallbackUsedRef.current) {
+    return (
+      <div className="flex items-center justify-center h-full text-destructive text-xs px-4">
+        Terminal failed: {state.error}
+      </div>
+    );
+  }
+
+  if (state.kind === 'exited') {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground text-xs px-4">
+        Process exited (code {state.code})
+      </div>
+    );
+  }
 
   return (
     <div
       ref={containerRef}
       className="w-full h-full"
       style={{ backgroundColor: 'hsl(var(--terminal-bg))' }}
-      onPointerDown={() => focusTerminal(false)}
+      onPointerDown={() => controller.focus()}
     />
   );
 }

@@ -204,6 +204,15 @@ export class TerminalController {
     }
   }
 
+  /** Focuses the underlying xterm if mounted; safe to call even if not yet rendered. */
+  focus(): void {
+    try {
+      this.terminal?.focus();
+    } catch {
+      // Mobile WebViews occasionally throw on focus before the canvas is ready.
+    }
+  }
+
   // ---- inbound server messages ----
 
   handleServerMessage(msg: ServerMessage): void {

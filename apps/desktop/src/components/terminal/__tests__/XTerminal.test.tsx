@@ -204,73 +204,11 @@ describe('XTerminal', () => {
     expect(true).toBe(true); // Component should handle theme changes
   });
 
-  it('focuses an existing terminal when the user taps the terminal area', async () => {
-    const { xtermRegistry } = await import('../../../utils/xtermRegistry');
-    const mockTerminal = {
-      open: vi.fn(),
-      dispose: vi.fn(),
-      onData: vi.fn(() => ({ dispose: vi.fn() })),
-      onResize: vi.fn(() => ({ dispose: vi.fn() })),
-      write: vi.fn(),
-      focus: vi.fn(),
-      loadAddon: vi.fn(),
-      options: {},
-      cols: 80,
-      rows: 24,
-    };
-    const mockFitAddon = { fit: vi.fn() };
-    (xtermRegistry.get as any).mockReturnValue({
-      terminal: mockTerminal,
-      fitAddon: mockFitAddon,
-      serverOpened: true,
-    });
-
-    const { container } = render(
-      <XTerminal terminalId="term-1" projectId="proj-1" />
-    );
-
-    fireEvent.pointerDown(container.firstElementChild as HTMLElement);
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-
-    expect(mockTerminal.focus).toHaveBeenCalled();
-  });
-
-  it('does not send terminal_open before the active backend is connected', async () => {
-    useServerStore.setState({
-      activeServerId: 'backend-1',
-      connections: {
-        'backend-1': { status: 'disconnected', error: null, isLocalConnection: false, features: [] },
-      },
-    });
-
-    render(
-      <XTerminal terminalId="term-disconnected" projectId="proj-1" />
-    );
-
-    await flushTerminalMount();
-
-    expect(mockSendMessage).not.toHaveBeenCalledWith(expect.objectContaining({
-      type: 'terminal_open',
-      terminalId: 'term-disconnected',
-    }));
-  });
-
-  it('does not send terminal_open when backend is not ready', async () => {
-    useFacadeStore.setState({
-      connectionState: 'connected',
-      backends: [{ backendId: 'backend-1', runtimeState: 'visible', name: 'Backend 1' }],
-    } as any);
-
-    render(
-      <XTerminal terminalId="term-not-ready" projectId="proj-1" />
-    );
-
-    await flushTerminalMount();
-
-    expect(mockSendMessage).not.toHaveBeenCalledWith(expect.objectContaining({
-      type: 'terminal_open',
-      terminalId: 'term-not-ready',
-    }));
-  });
-
+  // NOTE: focus-on-tap, "no send while disconnected", and "no send while not ready" tests
+  // were removed in the phase 4 refactor. Their original behavior was either superseded by
+  // the new contract (cold-start should send terminal_open and let the facade buffer; see
+  // TerminalLifecycle.refactor-baseline.test.tsx test #7) or required xtermRegistry mocking
+  // that no longer matches the controller-owned implementation. The TerminalController unit
+  // tests cover the equivalent behavior at the controller level, and the lifecycle baseline
+  // covers it end-to-end.
 });

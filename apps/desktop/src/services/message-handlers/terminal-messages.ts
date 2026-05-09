@@ -1,11 +1,22 @@
 /**
  * Terminal I/O message handlers.
+ *
+ * Migration note: messages are also dispatched to the new TerminalRegistry first.
+ * If a TerminalController consumed it, the legacy xtermRegistry path below becomes a no-op
+ * (legacy registry has no entry for ids owned by the new controller). The two paths coexist
+ * during the refactor and both fall away once phase 7 deletes the legacy registry.
  */
 import type { ServerMessage } from '@my-claudia/shared';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { xtermRegistry } from '../../utils/xtermRegistry';
+import { terminalRegistry } from '../terminal/TerminalRegistry';
 
 export function handleTerminalMessage(msg: ServerMessage, logTag: string): boolean {
+  // Phase 4 — try the new registry first; if it owns the terminalId, the controller
+  // performs the full update (xterm.write, state machine, scrollback) and the legacy path
+  // below safely no-ops.
+  terminalRegistry.dispatchServerMessage(msg);
+
   switch (msg.type) {
     case 'terminal_opened': {
       if (!msg.success) {

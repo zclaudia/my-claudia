@@ -25,6 +25,7 @@ import { useTerminalStore } from '../../../stores/terminalStore';
 import { useServerStore } from '../../../stores/serverStore';
 import { useFacadeStore } from '../../../stores/facadeStore';
 import { xtermRegistry } from '../../../utils/xtermRegistry';
+import { terminalRegistry } from '../../../services/terminal/TerminalRegistry';
 import { handleTerminalMessage } from '../../../services/message-handlers/terminal-messages';
 
 // ---------- Network / connection layer ----------
@@ -125,6 +126,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   cleanup();
   clearRegistry();
+  terminalRegistry.clear();
 
   useTerminalStore.setState({
     terminals: {},
@@ -153,6 +155,7 @@ beforeEach(() => {
 
 afterEach(() => {
   clearRegistry();
+  terminalRegistry.clear();
 });
 
 describe('Terminal lifecycle — refactor baseline', () => {
