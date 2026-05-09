@@ -690,9 +690,11 @@ function CollapsedTextBlock({ content }: { content: string }) {
 const SegmentedContent = memo(function SegmentedContent({
   contentBlocks,
   toolCalls,
+  isStreaming,
 }: {
   contentBlocks: ContentBlock[];
   toolCalls: ToolCallState[];
+  isStreaming: boolean;
 }) {
   // Build toolUseId → ToolCallState lookup
   const toolCallMap = useMemo(() => {
@@ -743,12 +745,15 @@ const SegmentedContent = memo(function SegmentedContent({
     <>
       {segments.map((segment, segIdx) => {
         if (segment.kind === 'tools') {
+          // Only the trailing tools group can still receive new tools; once any segment follows
+          // (e.g. a new text block), this group is finalized and should auto-collapse.
+          const isTrailingTools = segIdx === segments.length - 1;
           return (
             <div
               key={`tools-${segIdx}`}
               className="w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl min-w-0"
             >
-              <ToolCallList toolCalls={segment.toolCalls} />
+              <ToolCallList toolCalls={segment.toolCalls} isStreaming={isStreaming && isTrailingTools} />
             </div>
           );
         }
@@ -833,6 +838,7 @@ const MessageItem = memo(function MessageItem({ message, streamingContentBlocks,
         <SegmentedContent
           contentBlocks={blocks}
           toolCalls={toolCalls}
+          isStreaming={Boolean(streamingContentBlocks)}
         />
         <div className="mt-1 text-xs opacity-50 px-3">
           {formatMessageTimestamp(message.createdAt)}

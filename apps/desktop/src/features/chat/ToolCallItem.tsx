@@ -1,4 +1,4 @@
-import { useState, useMemo, memo } from 'react';
+import { useState, useMemo, useEffect, useRef, memo } from 'react';
 import { AnsiUp } from 'ansi_up';
 import type { ToolCallState } from '../../stores/chatStore';
 import { getToolIcon } from '../../config/icons';
@@ -887,6 +887,7 @@ export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallIte
 interface ToolCallListProps {
   toolCalls: ToolCallState[];
   defaultCollapsed?: boolean;
+  isStreaming?: boolean;
 }
 
 // Get a short summary of what a tool call did
@@ -976,78 +977,121 @@ function getStatusIconComponent(status: ToolCallState['status']) {
 
 const MAX_VISIBLE_TOOLS = 5;
 
-export const ToolCallList = memo(function ToolCallList({ toolCalls, defaultCollapsed = false }: ToolCallListProps) {
-  const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
+function SummaryBar({ toolCalls, onClick }: { toolCalls: ToolCallState[]; onClick: () => void }) {
+  const completedCount = toolCalls.filter((tc) => tc.status === 'completed').length;
+  const errorCount = toolCalls.filter((tc) => tc.status === 'error').length;
+  const runningCount = toolCalls.filter((tc) => tc.status === 'running').length;
+
+  return (
+    <div
+      onClick={onClick}
+      className="px-3 py-2 text-xs bg-muted/50 rounded-md hover:bg-muted transition-colors cursor-pointer"
+    >
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="flex items-center gap-1 text-foreground font-medium">
+          <Wrench size={12} className="text-muted-foreground" />
+          {toolCalls.length} tool call{toolCalls.length > 1 ? 's' : ''}
+        </span>
+        <span className="flex items-center gap-1 text-muted-foreground">
+          {completedCount > 0 && <span className="flex items-center gap-0.5 text-success"><CheckCircle2 size={10} />{completedCount}</span>}
+          {errorCount > 0 && <span className="flex items-center gap-0.5 text-destructive ml-1"><XCircle size={10} />{errorCount}</span>}
+          {runningCount > 0 && <span className="flex items-center gap-0.5 text-primary ml-1"><Loader2 size={10} className="animate-spin" />{runningCount}</span>}
+        </span>
+        <span className="flex items-center gap-0.5 text-muted-foreground ml-auto text-[10px]">Click to expand <ChevronRight size={10} /></span>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {toolCalls.map((tc, idx) => (
+          <span
+            key={tc.id || idx}
+            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] ${
+              tc.status === 'error'
+                ? 'bg-destructive/20 text-destructive'
+                : tc.status === 'running'
+                ? 'bg-primary/20 text-primary'
+                : 'bg-secondary text-muted-foreground'
+            }`}
+            title={formatToolInput(tc.toolName, tc.toolInput)}
+          >
+            <span>{getStatusIconComponent(tc.status)}</span>
+            <span className="truncate max-w-[120px]">{getToolCallSummary(tc)}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+type ToolCallListMode = 'streaming' | 'collapsed' | 'expanded';
+
+export const ToolCallList = memo(function ToolCallList({ toolCalls, defaultCollapsed = false, isStreaming = false }: ToolCallListProps) {
+  const [userOverride, setUserOverride] = useState<ToolCallListMode | null>(defaultCollapsed ? 'collapsed' : null);
   const [showAll, setShowAll] = useState(false);
+
+  // While streaming, a new tool arriving should reset any user override so the latest tool
+  // becomes visible again; otherwise a single click could hide every subsequent tool of the run.
+  const prevLengthRef = useRef(toolCalls.length);
+  useEffect(() => {
+    if (isStreaming && toolCalls.length !== prevLengthRef.current) {
+      if (userOverride !== null) setUserOverride(null);
+      if (showAll) setShowAll(false);
+    }
+    prevLengthRef.current = toolCalls.length;
+  }, [toolCalls.length, isStreaming, userOverride, showAll]);
 
   if (toolCalls.length === 0) return null;
 
-  // When collapsed, show a detailed summary of each tool call
-  if (isCollapsed) {
-    const completedCount = toolCalls.filter(tc => tc.status === 'completed').length;
-    const errorCount = toolCalls.filter(tc => tc.status === 'error').length;
-    const runningCount = toolCalls.filter(tc => tc.status === 'running').length;
+  const defaultMode: ToolCallListMode = isStreaming ? 'streaming' : 'collapsed';
+  const mode: ToolCallListMode = userOverride ?? defaultMode;
 
+  if (mode === 'collapsed') {
+    return <SummaryBar toolCalls={toolCalls} onClick={() => setUserOverride('expanded')} />;
+  }
+
+  if (mode === 'streaming') {
+    // Expand only the currently-running tools; everything else folds into the summary bar above.
+    // If none are running, fall back to the latest one for visual continuity during the brief gap
+    // between a tool finishing and the next one starting.
+    const runningTools: ToolCallState[] = [];
+    const otherTools: ToolCallState[] = [];
+    for (const tc of toolCalls) {
+      if (tc.status === 'running') runningTools.push(tc);
+      else otherTools.push(tc);
+    }
+    const hasRunning = runningTools.length > 0;
+    const expandedTools = hasRunning ? runningTools : [toolCalls[toolCalls.length - 1]];
+    const olderTools = hasRunning ? otherTools : toolCalls.slice(0, -1);
     return (
-      <div
-        onClick={() => setIsCollapsed(false)}
-        className="px-3 py-2 text-xs bg-muted/50 rounded-lg hover:bg-muted transition-colors cursor-pointer"
-      >
-        {/* Header with counts */}
-        <div className="flex items-center gap-2 mb-1.5">
-          <span className="flex items-center gap-1 text-foreground font-medium">
-            <Wrench size={12} className="text-muted-foreground" />
-            {toolCalls.length} tool call{toolCalls.length > 1 ? 's' : ''}
-          </span>
-          <span className="flex items-center gap-1 text-muted-foreground">
-            {completedCount > 0 && <span className="flex items-center gap-0.5 text-success"><CheckCircle2 size={10} />{completedCount}</span>}
-            {errorCount > 0 && <span className="flex items-center gap-0.5 text-destructive ml-1"><XCircle size={10} />{errorCount}</span>}
-            {runningCount > 0 && <span className="flex items-center gap-0.5 text-primary ml-1"><Loader2 size={10} className="animate-spin" />{runningCount}</span>}
-          </span>
-          <span className="flex items-center gap-0.5 text-muted-foreground ml-auto text-[10px]">Click to expand <ChevronRight size={10} /></span>
-        </div>
-        {/* Brief list of each tool call */}
-        <div className="flex flex-wrap gap-1.5">
-          {toolCalls.map((tc, idx) => (
-            <span
-              key={tc.id || idx}
-              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] ${
-                tc.status === 'error'
-                  ? 'bg-destructive/20 text-destructive'
-                  : tc.status === 'running'
-                  ? 'bg-primary/20 text-primary'
-                  : 'bg-secondary text-muted-foreground'
-              }`}
-              title={formatToolInput(tc.toolName, tc.toolInput)}
-            >
-              <span>{getStatusIconComponent(tc.status)}</span>
-              <span className="truncate max-w-[120px]">{getToolCallSummary(tc)}</span>
-            </span>
-          ))}
-        </div>
+      <div className="space-y-2">
+        {olderTools.length > 0 && (
+          <SummaryBar toolCalls={olderTools} onClick={() => setUserOverride('expanded')} />
+        )}
+        {expandedTools.map((tc) => (
+          <ToolCallItem key={tc.id} toolCall={tc} />
+        ))}
       </div>
     );
   }
 
-  // Auto-collapse if there are more than MAX_VISIBLE_TOOLS
   const hasMany = toolCalls.length > MAX_VISIBLE_TOOLS;
   const earlierCount = Math.max(0, toolCalls.length - MAX_VISIBLE_TOOLS);
-  const visibleToolCalls = showAll || !hasMany
+  const visibleToolCalls = !hasMany || showAll
     ? toolCalls
     : toolCalls.slice(-MAX_VISIBLE_TOOLS);
 
+  const collapseAll = () => {
+    setUserOverride('collapsed');
+    setShowAll(false);
+  };
+
   return (
     <div className="space-y-1">
-      {/* Collapse button */}
-      {defaultCollapsed && (
-        <button
-          onClick={() => setIsCollapsed(true)}
-          className="flex items-center gap-2 px-3 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ChevronDown size={12} />
-          <span>Collapse tool calls</span>
-        </button>
-      )}
+      <button
+        onClick={collapseAll}
+        className="flex items-center gap-2 px-3 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ChevronDown size={12} />
+        <span>Collapse tool calls</span>
+      </button>
 
       {hasMany && (
         <button
