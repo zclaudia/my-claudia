@@ -157,11 +157,12 @@ export function XTerminal({ terminalId, projectId, workingDirectory, mode = 'ope
       const reg = xtermRegistry.get(terminalId);
       if (reg && !reg.serverOpened) {
         if (!activeServerId) return true;
-        if (activeServerStatus !== 'connected') {
-          if (activeServerStatus === 'disconnected' || activeServerStatus === 'error') {
-            connectServer(activeServerId);
-          }
-          return true;
+        // Kick a connect attempt if the backend is reachable but currently dropped.
+        // The actual terminal_open / terminal_attach is sent unconditionally below — facade.send()
+        // queues messages while the ws is still opening, so gating on connection status here would
+        // miss the legitimate "first open right after app launch" path and leave the panel blank.
+        if (activeServerStatus === 'disconnected' || activeServerStatus === 'error') {
+          connectServer(activeServerId);
         }
         reg.serverOpened = true;
 
