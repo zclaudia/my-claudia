@@ -64,18 +64,6 @@ vi.mock('@xterm/addon-web-links', () => ({
 
 vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
 
-vi.mock('../../../utils/xtermRegistry', () => {
-  const store = new Map<string, any>();
-  return {
-    xtermRegistry: {
-      get: vi.fn((id: string) => store.get(id)),
-      set: vi.fn((id: string, terminal: any, fitAddon: any) => {
-        store.set(id, { terminal, fitAddon });
-      }),
-      delete: vi.fn((id: string) => store.delete(id)),
-    },
-  };
-});
 
 vi.mock('../../../utils/platform', async (importOriginal) => {
   const mod = await importOriginal<Record<string, any>>();
@@ -152,33 +140,6 @@ describe('XTerminal', () => {
     vi.spyOn(window, 'getComputedStyle').mockReturnValue({
       getPropertyValue: mockGetPropertyValue,
     } as any);
-
-    const { container } = render(
-      <XTerminal terminalId="term-1" projectId="proj-1" />
-    );
-    expect(container.firstElementChild).toBeTruthy();
-  });
-
-  it('reuses existing terminal from registry on re-mount', async () => {
-    const { xtermRegistry } = await import('../../../utils/xtermRegistry');
-    const mockTerminal = {
-      open: vi.fn(),
-      dispose: vi.fn(),
-      onData: vi.fn(() => ({ dispose: vi.fn() })),
-      onResize: vi.fn(() => ({ dispose: vi.fn() })),
-      write: vi.fn(),
-      focus: vi.fn(),
-      loadAddon: vi.fn(),
-      options: {},
-      cols: 80,
-      rows: 24,
-    };
-    const mockFitAddon = { fit: vi.fn() };
-    (xtermRegistry.get as any).mockReturnValueOnce({
-      terminal: mockTerminal,
-      fitAddon: mockFitAddon,
-      serverOpened: true,
-    });
 
     const { container } = render(
       <XTerminal terminalId="term-1" projectId="proj-1" />

@@ -19,15 +19,6 @@ vi.mock('../../../hooks/useMediaQuery', () => ({
   useIsMobile: () => false,
 }));
 
-vi.mock('../../../utils/xtermRegistry', () => ({
-  xtermRegistry: {
-    delete: vi.fn(),
-    get: vi.fn(),
-    set: vi.fn(),
-    markDetached: vi.fn(),
-  },
-}));
-
 const mockCloseTerminal = vi.fn();
 const mockOpenTerminal = vi.fn();
 const mockToggleCtrl = vi.fn();
@@ -184,9 +175,10 @@ describe('TerminalActions', () => {
     const button = Array.from(container.querySelectorAll('button')).find((el) => el.title === 'Reload terminal') as HTMLButtonElement;
     fireEvent.click(button);
 
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'terminal_close', terminalId: 'term-1' })
-    );
+    // Reload now goes through TerminalController.close() (when a controller exists)
+    // and then closeTerminal/openTerminal on the store. The controller is created lazily
+    // by XTerminal, so in this test (which renders TerminalActions in isolation) no
+    // controller exists yet — the click only updates the store mappings.
     expect(mockCloseTerminal).toHaveBeenCalledWith('term-1');
     expect(mockOpenTerminal).toHaveBeenCalledWith('proj-1', 'backend-1');
   });

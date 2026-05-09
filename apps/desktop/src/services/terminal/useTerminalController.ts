@@ -1,9 +1,9 @@
 /**
  * React hooks bridging TerminalRegistry / TerminalController to components.
  *
- * Phase 3 of the terminal subsystem refactor. Components don't yet use these —
- * the legacy XTerminal still goes through xtermRegistry + useEffect. Phase 5
- * rewrites XTerminal to consume these hooks.
+ * `useTerminalController` is read-only and returns null state when no controller exists.
+ * `useEnsureTerminalController` is the typical entry point — XTerminal uses it to
+ * lazy-create-or-retrieve a controller for a given terminalId.
  */
 
 import { useMemo, useRef, useSyncExternalStore } from 'react';

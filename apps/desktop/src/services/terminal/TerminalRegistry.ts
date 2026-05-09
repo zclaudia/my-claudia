@@ -1,16 +1,10 @@
 /**
  * TerminalRegistry — per-window collection of TerminalController instances.
  *
- * Phase 3 of the terminal subsystem refactor. Replaces the role of the legacy
- * `xtermRegistry` (which only stored xterm Terminal/FitAddon pairs and a mutable
- * `serverOpened` flag) with a single owner that knows about the full lifecycle
- * via TerminalController.
- *
- * Each Tauri webview has its own JS context and therefore its own registry —
- * the main window and a popped-out window do NOT share controller instances.
- * That is intentional: the same `terminalId` corresponds to one server-side PTY
- * but two distinct view-side controllers, only one of which holds ownership at
- * any moment (enforced by `terminal_attach`).
+ * Each Tauri webview has its own JS context and therefore its own registry: the main window
+ * and a popped-out window do NOT share controller instances. That is intentional — the same
+ * `terminalId` corresponds to one server-side PTY but two distinct view-side controllers,
+ * only one of which holds ownership at any moment (enforced by `terminal_attach`).
  */
 
 import type { ServerMessage } from '@my-claudia/shared';

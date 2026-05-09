@@ -5,7 +5,6 @@ import { useIsMobile } from '../../hooks/useMediaQuery';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useServerStore } from '../../stores/serverStore';
 import { XTerminal } from './XTerminal';
-import { xtermRegistry } from '../../utils/xtermRegistry';
 import { terminalRegistry } from '../../services/terminal/TerminalRegistry';
 import { isDesktopTauri } from '../../utils/platform';
 import { openPopoutWindow, buildWindowTitle, getConnectionParams } from '../../utils/popoutWindow';
@@ -49,7 +48,6 @@ export function TerminalActions({ projectId }: { projectId: string }) {
   const activeServerId = useServerStore((s) => s.activeServerId);
   const terminalId = useTerminalStore((s) => s.getTerminalId(projectId, activeServerId));
   const isPoppedOut = useTerminalStore((s) => terminalId ? !!s.poppedOutTerminals[terminalId] : false);
-  const { sendMessage } = useConnection();
 
   return (
     <div className="flex items-center gap-0.5">
@@ -73,13 +71,7 @@ export function TerminalActions({ projectId }: { projectId: string }) {
       <button
         onClick={() => {
           if (!terminalId) return;
-          const controller = terminalRegistry.get(terminalId);
-          if (controller) {
-            controller.close();
-          } else {
-            sendMessage({ type: 'terminal_close', terminalId });
-            xtermRegistry.delete(terminalId);
-          }
+          terminalRegistry.get(terminalId)?.close();
           useTerminalStore.getState().closeTerminal(terminalId);
           useTerminalStore.getState().openTerminal(projectId, activeServerId);
         }}
@@ -102,8 +94,6 @@ export function TerminalPanel({ projectId, workingDirectory }: TerminalPanelProp
   const isMobile = useIsMobile();
   const activeServerId = useServerStore((s) => s.activeServerId);
   const terminalId = useTerminalStore((s) => s.getTerminalId(projectId, activeServerId));
-  const shouldReattach = useTerminalStore((s) => terminalId ? s.shouldReattach(terminalId) : false);
-  const reattachFailed = useTerminalStore((s) => terminalId ? s.hasReattachFailed(terminalId) : false);
   const isCtrl = !!(terminalId && ctrlActive[terminalId]);
   const { sendMessage } = useConnection();
 
@@ -150,7 +140,6 @@ export function TerminalPanel({ projectId, workingDirectory }: TerminalPanelProp
             terminalId={terminalId}
             projectId={projectId}
             workingDirectory={workingDirectory}
-            mode={shouldReattach && !reattachFailed ? 'attach' : 'open'}
           />
         ) : (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">

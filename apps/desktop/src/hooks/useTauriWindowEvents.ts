@@ -3,7 +3,6 @@ import { useUIStore } from '../stores/uiStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { usePluginStore } from '../stores/pluginStore';
 import { useDraftEditorStore } from '../stores/draftEditorStore';
-import { xtermRegistry } from '../utils/xtermRegistry';
 import { terminalRegistry } from '../services/terminal/TerminalRegistry';
 
 /**
@@ -35,20 +34,12 @@ export function useTauriWindowEvents() {
 
       cleanupTerminal = await listen<{ terminalId?: string }>('terminal-window-closed', (event) => {
         const closedTerminalId = event.payload?.terminalId;
-        if (closedTerminalId) {
-          useTerminalStore.getState().removePoppedOutTerminal(closedTerminalId);
-          // Make the panel visible first so the bound container is in the DOM tree before claim()
-          // re-mounts xterm into it.
-          usePluginStore.getState().updatePanelVisibility('terminal', true);
-          const controller = terminalRegistry.get(closedTerminalId);
-          if (controller) {
-            controller.claim();
-          } else {
-            // Fallback for terminals still living on the legacy path.
-            useTerminalStore.getState().markNeedsReattach(closedTerminalId);
-            xtermRegistry.delete(closedTerminalId);
-          }
-        }
+        if (!closedTerminalId) return;
+        useTerminalStore.getState().removePoppedOutTerminal(closedTerminalId);
+        // Make the panel visible first so the bound container is in the DOM tree before claim()
+        // re-mounts xterm into it.
+        usePluginStore.getState().updatePanelVisibility('terminal', true);
+        terminalRegistry.get(closedTerminalId)?.claim();
       });
 
       cleanupDraft = await listen<{ sessionId?: string }>('draft-window-closed', () => {

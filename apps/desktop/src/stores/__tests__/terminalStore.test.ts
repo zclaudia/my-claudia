@@ -10,8 +10,6 @@ describe('terminalStore', () => {
       readyTerminals: new Set(),
       drawerOpen: {},
       ctrlActive: {},
-      reattachTerminals: {},
-      failedReattachTerminals: {},
     });
     useServerStore.setState({
       activeServerId: 'backend-1',
@@ -245,30 +243,6 @@ describe('terminalStore', () => {
     });
   });
 
-  describe('reattach recovery state', () => {
-    it('marks reattach failures and clears them when requested', () => {
-      const tid = useTerminalStore.getState().openTerminal('project-1');
-
-      useTerminalStore.getState().markNeedsReattach(tid);
-      expect(useTerminalStore.getState().shouldReattach(tid)).toBe(true);
-      expect(useTerminalStore.getState().hasReattachFailed(tid)).toBe(false);
-
-      useTerminalStore.getState().markReattachFailed(tid);
-      expect(useTerminalStore.getState().hasReattachFailed(tid)).toBe(true);
-
-      useTerminalStore.getState().clearReattachFailed(tid);
-      expect(useTerminalStore.getState().hasReattachFailed(tid)).toBe(false);
-    });
-
-    it('cleans reattach flags when terminal closes', () => {
-      const tid = useTerminalStore.getState().openTerminal('project-1');
-      useTerminalStore.getState().markNeedsReattach(tid);
-      useTerminalStore.getState().markReattachFailed(tid);
-
-      useTerminalStore.getState().closeTerminal(tid);
-
-      expect(useTerminalStore.getState().shouldReattach(tid)).toBe(false);
-      expect(useTerminalStore.getState().hasReattachFailed(tid)).toBe(false);
-    });
-  });
+  // Reattach recovery state was removed in the phase 7 cleanup. The equivalent contract is
+  // now owned by TerminalController (see services/terminal/__tests__/TerminalController.test.ts).
 });

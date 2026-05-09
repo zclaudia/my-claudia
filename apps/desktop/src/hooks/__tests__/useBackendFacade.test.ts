@@ -16,7 +16,7 @@ import { useSessionsStore } from '../../stores/sessionsStore';
 import { useOwnershipStore } from '../../stores/ownershipStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
 import { useTerminalStore } from '../../stores/terminalStore';
-import { xtermRegistry } from '../../utils/xtermRegistry';
+import { terminalRegistry } from '../../services/terminal/TerminalRegistry';
 
 describe('useBackendFacade run_event forwarding', () => {
   let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
@@ -610,8 +610,24 @@ describe('useBackendFacade run_event forwarding', () => {
     );
   });
 
-  it('marks remote terminals for reattach on transport disconnect', () => {
-    const markDetachedSpy = vi.spyOn(xtermRegistry, 'markDetached').mockImplementation(() => {});
+  it('detaches remote terminals on transport disconnect', () => {
+    const t1 = terminalRegistry.getOrCreate('terminal-1', {
+      terminalId: 'terminal-1',
+      sendMessage: vi.fn(),
+      getTheme: () => ({}) as any,
+      factories: {
+        createTerminal: () => ({
+          cols: 80, rows: 24, options: {}, open: vi.fn(), dispose: vi.fn(),
+          loadAddon: vi.fn(), write: vi.fn(), writeln: vi.fn(), focus: vi.fn(),
+          onData: () => ({ dispose: vi.fn() }),
+        } as any),
+        createFitAddon: () => ({ fit: vi.fn(), dispose: vi.fn(), activate: vi.fn() } as any),
+      },
+    });
+    // Drive controller into 'open' so detach is allowed
+    t1.open({ projectId: 'project-1' });
+    t1.handleServerMessage({ type: 'terminal_opened', terminalId: 'terminal-1', success: true } as any);
+
     useTerminalStore.setState({
       ...useTerminalStore.getState(),
       terminals: {
@@ -627,19 +643,30 @@ describe('useBackendFacade run_event forwarding', () => {
       error: 'transport_disconnected',
     } as any);
 
-    expect(useTerminalStore.getState().shouldReattach('terminal-1')).toBe(true);
-    expect(useTerminalStore.getState().shouldReattach('terminal-2')).toBe(false);
-    expect(markDetachedSpy).toHaveBeenCalledWith('terminal-1');
-    markDetachedSpy.mockRestore();
+    expect(t1.getState().kind).toBe('detached');
+    terminalRegistry.delete('terminal-1');
   });
 
-  it('does not mark terminals for reattach when backend was user-closed', () => {
-    const markDetachedSpy = vi.spyOn(xtermRegistry, 'markDetached').mockImplementation(() => {});
+  it('does not detach terminals when backend was user-closed', () => {
+    const t1 = terminalRegistry.getOrCreate('terminal-1', {
+      terminalId: 'terminal-1',
+      sendMessage: vi.fn(),
+      getTheme: () => ({}) as any,
+      factories: {
+        createTerminal: () => ({
+          cols: 80, rows: 24, options: {}, open: vi.fn(), dispose: vi.fn(),
+          loadAddon: vi.fn(), write: vi.fn(), writeln: vi.fn(), focus: vi.fn(),
+          onData: () => ({ dispose: vi.fn() }),
+        } as any),
+        createFitAddon: () => ({ fit: vi.fn(), dispose: vi.fn(), activate: vi.fn() } as any),
+      },
+    });
+    t1.open({ projectId: 'project-1' });
+    t1.handleServerMessage({ type: 'terminal_opened', terminalId: 'terminal-1', success: true } as any);
+
     useTerminalStore.setState({
       ...useTerminalStore.getState(),
-      terminals: {
-        'remote-1::project-1': 'terminal-1',
-      },
+      terminals: { 'remote-1::project-1': 'terminal-1' },
     });
 
     syncToGatewayStore({
@@ -649,8 +676,7 @@ describe('useBackendFacade run_event forwarding', () => {
       error: 'user_closed',
     } as any);
 
-    expect(useTerminalStore.getState().shouldReattach('terminal-1')).toBe(false);
-    expect(markDetachedSpy).not.toHaveBeenCalled();
-    markDetachedSpy.mockRestore();
+    expect(t1.getState().kind).toBe('open');
+    terminalRegistry.delete('terminal-1');
   });
 });

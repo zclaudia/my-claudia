@@ -159,19 +159,8 @@ vi.mock('../api/projects', () => ({
   getProjectsForBackend: (...args: any[]) => mockGetProjectsForBackend(...args),
 }));
 
-const mockXtermEntry = {
-  terminal: { write: vi.fn(), writeln: vi.fn() },
-};
-vi.mock('../../utils/xtermRegistry', () => ({
-  xtermRegistry: {
-    get: vi.fn(),
-    delete: vi.fn(),
-  },
-}));
-
 import { cleanupServerSyncState, handleServerMessage } from '../messageHandler';
 import { downloadPushedFile } from '../fileDownload';
-import { xtermRegistry } from '../../utils/xtermRegistry';
 import { useNotificationFeedStore } from '../../stores/notificationFeedStore';
 import { useToastStore } from '../../stores/toastStore';
 
@@ -1086,67 +1075,9 @@ describe('handleServerMessage', () => {
     });
   });
 
-  describe('terminal messages', () => {
-    it('handles terminal_opened failure', () => {
-      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      (xtermRegistry.get as any).mockReturnValue(mockXtermEntry);
-      handleServerMessage({
-        type: 'terminal_opened', terminalId: 't1', success: false, error: 'Failed',
-      }, makeCtx());
-      expect(errSpy).toHaveBeenCalled();
-      expect(mockXtermEntry.terminal.writeln).toHaveBeenCalled();
-      errSpy.mockRestore();
-    });
-
-    it('handles terminal_opened success (no-op)', () => {
-      handleServerMessage({ type: 'terminal_opened', terminalId: 't1', success: true }, makeCtx());
-      // Success is a no-op
-    });
-
-    it('handles terminal_attached success', () => {
-      (xtermRegistry.get as any).mockReturnValue(mockXtermEntry);
-      handleServerMessage({
-        type: 'terminal_attached',
-        terminalId: 't1',
-        success: true,
-        scrollback: ['hello'],
-      }, makeCtx());
-
-      expect(mockXtermEntry.terminal.write).toHaveBeenCalledWith('hello');
-      expect(mockTerminalStore.clearReattachFailed).toHaveBeenCalledWith('t1');
-      expect(mockTerminalStore.clearNeedsReattach).toHaveBeenCalledWith('t1');
-      expect(mockTerminalStore.markReady).toHaveBeenCalledWith('t1');
-    });
-
-    it('marks terminal for reopen when terminal_attached reports missing PTY', () => {
-      (xtermRegistry.get as any).mockReturnValue(mockXtermEntry);
-      handleServerMessage({
-        type: 'terminal_attached',
-        terminalId: 't1',
-        success: false,
-        error: 'Terminal not found',
-      }, makeCtx());
-
-      expect(mockXtermEntry.terminal.writeln).toHaveBeenCalled();
-      expect(mockTerminalStore.markReattachFailed).toHaveBeenCalledWith('t1');
-      expect(mockTerminalStore.markReady).not.toHaveBeenCalled();
-    });
-
-    it('handles terminal_output', () => {
-      (xtermRegistry.get as any).mockReturnValue(mockXtermEntry);
-      handleServerMessage({ type: 'terminal_output', terminalId: 't1', data: 'hello' }, makeCtx());
-      expect(mockXtermEntry.terminal.write).toHaveBeenCalledWith('hello');
-      expect(mockTerminalStore.markReady).toHaveBeenCalledWith('t1');
-    });
-
-    it('handles terminal_exited', () => {
-      (xtermRegistry.get as any).mockReturnValue(mockXtermEntry);
-      handleServerMessage({ type: 'terminal_exited', terminalId: 't1', exitCode: 0 }, makeCtx());
-      expect(mockXtermEntry.terminal.write).toHaveBeenCalled();
-      expect(mockTerminalStore.handleTerminalExited).toHaveBeenCalledWith('t1');
-      expect(xtermRegistry.delete).toHaveBeenCalledWith('t1');
-    });
-  });
+  // Terminal message handling moved to TerminalController + terminal-messages.ts in the
+  // phase 7 cleanup. See services/terminal/__tests__/TerminalController.test.ts for the
+  // controller-side contract.
 
   describe('file_push', () => {
     it('adds message and file push item', () => {

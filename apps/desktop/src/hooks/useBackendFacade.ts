@@ -27,7 +27,6 @@ import { handleServerMessage, cleanupServerSyncState } from '../services/message
 import type { ServerFeature } from '@my-claudia/shared';
 import { isLegacyLocalBackendId, resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/controlPlane';
 import { useTerminalStore } from '../stores/terminalStore';
-import { xtermRegistry } from '../utils/xtermRegistry';
 import { terminalRegistry } from '../services/terminal/TerminalRegistry';
 import { useRecoveryStore } from '../stores/recoveryStore';
 import { appLifecycleManager } from '../services/appLifecycleManager';
@@ -315,36 +314,20 @@ export function syncToGatewayStore(
         cleanupServerSyncState(`gw:${event.backendId}`);
       }
 
-      // When a backend goes offline, detach its terminals so they auto-recover when the
-      // backend comes back. New (controller-owned) terminals route through TerminalController.detach;
-      // legacy entries fall back to xtermRegistry.markDetached.
-      const shouldDetachTerminals =
-        (event.state === 'offline' || event.state === 'error')
-        && event.error !== 'user_closed';
-      if (shouldDetachTerminals) {
-        const termStore = useTerminalStore.getState();
+      // Drive terminal lifecycle off the backend state:
+      //   offline / error → detach all terminals belonging to this backend
+      //   ready          → reattach any controller still in `detached` state
+      const termStore = useTerminalStore.getState();
+      if ((event.state === 'offline' || event.state === 'error') && event.error !== 'user_closed') {
         for (const [scopeKey, terminalId] of Object.entries(termStore.terminals)) {
           if (!scopeKey.startsWith(`${event.backendId}::`)) continue;
-          const controller = terminalRegistry.get(terminalId);
-          if (controller) {
-            controller.detach('backend_offline');
-          } else {
-            termStore.markNeedsReattach(terminalId);
-            xtermRegistry.markDetached(terminalId);
-          }
+          terminalRegistry.get(terminalId)?.detach('backend_offline');
         }
-      }
-
-      // When a backend transitions back to ready, ask each detached controller to reattach.
-      // Legacy terminals (no controller) are still driven by mode='attach' in TerminalPanel.
-      if (event.state === 'ready') {
-        const termStore = useTerminalStore.getState();
+      } else if (event.state === 'ready') {
         for (const [scopeKey, terminalId] of Object.entries(termStore.terminals)) {
           if (!scopeKey.startsWith(`${event.backendId}::`)) continue;
           const controller = terminalRegistry.get(terminalId);
-          if (controller && controller.getState().kind === 'detached') {
-            controller.claim();
-          }
+          if (controller?.getState().kind === 'detached') controller.claim();
         }
       }
 
