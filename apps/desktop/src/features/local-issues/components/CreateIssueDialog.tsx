@@ -172,7 +172,7 @@ export function CreateIssueDialog({ projectId, onClose, editIssue }: CreateIssue
           <div
             key={p.localId}
             data-testid="pending-attachment"
-            className="relative w-16 h-16 rounded border border-border bg-secondary flex items-center justify-center overflow-hidden text-[10px] text-muted-foreground"
+            className="relative w-16 h-16 rounded-md border border-border bg-secondary flex items-center justify-center overflow-hidden text-[10px] text-muted-foreground"
             title={p.file.name}
           >
             {p.previewUrl ? (
@@ -183,7 +183,7 @@ export function CreateIssueDialog({ projectId, onClose, editIssue }: CreateIssue
             <button
               type="button"
               onClick={() => removePending(p.localId)}
-              className="absolute top-0.5 right-0.5 p-0.5 rounded bg-background/90 text-muted-foreground hover:text-red-500"
+              className="absolute top-0.5 right-0.5 p-0.5 rounded-md bg-background/90 text-muted-foreground hover:text-red-500"
               aria-label={`Remove ${p.file.name}`}
             >
               <X className="w-3 h-3" />
@@ -215,7 +215,7 @@ export function CreateIssueDialog({ projectId, onClose, editIssue }: CreateIssue
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="mt-1 w-full rounded border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                 placeholder="Issue title"
                 autoFocus
               />
@@ -226,7 +226,7 @@ export function CreateIssueDialog({ projectId, onClose, editIssue }: CreateIssue
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="mt-1 w-full rounded border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary min-h-[80px] resize-y"
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary min-h-[80px] resize-y"
                 placeholder="Describe the issue (optional)"
               />
             </div>
@@ -249,7 +249,7 @@ export function CreateIssueDialog({ projectId, onClose, editIssue }: CreateIssue
                 type="text"
                 value={labelInput}
                 onChange={(e) => setLabelInput(e.target.value)}
-                className="mt-1 w-full rounded border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                 placeholder="bug, enhancement, ... (comma-separated)"
               />
             </div>
@@ -285,14 +285,14 @@ export function CreateIssueDialog({ projectId, onClose, editIssue }: CreateIssue
               <button
                 type="button"
                 onClick={onClose}
-                className="px-3 py-1.5 text-xs rounded bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                className="px-3 py-1.5 text-xs rounded-md bg-secondary text-muted-foreground hover:text-foreground transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={loading || !title.trim()}
-                className="px-3 py-1.5 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                className="px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
               >
                 {loading ? 'Saving...' : isEdit ? 'Save' : 'Create'}
               </button>

@@ -67,7 +67,7 @@ export function StepRunCard({ stepRun, onApprove, onReject }: {
         <div className="flex items-center gap-2 min-w-0">
           <StepStatusIcon status={stepRun.status} />
           <span className="text-sm font-medium truncate">{stepRun.stepId}</span>
-          <span className="text-xs text-muted-foreground px-1.5 py-0.5 rounded bg-muted">
+          <span className="text-xs text-muted-foreground px-1.5 py-0.5 rounded-md bg-muted">
             {stepRun.stepType}
           </span>
         </div>
@@ -101,21 +101,21 @@ export function StepRunCard({ stepRun, onApprove, onReject }: {
       {expanded && (
         <div className="mt-2 space-y-1">
           {stepRun.error && (
-            <div className="text-xs text-destructive bg-destructive/10 rounded p-2">
+            <div className="text-xs text-destructive bg-destructive/10 rounded-md p-2">
               {stepRun.error}
             </div>
           )}
           {stepRun.output && Object.keys(stepRun.output).length > 0 && (
             <div className="text-xs">
               <span className="text-muted-foreground">Output:</span>
-              <pre className="mt-1 p-2 rounded bg-muted text-foreground overflow-x-auto max-h-32">
+              <pre className="mt-1 p-2 rounded-md bg-muted text-foreground overflow-x-auto max-h-32">
                 {JSON.stringify(stepRun.output, null, 2)}
               </pre>
             </div>
           )}
           {stepRun.sessionId && (
             <div className="text-xs text-muted-foreground">
-              Session: <code className="bg-muted px-1 rounded">{stepRun.sessionId}</code>
+              Session: <code className="bg-muted px-1 rounded-md">{stepRun.sessionId}</code>
             </div>
           )}
           {stepRun.attempt > 1 && (

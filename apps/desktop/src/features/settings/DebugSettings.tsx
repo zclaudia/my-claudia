@@ -333,7 +333,7 @@ export function DebugSettings({ isConnected, sendMessage, embeddedServerStatus }
                     v{report.version} • pid {report.pid} • {report.platform}
                   </div>
                   {report.stack && (
-                    <pre className="mt-2 max-h-32 overflow-auto rounded bg-card px-2 py-1.5 text-[11px] text-muted-foreground whitespace-pre-wrap break-words">
+                    <pre className="mt-2 max-h-32 overflow-auto rounded-md bg-card px-2 py-1.5 text-[11px] text-muted-foreground whitespace-pre-wrap break-words">
                       {report.stack}
                     </pre>
                   )}
@@ -635,7 +635,7 @@ export function DebugSettings({ isConnected, sendMessage, embeddedServerStatus }
               {/* Decision header */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className={`px-1.5 py-0.5 text-[11px] font-medium rounded ${
+                  <span className={`px-1.5 py-0.5 text-[11px] font-medium rounded-md ${
                     simResult.decision === 'approve'
                       ? 'bg-green-500/20 text-green-600 dark:text-green-400'
                       : simResult.decision === 'deny'
@@ -676,7 +676,7 @@ export function DebugSettings({ isConnected, sendMessage, embeddedServerStatus }
                   <div className="text-[11px] font-medium text-muted-foreground">
                     Workflow Steps
                     {simResult.workflowStatus && (
-                      <span className={`ml-1.5 px-1 py-0.5 rounded text-[10px] ${
+                      <span className={`ml-1.5 px-1 py-0.5 rounded-md text-[10px] ${
                         simResult.workflowStatus === 'completed'
                           ? 'bg-green-500/15 text-green-600 dark:text-green-400'
                           : 'bg-red-500/15 text-red-600 dark:text-red-400'
@@ -703,7 +703,7 @@ export function DebugSettings({ isConnected, sendMessage, embeddedServerStatus }
                         <span className="font-mono text-foreground/80 shrink-0">{step.nodeId}</span>
                         <span className="text-muted-foreground/60">{step.status}</span>
                         {stepOutput?.decision != null && (
-                          <span className={`px-1 rounded text-[10px] ${
+                          <span className={`px-1 rounded-md text-[10px] ${
                             String(stepOutput.decision) === 'approve'
                               ? 'bg-green-500/15 text-green-600 dark:text-green-400'
                               : String(stepOutput.decision) === 'deny'

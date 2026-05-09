@@ -96,7 +96,7 @@ function TaskItem({ task, onRemove, onStop }: { task: BackgroundTask; onRemove: 
       {canStop ? (
         <button
           onClick={() => onStop(task)}
-          className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/10 transition-all flex-shrink-0"
+          className="p-0.5 rounded-md opacity-0 group-hover:opacity-100 hover:bg-destructive/10 transition-all flex-shrink-0"
           title="Stop this task"
         >
           <StopCircle size={13} className="text-destructive" />
@@ -104,7 +104,7 @@ function TaskItem({ task, onRemove, onStop }: { task: BackgroundTask; onRemove: 
       ) : (
         <button
           onClick={onRemove}
-          className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-muted transition-all flex-shrink-0"
+          className="p-0.5 rounded-md opacity-0 group-hover:opacity-100 hover:bg-muted transition-all flex-shrink-0"
           title="Dismiss"
         >
           <X size={11} className="text-muted-foreground" />
@@ -168,7 +168,7 @@ export function BackgroundTaskPanel({ sessionId, onStopTask }: BackgroundTaskPan
         </span>
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="ml-auto p-0.5 rounded hover:bg-muted transition-colors"
+          className="ml-auto p-0.5 rounded-md hover:bg-muted transition-colors"
           title={collapsed ? 'Expand' : 'Collapse'}
         >
           {collapsed ? <ChevronRight size={11} className="text-muted-foreground" /> : <ChevronDown size={11} className="text-muted-foreground" />}

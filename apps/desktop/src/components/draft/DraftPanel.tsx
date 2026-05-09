@@ -97,7 +97,7 @@ export function DraftPanel() {
           </span>
         )}
         {effectiveReadOnly && !sessionArchived && (
-          <span className="text-yellow-500 bg-yellow-500/10 px-2 py-0.5 rounded">
+          <span className="text-yellow-500 bg-yellow-500/10 px-2 py-0.5 rounded-md">
             Read Only
           </span>
         )}
@@ -123,14 +123,14 @@ export function DraftPanel() {
         <button
           onClick={() => discardDraft()}
           disabled={sessionArchived}
-          className="px-3 py-1 text-xs rounded border border-border text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"
+          className="px-3 py-1 text-xs rounded-md border border-border text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"
         >
           Discard
         </button>
         <div className="flex gap-2">
           <button
             onClick={() => closeEditor()}
-            className="px-3 py-1 text-xs rounded border border-border hover:bg-secondary"
+            className="px-3 py-1 text-xs rounded-md border border-border hover:bg-secondary"
           >
             Close
           </button>
@@ -138,7 +138,7 @@ export function DraftPanel() {
             <button
               onClick={handleFinish}
               disabled={!localContent.trim()}
-              className="px-3 py-1 text-xs rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Finish & Send
             </button>

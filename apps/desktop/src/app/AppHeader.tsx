@@ -37,7 +37,7 @@ export function AppHeader({
         {isMobile && isAgentExpanded ? (
           <button
             onClick={onCloseAgent}
-            className="p-2 rounded hover:bg-secondary text-muted-foreground hover:text-foreground flex-shrink-0"
+            className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground flex-shrink-0"
             aria-label="Close agent"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -47,7 +47,7 @@ export function AppHeader({
         ) : isMobile ? (
           <button
             onClick={onOpenSidebar}
-            className="p-2 rounded hover:bg-secondary text-muted-foreground hover:text-foreground flex-shrink-0"
+            className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground flex-shrink-0"
             aria-label="Open menu"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -66,7 +66,7 @@ export function AppHeader({
         {!isMobile && (
           <button
             onClick={onToggleSidebar}
-            className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground ml-2"
+            className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground ml-2"
             title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             {sidebarCollapsed ? <ChevronsRight size={16} strokeWidth={2} /> : <ChevronsLeft size={16} strokeWidth={2} />}
@@ -85,7 +85,7 @@ export function AppHeader({
               <div className="relative">
                 <button
                   onClick={() => { void emitTauri(NOTCH_EVENT.toggle, {}); }}
-                  className="relative p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                  className="relative p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
                   title="Notifications"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -101,7 +101,7 @@ export function AppHeader({
             )}
             <button
               onClick={() => { void openWindowManagerWindow(); }}
-              className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+              className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
               title="Windows"
               aria-label="Open window manager"
             >

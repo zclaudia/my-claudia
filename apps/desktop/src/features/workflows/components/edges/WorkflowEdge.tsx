@@ -64,7 +64,7 @@ export const WorkflowEdge = memo(function WorkflowEdge(props: EdgeProps) {
               transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
               pointerEvents: 'all',
             }}
-            className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-card border border-border"
+            className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-card border border-border"
           >
             <span style={{ color: style.labelColor }}>{edgeLabel}</span>
           </div>

@@ -106,7 +106,7 @@ export function AgentStatusBar({ projectId, agent, onOpenSession: _onOpenSession
           <span className="text-sm text-muted-foreground">No supervision agent configured</span>
           <button
             onClick={() => setShowInitForm(true)}
-            className="px-3 py-1.5 text-sm bg-primary text-primary-foreground hover:bg-primary/90 rounded"
+            className="px-3 py-1.5 text-sm bg-primary text-primary-foreground hover:bg-primary/90 rounded-md"
           >
             Initialize Agent
           </button>
@@ -120,7 +120,7 @@ export function AgentStatusBar({ projectId, agent, onOpenSession: _onOpenSession
           <h3 className="text-sm font-semibold">Configure Supervision Agent</h3>
           <button
             onClick={() => setShowInitForm(false)}
-            className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+            className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -219,14 +219,14 @@ export function AgentStatusBar({ projectId, agent, onOpenSession: _onOpenSession
         <div className="flex justify-end gap-2">
           <button
             onClick={() => setShowInitForm(false)}
-            className="px-3 py-1.5 text-sm bg-secondary hover:bg-secondary/80 rounded"
+            className="px-3 py-1.5 text-sm bg-secondary hover:bg-secondary/80 rounded-md"
           >
             Cancel
           </button>
           <button
             onClick={handleInit}
             disabled={loading || !selectedProviderId}
-            className="px-3 py-1.5 text-sm bg-primary text-primary-foreground hover:bg-primary/90 rounded disabled:opacity-50"
+            className="px-3 py-1.5 text-sm bg-primary text-primary-foreground hover:bg-primary/90 rounded-md disabled:opacity-50"
           >
             {loading ? 'Starting...' : 'Start Agent'}
           </button>
@@ -266,7 +266,7 @@ export function AgentStatusBar({ projectId, agent, onOpenSession: _onOpenSession
           <button
             onClick={() => handleAction('approve_setup')}
             disabled={loading}
-            className="p-1.5 rounded hover:bg-secondary text-green-500 hover:text-green-400 disabled:opacity-50"
+            className="p-1.5 rounded-md hover:bg-secondary text-green-500 hover:text-green-400 disabled:opacity-50"
             title="Approve setup"
           >
             <Play size={14} />
@@ -276,7 +276,7 @@ export function AgentStatusBar({ projectId, agent, onOpenSession: _onOpenSession
           <button
             onClick={() => handleAction('pause')}
             disabled={loading}
-            className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground disabled:opacity-50"
+            className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground disabled:opacity-50"
             title="Pause"
           >
             <Pause size={14} />
@@ -286,7 +286,7 @@ export function AgentStatusBar({ projectId, agent, onOpenSession: _onOpenSession
           <button
             onClick={() => handleAction('resume')}
             disabled={loading}
-            className="p-1.5 rounded hover:bg-secondary text-green-500 hover:text-green-400 disabled:opacity-50"
+            className="p-1.5 rounded-md hover:bg-secondary text-green-500 hover:text-green-400 disabled:opacity-50"
             title="Resume"
           >
             <Play size={14} />
@@ -296,7 +296,7 @@ export function AgentStatusBar({ projectId, agent, onOpenSession: _onOpenSession
           <button
             onClick={() => handleAction('archive')}
             disabled={loading}
-            className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground disabled:opacity-50"
+            className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground disabled:opacity-50"
             title="Archive"
           >
             <Archive size={14} />

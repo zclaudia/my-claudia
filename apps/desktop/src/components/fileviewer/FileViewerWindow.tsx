@@ -99,7 +99,7 @@ export function FileViewerWindow({ filePath, projectRoot, onClose, serverUrl, au
         {onClose && (
           <button
             onClick={onClose}
-            className="p-1 -ml-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground flex-shrink-0"
+            className="p-1 -ml-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground flex-shrink-0"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />

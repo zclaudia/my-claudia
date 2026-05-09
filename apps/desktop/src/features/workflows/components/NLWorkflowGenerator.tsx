@@ -109,7 +109,7 @@ export function NLWorkflowGenerator({ projectId, providerId, onGenerated }: NLWo
         {generationId && (
           <button
             onClick={handleReset}
-            className="p-0.5 rounded hover:bg-secondary hover:text-foreground"
+            className="p-0.5 rounded-md hover:bg-secondary hover:text-foreground"
             title="Reset"
           >
             <RotateCcw size={11} />
@@ -150,7 +150,7 @@ export function NLWorkflowGenerator({ projectId, providerId, onGenerated }: NLWo
             {history.map((entry, i) => (
               <div
                 key={i}
-                className={`text-[10px] px-1.5 py-1 rounded ${
+                className={`text-[10px] px-1.5 py-1 rounded-md ${
                   entry.role === 'user'
                     ? 'bg-primary/10 text-foreground'
                     : 'bg-muted text-muted-foreground'

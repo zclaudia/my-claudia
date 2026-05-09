@@ -56,7 +56,7 @@ export function AttachmentThumbnail({
         tabIndex={0}
         onClick={handleClick}
         onKeyDown={handleKey}
-        className="relative h-24 w-24 cursor-pointer overflow-hidden rounded border border-border bg-secondary flex items-center justify-center hover:border-primary transition-colors"
+        className="relative h-24 w-24 cursor-pointer overflow-hidden rounded-md border border-border bg-secondary flex items-center justify-center hover:border-primary transition-colors"
         title={attachment.name}
         aria-label={`Open ${attachment.name}`}
       >
@@ -86,7 +86,7 @@ export function AttachmentThumbnail({
                   e.stopPropagation();
                   onDownload(attachment);
                 }}
-                className="p-1 rounded bg-background/90 text-muted-foreground hover:text-foreground"
+                className="p-1 rounded-md bg-background/90 text-muted-foreground hover:text-foreground"
                 aria-label={`Download ${attachment.name}`}
               >
                 <Download className="w-3 h-3" />
@@ -99,7 +99,7 @@ export function AttachmentThumbnail({
                   e.stopPropagation();
                   onRemove(attachment.id);
                 }}
-                className="p-1 rounded bg-background/90 text-muted-foreground hover:text-red-500"
+                className="p-1 rounded-md bg-background/90 text-muted-foreground hover:text-red-500"
                 aria-label={`Remove ${attachment.name}`}
               >
                 <X className="w-3 h-3" />

@@ -32,7 +32,7 @@ export function SidebarSearch({ search, isMobile, sessions, onResultSelect }: Si
             autoCorrect="off"
             autoCapitalize="off"
             autoComplete="off"
-            className="w-full px-3 py-2.5 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+            className="w-full px-3 py-2.5 bg-secondary border border-border rounded-md text-sm focus:outline-none focus:border-primary"
           />
         </div>
 
@@ -134,7 +134,7 @@ export function SidebarSearch({ search, isMobile, sessions, onResultSelect }: Si
           />
           <button
             onClick={() => setShowFilters(!showFilters)}
-            className={`p-1 rounded hover:bg-secondary ${showFilters ? 'bg-secondary text-primary' : 'text-muted-foreground'}`}
+            className={`p-1 rounded-md hover:bg-secondary ${showFilters ? 'bg-secondary text-primary' : 'text-muted-foreground'}`}
             title="Filters"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -145,7 +145,7 @@ export function SidebarSearch({ search, isMobile, sessions, onResultSelect }: Si
 
         {/* Search History Dropdown */}
         {showSearchHistory && !searchQuery.trim() && searchHistory.length > 0 && (
-          <div className="absolute top-full left-3 right-3 mt-1 bg-card border border-border rounded shadow-lg z-50 max-h-48 overflow-y-auto">
+          <div className="absolute top-full left-3 right-3 mt-1 bg-card border border-border rounded-xl shadow-lg z-50 max-h-48 overflow-y-auto">
             <div className="flex items-center justify-between px-2 py-1.5 border-b border-border">
               <span className="text-xs text-muted-foreground font-medium">Recent Searches</span>
               <button

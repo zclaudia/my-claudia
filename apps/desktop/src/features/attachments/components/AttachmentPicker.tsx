@@ -70,7 +70,7 @@ export function AttachmentPicker({
           disabled={disabled}
           className={
             className ??
-            'inline-flex items-center gap-1 px-2 py-1 text-xs rounded text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-50'
+            'inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-50'
           }
           aria-label={ariaLabel ?? 'Attach files'}
           title="Attach files"

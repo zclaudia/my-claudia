@@ -52,7 +52,7 @@ export function TerminalActions({ projectId }: { projectId: string }) {
       {isDesktopTauri() && terminalId && !isPoppedOut && (
         <button
           onClick={() => openTerminalInNewWindow(terminalId, projectId)}
-          className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+          className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground"
           title="Open in new window"
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -71,7 +71,7 @@ export function TerminalActions({ projectId }: { projectId: string }) {
           useTerminalStore.getState().closeTerminal(terminalId);
           useTerminalStore.getState().openTerminal(projectId, activeServerId);
         }}
-        className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+        className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground"
         title="Reload terminal"
       >
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -109,7 +109,7 @@ export function TerminalPanel({ projectId, workingDirectory }: TerminalPanelProp
         <div className="flex items-center gap-1 px-2 py-1 border-b border-border flex-shrink-0 overflow-x-auto">
           <button
             onClick={() => toggleCtrl(terminalId)}
-            className={`px-2 py-0.5 rounded text-[11px] font-mono whitespace-nowrap flex-shrink-0 ${
+            className={`px-2 py-0.5 rounded-md text-[11px] font-mono whitespace-nowrap flex-shrink-0 ${
               isCtrl
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-secondary text-secondary-foreground'
@@ -121,7 +121,7 @@ export function TerminalPanel({ projectId, workingDirectory }: TerminalPanelProp
             <button
               key={key.label}
               onClick={() => sendKey(key.data)}
-              className="px-2 py-0.5 rounded text-[11px] font-mono bg-secondary text-secondary-foreground active:bg-primary active:text-primary-foreground whitespace-nowrap flex-shrink-0"
+              className="px-2 py-0.5 rounded-md text-[11px] font-mono bg-secondary text-secondary-foreground active:bg-primary active:text-primary-foreground whitespace-nowrap flex-shrink-0"
             >
               {key.label}
             </button>

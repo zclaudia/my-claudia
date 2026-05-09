@@ -278,7 +278,7 @@ export function ImportOpenCodeDialog({ isOpen, onClose }: ImportOpenCodeDialogPr
         <div className="p-6 overflow-y-auto max-h-[calc(80vh-140px)]">
           {/* Error Message */}
           {error && (
-            <div className="mb-4 p-3 bg-destructive/10 border border-destructive rounded text-sm text-destructive">
+            <div className="mb-4 p-3 bg-destructive/10 border border-destructive rounded-md text-sm text-destructive">
               {error}
             </div>
           )}
@@ -300,13 +300,13 @@ export function ImportOpenCodeDialog({ isOpen, onClose }: ImportOpenCodeDialogPr
                     value={opencodePath}
                     onChange={(e) => setOpencodePath(e.target.value)}
                     placeholder={getDefaultPath()}
-                    className="flex-1 px-3 py-2 bg-input border border-border rounded text-sm"
+                    className="flex-1 px-3 py-2 bg-input border border-border rounded-md text-sm"
                     onKeyDown={(e) => e.key === 'Enter' && handleScan()}
                   />
                   <button
                     onClick={handleScan}
                     disabled={loading}
-                    className="px-4 py-2 bg-primary text-primary-foreground rounded hover:opacity-90 disabled:opacity-50"
+                    className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 disabled:opacity-50"
                   >
                     {loading ? 'Scanning...' : 'Scan'}
                   </button>
@@ -338,13 +338,13 @@ export function ImportOpenCodeDialog({ isOpen, onClose }: ImportOpenCodeDialogPr
                       });
                       setSelectedSessions(allSessionIds);
                     }}
-                    className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded hover:opacity-90"
+                    className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded-md hover:opacity-90"
                   >
                     Select All
                   </button>
                   <button
                     onClick={() => setSelectedSessions(new Set())}
-                    className="px-3 py-1 text-xs bg-secondary text-secondary-foreground rounded hover:opacity-90"
+                    className="px-3 py-1 text-xs bg-secondary text-secondary-foreground rounded-md hover:opacity-90"
                   >
                     Clear All
                   </button>
@@ -388,7 +388,7 @@ export function ImportOpenCodeDialog({ isOpen, onClose }: ImportOpenCodeDialogPr
               {hasMoreProjects && (
                 <button
                   onClick={() => setVisibleProjectsCount(prev => prev + 10)}
-                  className="w-full px-4 py-2 bg-secondary text-secondary-foreground rounded hover:opacity-90 text-sm"
+                  className="w-full px-4 py-2 bg-secondary text-secondary-foreground rounded-md hover:opacity-90 text-sm"
                 >
                   Load {Math.min(10, (scannedData.projects?.length || 0) - visibleProjectsCount)} more projects...
                 </button>
@@ -397,14 +397,14 @@ export function ImportOpenCodeDialog({ isOpen, onClose }: ImportOpenCodeDialogPr
               <div className="flex justify-between pt-2">
                 <button
                   onClick={() => setStep(ImportStep.DETECT_DB)}
-                  className="px-4 py-2 bg-secondary text-secondary-foreground rounded hover:opacity-90"
+                  className="px-4 py-2 bg-secondary text-secondary-foreground rounded-md hover:opacity-90"
                 >
                   Back
                 </button>
                 <button
                   onClick={() => setStep(ImportStep.CONFIGURE)}
                   disabled={selectedSessions.size === 0}
-                  className="px-4 py-2 bg-primary text-primary-foreground rounded hover:opacity-90 disabled:opacity-50"
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 disabled:opacity-50"
                 >
                   Next ({selectedSessions.size} selected)
                 </button>
@@ -463,14 +463,14 @@ export function ImportOpenCodeDialog({ isOpen, onClose }: ImportOpenCodeDialogPr
               <div className="flex justify-between pt-2">
                 <button
                   onClick={() => setStep(ImportStep.PREVIEW_SESSIONS)}
-                  className="px-4 py-2 bg-secondary text-secondary-foreground rounded hover:opacity-90"
+                  className="px-4 py-2 bg-secondary text-secondary-foreground rounded-md hover:opacity-90"
                 >
                   Back
                 </button>
                 <button
                   onClick={startImport}
                   disabled={!allMapped || loading}
-                  className="px-4 py-2 bg-primary text-primary-foreground rounded hover:opacity-90 disabled:opacity-50"
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 disabled:opacity-50"
                 >
                   Start Import
                 </button>
@@ -531,7 +531,7 @@ export function ImportOpenCodeDialog({ isOpen, onClose }: ImportOpenCodeDialogPr
               <div className="flex justify-end pt-4">
                 <button
                   onClick={handleClose}
-                  className="px-4 py-2 bg-primary text-primary-foreground rounded hover:opacity-90"
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90"
                 >
                   Close
                 </button>

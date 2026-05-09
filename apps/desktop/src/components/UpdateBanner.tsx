@@ -75,7 +75,7 @@ export function UpdateBanner() {
         {status === 'available' && (
           <button
             onClick={downloadAndInstallApk}
-            className="px-3 py-0.5 text-xs font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded transition-colors"
+            className="px-3 py-0.5 text-xs font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded-md transition-colors"
           >
             Download & Install
           </button>
@@ -84,7 +84,7 @@ export function UpdateBanner() {
         {status === 'ready' && !navigator.userAgent.includes('Android') && (
           <button
             onClick={handleRestart}
-            className="px-3 py-0.5 text-xs font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded transition-colors"
+            className="px-3 py-0.5 text-xs font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded-md transition-colors"
           >
             Restart to Update
           </button>

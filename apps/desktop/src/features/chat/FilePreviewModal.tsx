@@ -182,7 +182,7 @@ export function FilePreviewModal({ item, onClose }: FilePreviewModalProps) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 min-w-0">
-          <button onClick={onClose} className="p-1 hover:bg-white/10 rounded transition-colors" aria-label="Close">
+          <button onClick={onClose} className="p-1 hover:bg-white/10 rounded-md transition-colors" aria-label="Close">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
@@ -194,7 +194,7 @@ export function FilePreviewModal({ item, onClose }: FilePreviewModalProps) {
           {(item.privatePath || item.savedPath) && (
             <button
               onClick={handleOpenExternal}
-              className="px-3 py-1 text-xs bg-white/10 hover:bg-white/20 rounded transition-colors"
+              className="px-3 py-1 text-xs bg-white/10 hover:bg-white/20 rounded-md transition-colors"
             >
               External App
             </button>
@@ -216,7 +216,7 @@ export function FilePreviewModal({ item, onClose }: FilePreviewModalProps) {
             <p className="text-red-400 mb-4">{error}</p>
             <button
               onClick={handleOpenExternal}
-              className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded transition-colors text-sm"
+              className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-md transition-colors text-sm"
             >
               Open with external app
             </button>

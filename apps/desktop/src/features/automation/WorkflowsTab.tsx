@@ -137,7 +137,7 @@ export function WorkflowsTab({ api, projects, globalPermissionWorkflowOverrideId
             <Plus size={12} />
             New
           </button>
-          <button onClick={refresh} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Refresh">
+          <button onClick={refresh} className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground" title="Refresh">
             <RefreshCw size={14} />
           </button>
         </div>
@@ -158,7 +158,7 @@ export function WorkflowsTab({ api, projects, globalPermissionWorkflowOverrideId
                       {t.description && <div className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{t.description}</div>}
                     </div>
                     {(t as any).category && (
-                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium shrink-0 ${CATEGORY_COLORS[(t as any).category] ?? 'bg-muted text-muted-foreground'}`}>
+                      <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-medium shrink-0 ${CATEGORY_COLORS[(t as any).category] ?? 'bg-muted text-muted-foreground'}`}>
                         {(t as any).category}
                       </span>
                     )}
@@ -167,7 +167,7 @@ export function WorkflowsTab({ api, projects, globalPermissionWorkflowOverrideId
                     <button
                       onClick={() => handleEnableTemplate(t.id, effectiveProjectId)}
                       disabled={enabled}
-                      className={`self-start text-[10px] px-2 py-0.5 rounded transition-colors ${
+                      className={`self-start text-[10px] px-2 py-0.5 rounded-md transition-colors ${
                         enabled ? 'bg-success/15 text-success' : 'bg-primary/10 text-primary hover:bg-primary/20'
                       }`}
                     >
@@ -224,20 +224,20 @@ export function WorkflowsTab({ api, projects, globalPermissionWorkflowOverrideId
               </div>
               <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                 {isSystem ? (
-                  <button onClick={() => handleEdit(w, true)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="View">
+                  <button onClick={() => handleEdit(w, true)} className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground" title="View">
                     <Eye size={12} />
                   </button>
                 ) : (
                   <>
-                    <button onClick={() => handleEdit(w)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Edit">
+                    <button onClick={() => handleEdit(w)} className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground" title="Edit">
                       <Pencil size={12} />
                     </button>
                     {w.status === 'active' && (
-                      <button onClick={() => handleTrigger(w.id)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Trigger">
+                      <button onClick={() => handleTrigger(w.id)} className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground" title="Trigger">
                         <Play size={12} />
                       </button>
                     )}
-                    <button onClick={() => handleDelete(w.id)} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-red-400" title="Delete">
+                    <button onClick={() => handleDelete(w.id)} className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-red-400" title="Delete">
                       <Trash2 size={12} />
                     </button>
                   </>

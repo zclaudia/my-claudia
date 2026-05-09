@@ -279,7 +279,7 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
           <div className="flex items-center gap-2 px-3 py-2">
             <button
               onClick={onBack}
-              className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground shrink-0"
+              className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground shrink-0"
               title="Back to Workflows"
             >
               <ArrowLeft size={14} />
@@ -328,7 +328,7 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
           {!standalone && !readOnly && isDesktopTauri() && (
             <button
               onClick={handlePopOut}
-              className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground shrink-0"
+              className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground shrink-0"
               title="Open in new window"
             >
               <ExternalLink size={14} />
@@ -356,14 +356,14 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => setLeftPanelMode('toolbox')}
-                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider transition-colors ${leftPanelMode === 'toolbox' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium uppercase tracking-wider transition-colors ${leftPanelMode === 'toolbox' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                 >
                   <Wrench size={10} />
                   Toolbox
                 </button>
                 <button
                   onClick={() => setLeftPanelMode('ai')}
-                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider transition-colors ${leftPanelMode === 'ai' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium uppercase tracking-wider transition-colors ${leftPanelMode === 'ai' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                 >
                   <Sparkles size={10} />
                   AI
@@ -371,7 +371,7 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
               </div>
               <button
                 onClick={() => setLeftPanelOpen(false)}
-                className="p-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+                className="p-0.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground"
                 title="Collapse panel"
               >
                 <PanelLeftClose size={14} />
@@ -395,7 +395,7 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
           <div className="w-8 border-r border-border flex flex-col items-center pt-2 shrink-0">
             <button
               onClick={() => setLeftPanelOpen(true)}
-              className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+              className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground"
               title="Expand panel"
             >
               <PanelLeftOpen size={14} />
@@ -426,7 +426,7 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
                   setSelectedNodeId(null);
                   setSelectedEdgeId(null);
                 }}
-                className="p-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+                className="p-0.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground"
                 title="Close panel"
               >
                 <X size={14} />

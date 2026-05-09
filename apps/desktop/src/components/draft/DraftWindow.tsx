@@ -218,7 +218,7 @@ function DraftWindowContent({ sessionId }: { sessionId: string }) {
           </span>
         )}
         {effectiveReadOnly && !sessionArchived && (
-          <span className="text-[10px] text-yellow-500 bg-yellow-500/10 px-1.5 py-0.5 rounded">
+          <span className="text-[10px] text-yellow-500 bg-yellow-500/10 px-1.5 py-0.5 rounded-md">
             Read Only
           </span>
         )}
@@ -252,13 +252,13 @@ function DraftWindowContent({ sessionId }: { sessionId: string }) {
         <button
           onClick={handleDiscard}
           disabled={sessionArchived}
-          className="px-3 py-1 text-xs rounded border border-border text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"
+          className="px-3 py-1 text-xs rounded-md border border-border text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"
         >
           Discard
         </button>
         <button
           onClick={handleClose}
-          className="px-3 py-1 text-xs rounded border border-border hover:bg-secondary"
+          className="px-3 py-1 text-xs rounded-md border border-border hover:bg-secondary"
         >
           Save & Close
         </button>

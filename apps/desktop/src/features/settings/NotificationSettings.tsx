@@ -323,7 +323,7 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
                   value={config.ntfyUrl}
                   placeholder="https://ntfy.sh"
                   readOnly={true}
-                  className="w-full px-3 py-1.5 bg-secondary border border-border rounded text-sm opacity-60 cursor-not-allowed"
+                  className="w-full px-3 py-1.5 bg-secondary border border-border rounded-md text-sm opacity-60 cursor-not-allowed"
                 />
               </div>
               <div>
@@ -333,7 +333,7 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
                   value={config.ntfyTopic}
                   placeholder="my-claudia-alerts"
                   readOnly={true}
-                  className="w-full px-3 py-1.5 bg-secondary border border-border rounded text-sm opacity-60 cursor-not-allowed"
+                  className="w-full px-3 py-1.5 bg-secondary border border-border rounded-md text-sm opacity-60 cursor-not-allowed"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
                   Use a unique, hard-to-guess topic name for privacy.
@@ -345,7 +345,7 @@ export function NotificationSettingsInline({ readOnly = false }: { readOnly?: bo
                   type="text"
                   value={config.ntfyAuthMode}
                   readOnly={true}
-                  className="w-full px-3 py-1.5 bg-secondary border border-border rounded text-sm opacity-60 cursor-not-allowed"
+                  className="w-full px-3 py-1.5 bg-secondary border border-border rounded-md text-sm opacity-60 cursor-not-allowed"
                 />
               </div>
             </div>

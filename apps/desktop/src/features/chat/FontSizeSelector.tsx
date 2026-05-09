@@ -10,12 +10,12 @@ export function FontSizeSelector() {
   const { fontSize, setFontSize } = useUIStore();
 
   return (
-    <div className="flex items-center gap-0.5 p-0.5 bg-muted rounded" title="Font size">
+    <div className="flex items-center gap-0.5 p-0.5 bg-muted rounded-md" title="Font size">
       {PRESETS.map((preset) => (
         <button
           key={preset.key}
           onClick={() => setFontSize(preset.key)}
-          className={`px-1.5 py-0.5 rounded transition-colors ${
+          className={`px-1.5 py-0.5 rounded-md transition-colors ${
             fontSize === preset.key
               ? 'bg-background shadow text-foreground'
               : 'text-muted-foreground hover:text-foreground'

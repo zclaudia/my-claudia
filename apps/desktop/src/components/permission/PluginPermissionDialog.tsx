@@ -101,7 +101,7 @@ export function PluginPermissionDialog() {
         >
           {/* Header */}
           <div className="flex items-center gap-3 px-4 py-3 border-b border-border flex-shrink-0">
-            <div className={`p-1.5 rounded ${LEVEL_COLORS[maxLevel] || LEVEL_COLORS[1]}`}>
+            <div className={`p-1.5 rounded-md ${LEVEL_COLORS[maxLevel] || LEVEL_COLORS[1]}`}>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                   d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
@@ -124,9 +124,9 @@ export function PluginPermissionDialog() {
                 return (
                   <div
                     key={perm}
-                    className="flex items-center gap-2 p-2 rounded bg-secondary/50"
+                    className="flex items-center gap-2 p-2 rounded-md bg-secondary/50"
                   >
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium border ${LEVEL_COLORS[level]}`}>
+                    <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-medium border ${LEVEL_COLORS[level]}`}>
                       {LEVEL_LABELS[level]}
                     </span>
                     <div className="flex-1 min-w-0">
@@ -142,7 +142,7 @@ export function PluginPermissionDialog() {
 
             {/* Warning for dangerous permissions */}
             {maxLevel >= 4 && (
-              <div className="p-2 bg-red-500/10 border border-red-500/20 rounded text-xs text-red-400">
+              <div className="p-2 bg-red-500/10 border border-red-500/20 rounded-md text-xs text-red-400">
                 This plugin requests dangerous permissions. Only grant if you trust the source.
               </div>
             )}
@@ -153,7 +153,7 @@ export function PluginPermissionDialog() {
                 type="checkbox"
                 checked={remember}
                 onChange={(e) => setRemember(e.target.checked)}
-                className="w-3.5 h-3.5 rounded border-border"
+                className="w-3.5 h-3.5 rounded-md border-border"
               />
               <span className="text-sm text-muted-foreground">Remember this decision</span>
             </label>
@@ -163,13 +163,13 @@ export function PluginPermissionDialog() {
           <div className="flex justify-end gap-2 px-4 py-3 border-t border-border flex-shrink-0">
             <button
               onClick={() => handleDecision(false)}
-              className="px-3 py-1.5 text-sm bg-secondary hover:bg-secondary/80 rounded"
+              className="px-3 py-1.5 text-sm bg-secondary hover:bg-secondary/80 rounded-md"
             >
               Deny
             </button>
             <button
               onClick={() => handleDecision(true)}
-              className="px-3 py-1.5 text-sm bg-primary text-primary-foreground hover:bg-primary/90 rounded"
+              className="px-3 py-1.5 text-sm bg-primary text-primary-foreground hover:bg-primary/90 rounded-md"
             >
               Allow
             </button>

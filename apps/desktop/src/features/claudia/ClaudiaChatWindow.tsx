@@ -109,7 +109,7 @@ function ClaudiaHeader({ onClose }: { onClose: () => void }) {
       </div>
       <button
         onClick={onClose}
-        className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+        className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
         title="Hide"
       >
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -36,7 +36,7 @@ export function AllChangesPanel({
             key={filter}
             type="button"
             onClick={() => onFilterChange(filter)}
-            className={`rounded px-2 py-1 text-[11px] transition-colors ${
+            className={`rounded-md px-2 py-1 text-[11px] transition-colors ${
               changesFilter === filter
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-secondary text-muted-foreground hover:text-foreground'
@@ -51,7 +51,7 @@ export function AllChangesPanel({
         {filteredChanges.map((change) => (
           <div
             key={change.id}
-            className={`rounded border px-3 py-2 transition-colors ${
+            className={`rounded-md border px-3 py-2 transition-colors ${
               previewChangeId === change.id
                 ? 'border-primary bg-primary/5'
                 : 'border-border bg-secondary/20'

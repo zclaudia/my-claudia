@@ -97,7 +97,7 @@ export function SearchFilters({ filters, sessions = [], onFiltersChange, onClose
         <div className="grid grid-cols-2 gap-2">
           <button
             onClick={() => handleScopeChange('messages')}
-            className={`px-3 py-1.5 rounded text-xs ${
+            className={`px-3 py-1.5 rounded-md text-xs ${
               (!localFilters.scope || localFilters.scope === 'messages')
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-secondary text-foreground hover:bg-secondary/80'
@@ -107,7 +107,7 @@ export function SearchFilters({ filters, sessions = [], onFiltersChange, onClose
           </button>
           <button
             onClick={() => handleScopeChange('files')}
-            className={`px-3 py-1.5 rounded text-xs ${
+            className={`px-3 py-1.5 rounded-md text-xs ${
               localFilters.scope === 'files'
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-secondary text-foreground hover:bg-secondary/80'
@@ -117,7 +117,7 @@ export function SearchFilters({ filters, sessions = [], onFiltersChange, onClose
           </button>
           <button
             onClick={() => handleScopeChange('tool_calls')}
-            className={`px-3 py-1.5 rounded text-xs ${
+            className={`px-3 py-1.5 rounded-md text-xs ${
               localFilters.scope === 'tool_calls'
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-secondary text-foreground hover:bg-secondary/80'
@@ -127,7 +127,7 @@ export function SearchFilters({ filters, sessions = [], onFiltersChange, onClose
           </button>
           <button
             onClick={() => handleScopeChange('all')}
-            className={`px-3 py-1.5 rounded text-xs ${
+            className={`px-3 py-1.5 rounded-md text-xs ${
               localFilters.scope === 'all'
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-secondary text-foreground hover:bg-secondary/80'
@@ -144,7 +144,7 @@ export function SearchFilters({ filters, sessions = [], onFiltersChange, onClose
         <div className="flex gap-2">
           <button
             onClick={() => handleRoleChange(undefined)}
-            className={`flex-1 px-3 py-1.5 rounded text-xs ${
+            className={`flex-1 px-3 py-1.5 rounded-md text-xs ${
               !localFilters.role
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-secondary text-foreground hover:bg-secondary/80'
@@ -154,7 +154,7 @@ export function SearchFilters({ filters, sessions = [], onFiltersChange, onClose
           </button>
           <button
             onClick={() => handleRoleChange('user')}
-            className={`flex-1 px-3 py-1.5 rounded text-xs ${
+            className={`flex-1 px-3 py-1.5 rounded-md text-xs ${
               localFilters.role === 'user'
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-secondary text-foreground hover:bg-secondary/80'
@@ -164,7 +164,7 @@ export function SearchFilters({ filters, sessions = [], onFiltersChange, onClose
           </button>
           <button
             onClick={() => handleRoleChange('assistant')}
-            className={`flex-1 px-3 py-1.5 rounded text-xs ${
+            className={`flex-1 px-3 py-1.5 rounded-md text-xs ${
               localFilters.role === 'assistant'
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-secondary text-foreground hover:bg-secondary/80'
@@ -198,17 +198,17 @@ export function SearchFilters({ filters, sessions = [], onFiltersChange, onClose
           <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
             Sessions ({localFilters.sessionIds?.length || 0} selected)
           </label>
-          <div className="max-h-32 overflow-y-auto space-y-1 border border-border rounded p-2">
+          <div className="max-h-32 overflow-y-auto space-y-1 border border-border rounded-md p-2">
             {sessions.map((session) => (
               <label
                 key={session.id}
-                className="flex items-center gap-2 px-2 py-1 hover:bg-secondary rounded cursor-pointer"
+                className="flex items-center gap-2 px-2 py-1 hover:bg-secondary rounded-md cursor-pointer"
               >
                 <input
                   type="checkbox"
                   checked={localFilters.sessionIds?.includes(session.id) || false}
                   onChange={() => handleSessionToggle(session.id)}
-                  className="rounded"
+                  className="rounded-md"
                 />
                 <span className="text-xs truncate flex-1">{session.name || 'Untitled'}</span>
               </label>
@@ -227,7 +227,7 @@ export function SearchFilters({ filters, sessions = [], onFiltersChange, onClose
               type="date"
               value={localFilters.dateRange?.start ? new Date(localFilters.dateRange.start).toISOString().split('T')[0] : ''}
               onChange={(e) => handleDateRangeChange('start', e.target.value)}
-              className="w-full px-2 py-1 bg-secondary border border-border rounded text-xs focus:outline-none focus:border-primary"
+              className="w-full px-2 py-1 bg-secondary border border-border rounded-md text-xs focus:outline-none focus:border-primary"
             />
           </div>
           <div>
@@ -236,7 +236,7 @@ export function SearchFilters({ filters, sessions = [], onFiltersChange, onClose
               type="date"
               value={localFilters.dateRange?.end ? new Date(localFilters.dateRange.end).toISOString().split('T')[0] : ''}
               onChange={(e) => handleDateRangeChange('end', e.target.value)}
-              className="w-full px-2 py-1 bg-secondary border border-border rounded text-xs focus:outline-none focus:border-primary"
+              className="w-full px-2 py-1 bg-secondary border border-border rounded-md text-xs focus:outline-none focus:border-primary"
             />
           </div>
         </div>

@@ -609,7 +609,7 @@ function AttachmentDisplay({ attachment }: { attachment: MessageAttachment }) {
   if (attachment.type === 'image') {
     if (imageData) {
       return (
-        <div className="rounded overflow-hidden bg-black/20 inline-block max-w-full">
+        <div className="rounded-md overflow-hidden bg-black/20 inline-block max-w-full">
           <img
             src={imageData}
             alt={attachment.name}
@@ -625,7 +625,7 @@ function AttachmentDisplay({ attachment }: { attachment: MessageAttachment }) {
 
     if (loading) {
       return (
-        <div className="border border-border rounded p-4 bg-secondary/50 text-center text-sm text-muted-foreground">
+        <div className="border border-border rounded-md p-4 bg-secondary/50 text-center text-sm text-muted-foreground">
           Loading image...
         </div>
       );
@@ -634,7 +634,7 @@ function AttachmentDisplay({ attachment }: { attachment: MessageAttachment }) {
     // Default: show clickable placeholder
     return (
       <div
-        className="border border-border rounded overflow-hidden bg-secondary/30 cursor-pointer hover:bg-secondary/50 transition-colors"
+        className="border border-border rounded-md overflow-hidden bg-secondary/30 cursor-pointer hover:bg-secondary/50 transition-colors"
         onClick={loadImage}
       >
         <div className="flex items-center justify-center h-24 text-muted-foreground">
@@ -652,7 +652,7 @@ function AttachmentDisplay({ attachment }: { attachment: MessageAttachment }) {
 
   // Fallback for other file types
   return (
-    <div className="px-2 py-1 bg-secondary text-xs rounded inline-block">
+    <div className="px-2 py-1 bg-secondary text-xs rounded-md inline-block">
       {attachment.name}
     </div>
   );
@@ -910,7 +910,7 @@ const AssistantContent = memo(function AssistantContent({ content }: { content: 
                 }
                 return (
                   <code
-                    className="bg-secondary px-1.5 py-0.5 rounded text-sm text-primary break-all"
+                    className="bg-secondary px-1.5 py-0.5 rounded-md text-sm text-primary break-all"
                     {...props}
                   >
                     {children}

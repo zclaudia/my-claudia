@@ -166,7 +166,7 @@ export function SystemInfoButton({ systemInfo, sessionInfo }: SystemInfoButtonPr
 
 function InfoBadge({ icon: IconComponent, label, value }: { icon: LucideIcon; label: string; value: string }) {
   return (
-    <div className="flex items-center gap-1 bg-muted px-2 py-1 rounded text-xs">
+    <div className="flex items-center gap-1 bg-muted px-2 py-1 rounded-md text-xs">
       <IconComponent size={12} strokeWidth={1.75} className="text-muted-foreground" />
       <span className="text-muted-foreground">{label}:</span>
       <span className="text-foreground">{value}</span>
@@ -191,7 +191,7 @@ function InfoList({ icon: IconComponent, label, items }: { icon: LucideIcon; lab
         {displayItems.map((item, index) => (
           <span
             key={index}
-            className="bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded text-[10px] font-mono"
+            className="bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded-md text-[10px] font-mono"
           >
             {typeof item === 'string' ? item : item.name}
           </span>

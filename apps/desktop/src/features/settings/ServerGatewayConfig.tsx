@@ -215,7 +215,7 @@ export function ServerGatewayConfig() {
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-foreground">Status:</span>
             <span
-              className={`text-sm px-2 py-1 rounded ${
+              className={`text-sm px-2 py-1 rounded-md ${
                 status.connected
                   ? 'bg-success/20 text-success'
                   : status.enabled
@@ -247,7 +247,7 @@ export function ServerGatewayConfig() {
                 <span className={`w-1.5 h-1.5 rounded-full ${b.online ? 'bg-success' : 'bg-muted-foreground'}`} />
                 <span className="text-foreground">{b.name}</span>
                 {b.backendId === status?.gatewayBackendId && (
-                  <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-xs rounded">Local</span>
+                  <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-xs rounded-md">Local</span>
                 )}
               </div>
               <span className="text-xs text-muted-foreground font-mono">{b.backendId}</span>

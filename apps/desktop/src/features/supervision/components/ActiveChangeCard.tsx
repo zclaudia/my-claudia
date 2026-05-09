@@ -73,7 +73,7 @@ export function ActiveChangeCard({
       )}
 
       {nextAction && (
-        <div className="mt-3 rounded border border-border bg-secondary/20 px-3 py-2">
+        <div className="mt-3 rounded-md border border-border bg-secondary/20 px-3 py-2">
           <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             Next Action
           </div>
@@ -93,7 +93,7 @@ export function ActiveChangeCard({
             onChange={(event) => onActionNotesChange(event.target.value)}
             placeholder="Optional notes for the next gate or sync action..."
             rows={2}
-            className="w-full rounded border border-border bg-background px-3 py-2 text-xs resize-none"
+            className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs resize-none"
           />
         </div>
       )}
@@ -102,63 +102,63 @@ export function ActiveChangeCard({
         <button
           onClick={onRequestDesign}
           disabled={loading || !canRequestDesign}
-          className="px-2.5 py-1.5 text-xs rounded bg-secondary hover:bg-secondary/80 disabled:opacity-50"
+          className="px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80 disabled:opacity-50"
         >
           Request Design Review
         </button>
         <button
           onClick={() => onResolveDesign('approve_design')}
           disabled={loading || !canApproveDesign}
-          className="px-2.5 py-1.5 text-xs rounded bg-emerald-500/15 text-emerald-600 hover:bg-emerald-500/25 disabled:opacity-50"
+          className="px-2.5 py-1.5 text-xs rounded-md bg-emerald-500/15 text-emerald-600 hover:bg-emerald-500/25 disabled:opacity-50"
         >
           Approve Design
         </button>
         <button
           onClick={onRequestExecution}
           disabled={loading || !canRequestExecution}
-          className="px-2.5 py-1.5 text-xs rounded bg-secondary hover:bg-secondary/80 disabled:opacity-50"
+          className="px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80 disabled:opacity-50"
         >
           Request Execution Review
         </button>
         <button
           onClick={() => onResolveExecution('approve_execution')}
           disabled={loading || !canApproveExecution}
-          className="px-2.5 py-1.5 text-xs rounded bg-blue-500/15 text-blue-600 hover:bg-blue-500/25 disabled:opacity-50"
+          className="px-2.5 py-1.5 text-xs rounded-md bg-blue-500/15 text-blue-600 hover:bg-blue-500/25 disabled:opacity-50"
         >
           Start Execution
         </button>
         <button
           onClick={onRequestAcceptance}
           disabled={loading || !canRequestAcceptance}
-          className="px-2.5 py-1.5 text-xs rounded bg-secondary hover:bg-secondary/80 disabled:opacity-50"
+          className="px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80 disabled:opacity-50"
         >
           Request Acceptance
         </button>
         <button
           onClick={() => onResolveAcceptance('approve_acceptance')}
           disabled={loading || !canApproveAcceptance}
-          className="px-2.5 py-1.5 text-xs rounded bg-emerald-500/15 text-emerald-600 hover:bg-emerald-500/25 disabled:opacity-50"
+          className="px-2.5 py-1.5 text-xs rounded-md bg-emerald-500/15 text-emerald-600 hover:bg-emerald-500/25 disabled:opacity-50"
         >
           Approve Acceptance
         </button>
         <button
           onClick={() => onResolveAcceptance('revise_execution')}
           disabled={loading || !canApproveAcceptance}
-          className="px-2.5 py-1.5 text-xs rounded bg-amber-500/15 text-amber-700 hover:bg-amber-500/25 disabled:opacity-50"
+          className="px-2.5 py-1.5 text-xs rounded-md bg-amber-500/15 text-amber-700 hover:bg-amber-500/25 disabled:opacity-50"
         >
           Reopen Execution
         </button>
         <button
           onClick={onRequestSync}
           disabled={loading || !canRequestSync}
-          className="hidden px-2.5 py-1.5 text-xs rounded bg-secondary hover:bg-secondary/80 disabled:opacity-50"
+          className="hidden px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80 disabled:opacity-50"
         >
           Request Sync
         </button>
         <button
           onClick={onCompleteChange}
           disabled={loading || !canCompleteChange}
-          className="px-2.5 py-1.5 text-xs rounded bg-emerald-500/15 text-emerald-600 hover:bg-emerald-500/25 disabled:opacity-50"
+          className="px-2.5 py-1.5 text-xs rounded-md bg-emerald-500/15 text-emerald-600 hover:bg-emerald-500/25 disabled:opacity-50"
         >
           Complete Change
         </button>

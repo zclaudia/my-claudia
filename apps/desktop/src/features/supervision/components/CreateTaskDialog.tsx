@@ -92,7 +92,7 @@ export function CreateTaskDialog({ projectId, changeId, existingTasks, isOpen, o
             <h2 className="text-base font-semibold">Create Task</h2>
             <button
               onClick={handleClose}
-              className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+              className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -109,7 +109,7 @@ export function CreateTaskDialog({ projectId, changeId, existingTasks, isOpen, o
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Task title..."
-                className="w-full px-3 py-2 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+                className="w-full px-3 py-2 bg-secondary border border-border rounded-md text-sm focus:outline-none focus:border-primary"
               />
             </div>
 
@@ -120,7 +120,7 @@ export function CreateTaskDialog({ projectId, changeId, existingTasks, isOpen, o
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Describe what this task should accomplish..."
                 rows={3}
-                className="w-full px-3 py-2 bg-secondary border border-border rounded text-sm resize-none focus:outline-none focus:border-primary"
+                className="w-full px-3 py-2 bg-secondary border border-border rounded-md text-sm resize-none focus:outline-none focus:border-primary"
               />
             </div>
 
@@ -147,7 +147,7 @@ export function CreateTaskDialog({ projectId, changeId, existingTasks, isOpen, o
                       <span className="flex-1 truncate">{c}</span>
                       <button
                         onClick={() => setCriteria((prev) => prev.filter((_, j) => j !== i))}
-                        className="p-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-destructive flex-shrink-0"
+                        className="p-0.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-destructive flex-shrink-0"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -166,12 +166,12 @@ export function CreateTaskDialog({ projectId, changeId, existingTasks, isOpen, o
                     if (e.key === 'Enter') { e.preventDefault(); handleAddCriterion(); }
                   }}
                   placeholder="Add acceptance criterion..."
-                  className="flex-1 px-2 py-1 bg-secondary border border-border rounded text-sm focus:outline-none focus:border-primary"
+                  className="flex-1 px-2 py-1 bg-secondary border border-border rounded-md text-sm focus:outline-none focus:border-primary"
                 />
                 <button
                   onClick={handleAddCriterion}
                   disabled={!newCriterion.trim()}
-                  className="px-2 py-1 text-xs bg-secondary border border-border rounded hover:bg-secondary/80 disabled:opacity-50"
+                  className="px-2 py-1 text-xs bg-secondary border border-border rounded-md hover:bg-secondary/80 disabled:opacity-50"
                 >
                   Add
                 </button>
@@ -189,7 +189,7 @@ export function CreateTaskDialog({ projectId, changeId, existingTasks, isOpen, o
                         type="checkbox"
                         checked={selectedDeps.includes(t.id)}
                         onChange={() => toggleDep(t.id)}
-                        className="rounded"
+                        className="rounded-md"
                       />
                       <span className="truncate">{t.title}</span>
                     </label>
@@ -199,7 +199,7 @@ export function CreateTaskDialog({ projectId, changeId, existingTasks, isOpen, o
             )}
 
             {error && (
-              <div className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded">
+              <div className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-md">
                 {error}
               </div>
             )}
@@ -209,14 +209,14 @@ export function CreateTaskDialog({ projectId, changeId, existingTasks, isOpen, o
           <div className="flex justify-end gap-2 px-4 py-3 border-t border-border flex-shrink-0">
             <button
               onClick={handleClose}
-              className="px-3 py-1.5 text-sm bg-secondary hover:bg-secondary/80 rounded"
+              className="px-3 py-1.5 text-sm bg-secondary hover:bg-secondary/80 rounded-md"
             >
               Cancel
             </button>
             <button
               onClick={handleSubmit}
               disabled={!title.trim() || loading}
-              className="px-3 py-1.5 text-sm bg-primary text-primary-foreground hover:bg-primary/90 rounded disabled:opacity-50"
+              className="px-3 py-1.5 text-sm bg-primary text-primary-foreground hover:bg-primary/90 rounded-md disabled:opacity-50"
             >
               {loading ? 'Creating...' : 'Create Task'}
             </button>

@@ -95,7 +95,7 @@ export function LocalIssueCard({ issue, projectId, onEdit }: LocalIssueCardProps
         <div className="flex items-center gap-1 shrink-0">
           <button
             onClick={() => onEdit(issue)}
-            className="p-1 text-muted-foreground hover:text-foreground rounded transition-colors"
+            className="p-1 text-muted-foreground hover:text-foreground rounded-md transition-colors"
             title="Edit"
           >
             <Pencil className="w-3 h-3" />
@@ -103,7 +103,7 @@ export function LocalIssueCard({ issue, projectId, onEdit }: LocalIssueCardProps
           {issue.status === 'closed' ? (
             <button
               onClick={handleStatusToggle}
-              className="p-1 text-muted-foreground hover:text-green-500 rounded transition-colors"
+              className="p-1 text-muted-foreground hover:text-green-500 rounded-md transition-colors"
               title="Reopen"
             >
               <RotateCcw className="w-3 h-3" />
@@ -111,7 +111,7 @@ export function LocalIssueCard({ issue, projectId, onEdit }: LocalIssueCardProps
           ) : (
             <button
               onClick={handleStatusToggle}
-              className="p-1 text-muted-foreground hover:text-foreground rounded transition-colors"
+              className="p-1 text-muted-foreground hover:text-foreground rounded-md transition-colors"
               title={issue.status === 'open' ? 'Start' : 'Close'}
             >
               <X className="w-3 h-3" />
@@ -119,7 +119,7 @@ export function LocalIssueCard({ issue, projectId, onEdit }: LocalIssueCardProps
           )}
           <button
             onClick={handleDelete}
-            className="p-1 text-muted-foreground hover:text-red-500 rounded transition-colors"
+            className="p-1 text-muted-foreground hover:text-red-500 rounded-md transition-colors"
             title="Delete"
           >
             <Trash2 className="w-3 h-3" />

@@ -82,7 +82,7 @@ export function TaskCard({ task, onSelect }: TaskCardProps) {
   return (
     <div
       onClick={() => onSelect(task)}
-      className="group px-3 py-2 bg-secondary/50 hover:bg-secondary rounded cursor-pointer border border-border/50 hover:border-border transition-colors"
+      className="group px-3 py-2 bg-secondary/50 hover:bg-secondary rounded-md cursor-pointer border border-border/50 hover:border-border transition-colors"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
@@ -117,13 +117,13 @@ export function TaskCard({ task, onSelect }: TaskCardProps) {
         <div className="flex items-center gap-1 mt-2">
           <button
             onClick={handleApproveProposed}
-            className="flex items-center gap-1 px-2 py-0.5 text-xs bg-green-500/10 text-green-500 hover:bg-green-500/20 rounded"
+            className="flex items-center gap-1 px-2 py-0.5 text-xs bg-green-500/10 text-green-500 hover:bg-green-500/20 rounded-md"
           >
             <CheckCircle size={12} /> Approve
           </button>
           <button
             onClick={handleRejectProposed}
-            className="flex items-center gap-1 px-2 py-0.5 text-xs bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded"
+            className="flex items-center gap-1 px-2 py-0.5 text-xs bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-md"
           >
             <XCircle size={12} /> Reject
           </button>
@@ -134,13 +134,13 @@ export function TaskCard({ task, onSelect }: TaskCardProps) {
         <div className="flex items-center gap-1 mt-2">
           <button
             onClick={handleApproveResult}
-            className="flex items-center gap-1 px-2 py-0.5 text-xs bg-green-500/10 text-green-500 hover:bg-green-500/20 rounded"
+            className="flex items-center gap-1 px-2 py-0.5 text-xs bg-green-500/10 text-green-500 hover:bg-green-500/20 rounded-md"
           >
             <CheckCircle size={12} /> Approve Result
           </button>
           <button
             onClick={handleRejectResult}
-            className="flex items-center gap-1 px-2 py-0.5 text-xs bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded"
+            className="flex items-center gap-1 px-2 py-0.5 text-xs bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-md"
           >
             <XCircle size={12} /> Reject Result
           </button>
@@ -151,7 +151,7 @@ export function TaskCard({ task, onSelect }: TaskCardProps) {
         <div className="flex items-center gap-1 mt-2">
           <button
             onClick={handleResolveConflict}
-            className="flex items-center gap-1 px-2 py-0.5 text-xs bg-orange-500/10 text-orange-500 hover:bg-orange-500/20 rounded"
+            className="flex items-center gap-1 px-2 py-0.5 text-xs bg-orange-500/10 text-orange-500 hover:bg-orange-500/20 rounded-md"
           >
             <AlertTriangle size={12} /> Resolve Conflict
           </button>

@@ -230,17 +230,17 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
               </span>
             )}
             {pr.autoTriggered && (
-              <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">auto</span>
+              <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded-md">auto</span>
             )}
             {pr.autoReview && (
-              <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">auto-review</span>
+              <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded-md">auto-review</span>
             )}
           </div>
           <p className="text-sm font-medium mt-1 truncate" title={pr.title}>{pr.title}</p>
           <p className="text-xs text-muted-foreground mt-0.5">
-            <code className="bg-muted px-1 rounded">{branchShort}</code>
+            <code className="bg-muted px-1 rounded-md">{branchShort}</code>
             {' → '}
-            <code className="bg-muted px-1 rounded">{pr.baseBranch}</code>
+            <code className="bg-muted px-1 rounded-md">{pr.baseBranch}</code>
             {' · '}
             {commitCount} commit{commitCount !== 1 ? 's' : ''}
             {' · '}
@@ -255,7 +255,7 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
                 onClick={handleCancelQueue}
                 disabled={loading}
                 title="Cancel queue"
-                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
               >
                 <XCircle className="w-3.5 h-3.5" />
               </button>
@@ -265,7 +265,7 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
                 onClick={handleRetry}
                 disabled={loading}
                 title="Retry"
-                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
               </button>
@@ -276,18 +276,18 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
                   onClick={() => setReviewPickerOpen((v) => !v)}
                   disabled={loading}
                   title="AI Review"
-                  className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
                 >
                   <Eye className="w-3.5 h-3.5" />
                 </button>
                 {reviewPickerOpen && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setReviewPickerOpen(false)} />
-                    <div className="absolute right-0 top-full mt-1 z-50 bg-popover border border-border rounded-lg shadow-lg p-2 min-w-[200px]">
+                    <div className="absolute right-0 top-full mt-1 z-50 bg-popover border border-border rounded-xl shadow-lg p-2 min-w-[200px]">
                       <p className="text-xs font-medium text-muted-foreground mb-1.5 px-1">Review with:</p>
                       <button
                         onClick={() => handleReview(defaultProviderId)}
-                        className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted"
+                        className="w-full text-left text-xs px-2 py-1.5 rounded-md hover:bg-muted"
                       >
                         Default{defaultProviderId ? ` (${getProviderLabel(providers, defaultProviderId)})` : ''}
                       </button>
@@ -295,7 +295,7 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
                         <button
                           key={p.id}
                           onClick={() => handleReview(p.id)}
-                          className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted"
+                          className="w-full text-left text-xs px-2 py-1.5 rounded-md hover:bg-muted"
                         >
                           {p.name} ({p.type})
                         </button>
@@ -310,7 +310,7 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
                 onClick={handleMerge}
                 disabled={loading}
                 title="Merge directly (skip review)"
-                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
               >
                 <GitMerge className="w-3.5 h-3.5" />
               </button>
@@ -320,7 +320,7 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
                 onClick={handleMerge}
                 disabled={loading}
                 title="Merge now"
-                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
               >
                 <GitMerge className="w-3.5 h-3.5" />
               </button>
@@ -331,7 +331,7 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
                   onClick={handleMerge}
                   disabled={loading}
                   title="Retry merge"
-                  className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
                 >
                   <GitMerge className="w-3.5 h-3.5" />
                 </button>
@@ -339,7 +339,7 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
                   onClick={handleResolveConflictWithAI}
                   disabled={loading}
                   title="Resolve with AI"
-                  className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
                 >
                   <Bot className="w-3.5 h-3.5" />
                 </button>
@@ -351,7 +351,7 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
                   onClick={handleCancelMerge}
                   disabled={loading}
                   title="Cancel merge"
-                  className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
                 >
                   <XCircle className="w-3.5 h-3.5" />
                 </button>
@@ -359,7 +359,7 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
                   onClick={handleCancelAndRetryMerge}
                   disabled={loading}
                   title="Cancel and retry"
-                  className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                 </button>
@@ -370,7 +370,7 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
                 onClick={handleRevertMerged}
                 disabled={loading}
                 title="Revert merge"
-                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
               >
                 <Undo2 className="w-3.5 h-3.5" />
               </button>
@@ -380,7 +380,7 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
                 onClick={handleReopen}
                 disabled={loading}
                 title="Reopen PR"
-                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
               </button>
@@ -390,7 +390,7 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
                 onClick={handleClose}
                 disabled={loading}
                 title="Close PR"
-                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-red-400 disabled:opacity-50"
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-red-400 disabled:opacity-50"
               >
                 <XCircle className="w-3.5 h-3.5" />
               </button>
@@ -404,7 +404,7 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
           <button
             onClick={handleCancelQueue}
             disabled={loading}
-            className="text-xs rounded border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
+            className="text-xs rounded-md border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
           >
             Cancel Queue
           </button>
@@ -413,7 +413,7 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
           <button
             onClick={handleRetry}
             disabled={loading}
-            className="text-xs rounded border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
+            className="text-xs rounded-md border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
           >
             Retry
           </button>
@@ -423,14 +423,14 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
             <button
               onClick={handleCancelMerge}
               disabled={loading}
-              className="text-xs rounded border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
+              className="text-xs rounded-md border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
             >
               Cancel merge
             </button>
             <button
               onClick={handleCancelAndRetryMerge}
               disabled={loading}
-              className="text-xs rounded border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
+              className="text-xs rounded-md border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
             >
               Cancel + Retry
             </button>
@@ -441,14 +441,14 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
             <button
               onClick={handleMerge}
               disabled={loading}
-              className="text-xs rounded border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
+              className="text-xs rounded-md border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
             >
               Retry merge
             </button>
             <button
               onClick={handleResolveConflictWithAI}
               disabled={loading}
-              className="text-xs rounded border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
+              className="text-xs rounded-md border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
             >
               Resolve with AI
             </button>
@@ -458,7 +458,7 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
           <button
             onClick={handleRevertMerged}
             disabled={loading}
-            className="text-xs rounded border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
+            className="text-xs rounded-md border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
           >
             Revert merge
           </button>
@@ -467,7 +467,7 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
           <button
             onClick={handleReopen}
             disabled={loading}
-            className="text-xs rounded border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
+            className="text-xs rounded-md border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
           >
             Reopen
           </button>
@@ -519,7 +519,7 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
       )}
 
       {notesOpen && pr.reviewNotes && (
-        <pre className="text-xs bg-muted p-2 rounded overflow-auto max-h-40 whitespace-pre-wrap">
+        <pre className="text-xs bg-muted p-2 rounded-md overflow-auto max-h-40 whitespace-pre-wrap">
           {pr.reviewNotes}
         </pre>
       )}

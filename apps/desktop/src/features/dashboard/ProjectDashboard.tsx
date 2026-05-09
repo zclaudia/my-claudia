@@ -143,7 +143,7 @@ export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations
                   key={pane}
                   type="button"
                   onClick={() => setSupervisorPane(pane)}
-                  className={`rounded px-3 py-1.5 text-xs transition-colors ${
+                  className={`rounded-md px-3 py-1.5 text-xs transition-colors ${
                     supervisorPane === pane
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-secondary text-muted-foreground hover:text-foreground'

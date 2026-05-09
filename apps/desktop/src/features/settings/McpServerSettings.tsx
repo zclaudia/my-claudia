@@ -244,7 +244,7 @@ export function McpServerSettings({ readOnly = false }: { readOnly?: boolean }) 
             <button
               type="button"
               onClick={() => setFormEnvPairs(formEnvPairs.filter((_, j) => j !== i))}
-              className="p-0.5 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-400 transition-colors"
+              className="p-0.5 rounded-md hover:bg-red-500/20 text-muted-foreground hover:text-red-400 transition-colors"
               aria-label="Remove environment variable"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -417,7 +417,7 @@ export function McpServerSettings({ readOnly = false }: { readOnly?: boolean }) 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-sm truncate">{server.name}</span>
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                      <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-medium ${
                         server.enabled
                           ? 'bg-green-500/20 text-green-400'
                           : 'bg-gray-500/20 text-gray-500'
@@ -425,7 +425,7 @@ export function McpServerSettings({ readOnly = false }: { readOnly?: boolean }) 
                         {server.enabled ? 'Enabled' : 'Disabled'}
                       </span>
                       {server.source === 'imported' && (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/10 text-blue-400">
+                        <span className="px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-blue-500/10 text-blue-400">
                           Imported
                         </span>
                       )}
@@ -439,7 +439,7 @@ export function McpServerSettings({ readOnly = false }: { readOnly?: boolean }) 
                     {server.providerScope && server.providerScope.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-1">
                         {server.providerScope.map(p => (
-                          <span key={p} className="px-1.5 py-0.5 rounded text-[10px] bg-primary/10 text-primary font-mono">
+                          <span key={p} className="px-1.5 py-0.5 rounded-md text-[10px] bg-primary/10 text-primary font-mono">
                             {p}
                           </span>
                         ))}
@@ -465,7 +465,7 @@ export function McpServerSettings({ readOnly = false }: { readOnly?: boolean }) 
                     <button
                       type="button"
                       onClick={() => openEditForm(server)}
-                      className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                      className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
                       title="Edit"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -475,7 +475,7 @@ export function McpServerSettings({ readOnly = false }: { readOnly?: boolean }) 
                     <button
                       type="button"
                       onClick={() => handleDelete(server.id, server.name)}
-                      className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-red-400 transition-colors"
+                      className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-red-400 transition-colors"
                       title="Delete"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

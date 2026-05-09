@@ -107,7 +107,7 @@ export function RunsTab({ api, projects }: RunsTabProps) {
                   </span>
                 </div>
                 <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
-                  <span className="px-1.5 py-0.5 rounded bg-muted">{run.triggerSource}</span>
+                  <span className="px-1.5 py-0.5 rounded-md bg-muted">{run.triggerSource}</span>
                   <span>{formatDuration(run.startedAt, run.completedAt)}</span>
                   <span>{new Date(run.startedAt).toLocaleString()}</span>
                 </div>
@@ -164,7 +164,7 @@ function RunDetail({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <button onClick={onBack} className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground">
+          <button onClick={onBack} className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground">
             <ArrowLeft size={16} />
           </button>
           <div>
@@ -203,7 +203,7 @@ function RunDetail({
       </div>
 
       {run.error && (
-        <div className="text-xs text-destructive bg-destructive/10 rounded p-3">{run.error}</div>
+        <div className="text-xs text-destructive bg-destructive/10 rounded-md p-3">{run.error}</div>
       )}
     </div>
   );

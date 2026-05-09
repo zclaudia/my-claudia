@@ -65,7 +65,7 @@ export function ContextBrowser({ projectId }: ContextBrowserProps) {
         <button
           onClick={handleReload}
           disabled={loading}
-          className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground disabled:opacity-50"
+          className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground disabled:opacity-50"
           title="Reload from disk"
         >
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
@@ -144,7 +144,7 @@ function CategorySection({
             <button
               key={doc.id}
               onClick={() => onSelect(selectedDoc === doc.id ? null : doc.id)}
-              className={`flex items-center gap-1.5 w-full px-2 py-1 text-xs rounded hover:bg-secondary ${
+              className={`flex items-center gap-1.5 w-full px-2 py-1 text-xs rounded-md hover:bg-secondary ${
                 selectedDoc === doc.id ? 'bg-secondary text-foreground' : 'text-muted-foreground'
               }`}
             >

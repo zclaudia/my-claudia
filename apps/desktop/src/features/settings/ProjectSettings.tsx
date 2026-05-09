@@ -276,7 +276,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
           <h2 className="text-lg font-semibold text-card-foreground">Project Settings</h2>
           <button
             onClick={onClose}
-            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+            className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

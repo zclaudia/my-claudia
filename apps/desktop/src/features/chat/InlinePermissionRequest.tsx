@@ -157,11 +157,11 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
         <span className="text-sm font-medium text-card-foreground">
           {isCredential ? 'Credential Required' : 'Permission Required'}
         </span>
-        <span className="px-1.5 py-0.5 bg-muted rounded text-xs font-mono text-foreground">
+        <span className="px-1.5 py-0.5 bg-muted rounded-md text-xs font-mono text-foreground">
           {request.toolName}
         </span>
         {request.matchedRule && (
-          <span className="px-1.5 py-0.5 bg-amber-500/10 rounded text-[11px] text-amber-700 dark:text-amber-400">
+          <span className="px-1.5 py-0.5 bg-amber-500/10 rounded-md text-[11px] text-amber-700 dark:text-amber-400">
             {request.matchedRule}
           </span>
         )}
@@ -194,7 +194,7 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
               }}
               placeholder={`Enter ${credentialLabel}`}
               autoComplete="off"
-              className="w-full px-2.5 py-1.5 bg-input border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+              className="w-full px-2.5 py-1.5 bg-input border border-border rounded-md text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
             />
             <p className="text-[10px] text-muted-foreground mt-0.5">
               Encrypted end-to-end
@@ -211,7 +211,7 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
               onChange={(e) => setFeedbackDraft(request.requestId, e.target.value)}
               placeholder="Why do you reject exiting plan mode?"
               rows={2}
-              className="w-full px-2.5 py-1.5 bg-input border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary resize-none"
+              className="w-full px-2.5 py-1.5 bg-input border border-border rounded-md text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary resize-none"
             />
           </div>
         )}
@@ -262,7 +262,7 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
               type="checkbox"
               checked={remember}
               onChange={(e) => setRemember(e.target.checked)}
-              className="w-3.5 h-3.5 rounded border-input bg-background text-primary focus:ring-primary"
+              className="w-3.5 h-3.5 rounded-md border-input bg-background text-primary focus:ring-primary"
             />
             Remember
           </label>

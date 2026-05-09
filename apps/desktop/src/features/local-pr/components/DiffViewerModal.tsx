@@ -48,7 +48,7 @@ export function DiffViewerModal({ title, diff, onClose }: DiffViewerModalProps) 
           </h2>
           <button
             onClick={onClose}
-            className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted"
+            className="text-muted-foreground hover:text-foreground p-1 rounded-md hover:bg-muted"
           >
             <X className="w-4 h-4" />
           </button>

@@ -303,10 +303,10 @@ export function WorkspaceSkillsSettings({ readOnly = false }: { readOnly?: boole
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-sm truncate">{displayName}</span>
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-500/20 text-green-400">
+                    <span className="px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-green-500/20 text-green-400">
                       Active
                     </span>
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                    <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-medium ${
                       isWorkspace ? 'bg-blue-500/10 text-blue-400' : 'bg-purple-500/10 text-purple-400'
                     }`}>
                       {isWorkspace ? 'Workspace' : 'External'}
@@ -320,7 +320,7 @@ export function WorkspaceSkillsSettings({ readOnly = false }: { readOnly?: boole
                     <button
                       type="button"
                       onClick={() => handleEditSkill(skillId)}
-                      className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                      className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
                       title="Edit"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -330,7 +330,7 @@ export function WorkspaceSkillsSettings({ readOnly = false }: { readOnly?: boole
                     <button
                       type="button"
                       onClick={() => handleDeleteSkill(skillId, displayName)}
-                      className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-red-400 transition-colors"
+                      className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-red-400 transition-colors"
                       title="Delete"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -369,7 +369,7 @@ export function WorkspaceSkillsSettings({ readOnly = false }: { readOnly?: boole
                 <button
                   type="button"
                   onClick={() => handleRemoveDir(dir)}
-                  className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-red-400 transition-colors shrink-0"
+                  className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-red-400 transition-colors shrink-0"
                   title="Remove"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

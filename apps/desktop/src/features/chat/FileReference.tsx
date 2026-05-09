@@ -35,7 +35,7 @@ export function TextWithFileRefs({
   };
 
   const refClassName = variant === 'user'
-    ? 'font-mono inline rounded px-1 py-0.5 border border-primary-foreground/40 bg-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/30 hover:underline cursor-pointer'
+    ? 'font-mono inline rounded-md px-1 py-0.5 border border-primary-foreground/40 bg-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/30 hover:underline cursor-pointer'
     : 'text-primary hover:underline cursor-pointer font-mono inline';
 
   const parts: (string | JSX.Element)[] = [];

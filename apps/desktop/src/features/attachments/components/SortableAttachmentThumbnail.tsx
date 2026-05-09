@@ -42,7 +42,7 @@ export function SortableAttachmentThumbnail({
       type="button"
       {...attributes}
       {...listeners}
-      className="p-1 rounded bg-background/90 text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing"
+      className="p-1 rounded-md bg-background/90 text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing"
       aria-label={`Reorder ${attachment.name}`}
       data-testid="attachment-drag-handle"
       onClick={(e) => e.stopPropagation()}

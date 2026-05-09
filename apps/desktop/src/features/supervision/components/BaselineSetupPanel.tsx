@@ -93,7 +93,7 @@ export function BaselineSetupPanel({
         </label>
       </div>
 
-      <div className="rounded border border-border bg-background/60 px-3 py-2 text-[11px] text-muted-foreground">
+      <div className="rounded-md border border-border bg-background/60 px-3 py-2 text-[11px] text-muted-foreground">
         {baselineMode === 'template'
           ? 'Create baseline files from the default template only.'
           : baselineMode === 'scan'
@@ -107,7 +107,7 @@ export function BaselineSetupPanel({
           type="button"
           onClick={onCancel}
           disabled={loading}
-          className="px-3 py-1.5 text-xs rounded bg-secondary hover:bg-secondary/80 disabled:opacity-50"
+          className="px-3 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80 disabled:opacity-50"
         >
           Cancel
         </button>
@@ -115,7 +115,7 @@ export function BaselineSetupPanel({
           type="button"
           onClick={onSubmit}
           disabled={loading || (baselineMode === 'ai_scan' && !baselineProviderId && aiCapableProviders.length > 0)}
-          className="px-3 py-1.5 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          className="px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           {baselineReady ? 'Regenerate Baseline' : 'Generate Baseline'}
         </button>

@@ -79,17 +79,15 @@ export function ProjectListItem({
 }: ProjectListItemProps) {
   const menuWidthClass = isMobile ? 'w-44' : 'w-36';
   const menuButtonClass = isMobile
-    ? 'w-8 h-8 rounded hover:bg-secondary active:bg-secondary flex-shrink-0 flex items-center justify-center opacity-0 group-hover:opacity-100'
-    : 'w-6 h-6 rounded opacity-0 group-hover:opacity-100 hover:bg-secondary flex-shrink-0 flex items-center justify-center';
+    ? 'w-8 h-8 rounded-md hover:bg-secondary active:bg-secondary flex-shrink-0 flex items-center justify-center opacity-0 group-hover:opacity-100'
+    : 'w-6 h-6 rounded-md opacity-0 group-hover:opacity-100 hover:bg-secondary flex-shrink-0 flex items-center justify-center';
   const projectButtonClass = isMobile
     ? 'flex-1 min-w-0 min-h-[36px] text-left px-1 text-sm flex items-center gap-1.5 text-foreground'
     : 'flex-1 min-w-0 h-7 text-left px-1 text-sm flex items-center gap-1.5';
   const menuItemClass = isMobile
     ? 'w-full text-left px-3 py-3 text-sm hover:bg-secondary active:bg-secondary flex items-center gap-2'
     : 'w-full text-left px-3 py-1.5 text-sm hover:bg-secondary flex items-center gap-2';
-  const menuContainerClass = isMobile
-    ? `fixed ${menuWidthClass} bg-popover border border-border rounded-lg shadow-lg z-50`
-    : `fixed ${menuWidthClass} bg-popover border border-border rounded shadow-lg z-50`;
+  const menuContainerClass = `fixed ${menuWidthClass} bg-popover border border-border rounded-xl shadow-lg z-50`;
   const inputClass = isMobile
     ? 'w-full px-3 py-2.5 bg-muted/60 border-0 rounded-lg text-sm shadow-apple-sm focus:outline-none focus:ring-1 focus:ring-primary/50'
     : 'w-full px-2 py-1.5 bg-muted/60 border-0 rounded-lg text-sm shadow-apple-sm focus:outline-none focus:ring-1 focus:ring-primary/50';

@@ -112,7 +112,7 @@ export function WindowManagerWindow() {
           )}
           <button
             onClick={() => void handleRefresh()}
-            className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+            className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
             title="Refresh"
           >
             <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
@@ -120,7 +120,7 @@ export function WindowManagerWindow() {
           {closeableCount > 0 && (
             <button
               onClick={handleCloseAll}
-              className="text-xs px-2 py-1 rounded bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
+              className="text-xs px-2 py-1 rounded-md bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
               title="Close all popup windows (session, terminal, file viewer, etc.)"
             >
               Close Popups
@@ -154,7 +154,7 @@ export function WindowManagerWindow() {
                   <div className="flex items-center gap-1.5">
                     <span className="text-sm font-medium truncate">{type}</span>
                     {win.focused && (
-                      <span className="text-[10px] px-1 py-0 rounded bg-primary/20 text-primary font-medium flex-shrink-0">
+                      <span className="text-[10px] px-1 py-0 rounded-md bg-primary/20 text-primary font-medium flex-shrink-0">
                         focused
                       </span>
                     )}
@@ -184,7 +184,7 @@ export function WindowManagerWindow() {
                 <div className="flex items-center gap-1 flex-shrink-0">
                   <button
                     onClick={() => void handleFocus(win.label)}
-                    className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                    className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
                     title="Focus window"
                   >
                     <Focus size={13} />
@@ -192,7 +192,7 @@ export function WindowManagerWindow() {
                   <button
                     onClick={() => void handleClose(win.label)}
                     disabled={isProtected}
-                    className={`p-1.5 rounded transition-colors ${
+                    className={`p-1.5 rounded-md transition-colors ${
                       isProtected
                         ? 'text-muted-foreground/20 cursor-not-allowed'
                         : 'hover:bg-destructive/10 text-muted-foreground hover:text-destructive'

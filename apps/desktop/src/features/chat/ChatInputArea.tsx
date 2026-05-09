@@ -234,7 +234,7 @@ export function ChatInputArea({
                   openDraftEditor(sessionId);
                 }
               }}
-              className={`p-1.5 rounded hover:bg-secondary relative ${isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+              className={`p-1.5 rounded-md hover:bg-secondary relative ${isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
               title={isActive ? 'Close draft editor' : 'Open draft editor'}
             >
               <FileEdit size={16} strokeWidth={1.75} />
@@ -259,7 +259,7 @@ export function ChatInputArea({
                 activatePanel('file-viewer');
               }
             }}
-            className={`p-1.5 rounded hover:bg-secondary ${fileViewerPanelActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+            className={`p-1.5 rounded-md hover:bg-secondary ${fileViewerPanelActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
             title={fileViewerPanelActive ? 'Close file viewer' : 'Open file viewer (Cmd+P)'}
           >
             <FileText size={16} strokeWidth={1.75} />
@@ -286,7 +286,7 @@ export function ChatInputArea({
                   activatePanel('terminal');
                 }
               }}
-              className={`p-1.5 rounded hover:bg-secondary ${isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+              className={`p-1.5 rounded-md hover:bg-secondary ${isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
               title={isActive ? 'Hide terminal (Ctrl+`)' : 'Open terminal (Ctrl+`)'}
             >
               <TerminalIcon size={16} strokeWidth={1.75} />
@@ -296,7 +296,7 @@ export function ChatInputArea({
         {!isMobile && (
           <button
             onClick={() => setAdvancedInput(!advancedInput)}
-            className={`p-1.5 rounded hover:bg-secondary ${advancedInput ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+            className={`p-1.5 rounded-md hover:bg-secondary ${advancedInput ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
             title={advancedInput ? 'Normal input' : 'Advanced input (Enter to newline)'}
           >
             {advancedInput ? <ChevronDown size={16} strokeWidth={2} /> : <ChevronUp size={16} strokeWidth={2} />}
@@ -419,7 +419,7 @@ export function ChatInputArea({
                     )}
                   </button>
                   {mobileToolsOpen && (
-                    <div className="absolute bottom-full left-0 mb-2 py-1 bg-popover border border-border rounded-lg shadow-lg min-w-[160px] z-50">
+                    <div className="absolute bottom-full left-0 mb-2 py-1 bg-popover border border-border rounded-xl shadow-lg min-w-[160px] z-50">
                       {toolItems.map((item) => (
                         <button
                           key={item.key}

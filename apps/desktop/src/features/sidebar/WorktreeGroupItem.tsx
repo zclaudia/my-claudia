@@ -29,7 +29,7 @@ export function WorktreeGroupItem({
       {/* Group header */}
       <button
         onClick={onToggle}
-        className={`w-full flex items-center gap-1.5 px-1 rounded text-[11px] text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors ${
+        className={`w-full flex items-center gap-1.5 px-1 rounded-md text-[11px] text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors ${
           isMobile ? 'min-h-[36px] py-1' : 'h-7'
         }`}
       >

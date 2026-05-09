@@ -216,7 +216,7 @@ export function FileViewerActions() {
     <>
       <button
         onClick={() => setSearchOpen(!searchOpen)}
-        className={`p-1 rounded hover:bg-secondary flex-shrink-0 ${
+        className={`p-1 rounded-md hover:bg-secondary flex-shrink-0 ${
           searchOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
         }`}
         title="Search files (Cmd+P)"
@@ -228,7 +228,7 @@ export function FileViewerActions() {
       {content && (
         <button
           onClick={handleCopy}
-          className={`p-1 rounded flex-shrink-0 ${
+          className={`p-1 rounded-md flex-shrink-0 ${
             copied ? 'text-green-500' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
           }`}
           title={copied ? 'Copied!' : 'Copy file content'}
@@ -245,7 +245,7 @@ export function FileViewerActions() {
       {filePath && !isMobile && (
         <button
           onClick={handleExpand}
-          className="p-1 rounded text-muted-foreground hover:bg-secondary hover:text-foreground flex-shrink-0"
+          className="p-1 rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground flex-shrink-0"
           title={isDesktopTauri() ? 'Open in new window' : 'Fullscreen'}
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

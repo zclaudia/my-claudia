@@ -87,7 +87,7 @@ export function FilePushCard({ item, onPreview }: { item: FilePushItem; onPrevie
           {item.status === 'pending' && (
             <button
               onClick={handleDownload}
-              className="px-3 py-1 text-xs font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded transition-colors"
+              className="px-3 py-1 text-xs font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded-md transition-colors"
             >
               Download
             </button>

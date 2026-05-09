@@ -34,7 +34,7 @@ export function RecentChangesPanel({
           <button
             type="button"
             onClick={onToggleShowAll}
-            className="rounded bg-secondary px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground"
+            className="rounded-md bg-secondary px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground"
           >
             {showAllChanges ? 'Hide All' : 'View All'}
           </button>
@@ -45,7 +45,7 @@ export function RecentChangesPanel({
         {recentHistory.map((change) => (
           <div
             key={change.id}
-            className={`rounded border px-3 py-2 transition-colors ${
+            className={`rounded-md border px-3 py-2 transition-colors ${
               previewChangeId === change.id
                 ? 'border-primary bg-primary/5'
                 : 'border-border bg-secondary/20'
@@ -74,7 +74,7 @@ export function RecentChangesPanel({
                 onClick={() => onPreviewChange(change, 'design')}
                 disabled={loading}
                 aria-label={`Open ${change.title} design`}
-                className="rounded bg-background px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+                className="rounded-md bg-background px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
               >
                 Design
               </button>
@@ -83,7 +83,7 @@ export function RecentChangesPanel({
                 onClick={() => onPreviewChange(change, 'execution')}
                 disabled={loading}
                 aria-label={`Open ${change.title} execution`}
-                className="rounded bg-background px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+                className="rounded-md bg-background px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
               >
                 Execution
               </button>
@@ -92,7 +92,7 @@ export function RecentChangesPanel({
                 onClick={() => onPreviewChange(change, 'tasks')}
                 disabled={loading}
                 aria-label={`Open ${change.title} tasks`}
-                className="rounded bg-background px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+                className="rounded-md bg-background px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
               >
                 Tasks
               </button>

@@ -23,7 +23,7 @@ export function MobileSidebarHeader({
         <h1 className="font-semibold text-lg">MyClaudia</h1>
         <button
           onClick={onClose}
-          className="p-2 min-w-[44px] min-h-[44px] rounded hover:bg-secondary active:bg-secondary text-muted-foreground hover:text-foreground flex items-center justify-center"
+          className="p-2 min-w-[44px] min-h-[44px] rounded-md hover:bg-secondary active:bg-secondary text-muted-foreground hover:text-foreground flex items-center justify-center"
           title="Close menu"
         >
           <svg

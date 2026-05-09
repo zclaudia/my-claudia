@@ -218,7 +218,7 @@ export const ChatMessagePane = memo(function ChatMessagePane({
           <p className="text-sm text-muted-foreground mb-1">{loadError}</p>
           <button
             onClick={retryLoad}
-            className="mt-2 px-3 py-1.5 text-xs font-medium text-primary hover:text-primary/80 bg-primary/10 hover:bg-primary/15 rounded transition-colors"
+            className="mt-2 px-3 py-1.5 text-xs font-medium text-primary hover:text-primary/80 bg-primary/10 hover:bg-primary/15 rounded-md transition-colors"
           >
             Retry
           </button>

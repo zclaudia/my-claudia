@@ -15,7 +15,7 @@ export function QueuedMessageBanner({ content, onSendNow, onDismiss }: QueuedMes
       </span>
       <button
         onClick={onSendNow}
-        className="text-xs font-medium text-primary hover:text-primary/80 px-2 py-1 bg-primary/10 rounded flex-shrink-0"
+        className="text-xs font-medium text-primary hover:text-primary/80 px-2 py-1 bg-primary/10 rounded-md flex-shrink-0"
       >
         Send Now
       </button>

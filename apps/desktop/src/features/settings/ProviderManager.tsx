@@ -287,7 +287,7 @@ export function ProviderManager({ isOpen, onClose, inline = false, readOnly = fa
           id="isDefault"
           checked={formIsDefault}
           onChange={(e) => setFormIsDefault(e.target.checked)}
-          className="rounded border-border bg-secondary"
+          className="rounded-md border-border bg-secondary"
         />
         <label htmlFor="isDefault" className="text-sm">
           Set as default provider
@@ -328,11 +328,11 @@ export function ProviderManager({ isOpen, onClose, inline = false, readOnly = fa
               <div className="flex items-center gap-2">
                 <span className="font-medium truncate">{provider.name}</span>
                 {provider.isDefault && (
-                  <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-xs rounded">
+                  <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-xs rounded-md">
                     Default
                   </span>
                 )}
-                <span className="px-1.5 py-0.5 bg-secondary text-muted-foreground text-xs rounded">
+                <span className="px-1.5 py-0.5 bg-secondary text-muted-foreground text-xs rounded-md">
                   {provider.type || 'claude'}
                 </span>
               </div>
@@ -348,7 +348,7 @@ export function ProviderManager({ isOpen, onClose, inline = false, readOnly = fa
               {!provider.isDefault && (
                 <button
                   onClick={() => handleSetDefault(provider.id)}
-                  className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+                  className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground"
                   title="Set as default"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -358,7 +358,7 @@ export function ProviderManager({ isOpen, onClose, inline = false, readOnly = fa
               )}
               <button
                 onClick={() => openEditForm(provider)}
-                className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+                className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground"
                 title="Edit"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -367,7 +367,7 @@ export function ProviderManager({ isOpen, onClose, inline = false, readOnly = fa
               </button>
               <button
                 onClick={() => handleDelete(provider.id)}
-                className="p-1.5 rounded hover:bg-secondary text-destructive hover:text-destructive"
+                className="p-1.5 rounded-md hover:bg-secondary text-destructive hover:text-destructive"
                 title="Delete"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -412,7 +412,7 @@ export function ProviderManager({ isOpen, onClose, inline = false, readOnly = fa
           <h2 className="text-lg font-semibold">Provider Management</h2>
           <button
             onClick={onClose}
-            className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+            className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

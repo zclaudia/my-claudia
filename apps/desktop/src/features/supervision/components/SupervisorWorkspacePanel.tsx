@@ -354,14 +354,14 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
             <button
               onClick={() => setShowBaselineSetup((value) => !value)}
               disabled={loading}
-              className="px-2.5 py-1.5 text-xs rounded bg-secondary hover:bg-secondary/80 disabled:opacity-50"
+              className="px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80 disabled:opacity-50"
             >
               {baselineReady ? 'Regenerate Baseline' : 'Generate Baseline'}
             </button>
             <button
               onClick={() => setShowCreateChange((value) => !value)}
               disabled={loading || Boolean(activeChange)}
-              className="px-2.5 py-1.5 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              className="px-2.5 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               Start Change
             </button>
@@ -390,20 +390,20 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
               value={newTitle}
               onChange={(event) => setNewTitle(event.target.value)}
               placeholder="Change title"
-              className="w-full rounded border border-border bg-background px-3 py-2 text-sm"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
             />
             <textarea
               value={newSummary}
               onChange={(event) => setNewSummary(event.target.value)}
               placeholder="What will this change accomplish?"
               rows={3}
-              className="w-full rounded border border-border bg-background px-3 py-2 text-sm resize-none"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm resize-none"
             />
             <div className="flex justify-end">
               <button
                 onClick={handleCreateChange}
                 disabled={loading || !newTitle.trim() || !newSummary.trim()}
-                className="px-3 py-1.5 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                className="px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               >
                 Create Change
               </button>
@@ -412,13 +412,13 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
         )}
 
         {error && (
-          <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
             {error}
           </div>
         )}
 
         {baselineNotice && !error && (
-          <div className="rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700">
+          <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700">
             {baselineNotice}
           </div>
         )}

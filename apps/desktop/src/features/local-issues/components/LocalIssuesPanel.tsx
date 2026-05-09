@@ -70,7 +70,7 @@ export function LocalIssuesPanel({ projectId }: LocalIssuesPanelProps) {
             <button
               key={opt.value}
               onClick={() => setFilter(opt.value)}
-              className={`px-2.5 py-1 text-xs rounded transition-colors ${
+              className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
                 filter === opt.value
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-secondary text-muted-foreground hover:text-foreground'
@@ -83,7 +83,7 @@ export function LocalIssuesPanel({ projectId }: LocalIssuesPanelProps) {
         </div>
         <button
           onClick={() => setShowCreate(true)}
-          className="flex items-center gap-1 px-2.5 py-1 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
         >
           <Plus className="w-3 h-3" />
           New Issue

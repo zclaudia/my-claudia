@@ -162,7 +162,7 @@ export function ArchivedSessionsDialog({ isOpen, onClose }: ArchivedSessionsDial
           <h2 className="text-xl font-semibold">Archived Sessions</h2>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded hover:bg-secondary flex items-center justify-center"
+            className="w-8 h-8 rounded-md hover:bg-secondary flex items-center justify-center"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -176,7 +176,7 @@ export function ArchivedSessionsDialog({ isOpen, onClose }: ArchivedSessionsDial
             <div className="flex gap-2">
               <button
                 onClick={selectedIds.size === archivedSessions.length ? clearSelection : selectAll}
-                className="px-3 py-1 text-xs bg-secondary text-secondary-foreground rounded hover:opacity-90"
+                className="px-3 py-1 text-xs bg-secondary text-secondary-foreground rounded-md hover:opacity-90"
               >
                 {selectedIds.size === archivedSessions.length ? 'Clear All' : 'Select All'}
               </button>
@@ -191,14 +191,14 @@ export function ArchivedSessionsDialog({ isOpen, onClose }: ArchivedSessionsDial
                 <button
                   onClick={() => handleRestore(Array.from(selectedIds))}
                   disabled={loading}
-                  className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded hover:opacity-90 disabled:opacity-50"
+                  className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded-md hover:opacity-90 disabled:opacity-50"
                 >
                   Restore Selected
                 </button>
                 <button
                   onClick={() => handlePermanentDelete(Array.from(selectedIds))}
                   disabled={loading}
-                  className="px-3 py-1 text-xs bg-destructive text-destructive-foreground rounded hover:opacity-90 disabled:opacity-50"
+                  className="px-3 py-1 text-xs bg-destructive text-destructive-foreground rounded-md hover:opacity-90 disabled:opacity-50"
                 >
                   Delete Forever
                 </button>
@@ -211,7 +211,7 @@ export function ArchivedSessionsDialog({ isOpen, onClose }: ArchivedSessionsDial
         <div className={`p-4 md:p-6 overflow-y-auto ${isMobile ? 'flex-1' : 'max-h-[calc(80vh-140px)]'}`}>
           {/* Error */}
           {error && (
-            <div className="mb-4 p-3 bg-destructive/10 border border-destructive rounded text-sm text-destructive">
+            <div className="mb-4 p-3 bg-destructive/10 border border-destructive rounded-md text-sm text-destructive">
               {error}
             </div>
           )}
@@ -247,7 +247,7 @@ export function ArchivedSessionsDialog({ isOpen, onClose }: ArchivedSessionsDial
                 {group.sessions.map(session => (
                   <div
                     key={session.id}
-                    className="flex items-center gap-3 px-3 py-2 rounded hover:bg-secondary group"
+                    className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-secondary group"
                   >
                     <input
                       type="checkbox"
@@ -267,7 +267,7 @@ export function ArchivedSessionsDialog({ isOpen, onClose }: ArchivedSessionsDial
                       <button
                         onClick={() => handleRestore([session.id])}
                         disabled={loading}
-                        className="px-2 py-1 text-xs bg-primary text-primary-foreground rounded hover:opacity-90 disabled:opacity-50"
+                        className="px-2 py-1 text-xs bg-primary text-primary-foreground rounded-md hover:opacity-90 disabled:opacity-50"
                         title="Restore"
                       >
                         Restore
@@ -275,7 +275,7 @@ export function ArchivedSessionsDialog({ isOpen, onClose }: ArchivedSessionsDial
                       <button
                         onClick={() => handlePermanentDelete([session.id])}
                         disabled={loading}
-                        className="px-2 py-1 text-xs text-destructive hover:bg-destructive/10 rounded disabled:opacity-50"
+                        className="px-2 py-1 text-xs text-destructive hover:bg-destructive/10 rounded-md disabled:opacity-50"
                         title="Delete forever"
                       >
                         Delete

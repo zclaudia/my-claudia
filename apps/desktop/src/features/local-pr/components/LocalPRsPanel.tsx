@@ -270,7 +270,7 @@ export function LocalPRsPanel({ projectId, projectRootPath }: LocalPRsPanelProps
                           type="checkbox"
                           checked={config?.autoCreatePR ?? false}
                           onChange={(e) => handleToggleConfig(wt.path, 'autoCreatePR', e.target.checked)}
-                          className="rounded border-border w-3 h-3"
+                          className="rounded-md border-border w-3 h-3"
                         />
                         <span className="text-[11px] text-muted-foreground">Auto Create PR</span>
                       </label>
@@ -279,7 +279,7 @@ export function LocalPRsPanel({ projectId, projectRootPath }: LocalPRsPanelProps
                           type="checkbox"
                           checked={config?.autoReview ?? false}
                           onChange={(e) => handleToggleConfig(wt.path, 'autoReview', e.target.checked)}
-                          className="rounded border-border w-3 h-3"
+                          className="rounded-md border-border w-3 h-3"
                         />
                         <span className="text-[11px] text-muted-foreground">Auto Review</span>
                       </label>

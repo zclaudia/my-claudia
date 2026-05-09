@@ -63,7 +63,7 @@ export function SessionHeader({
       {isMobile && onOpenSidebar && (
         <button
           onClick={onOpenSidebar}
-          className="flex h-8 w-8 -ml-1 items-center justify-center rounded hover:bg-secondary text-muted-foreground hover:text-foreground flex-shrink-0"
+          className="flex h-8 w-8 -ml-1 items-center justify-center rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground flex-shrink-0"
           aria-label="Open menu"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -75,7 +75,7 @@ export function SessionHeader({
       {currentSession.type === 'background' && onReturnToDashboard && currentSession.projectId && (
         <button
           onClick={() => onReturnToDashboard(currentSession.projectId)}
-          className="flex h-8 w-8 items-center justify-center rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors shrink-0"
           title="Back to dashboard"
         >
           <ArrowLeft size={14} />
@@ -180,7 +180,7 @@ export function SessionHeader({
             <div className="relative shrink-0">
               <button
                 onClick={onToggleSessionMenu}
-                className="flex h-8 w-8 items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                 title="Session actions"
               >
                 <MoreHorizontal size={16} strokeWidth={1.75} />

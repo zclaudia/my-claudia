@@ -175,7 +175,7 @@ function TaskMiniCard({ task }: { task: SupervisionTask }) {
         <button
           onClick={handleOpen}
           disabled={loading}
-          className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded bg-secondary hover:bg-secondary/80 text-foreground flex-1 justify-center transition-colors disabled:opacity-50"
+          className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-md bg-secondary hover:bg-secondary/80 text-foreground flex-1 justify-center transition-colors disabled:opacity-50"
         >
           {loading ? (
             <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
@@ -202,7 +202,7 @@ function TaskMiniCard({ task }: { task: SupervisionTask }) {
           <button
             onClick={(e) => handleAction(e, 'retry')}
             disabled={loading}
-            className="flex items-center justify-center w-6 py-0.5 text-[10px] rounded bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 transition-colors disabled:opacity-50"
+            className="flex items-center justify-center w-6 py-0.5 text-[10px] rounded-md bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 transition-colors disabled:opacity-50"
             title="Retry"
           >
             <RotateCw size={10} />
@@ -214,7 +214,7 @@ function TaskMiniCard({ task }: { task: SupervisionTask }) {
           <button
             onClick={(e) => handleAction(e, 'runNow')}
             disabled={loading}
-            className="flex items-center justify-center w-6 py-0.5 text-[10px] rounded bg-green-500/10 hover:bg-green-500/20 text-green-500 transition-colors disabled:opacity-50"
+            className="flex items-center justify-center w-6 py-0.5 text-[10px] rounded-md bg-green-500/10 hover:bg-green-500/20 text-green-500 transition-colors disabled:opacity-50"
             title="Run now"
           >
             <Play size={10} />
@@ -226,7 +226,7 @@ function TaskMiniCard({ task }: { task: SupervisionTask }) {
           <button
             onClick={(e) => handleAction(e, 'cancel')}
             disabled={loading}
-            className="flex items-center justify-center w-6 py-0.5 text-[10px] rounded bg-red-500/10 hover:bg-red-500/20 text-red-500 transition-colors disabled:opacity-50"
+            className="flex items-center justify-center w-6 py-0.5 text-[10px] rounded-md bg-red-500/10 hover:bg-red-500/20 text-red-500 transition-colors disabled:opacity-50"
             title="Cancel"
           >
             <X size={10} />

@@ -34,19 +34,19 @@ export function DraftLockPrompt() {
           <div className="flex justify-end gap-2 px-4 py-3 border-t border-border">
             <button
               onClick={dismissLockPrompt}
-              className="px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary"
+              className="px-3 py-1.5 text-sm rounded-md border border-border hover:bg-secondary"
             >
               Cancel
             </button>
             <button
               onClick={() => openReadOnly(activeSessionId)}
-              className="px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary"
+              className="px-3 py-1.5 text-sm rounded-md border border-border hover:bg-secondary"
             >
               Read Only
             </button>
             <button
               onClick={() => forceOpen(activeSessionId)}
-              className="px-3 py-1.5 text-sm rounded bg-primary text-primary-foreground hover:opacity-90"
+              className="px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:opacity-90"
             >
               Force Edit
             </button>

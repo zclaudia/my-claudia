@@ -71,13 +71,13 @@ export function SessionItem({
         <span className="truncate">{displayName}</span>
         {/* Project role badge */}
         {roleBadge && (
-          <span className={`text-[9px] px-1 rounded font-medium shrink-0 ${roleBadge.className}`}>
+          <span className={`text-[9px] px-1 rounded-md font-medium shrink-0 ${roleBadge.className}`}>
             {roleBadge.label}
           </span>
         )}
         {/* Provider name tag (for regular sessions, only when idle) */}
         {!session.projectRole && providerName && !statusLabel && (
-          <span className={`text-[9px] px-1 rounded shrink-0 ${
+          <span className={`text-[9px] px-1 rounded-md shrink-0 ${
             isSelected ? 'bg-primary/15 text-primary' : 'bg-muted-foreground/10 text-muted-foreground/60'
           }`}>
             {providerName}
@@ -111,7 +111,7 @@ export function SessionItem({
       {onPopOut && !isMobile && (
         <button
           onClick={(e) => { e.stopPropagation(); onPopOut(); }}
-          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground hover:bg-muted transition-opacity"
+          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded-md opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground hover:bg-muted transition-opacity"
           title="Open in new window"
         >
           <ExternalLink size={11} />

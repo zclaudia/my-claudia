@@ -85,7 +85,7 @@ export function TaskCard({ task, collapsed, permissionRequired = false, interrup
         <span>·</span>
         <span>{timeAgo(task.createdAt)}</span>
         {task.branchAction && BRANCH_LABELS[task.branchAction] && (
-          <span className="text-[10px] bg-secondary/80 px-1.5 py-0.5 rounded">
+          <span className="text-[10px] bg-secondary/80 px-1.5 py-0.5 rounded-md">
             {BRANCH_LABELS[task.branchAction]}
           </span>
         )}
@@ -95,7 +95,7 @@ export function TaskCard({ task, collapsed, permissionRequired = false, interrup
           </button>
         )}
         {task.toolCount != null && task.toolCount > 0 && (
-          <span className={`${collapsed ? '' : 'ml-auto'} text-[10px] bg-secondary px-1.5 py-0.5 rounded`}>
+          <span className={`${collapsed ? '' : 'ml-auto'} text-[10px] bg-secondary px-1.5 py-0.5 rounded-md`}>
             {task.toolCount} tool{task.toolCount > 1 ? 's' : ''}
           </span>
         )}

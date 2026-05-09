@@ -186,7 +186,7 @@ export function RightSidebar({ projectId, projectRoot, workingDirectory }: Right
                 <button
                   key={panel.id}
                   onClick={() => setActiveTab(panel.id)}
-                  className={`px-2 py-0.5 rounded text-xs font-medium ${
+                  className={`px-2 py-0.5 rounded-md text-xs font-medium ${
                     effectiveTab === panel.id
                       ? 'bg-secondary text-foreground'
                       : 'text-muted-foreground hover:text-foreground'
@@ -212,7 +212,7 @@ export function RightSidebar({ projectId, projectRoot, workingDirectory }: Right
           {activePanel && (
             <button
               onClick={handleMoveToBottom}
-              className="p-1 rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
+              className="p-1 rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
               title="Move to bottom panel"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -224,7 +224,7 @@ export function RightSidebar({ projectId, projectRoot, workingDirectory }: Right
 
           <button
             onClick={handleClose}
-            className="p-1 rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
+            className="p-1 rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
             title="Hide panel"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

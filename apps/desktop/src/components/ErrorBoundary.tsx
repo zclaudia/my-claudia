@@ -53,11 +53,11 @@ export class ErrorBoundary extends Component<Props, State> {
           </button>
           <details className="text-xs text-muted-foreground max-w-lg text-left">
             <summary className="cursor-pointer">Error details</summary>
-            <pre className="mt-2 p-2 bg-secondary rounded overflow-auto max-h-40 whitespace-pre-wrap">
+            <pre className="mt-2 p-2 bg-secondary rounded-md overflow-auto max-h-40 whitespace-pre-wrap">
               {this.state.error?.stack}
             </pre>
             {this.state.componentStack && (
-              <pre className="mt-2 p-2 bg-secondary rounded overflow-auto max-h-40 whitespace-pre-wrap">
+              <pre className="mt-2 p-2 bg-secondary rounded-md overflow-auto max-h-40 whitespace-pre-wrap">
                 {this.state.componentStack}
               </pre>
             )}

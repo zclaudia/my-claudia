@@ -18,7 +18,7 @@ function TextField({ field, value, onChange }: { field: InteractionPromptField; 
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={field.placeholder}
-      className="w-full px-2 py-1 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+      className="w-full px-2 py-1 text-xs rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
     />
   );
 }
@@ -30,7 +30,7 @@ function TextareaField({ field, value, onChange }: { field: InteractionPromptFie
       onChange={(e) => onChange(e.target.value)}
       placeholder={field.placeholder}
       rows={3}
-      className="w-full px-2 py-1 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-y"
+      className="w-full px-2 py-1 text-xs rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-y"
     />
   );
 }
@@ -74,7 +74,7 @@ function ChoiceField({
         return (
           <label
             key={opt.value}
-            className={`flex items-start gap-2 p-2 rounded cursor-pointer transition-colors text-xs ${
+            className={`flex items-start gap-2 p-2 rounded-md cursor-pointer transition-colors text-xs ${
               isSelected
                 ? 'bg-primary/10 border border-primary/30'
                 : 'bg-muted/50 border border-transparent hover:bg-muted'
@@ -99,7 +99,7 @@ function ChoiceField({
 
       {field.allowCustomValue && (
         <label
-          className={`flex items-start gap-2 p-2 rounded cursor-pointer transition-colors text-xs ${
+          className={`flex items-start gap-2 p-2 rounded-md cursor-pointer transition-colors text-xs ${
             customEnabled
               ? 'bg-primary/10 border border-primary/30'
               : 'bg-muted/50 border border-transparent hover:bg-muted'
@@ -124,7 +124,7 @@ function ChoiceField({
                 value={customValue}
                 onChange={(e) => onCustomValueChange(e.target.value)}
                 placeholder={field.placeholder || 'Type your answer...'}
-                className="mt-1 w-full px-2 py-1 text-xs bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                className="mt-1 w-full px-2 py-1 text-xs bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
               />
             )}
           </div>
@@ -291,14 +291,14 @@ function PromptRenderer({ interaction }: { interaction: InteractionPromptMessage
         {interaction.responseMode === 'prompt_answer' && (
           <button
             onClick={handleCancel}
-            className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded border border-border bg-background text-foreground hover:bg-muted transition-colors"
+            className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md border border-border bg-background text-foreground hover:bg-muted transition-colors"
           >
             {interaction.cancelLabel || 'Skip'}
           </button>
         )}
         <button
           onClick={handleSubmit}
-          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
         >
           <Send size={10} />
           {interaction.submitLabel || 'Submit'}
@@ -347,14 +347,14 @@ function ApprovalRenderer({ interaction }: { interaction: ApprovalInteractionMes
       <div className="flex items-center gap-2 self-end">
         <button
           onClick={() => handleDecision(false)}
-          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded border border-border bg-background text-foreground hover:bg-muted transition-colors"
+          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md border border-border bg-background text-foreground hover:bg-muted transition-colors"
         >
           <ThumbsDown size={10} />
           {interaction.rejectLabel || 'Reject'}
         </button>
         <button
           onClick={() => handleDecision(true)}
-          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
         >
           <ThumbsUp size={10} />
           {interaction.approveLabel || 'Approve'}
@@ -414,7 +414,7 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
         </div>
         <button
           onClick={() => setExpanded(!expanded)}
-          className="p-0.5 rounded hover:bg-muted transition-colors text-muted-foreground"
+          className="p-0.5 rounded-md hover:bg-muted transition-colors text-muted-foreground"
           title={expanded ? 'Collapse' : 'Expand'}
         >
           {expanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
@@ -422,7 +422,7 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
       </div>
 
       {/* Plan content */}
-      <div className={`text-xs text-foreground whitespace-pre-wrap overflow-auto rounded bg-muted/30 p-2 ${expanded ? 'max-h-[80vh]' : 'max-h-60'}`}>
+      <div className={`text-xs text-foreground whitespace-pre-wrap overflow-auto rounded-md bg-muted/30 p-2 ${expanded ? 'max-h-[80vh]' : 'max-h-60'}`}>
         {interaction.plan}
       </div>
 
@@ -443,21 +443,21 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
         onChange={(e) => setFeedback(e.target.value)}
         placeholder="Add an optional comment for approval or rejection"
         rows={2}
-        className="w-full px-2 py-1 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-y"
+        className="w-full px-2 py-1 text-xs rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-y"
       />
 
       {/* Action buttons */}
       <div className="flex items-center gap-2 self-end">
         <button
           onClick={handleDeny}
-          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded border border-border bg-background text-foreground hover:bg-muted transition-colors"
+          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md border border-border bg-background text-foreground hover:bg-muted transition-colors"
         >
           <ThumbsDown size={10} />
           Deny
         </button>
         <button
           onClick={handleApprove}
-          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
         >
           <ThumbsUp size={10} />
           Approve Plan

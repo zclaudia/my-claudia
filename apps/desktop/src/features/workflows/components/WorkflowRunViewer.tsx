@@ -34,7 +34,7 @@ export function WorkflowRunViewer({ runId, onBack }: WorkflowRunViewerProps) {
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between p-4 border-b border-border">
         <div className="flex items-center gap-3">
-          <button onClick={onBack} className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground">
+          <button onClick={onBack} className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground">
             <ArrowLeft size={16} />
           </button>
           <div>

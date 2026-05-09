@@ -82,7 +82,7 @@ export function WorkspaceDocsPanel({
             type="button"
             onClick={onBackToActive}
             disabled={loading}
-            className="rounded bg-secondary px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+            className="rounded-md bg-secondary px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
           >
             Back To Active
           </button>
@@ -94,7 +94,7 @@ export function WorkspaceDocsPanel({
                 type="button"
                 onClick={onStartEditing}
                 disabled={loading}
-                className="rounded bg-secondary px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+                className="rounded-md bg-secondary px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
               >
                 Edit
               </button>
@@ -105,7 +105,7 @@ export function WorkspaceDocsPanel({
                   type="button"
                   onClick={onCancelEditing}
                   disabled={loading}
-                  className="rounded bg-secondary px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  className="rounded-md bg-secondary px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -113,7 +113,7 @@ export function WorkspaceDocsPanel({
                   type="button"
                   onClick={onSaveDocument}
                   disabled={loading}
-                  className="rounded bg-primary px-2 py-1 text-[11px] text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                  className="rounded-md bg-primary px-2 py-1 text-[11px] text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                 >
                   Save
                 </button>
@@ -128,7 +128,7 @@ export function WorkspaceDocsPanel({
           <button
             key={doc.id}
             onClick={() => onSelectDoc(doc.id)}
-            className={`rounded px-2 py-1 text-xs transition-colors ${
+            className={`rounded-md px-2 py-1 text-xs transition-colors ${
               selectedDocId === doc.id
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-secondary text-muted-foreground hover:text-foreground'
@@ -168,7 +168,7 @@ export function WorkspaceDocsPanel({
                 {(previewAcceptanceDoc || previewSyncDoc) && (
                   <div className="mt-3 grid gap-2 md:grid-cols-2">
                     {previewAcceptanceDoc && (
-                      <div className="rounded border border-border bg-background px-2.5 py-2">
+                      <div className="rounded-md border border-border bg-background px-2.5 py-2">
                         <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                           Acceptance
                         </div>
@@ -178,7 +178,7 @@ export function WorkspaceDocsPanel({
                       </div>
                     )}
                     {previewSyncDoc && (
-                      <div className="rounded border border-border bg-background px-2.5 py-2">
+                      <div className="rounded-md border border-border bg-background px-2.5 py-2">
                         <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                           Sync
                         </div>

@@ -51,7 +51,7 @@ export function TaskDetail({ task, onClose }: TaskDetailProps) {
         </div>
         <button
           onClick={onClose}
-          className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground shrink-0"
+          className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground shrink-0"
         >
           <X size={16} />
         </button>
@@ -106,7 +106,7 @@ export function TaskDetail({ task, onClose }: TaskDetailProps) {
             <h4 className="text-xs font-medium text-muted-foreground uppercase mb-1">Scope</h4>
             <div className="flex flex-wrap gap-1">
               {task.scope.map((s, i) => (
-                <span key={i} className="flex items-center gap-1 px-1.5 py-0.5 text-xs bg-secondary rounded">
+                <span key={i} className="flex items-center gap-1 px-1.5 py-0.5 text-xs bg-secondary rounded-md">
                   <FileText size={10} /> {s}
                 </span>
               ))}
@@ -118,14 +118,14 @@ export function TaskDetail({ task, onClose }: TaskDetailProps) {
         {task.result && (
           <section>
             <h4 className="text-xs font-medium text-muted-foreground uppercase mb-1">Result</h4>
-            <div className="bg-secondary/50 rounded p-3 space-y-2">
+            <div className="bg-secondary/50 rounded-md p-3 space-y-2">
               <p className="text-sm">{task.result.summary}</p>
               {task.result.filesChanged.length > 0 && (
                 <div>
                   <span className="text-xs text-muted-foreground">Files changed:</span>
                   <div className="flex flex-wrap gap-1 mt-1">
                     {task.result.filesChanged.map((f, i) => (
-                      <span key={i} className="text-xs bg-secondary px-1.5 py-0.5 rounded">{f}</span>
+                      <span key={i} className="text-xs bg-secondary px-1.5 py-0.5 rounded-md">{f}</span>
                     ))}
                   </div>
                 </div>
@@ -140,7 +140,7 @@ export function TaskDetail({ task, onClose }: TaskDetailProps) {
                       </span>{' '}
                       <span className="text-muted-foreground">{w.action}</span>
                       {w.output && (
-                        <pre className="mt-0.5 bg-secondary p-1.5 rounded overflow-x-auto text-[11px] max-h-20 overflow-y-auto">
+                        <pre className="mt-0.5 bg-secondary p-1.5 rounded-md overflow-x-auto text-[11px] max-h-20 overflow-y-auto">
                           {w.output}
                         </pre>
                       )}
@@ -156,7 +156,7 @@ export function TaskDetail({ task, onClose }: TaskDetailProps) {
         {task.result?.reviewNotes && (
           <section>
             <h4 className="text-xs font-medium text-muted-foreground uppercase mb-1">Review Notes</h4>
-            <div className="bg-yellow-500/5 border border-yellow-500/20 rounded p-3">
+            <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-md p-3">
               <p className="text-sm whitespace-pre-wrap">{task.result.reviewNotes}</p>
             </div>
           </section>
@@ -169,13 +169,13 @@ export function TaskDetail({ task, onClose }: TaskDetailProps) {
           <>
             <button
               onClick={() => handleAction(() => api.approveSupervisionTask(task.id))}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm bg-green-500/10 text-green-500 hover:bg-green-500/20 rounded"
+              className="flex items-center gap-1 px-3 py-1.5 text-sm bg-green-500/10 text-green-500 hover:bg-green-500/20 rounded-md"
             >
               <CheckCircle size={14} /> Approve
             </button>
             <button
               onClick={() => handleAction(() => api.rejectSupervisionTask(task.id))}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded"
+              className="flex items-center gap-1 px-3 py-1.5 text-sm bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-md"
             >
               <XCircle size={14} /> Reject
             </button>
@@ -185,13 +185,13 @@ export function TaskDetail({ task, onClose }: TaskDetailProps) {
           <>
             <button
               onClick={() => handleAction(() => api.approveSupervisionTaskResult(task.id))}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm bg-green-500/10 text-green-500 hover:bg-green-500/20 rounded"
+              className="flex items-center gap-1 px-3 py-1.5 text-sm bg-green-500/10 text-green-500 hover:bg-green-500/20 rounded-md"
             >
               <CheckCircle size={14} /> Approve Result
             </button>
             <button
               onClick={() => handleAction(() => api.rejectSupervisionTaskResult(task.id, 'Rejected by user'))}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded"
+              className="flex items-center gap-1 px-3 py-1.5 text-sm bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-md"
             >
               <XCircle size={14} /> Reject Result
             </button>
@@ -200,7 +200,7 @@ export function TaskDetail({ task, onClose }: TaskDetailProps) {
         {task.status === 'merge_conflict' && (
           <button
             onClick={() => handleAction(() => api.resolveSupervisionConflict(task.id))}
-            className="flex items-center gap-1 px-3 py-1.5 text-sm bg-orange-500/10 text-orange-500 hover:bg-orange-500/20 rounded"
+            className="flex items-center gap-1 px-3 py-1.5 text-sm bg-orange-500/10 text-orange-500 hover:bg-orange-500/20 rounded-md"
           >
             <AlertTriangle size={14} /> Resolve Conflict
           </button>

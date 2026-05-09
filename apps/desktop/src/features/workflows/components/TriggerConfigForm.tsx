@@ -104,7 +104,7 @@ function TriggerCard({ trigger, onUpdate, onRemove, availableEvents }: {
         </div>
         <button
           onClick={onRemove}
-          className="p-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-destructive"
+          className="p-0.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-destructive"
         >
           <X size={14} />
         </button>
@@ -124,7 +124,7 @@ function TriggerCard({ trigger, onUpdate, onRemove, availableEvents }: {
               <button
                 key={preset.cron}
                 onClick={() => onUpdate({ ...trigger, cron: preset.cron })}
-                className="px-1.5 py-0.5 text-xs rounded border border-border hover:bg-secondary transition-colors"
+                className="px-1.5 py-0.5 text-xs rounded-md border border-border hover:bg-secondary transition-colors"
               >
                 {preset.label}
               </button>

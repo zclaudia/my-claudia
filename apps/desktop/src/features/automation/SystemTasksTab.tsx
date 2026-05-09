@@ -27,7 +27,7 @@ export function SystemTasksTab({ api }: SystemTasksTabProps) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium text-muted-foreground">{tasks.length} system task{tasks.length !== 1 ? 's' : ''}</h2>
-        <button onClick={refresh} className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground" title="Refresh">
+        <button onClick={refresh} className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground" title="Refresh">
           <RefreshCw size={14} />
         </button>
       </div>
@@ -60,7 +60,7 @@ function SystemTaskCard({ task }: { task: SystemTaskInfo }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-foreground truncate">{task.name}</span>
-            <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${CATEGORY_COLORS[task.category] ?? 'bg-muted text-muted-foreground'}`}>
+            <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-medium ${CATEGORY_COLORS[task.category] ?? 'bg-muted text-muted-foreground'}`}>
               {task.category}
             </span>
           </div>
@@ -77,7 +77,7 @@ function SystemTaskCard({ task }: { task: SystemTaskInfo }) {
             )}
           </div>
         </div>
-        <span className="text-[9px] text-muted-foreground/60 bg-muted/40 px-1.5 py-0.5 rounded shrink-0">System</span>
+        <span className="text-[9px] text-muted-foreground/60 bg-muted/40 px-1.5 py-0.5 rounded-md shrink-0">System</span>
       </div>
     </div>
   );

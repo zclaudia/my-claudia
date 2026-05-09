@@ -130,7 +130,7 @@ export function FileLineReference({ text, projectRoot, backendId }: Props) {
     <button
       type="button"
       onClick={handleClick}
-      className="bg-secondary px-1.5 py-0.5 rounded text-sm text-primary break-all font-mono cursor-pointer hover:bg-secondary/70 hover:underline"
+      className="bg-secondary px-1.5 py-0.5 rounded-md text-sm text-primary break-all font-mono cursor-pointer hover:bg-secondary/70 hover:underline"
       title={`Open ${text}`}
     >
       {text}

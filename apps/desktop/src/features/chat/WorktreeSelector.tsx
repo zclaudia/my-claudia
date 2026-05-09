@@ -202,7 +202,7 @@ export function WorktreeSelector({
       </SelectorTrigger>
 
       {isOpen && (
-        <div className="absolute bottom-full left-0 mb-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 w-[min(92vw,320px)] max-h-[320px] overflow-y-auto">
+        <div className="absolute bottom-full left-0 mb-1 z-50 bg-popover border border-border rounded-xl shadow-lg py-1 w-[min(92vw,320px)] max-h-[320px] overflow-y-auto">
           <div className="px-3 py-1.5 text-[10px] text-muted-foreground font-semibold uppercase tracking-wider border-b border-border">
             Worktree
           </div>
@@ -283,7 +283,7 @@ export function WorktreeSelector({
                     if (e.key === 'Escape') { setCreating(false); setNewBranch(''); setCreateError(''); }
                   }}
                   placeholder="feat/my-feature"
-                  className="w-full text-[12px] bg-background border border-border rounded px-2 py-1 outline-none focus:border-primary"
+                  className="w-full text-[12px] bg-background border border-border rounded-md px-2 py-1 outline-none focus:border-primary"
                 />
                 {createError && (
                   <div className="text-[10px] text-destructive mt-1 break-words">{createError}</div>
@@ -292,7 +292,7 @@ export function WorktreeSelector({
                   <button
                     onClick={handleCreate}
                     disabled={!newBranch.trim() || loading}
-                    className="flex-1 text-[11px] bg-primary text-primary-foreground rounded px-2 py-1 disabled:opacity-50"
+                    className="flex-1 text-[11px] bg-primary text-primary-foreground rounded-md px-2 py-1 disabled:opacity-50"
                   >
                     {loading ? 'Creating...' : 'Create'}
                   </button>

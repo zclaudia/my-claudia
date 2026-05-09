@@ -166,7 +166,7 @@ export function LoadingIndicator({ isLoading, health, loopPattern, startedAt, la
             {(warningLevel === 'idle' || warningLevel === 'loop') && onCancel && (
               <button
                 onClick={onCancel}
-                className="ml-auto px-2 py-0.5 rounded text-xs font-medium bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
+                className="ml-auto px-2 py-0.5 rounded-md text-xs font-medium bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
               >
                 Cancel
               </button>

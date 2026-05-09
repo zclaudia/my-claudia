@@ -156,7 +156,7 @@ function CollapsibleList({ icon: IconComponent, label, items, maxVisible }: Coll
         {displayItems.map((item, index) => (
           <span
             key={index}
-            className="bg-muted text-foreground px-1.5 py-0.5 rounded text-[10px] font-mono"
+            className="bg-muted text-foreground px-1.5 py-0.5 rounded-md text-[10px] font-mono"
           >
             {typeof item === 'string' ? item : item.name}
           </span>

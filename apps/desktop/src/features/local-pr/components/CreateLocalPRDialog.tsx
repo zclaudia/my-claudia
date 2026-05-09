@@ -183,7 +183,7 @@ export function CreateLocalPRDialog({
               type="checkbox"
               checked={autoReview}
               onChange={(e) => setAutoReview(e.target.checked)}
-              className="rounded border-border"
+              className="rounded-md border-border"
             />
             <span className="text-xs text-muted-foreground">
               Enable auto AI review

@@ -57,7 +57,7 @@ export function JsonSchemaConfigForm({ schema, config, onChange }: JsonSchemaCon
                 type="checkbox"
                 checked={(value as boolean) ?? prop.default ?? false}
                 onChange={(e) => updateField(key, e.target.checked)}
-                className="rounded border-border"
+                className="rounded-md border-border"
               />
               <label className="text-xs font-medium text-muted-foreground">{label}</label>
               {description && <span className="text-[10px] text-muted-foreground ml-1">({description})</span>}

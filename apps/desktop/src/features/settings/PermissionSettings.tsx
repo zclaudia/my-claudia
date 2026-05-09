@@ -445,7 +445,7 @@ export function PermissionSettings() {
                 checked={policy.globalGuards.blockSensitiveFiles}
                 onChange={(e) => updateGuard('blockSensitiveFiles', e.target.checked)}
                 disabled={saving}
-                className="mt-0.5 rounded border-border"
+                className="mt-0.5 rounded-md border-border"
               />
               <div>
                 <span className="text-xs font-medium">Protect sensitive files</span>
@@ -458,7 +458,7 @@ export function PermissionSettings() {
                 checked={policy.globalGuards.blockOutsideWorkspace}
                 onChange={(e) => updateGuard('blockOutsideWorkspace', e.target.checked)}
                 disabled={saving}
-                className="mt-0.5 rounded border-border"
+                className="mt-0.5 rounded-md border-border"
               />
               <div>
                 <span className="text-xs font-medium">Enforce workspace scope</span>

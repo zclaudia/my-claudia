@@ -122,7 +122,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       key={tab.id}
       onClick={() => setActiveTab(tab.id)}
       data-testid={`${tab.id}-tab`}
-      className={`flex-shrink-0 px-3 py-2 rounded text-sm flex items-center gap-2 transition-colors ${
+      className={`flex-shrink-0 px-3 py-2 rounded-md text-sm flex items-center gap-2 transition-colors ${
         activeTab === tab.id
           ? 'bg-primary text-primary-foreground'
           : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
@@ -166,7 +166,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   onClose();
                 }
               }}
-              className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground md:hidden"
+              className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground md:hidden"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -181,7 +181,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground hidden md:block"
+            className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground hidden md:block"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -395,7 +395,7 @@ function ServerPickerDropdown({
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
-      <div className="absolute left-1 right-1 top-full bg-card border border-border rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
+      <div className="absolute left-1 right-1 top-full bg-card border border-border rounded-xl shadow-lg z-50 max-h-60 overflow-y-auto">
         {isGatewayConnected && visibleGatewayBackends.length > 0 && (
           <>
             <div className="px-3 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider bg-secondary/50 border-t border-border">
@@ -429,7 +429,7 @@ function ServerPickerDropdown({
                   <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusColor}`} />
                   <span className="truncate flex-1" title={backend.name}>{backend.name}</span>
                   {isActive && (
-                    <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-[10px] rounded flex-shrink-0">
+                    <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-[10px] rounded-md flex-shrink-0">
                       Active
                     </span>
                   )}

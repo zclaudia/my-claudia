@@ -18,7 +18,7 @@ export function SidebarHeader({ onToggle }: SidebarHeaderProps) {
       </div>
       <button
         onClick={onToggle}
-        className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+        className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground"
         title="Collapse sidebar"
       >
         <svg

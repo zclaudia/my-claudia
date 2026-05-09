@@ -139,7 +139,7 @@ export function PermissionModal({ request, queueSize = 0, onDecision }: Permissi
                   {request.requiresCredential ? 'Credential Required' : 'Permission Required'}
                 </h2>
                 {queueSize > 1 && (
-                  <span className="px-1.5 py-0.5 bg-warning/20 text-warning text-xs rounded font-medium">
+                  <span className="px-1.5 py-0.5 bg-warning/20 text-warning text-xs rounded-md font-medium">
                     +{queueSize - 1} more
                   </span>
                 )}
@@ -164,7 +164,7 @@ export function PermissionModal({ request, queueSize = 0, onDecision }: Permissi
           {/* Tool name */}
           <div className="flex items-center gap-2 mb-3">
             <span className="text-sm text-muted-foreground">Tool:</span>
-            <span className="px-2 py-0.5 bg-muted rounded text-sm font-mono text-foreground">
+            <span className="px-2 py-0.5 bg-muted rounded-md text-sm font-mono text-foreground">
               {request.toolName}
             </span>
           </div>
@@ -236,7 +236,7 @@ export function PermissionModal({ request, queueSize = 0, onDecision }: Permissi
               type="checkbox"
               checked={remember}
               onChange={(e) => setRemember(e.target.checked)}
-              className="w-5 h-5 rounded border-input bg-background text-primary focus:ring-primary"
+              className="w-5 h-5 rounded-md border-input bg-background text-primary focus:ring-primary"
             />
             <span className="text-sm text-foreground">
               Remember this decision for this session
