@@ -52,6 +52,7 @@ export default defineConfig({
       'src/services/__tests__/messageHandler.test.ts',
       'src/services/__tests__/sessionSync.test.ts',
       'src/services/__tests__/toolRendererRegistry.test.ts',
+      'src/services/terminal/**/*.test.ts',
       'src/plugins/__tests__/builtinPanels.test.ts',
       '**/ImportDialog.test.tsx',
       '**/ImportOpenCodeDialog.test.tsx',
