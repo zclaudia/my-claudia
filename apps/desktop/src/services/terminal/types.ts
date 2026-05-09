@@ -91,7 +91,9 @@ export type TerminalLifecycleKind = TerminalLifecycleState['kind'];
 export const TERMINAL_LIFECYCLE_TRANSITIONS: Readonly<Record<TerminalLifecycleKind, readonly TerminalLifecycleKind[]>> = Object.freeze({
   idle:       ['opening', 'attaching', 'disposed'],
   opening:    ['open', 'failed', 'disposed'],
-  attaching:  ['open', 'failed', 'disposed'],
+  // attaching → exited covers the case where the PTY exited while detached and the server
+  // forwards the exit code along with the scrollback in terminal_attached.pendingExit.
+  attaching:  ['open', 'failed', 'exited', 'disposed'],
   open:       ['detached', 'exited', 'disposed'],
   detached:   ['attaching', 'disposed'],
   failed:     ['opening', 'attaching', 'disposed'],

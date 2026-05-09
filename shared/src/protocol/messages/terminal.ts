@@ -71,4 +71,10 @@ export interface TerminalAttachedMessage {
   success: boolean;
   scrollback?: string[];
   error?: string;
+  /**
+   * Set when the PTY exited while detached (no clientId to deliver `terminal_exited` to).
+   * The reattaching client gets the scrollback and the exit code in one round-trip and
+   * should transition to its `exited` state right after writing the scrollback.
+   */
+  pendingExit?: { exitCode: number };
 }

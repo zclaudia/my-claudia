@@ -58,6 +58,11 @@ describe('TerminalLifecycle types', () => {
     expect(canTransition('failed', 'open')).toBe(false);
   });
 
+  it('attaching can transition directly to exited (server-forwarded pending exit)', () => {
+    expect(canTransition('attaching', 'exited')).toBe(true);
+    expect(canTransition('opening', 'exited')).toBe(false);
+  });
+
   it('predicates classify states correctly', () => {
     const open: TerminalLifecycleState = { kind: 'open' };
     const opening: TerminalLifecycleState = { kind: 'opening' };

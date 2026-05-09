@@ -143,6 +143,24 @@ describe('TerminalController — actions and transitions', () => {
     expect(c.getState()).toEqual({ kind: 'open' });
   });
 
+  it('terminal_attached(success) with pendingExit transitions attaching → exited and writes the banner', () => {
+    const { deps, xterm } = buildDeps();
+    const c = new TerminalController(deps);
+    c.attach();
+
+    c.handleServerMessage({
+      type: 'terminal_attached',
+      terminalId: 't-1',
+      success: true,
+      scrollback: ['last line\r\n'],
+      pendingExit: { exitCode: 0 },
+    } as ServerMessage);
+
+    expect(xterm.write).toHaveBeenCalledWith('last line\r\n');
+    expect(xterm.write).toHaveBeenCalledWith(expect.stringContaining('Process exited with code 0'));
+    expect(c.getState()).toEqual({ kind: 'exited', code: 0 });
+  });
+
   it('terminal_attached("Terminal not found") transitions to failed', () => {
     const { deps } = buildDeps();
     const c = new TerminalController(deps);

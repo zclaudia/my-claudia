@@ -38,6 +38,11 @@ interface ManagedTerminal {
   idleTimer: ReturnType<typeof setTimeout>;
   scrollback: string[];
   scrollbackBytes: number;
+  /**
+   * Set when the PTY exited while no client was attached. The next attach() consumes this
+   * (returning the exitCode along with the scrollback) and the entry is then deleted.
+   */
+  exited?: { exitCode: number };
 }
 
 export class TerminalManager {
@@ -109,30 +114,49 @@ export class TerminalManager {
     });
 
     ptyProcess.onExit(({ exitCode }) => {
-      if (managed.clientId) {
-        this.sendToClient(managed.clientId, {
+      // Guard against the destroy() + new create() race for the same terminalId — the old PTY's
+      // onExit may fire async and we don't want it to mutate the new entry.
+      const current = this.terminals.get(terminalId);
+      if (!current || current.pty !== ptyProcess) return;
+
+      if (current.clientId) {
+        // Owned exit — deliver the message immediately and tear the entry down.
+        this.sendToClient(current.clientId, {
           type: 'terminal_exited',
           terminalId,
           exitCode,
         } as TerminalExitedMessage);
-      }
-      // Only clean up if this is still the current terminal for this ID.
-      // Guards against race when create() is called for an existing terminalId:
-      // destroy() + new create() runs, but old PTY's onExit fires async and
-      // would delete the new entry without this check.
-      const current = this.terminals.get(terminalId);
-      if (current && current.pty === ptyProcess) {
         this.terminals.delete(terminalId);
         clearTimeout(current.idleTimer);
+      } else {
+        // Detached exit — keep the entry around so the next attach() can hand the exit code
+        // to the client along with the scrollback. The idle timer continues to run; if no one
+        // reattaches before it fires, the entry is cleaned up like any other stale terminal.
+        current.exited = { exitCode };
       }
     });
   }
 
   /** Attach a new client to an existing terminal session (for pop-out windows). */
-  attach(terminalId: string, clientId: string, cols: number, rows: number): { success: boolean; scrollback: string[]; error?: string } {
+  attach(
+    terminalId: string,
+    clientId: string,
+    cols: number,
+    rows: number,
+  ): { success: boolean; scrollback: string[]; error?: string; pendingExit?: { exitCode: number } } {
     const managed = this.terminals.get(terminalId);
     if (!managed) {
       return { success: false, scrollback: [], error: 'Terminal not found' };
+    }
+
+    // PTY already exited while detached — hand the exit code over together with scrollback,
+    // then clean up the entry. This is a one-shot consumption.
+    if (managed.exited) {
+      const scrollback = [...managed.scrollback];
+      const pendingExit = managed.exited;
+      clearTimeout(managed.idleTimer);
+      this.terminals.delete(terminalId);
+      return { success: true, scrollback, pendingExit };
     }
 
     // Switch ownership to new client
@@ -178,6 +202,11 @@ export class TerminalManager {
     clearTimeout(managed.idleTimer);
     managed.pty.kill();
     this.terminals.delete(terminalId);
+  }
+
+  /** Returns true iff `clientId` is the current owner of the given terminal. */
+  isOwnedBy(terminalId: string, clientId: string): boolean {
+    return this.terminals.get(terminalId)?.clientId === clientId;
   }
 
   /** Detach a client without killing its terminals. PTYs stay alive for re-attach. */

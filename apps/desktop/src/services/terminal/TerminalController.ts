@@ -239,7 +239,15 @@ export class TerminalController {
           if (msg.scrollback && this.terminal) {
             for (const chunk of msg.scrollback) this.terminal.write(chunk);
           }
-          this.transition({ kind: 'open' });
+          // The PTY exited while we were detached — server forwarded the exit code along
+          // with the scrollback so we can transition straight from attaching to exited
+          // (skipping `open`) instead of waiting for a separate terminal_exited.
+          if (msg.pendingExit) {
+            this.terminal?.write(`\r\n[Process exited with code ${msg.pendingExit.exitCode}]\r\n`);
+            this.transition({ kind: 'exited', code: msg.pendingExit.exitCode });
+          } else {
+            this.transition({ kind: 'open' });
+          }
         } else {
           this.transition({ kind: 'failed', error: msg.error ?? 'Failed to attach terminal' });
         }

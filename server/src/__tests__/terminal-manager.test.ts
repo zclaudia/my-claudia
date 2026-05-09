@@ -234,6 +234,64 @@ describe('TerminalManager', () => {
     });
   });
 
+  describe('attach + detached exit', () => {
+    it('isOwnedBy returns true for the current owner only', () => {
+      manager.create('term-1', 'client-1', '/tmp', 80, 24);
+      expect(manager.isOwnedBy('term-1', 'client-1')).toBe(true);
+      expect(manager.isOwnedBy('term-1', 'client-2')).toBe(false);
+      expect(manager.isOwnedBy('missing', 'client-1')).toBe(false);
+    });
+
+    it('attach switches ownership and returns scrollback', () => {
+      manager.create('term-1', 'client-1', '/tmp', 80, 24);
+      mockOnDataCallback?.('hello\r\n');
+      sentMessages.length = 0;
+
+      const result = manager.attach('term-1', 'client-2', 100, 30);
+
+      expect(result.success).toBe(true);
+      expect(result.scrollback).toEqual(['hello\r\n']);
+      expect(result.pendingExit).toBeUndefined();
+      expect(manager.isOwnedBy('term-1', 'client-2')).toBe(true);
+    });
+
+    it('detached PTY exit is held for the next attach with pendingExit', () => {
+      manager.create('term-1', 'client-1', '/tmp', 80, 24);
+      mockOnDataCallback?.('shell$ ');
+      manager.detachTerminal('term-1', 'client-1');
+      sentMessages.length = 0;
+
+      // PTY exits while no client is attached — must NOT broadcast and must NOT delete the entry yet
+      mockOnExitCallback?.({ exitCode: 137 });
+      expect(sentMessages).toHaveLength(0);
+
+      // Next attach gets the scrollback + the pendingExit, then the entry is gone
+      const result = manager.attach('term-1', 'client-2', 80, 24);
+      expect(result.success).toBe(true);
+      expect(result.scrollback).toEqual(['shell$ ']);
+      expect(result.pendingExit).toEqual({ exitCode: 137 });
+
+      const followUp = manager.attach('term-1', 'client-3', 80, 24);
+      expect(followUp.success).toBe(false);
+      expect(followUp.error).toBe('Terminal not found');
+    });
+
+    it('owned PTY exit broadcasts terminal_exited and deletes the entry immediately', () => {
+      manager.create('term-1', 'client-1', '/tmp', 80, 24);
+      sentMessages.length = 0;
+
+      mockOnExitCallback?.({ exitCode: 0 });
+
+      expect(sentMessages).toContainEqual({
+        clientId: 'client-1',
+        msg: { type: 'terminal_exited', terminalId: 'term-1', exitCode: 0 },
+      });
+      const result = manager.attach('term-1', 'client-2', 80, 24);
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Terminal not found');
+    });
+  });
+
   describe('idle timeout', () => {
     it('destroys terminal after 30 minutes of inactivity', () => {
       manager.create('term-1', 'client-1', '/tmp', 80, 24);

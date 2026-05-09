@@ -40,7 +40,15 @@ export function handleTerminalResize(message: TerminalResizeMessage, termMgr: Te
   termMgr.resize(message.terminalId, message.cols, message.rows);
 }
 
-export function handleTerminalClose(message: TerminalCloseMessage, termMgr: TerminalManager): void {
+export function handleTerminalClose(
+  client: ConnectedClient,
+  message: TerminalCloseMessage,
+  termMgr: TerminalManager,
+): void {
+  // Only the current owner may destroy the PTY. Without this check, a stale tab (e.g. the
+  // main window after the user popped a terminal out) could yank the PTY out from under the
+  // window that actually owns it.
+  if (!termMgr.isOwnedBy(message.terminalId, client.id)) return;
   termMgr.destroy(message.terminalId);
 }
 
@@ -60,5 +68,6 @@ export function handleTerminalAttach(
     success: result.success,
     scrollback: result.scrollback,
     error: result.error,
+    pendingExit: result.pendingExit,
   });
 }

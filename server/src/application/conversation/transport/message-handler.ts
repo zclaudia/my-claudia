@@ -185,7 +185,7 @@ export async function handleClientMessage(
       break;
 
     case 'terminal_close':
-      if (termMgr) handleTerminalClose(message, termMgr);
+      if (termMgr) handleTerminalClose(client, message, termMgr);
       break;
 
     case 'terminal_detach':
