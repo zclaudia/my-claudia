@@ -1024,7 +1024,7 @@ function SummaryBar({ toolCalls, onClick }: { toolCalls: ToolCallState[]; onClic
 type ToolCallListMode = 'streaming' | 'collapsed' | 'expanded';
 
 export const ToolCallList = memo(function ToolCallList({ toolCalls, defaultCollapsed = false, isStreaming = false }: ToolCallListProps) {
-  const [userOverride, setUserOverride] = useState<ToolCallListMode | null>(defaultCollapsed ? 'collapsed' : null);
+  const [userOverride, setUserOverride] = useState<ToolCallListMode | null>(null);
   const [showAll, setShowAll] = useState(false);
 
   // While streaming, a new tool arriving should reset any user override so the latest tool
@@ -1040,7 +1040,7 @@ export const ToolCallList = memo(function ToolCallList({ toolCalls, defaultColla
 
   if (toolCalls.length === 0) return null;
 
-  const defaultMode: ToolCallListMode = isStreaming ? 'streaming' : 'collapsed';
+  const defaultMode: ToolCallListMode = defaultCollapsed ? 'collapsed' : isStreaming ? 'streaming' : 'expanded';
   const mode: ToolCallListMode = userOverride ?? defaultMode;
 
   if (mode === 'collapsed') {

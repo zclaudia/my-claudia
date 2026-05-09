@@ -103,7 +103,14 @@ vi.mock('react-syntax-highlighter/dist/esm/styles/prism', () => ({
 
 vi.mock('../ToolCallItem', () => ({
   ToolCallList: ({ toolCalls }: any) => (
-    <div data-testid="tool-call-list">{toolCalls.length} tool calls</div>
+    <div data-testid="tool-call-list">
+      {toolCalls.length} tool calls
+      {toolCalls.map((toolCall: any, index: number) => (
+        <div data-testid="tool-call-item" key={`${toolCall.id}-${index}`}>
+          {toolCall.id}
+        </div>
+      ))}
+    </div>
   ),
   ToolCallItem: ({ toolCall }: any) => (
     <div data-testid="tool-call-item">{toolCall.id}</div>

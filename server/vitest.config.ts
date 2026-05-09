@@ -13,6 +13,11 @@ async function canBindLoopback(): Promise<boolean> {
 
 export default defineConfig(async () => {
   const socketTestsAvailable = await canBindLoopback();
+  const socketBoundTestExcludes = [
+    'src/interfaces/http/__tests__/**',
+    'src/domains/attachments/__tests__/routes.test.ts',
+  ];
+
   if (!socketTestsAvailable) {
     console.warn('[vitest] Loopback sockets unavailable, skipping route tests');
   }
@@ -22,7 +27,7 @@ export default defineConfig(async () => {
       globals: true,
       environment: 'node',
       include: ['src/**/*.{test,spec}.ts'],
-      exclude: socketTestsAvailable ? [] : ['src/interfaces/http/__tests__/**'],
+      exclude: socketTestsAvailable ? [] : socketBoundTestExcludes,
       setupFiles: ['./src/test/setup.ts'],
       pool: 'forks',
       poolOptions: {
