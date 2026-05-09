@@ -37,7 +37,9 @@ export function useTauriWindowEvents() {
         if (closedTerminalId) {
           useTerminalStore.getState().removePoppedOutTerminal(closedTerminalId);
           useTerminalStore.getState().markNeedsReattach(closedTerminalId);
-          xtermRegistry.markDetached(closedTerminalId);
+          // Fully dispose the main-window xterm instance — it was effectively orphaned while the
+          // pop-out window owned the PTY, and any stale DOM/state would prevent a clean reattach.
+          xtermRegistry.delete(closedTerminalId);
           usePluginStore.getState().updatePanelVisibility('terminal', true);
         }
       });

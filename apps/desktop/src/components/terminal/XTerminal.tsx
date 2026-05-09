@@ -149,6 +149,8 @@ export function XTerminal({ terminalId, projectId, workingDirectory, mode = 'ope
           container.appendChild(termElement);
         }
       } else {
+        // Clear any leftover DOM from a previously-disposed xterm instance before opening.
+        if (container.firstChild) container.replaceChildren();
         terminal.open(container);
       }
       fitAddon.fit();
