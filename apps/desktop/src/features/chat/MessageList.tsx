@@ -8,7 +8,6 @@ import { ToolCallList } from './ToolCallItem';
 import { FilePushCard } from './FilePushNotification';
 import { FilePreviewModal } from './FilePreviewModal';
 import type { MessageWithToolCalls, ToolCallState } from '../../stores/chatStore';
-import { ToolCallItem } from './ToolCallItem';
 import type { ContentBlock } from '@my-claudia/shared';
 import { useFilePushStore, type FilePushItem } from '../../stores/filePushStore';
 import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
@@ -712,23 +711,54 @@ const SegmentedContent = memo(function SegmentedContent({
     return -1;
   }, [contentBlocks]);
 
+  // Group consecutive tool_use blocks so they share a ToolCallList collapse header
+  type Segment =
+    | { kind: 'text'; index: number; content: string }
+    | { kind: 'tools'; toolCalls: ToolCallState[] };
+
+  const segments = useMemo<Segment[]>(() => {
+    const result: Segment[] = [];
+    let pendingTools: ToolCallState[] = [];
+    const flushTools = () => {
+      if (pendingTools.length > 0) {
+        result.push({ kind: 'tools', toolCalls: pendingTools });
+        pendingTools = [];
+      }
+    };
+    contentBlocks.forEach((block, i) => {
+      if (block.type === 'tool_use') {
+        const tc = toolCallMap.get(block.toolUseId);
+        if (!tc) return;
+        pendingTools.push(tc);
+      } else {
+        flushTools();
+        result.push({ kind: 'text', index: i, content: block.content });
+      }
+    });
+    flushTools();
+    return result;
+  }, [contentBlocks, toolCallMap]);
+
   return (
     <>
-      {contentBlocks.map((block, i) => {
-        if (block.type === 'tool_use') {
-          const tc = toolCallMap.get(block.toolUseId);
-          if (!tc) return null;
+      {segments.map((segment, segIdx) => {
+        if (segment.kind === 'tools') {
           return (
-            <div key={`tool-${block.toolUseId}-${i}`} className="w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl min-w-0">
-              <ToolCallItem toolCall={tc} />
+            <div
+              key={`tools-${segIdx}`}
+              className="w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl min-w-0"
+            >
+              <ToolCallList toolCalls={segment.toolCalls} />
             </div>
           );
         }
 
+        const i = segment.index;
+
         // Text block
         if (i === lastTextIndex) {
           // Last text block: render fully with thinking extraction
-          const { thinking, content: mainContent } = extractThinking(block.content);
+          const { thinking, content: mainContent } = extractThinking(segment.content);
           return (
             <div key={`text-${i}`} className="w-full max-w-full min-w-0">
               {thinking && (
@@ -746,7 +776,7 @@ const SegmentedContent = memo(function SegmentedContent({
         // Intermediate text block: collapsed
         return (
           <div key={`text-${i}`} className="w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl min-w-0">
-            <CollapsedTextBlock content={block.content} />
+            <CollapsedTextBlock content={segment.content} />
           </div>
         );
       })}
@@ -821,7 +851,7 @@ const MessageItem = memo(function MessageItem({ message, streamingContentBlocks,
       {/* Tool calls section (shown before the message content for assistant) — legacy rendering */}
       {!isUser && hasToolCalls && (
         <div className="w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl mb-2 min-w-0">
-          <ToolCallList toolCalls={message.toolCalls!} defaultCollapsed={true} />
+          <ToolCallList toolCalls={message.toolCalls!} />
         </div>
       )}
 

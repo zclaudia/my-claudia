@@ -1031,10 +1031,10 @@ export const ToolCallList = memo(function ToolCallList({ toolCalls, defaultColla
 
   // Auto-collapse if there are more than MAX_VISIBLE_TOOLS
   const hasMany = toolCalls.length > MAX_VISIBLE_TOOLS;
+  const earlierCount = Math.max(0, toolCalls.length - MAX_VISIBLE_TOOLS);
   const visibleToolCalls = showAll || !hasMany
     ? toolCalls
     : toolCalls.slice(-MAX_VISIBLE_TOOLS);
-  const hiddenCount = toolCalls.length - visibleToolCalls.length;
 
   return (
     <div className="space-y-1">
@@ -1049,13 +1049,15 @@ export const ToolCallList = memo(function ToolCallList({ toolCalls, defaultColla
         </button>
       )}
 
-      {/* Show collapsed older tools if any */}
-      {hasMany && !showAll && hiddenCount > 0 && (
+      {hasMany && (
         <button
-          onClick={() => setShowAll(true)}
-          className="px-3 py-1.5 text-xs bg-muted/50 rounded-lg hover:bg-muted transition-colors cursor-pointer w-full text-left text-muted-foreground"
+          onClick={() => setShowAll((v) => !v)}
+          className="px-3 py-1.5 text-xs bg-muted/50 rounded-md hover:bg-muted transition-colors cursor-pointer w-full text-left text-muted-foreground"
         >
-          <span className="flex items-center gap-1"><ChevronRight size={12} /> Show {hiddenCount} earlier tool call{hiddenCount > 1 ? 's' : ''}</span>
+          <span className="flex items-center gap-1">
+            {showAll ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            {showAll ? 'Hide' : 'Show'} {earlierCount} earlier tool call{earlierCount > 1 ? 's' : ''}
+          </span>
         </button>
       )}
 
