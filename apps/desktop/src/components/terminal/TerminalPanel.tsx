@@ -6,6 +6,7 @@ import { useConnection } from '../../contexts/ConnectionContext';
 import { useServerStore } from '../../stores/serverStore';
 import { XTerminal } from './XTerminal';
 import { xtermRegistry } from '../../utils/xtermRegistry';
+import { terminalRegistry } from '../../services/terminal/TerminalRegistry';
 import { isDesktopTauri } from '../../utils/platform';
 import { openPopoutWindow, buildWindowTitle, getConnectionParams } from '../../utils/popoutWindow';
 
@@ -33,6 +34,10 @@ async function openTerminalInNewWindow(terminalId: string, projectId: string) {
     height: 500,
     connectionTarget: { backendId },
   });
+
+  // Tell the main-window controller it has handed off ownership: dispose its xterm and emit
+  // terminal_detach. The pop-out window will issue terminal_attach to claim the PTY.
+  terminalRegistry.get(terminalId)?.release();
 
   // Track popped-out state and hide panel in main window
   useTerminalStore.getState().addPoppedOutTerminal(terminalId, label);
@@ -62,12 +67,19 @@ export function TerminalActions({ projectId }: { projectId: string }) {
         </button>
       )}
 
-      {/* Reload button */}
+      {/* Reload button — disabled while popped out so the main window can't kill the
+          standalone window's PTY (terminal_close has no ownership check on the server). */}
+      {!isPoppedOut && (
       <button
         onClick={() => {
           if (!terminalId) return;
-          sendMessage({ type: 'terminal_close', terminalId });
-          xtermRegistry.delete(terminalId);
+          const controller = terminalRegistry.get(terminalId);
+          if (controller) {
+            controller.close();
+          } else {
+            sendMessage({ type: 'terminal_close', terminalId });
+            xtermRegistry.delete(terminalId);
+          }
           useTerminalStore.getState().closeTerminal(terminalId);
           useTerminalStore.getState().openTerminal(projectId, activeServerId);
         }}
@@ -79,6 +91,7 @@ export function TerminalActions({ projectId }: { projectId: string }) {
             d="M4 4v5h5M20 20v-5h-5M4 9a9 9 0 0 1 15.36-5.36L20 4M20 15a9 9 0 0 1-15.36 5.36L4 20" />
         </svg>
       </button>
+      )}
     </div>
   );
 }

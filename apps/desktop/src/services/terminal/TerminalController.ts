@@ -95,6 +95,7 @@ export class TerminalController {
     if (!this.guardTransition('opening')) return;
     this.ensureTerminal();
     this.bindOnDataOnce();
+    this.remountIfBound();
     const cols = opts.cols ?? this.terminal!.cols;
     const rows = opts.rows ?? this.terminal!.rows;
     this.transition({ kind: 'opening' });
@@ -113,6 +114,7 @@ export class TerminalController {
     if (!this.guardTransition('attaching')) return;
     this.ensureTerminal();
     this.bindOnDataOnce();
+    this.remountIfBound();
     const cols = opts.cols ?? this.terminal!.cols;
     const rows = opts.rows ?? this.terminal!.rows;
     this.transition({ kind: 'attaching' });
@@ -138,12 +140,15 @@ export class TerminalController {
   }
 
   /**
-   * Pop-out path: dispose this view's xterm + DOM and tell the server we no longer want output.
-   * The PTY keeps running on the server so another window (or this one via claim()) can reattach.
+   * Pop-out path: dispose this view's xterm but keep the bound container reference so a later
+   * claim() can remount into the same DOM node. Tell the server we no longer want output —
+   * the PTY keeps running on the server so another window (or this one via claim()) can reattach.
    */
   release(): void {
     const wasOpen = this.state.kind === 'open';
+    const keepContainer = this.boundContainer;
     this.disposeXterm();
+    this.boundContainer = keepContainer;
     if (wasOpen) {
       this.transition({ kind: 'detached', reason: 'popout' });
       this.deps.sendMessage({
@@ -295,6 +300,17 @@ export class TerminalController {
         data,
       });
     });
+  }
+
+  /**
+   * Re-mount the (possibly freshly created) xterm into the previously bound container, if any.
+   * Lets release() + claim() keep the same DOM node without forcing the React layer to re-bind.
+   */
+  private remountIfBound(): void {
+    const container = this.boundContainer;
+    if (!container) return;
+    this.attachToDOM(container);
+    this.observeResize(container);
   }
 
   private attachToDOM(container: HTMLElement): void {

@@ -126,11 +126,13 @@ export function XTerminal({ terminalId, projectId, workingDirectory, mode = 'ope
   }, [controller]);
 
   /**
-   * Drive the lifecycle:
+   * Drive the lifecycle from the view side:
    *   idle              → open() or attach() based on `mode`
-   *   detached          → reattach automatically (e.g. ws bounce)
    *   failed (mode=attach, first time) → fall back to open()
-   * Other states are mid-flight; the controller is already on it.
+   *
+   * `detached` states are intentionally left to upstream lifecycle hooks
+   * (useTauriWindowEvents on pop-out close, useBackendFacade on backend ready).
+   * Auto-reattaching here would race with — and sometimes hijack — those flows.
    */
   const fallbackUsedRef = useRef(false);
   useEffect(() => {
@@ -153,10 +155,6 @@ export function XTerminal({ terminalId, projectId, workingDirectory, mode = 'ope
         }
         controller.open({ projectId, workingDirectory });
       }
-      return;
-    }
-    if (state.kind === 'detached') {
-      controller.attach();
       return;
     }
     if (state.kind === 'failed' && mode === 'attach' && !fallbackUsedRef.current) {

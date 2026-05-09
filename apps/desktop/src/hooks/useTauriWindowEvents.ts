@@ -4,6 +4,7 @@ import { useTerminalStore } from '../stores/terminalStore';
 import { usePluginStore } from '../stores/pluginStore';
 import { useDraftEditorStore } from '../stores/draftEditorStore';
 import { xtermRegistry } from '../utils/xtermRegistry';
+import { terminalRegistry } from '../services/terminal/TerminalRegistry';
 
 /**
  * Listens for Tauri window-closed events (session, terminal, draft)
@@ -36,11 +37,17 @@ export function useTauriWindowEvents() {
         const closedTerminalId = event.payload?.terminalId;
         if (closedTerminalId) {
           useTerminalStore.getState().removePoppedOutTerminal(closedTerminalId);
-          useTerminalStore.getState().markNeedsReattach(closedTerminalId);
-          // Fully dispose the main-window xterm instance — it was effectively orphaned while the
-          // pop-out window owned the PTY, and any stale DOM/state would prevent a clean reattach.
-          xtermRegistry.delete(closedTerminalId);
+          // Make the panel visible first so the bound container is in the DOM tree before claim()
+          // re-mounts xterm into it.
           usePluginStore.getState().updatePanelVisibility('terminal', true);
+          const controller = terminalRegistry.get(closedTerminalId);
+          if (controller) {
+            controller.claim();
+          } else {
+            // Fallback for terminals still living on the legacy path.
+            useTerminalStore.getState().markNeedsReattach(closedTerminalId);
+            xtermRegistry.delete(closedTerminalId);
+          }
         }
       });
 
