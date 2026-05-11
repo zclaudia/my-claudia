@@ -64,9 +64,120 @@ export interface AffectedEntry {
   timestamp: number;
 }
 
+export interface TurnStats {
+  /** Distinct files modified in this turn (Edit/Write/MultiEdit/NotebookEdit). */
+  fileCount: number;
+  /** Number of individual edit operations (MultiEdit's `edits[]` are expanded). */
+  editCount: number;
+  /** Number of Write tool calls (i.e. fresh file writes). */
+  writeCount: number;
+  /** Number of NotebookEdit tool calls. */
+  notebookEditCount: number;
+  /** All Bash tool calls observed in this turn (not just destructive ones). */
+  bashCount: number;
+  /** Subset of bashCount that matched the destructive-command heuristic. */
+  destructiveBashCount: number;
+  /** Tool calls with `isError` set or status `error` — proxy for "things that broke". */
+  failureCount: number;
+  /** Open AskUserQuestion calls (status `running`) — proxy for "blocked on user". */
+  pendingQuestionCount: number;
+  /** Non-AskUserQuestion tool calls still running — proxy for "agent still working". */
+  runningToolCount: number;
+}
+
+export interface TurnStat {
+  userMessageId: string;
+  userMessagePreview: string;
+  timestamp: number;
+  /** Id of the last message observed in this turn — used for summary
+   *  staleness checks. May be the user message itself if no replies yet. */
+  lastMessageId: string;
+  stats: TurnStats;
+}
+
+/** Phrases an LLM may produce to mean "no open issues remain". Used to decide
+ *  whether the "Create issue from Open" button should appear. */
+const NO_OPEN_ISSUES_SENTINELS = new Set([
+  '',
+  '—',
+  '-',
+  '--',
+  '无',
+  '没有',
+  '无遗留',
+  'none',
+  'nothing',
+  'nothing remains',
+  'no open issues',
+  'no remaining issues',
+  'n/a',
+  'na',
+]);
+
+/** Returns true when the openIssues text describes an actual residual issue
+ *  (as opposed to LLM filler like "—" / "none" / "无"). */
+export function hasOpenIssues(openIssues: string): boolean {
+  const normalised = openIssues
+    .trim()
+    .toLowerCase()
+    .replace(/[.。!！]+$/g, '');
+  return !NO_OPEN_ISSUES_SENTINELS.has(normalised);
+}
+
+/** Compose an issue title + description seeded from a turn summary. The first
+ *  sentence of `openIssues` becomes the title (≤ 80 chars). The description
+ *  embeds the open-issues text first (the user's main concern), followed by a
+ *  small context footer so future-you knows which turn it came from. */
+export function buildIssueFromSummary(args: {
+  openIssues: string;
+  goal: string;
+  userMessagePreview: string;
+  turnTimestamp: number;
+}): { title: string; description: string } {
+  const title = extractFirstSentence(args.openIssues, 80);
+  const when = new Date(args.turnTimestamp).toLocaleString();
+  const description = [
+    args.openIssues.trim(),
+    '',
+    '---',
+    '**Context**',
+    `- Turn: "${args.userMessagePreview}" (${when})`,
+    `- Goal: ${args.goal.trim()}`,
+  ].join('\n');
+  return { title, description };
+}
+
+function extractFirstSentence(text: string, maxLen: number): string {
+  const collapsed = text.replace(/\s+/g, ' ').trim();
+  if (!collapsed) return '';
+  // First sentence terminator. CJK punctuation (`。!！?？`) always splits — no
+  // trailing space is required since CJK text rarely uses one. The Western
+  // period is gated on a following space so decimals ("v1.5") don't split.
+  const match = collapsed.match(/^(.+?)(?:[。!！?？]|\.\s)/);
+  const first = (match ? match[1] : collapsed).trim().replace(/[.。!！?？]+$/, '');
+  return first.length > maxLen ? `${first.slice(0, maxLen - 1)}…` : first;
+}
+
+/** A turn is "empty" if nothing measurable happened — no files touched, no
+ *  bash, no failures, no pending or running tool calls. Slash commands the
+ *  user just typed but the agent hasn't acted on yet show up this way. */
+export function isTurnEmpty(turn: TurnStat): boolean {
+  const s = turn.stats;
+  return s.fileCount === 0
+    && s.editCount === 0
+    && s.writeCount === 0
+    && s.notebookEditCount === 0
+    && s.bashCount === 0
+    && s.failureCount === 0
+    && s.pendingQuestionCount === 0
+    && s.runningToolCount === 0;
+}
+
 export interface SessionChangesResult {
   modified: ModifiedEntry[];
   affected: AffectedEntry[];
+  /** Per-turn stats, chronological (oldest first). */
+  turns: TurnStat[];
 }
 
 const USER_MESSAGE_PREVIEW_LEN = 60;
@@ -206,6 +317,44 @@ export function aggregateSessionChanges({
 
   const modifiedMap = new Map<string, ModifiedEntry>();
   const affected: AffectedEntry[] = [];
+  // Per-turn stat accumulators; `files` tracks distinct file paths so we can
+  // emit fileCount at the end without double-counting across tool calls.
+  const turnStatsMap = new Map<string, {
+    userMessageId: string;
+    userMessagePreview: string;
+    timestamp: number;
+    lastMessageId: string;
+    files: Set<string>;
+    stats: TurnStats;
+  }>();
+
+  const emptyStats = (): TurnStats => ({
+    fileCount: 0,
+    editCount: 0,
+    writeCount: 0,
+    notebookEditCount: 0,
+    bashCount: 0,
+    destructiveBashCount: 0,
+    failureCount: 0,
+    pendingQuestionCount: 0,
+    runningToolCount: 0,
+  });
+
+  const ensureTurn = (group: { id: string; preview: string; timestamp: number }) => {
+    let turn = turnStatsMap.get(group.id);
+    if (!turn) {
+      turn = {
+        userMessageId: group.id,
+        userMessagePreview: group.preview,
+        timestamp: group.timestamp,
+        lastMessageId: group.id,
+        files: new Set<string>(),
+        stats: emptyStats(),
+      };
+      turnStatsMap.set(group.id, turn);
+    }
+    return turn;
+  };
 
   for (let i = startIdx; i < messages.length; i++) {
     const message = messages[i];
@@ -215,6 +364,9 @@ export function aggregateSessionChanges({
         preview: userMessagePreview(message.content || ''),
         timestamp: message.createdAt,
       };
+      // Materialize the turn even if it has no tool calls yet — gives the
+      // panel something to render the moment the user sends a message.
+      ensureTurn(currentGroup);
     }
     const toolCalls = message.toolCalls ?? [];
     if (toolCalls.length === 0) continue;
@@ -226,8 +378,21 @@ export function aggregateSessionChanges({
         timestamp: message.createdAt,
       };
     }
+    const turn = ensureTurn(currentGroup);
+    turn.lastMessageId = message.id;
 
     for (const tc of toolCalls) {
+      // ── Stats accounting (runs for ALL tool calls, including failures) ──
+      const isFailed = tc.isError === true || tc.status === 'error';
+      if (isFailed) {
+        turn.stats.failureCount += 1;
+      } else if (tc.status === 'running') {
+        if (tc.toolName === 'AskUserQuestion') turn.stats.pendingQuestionCount += 1;
+        else turn.stats.runningToolCount += 1;
+      }
+      if (tc.toolName === 'Bash') turn.stats.bashCount += 1;
+
+      // ── Modified files / affected entries (only for successful calls) ──
       if (tc.status !== 'completed' || tc.isError) continue;
 
       if (WRITE_TOOLS.has(tc.toolName)) {
@@ -236,6 +401,12 @@ export function aggregateSessionChanges({
         const path = normalizePath(absolutePath, projectRoot);
         const fragments = buildFragments(tc, message.id, message.createdAt);
         if (fragments.length === 0) continue;
+
+        turn.files.add(absolutePath);
+        if (tc.toolName === 'Edit') turn.stats.editCount += 1;
+        else if (tc.toolName === 'MultiEdit') turn.stats.editCount += fragments.length;
+        else if (tc.toolName === 'Write') turn.stats.writeCount += 1;
+        else if (tc.toolName === 'NotebookEdit') turn.stats.notebookEditCount += 1;
 
         let entry = modifiedMap.get(absolutePath);
         if (!entry) {
@@ -270,6 +441,7 @@ export function aggregateSessionChanges({
         const cmd = typeof input.command === 'string' ? input.command : '';
         if (!cmd) continue;
         const detections = detectDestructiveBash(cmd);
+        turn.stats.destructiveBashCount += detections.length;
         for (const det of detections) {
           affected.push({
             path: det.path ? normalizePath(det.path, projectRoot) : undefined,
@@ -284,7 +456,16 @@ export function aggregateSessionChanges({
   }
 
   const modified = Array.from(modifiedMap.values()).sort((a, b) => b.lastTimestamp - a.lastTimestamp);
-  return { modified, affected };
+  const turns: TurnStat[] = Array.from(turnStatsMap.values())
+    .map((t) => ({
+      userMessageId: t.userMessageId,
+      userMessagePreview: t.userMessagePreview,
+      timestamp: t.timestamp,
+      lastMessageId: t.lastMessageId,
+      stats: { ...t.stats, fileCount: t.files.size },
+    }))
+    .sort((a, b) => a.timestamp - b.timestamp);
+  return { modified, affected, turns };
 }
 
 export interface UserMessageOption {
@@ -312,17 +493,41 @@ export function useChangesData(
   result: SessionChangesResult;
   latestUserMessageId: string | null;
   effectiveSinceId: string | null;
+  /** The picked-or-latest user message rendered as a dropdown option — kept on
+   *  this hook so the SinceSelector button label doesn't depend on the
+   *  options-list hook (which is gated behind the dropdown being open). */
+  effectiveSinceOption: UserMessageOption | null;
 } {
   const messages = useChatStore((s) => (sessionId ? s.messages[sessionId] : undefined));
   return useMemo(() => {
     const msgs = messages ?? [];
     let latestUserMessageId: string | null = null;
+    let latestUserMessage: MessageWithToolCalls | null = null;
     for (let i = msgs.length - 1; i >= 0; i--) {
-      if (msgs[i].role === 'user') { latestUserMessageId = msgs[i].id; break; }
+      if (msgs[i].role === 'user') {
+        latestUserMessageId = msgs[i].id;
+        latestUserMessage = msgs[i];
+        break;
+      }
     }
     const effectiveSinceId = pickedSinceMessageId !== undefined
       ? pickedSinceMessageId
       : latestUserMessageId;
+
+    let effectiveSinceOption: UserMessageOption | null = null;
+    if (effectiveSinceId) {
+      const target = effectiveSinceId === latestUserMessageId
+        ? latestUserMessage
+        : msgs.find((m) => m.id === effectiveSinceId && m.role === 'user') ?? null;
+      if (target) {
+        effectiveSinceOption = {
+          id: target.id,
+          preview: userMessagePreview(target.content || ''),
+          timestamp: target.createdAt,
+        };
+      }
+    }
+
     return {
       result: aggregateSessionChanges({
         messages: msgs,
@@ -331,6 +536,7 @@ export function useChangesData(
       }),
       latestUserMessageId,
       effectiveSinceId,
+      effectiveSinceOption,
     };
   }, [messages, pickedSinceMessageId, projectRoot]);
 }

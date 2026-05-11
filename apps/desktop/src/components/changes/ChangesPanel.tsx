@@ -4,13 +4,16 @@ import { useSelectionStore } from '../../stores/selectionStore';
 import { useChangesPanelStore } from '../../stores/changesPanelStore';
 import { SinceSelector } from './SinceSelector';
 import { ChangeListItem } from './ChangeListItem';
-import { useChangesData, useUserMessageOptions } from './useSessionChanges';
+import { TurnSummaryCard } from './TurnSummaryCard';
+import { SummarySection } from './SummarySection';
+import { isTurnEmpty, useChangesData, useUserMessageOptions } from './useSessionChanges';
 
 interface ChangesPanelProps {
+  projectId?: string;
   projectRoot?: string;
 }
 
-export function ChangesPanel({ projectRoot }: ChangesPanelProps) {
+export function ChangesPanel({ projectId, projectRoot }: ChangesPanelProps) {
   const selectedSessionId = useSelectionStore((s) => s.selectedSessionId);
 
   // Per-session "since" cursor is persisted in changesPanelStore so the user's
@@ -25,17 +28,32 @@ export function ChangesPanel({ projectRoot }: ChangesPanelProps) {
 
   const [expandedById, setExpandedById] = useState<Record<string, boolean>>({});
   const [bashCollapsed, setBashCollapsed] = useState(true);
+  // Turn cards summarize counts only — useful at a glance but space-heavy.
+  // Default collapsed; expand on demand via the section header.
+  const [turnsCollapsed, setTurnsCollapsed] = useState(true);
   // Lifted from SinceSelector so we can gate option computation behind the
   // dropdown being open — JSON-parsing all user messages is O(N) per render.
   const [sinceOpen, setSinceOpen] = useState(false);
 
-  const { result, latestUserMessageId } = useChangesData(
+  const { result, effectiveSinceId, effectiveSinceOption } = useChangesData(
     selectedSessionId,
-    pickedSince !== undefined ? pickedSince : null,
+    pickedSince,
     projectRoot,
   );
-  const effectiveSinceId = pickedSince !== undefined ? pickedSince : latestUserMessageId;
-  const { modified, affected } = result;
+  const { modified, affected, turns } = result;
+  // Newest turn first so the user's latest context is at the top of the panel.
+  // Empty turns (no Done activity, no Open issues) are hidden — they add noise
+  // for slash commands / quick `git status` invocations that produced nothing.
+  const { visibleTurns, hiddenCount } = useMemo(() => {
+    const visible: typeof turns = [];
+    let hidden = 0;
+    // iterate newest-first
+    for (let i = turns.length - 1; i >= 0; i--) {
+      if (isTurnEmpty(turns[i])) hidden += 1;
+      else visible.push(turns[i]);
+    }
+    return { visibleTurns: visible, hiddenCount: hidden };
+  }, [turns]);
 
   const userMessageOptions = useUserMessageOptions(selectedSessionId, sinceOpen);
 
@@ -67,9 +85,7 @@ export function ChangesPanel({ projectRoot }: ChangesPanelProps) {
     );
   }
 
-  const sinceLabel = effectiveSinceId
-    ? userMessageOptions.find((o) => o.id === effectiveSinceId)?.preview ?? ''
-    : 'session start';
+  const sinceLabel = effectiveSinceOption?.preview ?? 'session start';
 
   return (
     <div className="flex flex-col h-full">
@@ -77,6 +93,7 @@ export function ChangesPanel({ projectRoot }: ChangesPanelProps) {
         <SinceSelector
           options={userMessageOptions}
           selectedId={effectiveSinceId}
+          selectedOption={effectiveSinceOption}
           onSelect={handleSelectSince}
           open={sinceOpen}
           onOpenChange={setSinceOpen}
@@ -92,9 +109,23 @@ export function ChangesPanel({ projectRoot }: ChangesPanelProps) {
         </button>
       </div>
 
-      {/* Body */}
       <div className="flex-1 overflow-y-auto px-2 py-2 space-y-3">
-        {modified.length === 0 && affected.length === 0 ? (
+        {/* AI-generated summary covers a single turn — only shown when the
+            user has anchored "since" to a specific user message (i.e. the
+            view is scoped to one or more turns rooted at that turn).
+            "Entire session" picks span all turns — skip until merge UI is built. */}
+        {effectiveSinceId && (() => {
+          const summaryTurn = turns.find((t) => t.userMessageId === effectiveSinceId) ?? null;
+          return (
+            <SummarySection
+              sessionId={selectedSessionId}
+              projectId={projectId}
+              turn={summaryTurn}
+              latestMessageIdInTurn={summaryTurn?.lastMessageId ?? null}
+            />
+          );
+        })()}
+        {modified.length === 0 && affected.length === 0 && turns.length === 0 ? (
           <div className="h-full flex items-center justify-center text-muted-foreground text-xs text-center px-4">
             {effectiveSinceId
               ? `No file changes since "${sinceLabel}"`
@@ -102,6 +133,35 @@ export function ChangesPanel({ projectRoot }: ChangesPanelProps) {
           </div>
         ) : (
           <>
+            {visibleTurns.length > 0 && (
+              <section className="space-y-1.5">
+                <button
+                  type="button"
+                  onClick={() => setTurnsCollapsed((v) => !v)}
+                  className="w-full flex items-center gap-1 px-1 text-[10px] uppercase tracking-wider font-semibold text-muted-foreground hover:text-foreground"
+                >
+                  {turnsCollapsed ? (
+                    <ChevronRight className="w-3 h-3" />
+                  ) : (
+                    <ChevronDown className="w-3 h-3" />
+                  )}
+                  <span>Turns ({visibleTurns.length})</span>
+                  {hiddenCount > 0 && (
+                    <span className="font-normal normal-case tracking-normal text-muted-foreground/70">
+                      · {hiddenCount} empty hidden
+                    </span>
+                  )}
+                </button>
+                {!turnsCollapsed && (
+                  <div className="space-y-1.5">
+                    {visibleTurns.map((turn) => (
+                      <TurnSummaryCard key={turn.userMessageId} turn={turn} />
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+
             {modified.length > 0 && (
               <section className="space-y-1.5">
                 <div className="px-1 text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">

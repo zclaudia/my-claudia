@@ -66,6 +66,7 @@ import { migration as m_063_notification_initiator } from './063_notification_in
 import { migration as m_064_supervisor_changes_v1 } from './064_supervisor_changes_v1.js';
 import { migration as m_065_local_issues } from './065_local_issues.js';
 import { migration as m_066_attachments } from './066_attachments.js';
+import { migration as m_067_turn_summaries } from './067_turn_summaries.js';
 
 export type { Migration };
 
@@ -136,4 +137,5 @@ export const migrations: Migration[] = [
   m_064_supervisor_changes_v1,
   m_065_local_issues,
   m_066_attachments,
+  m_067_turn_summaries,
 ];

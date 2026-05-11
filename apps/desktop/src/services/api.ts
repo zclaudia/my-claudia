@@ -9,6 +9,7 @@ export { apiCall, apiCallVoid } from './api/unwrap';
 export * from './api/projects';
 export * from './api/sessions';
 export * from './api/session-drafts';
+export * from './api/turn-summaries';
 export * from './api/session-search';
 export * from './api/providers';
 export * from './api/servers';

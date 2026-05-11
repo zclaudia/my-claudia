@@ -17,6 +17,17 @@ interface CreateIssueDialogProps {
   projectId: string;
   onClose: () => void;
   editIssue?: LocalIssue;
+  /** Pre-fills the form when creating a brand-new issue. Ignored in edit mode. */
+  initialValues?: {
+    title?: string;
+    description?: string;
+    priority?: LocalIssuePriority;
+    labels?: string[];
+  };
+  /** Invoked with the freshly created issue after a successful create-mode submit.
+   *  Lets callers chain post-create UX (toast, navigation, linking) without
+   *  having to inspect the issues store. Not called in edit mode. */
+  onCreated?: (issue: LocalIssue) => void;
 }
 
 const PRIORITY_OPTIONS: { value: LocalIssuePriority; label: string }[] = [
@@ -37,13 +48,17 @@ interface PendingAttachment {
   previewUrl?: string;
 }
 
-export function CreateIssueDialog({ projectId, onClose, editIssue }: CreateIssueDialogProps) {
+export function CreateIssueDialog({ projectId, onClose, editIssue, initialValues, onCreated }: CreateIssueDialogProps) {
   useAndroidBack(onClose, true, 25);
   const { createIssue, updateIssue } = useLocalIssueStore();
-  const [title, setTitle] = useState(editIssue?.title ?? '');
-  const [description, setDescription] = useState(editIssue?.description ?? '');
-  const [priority, setPriority] = useState<LocalIssuePriority>(editIssue?.priority ?? 'medium');
-  const [labelInput, setLabelInput] = useState(editIssue?.labels?.join(', ') ?? '');
+  const [title, setTitle] = useState(editIssue?.title ?? initialValues?.title ?? '');
+  const [description, setDescription] = useState(editIssue?.description ?? initialValues?.description ?? '');
+  const [priority, setPriority] = useState<LocalIssuePriority>(
+    editIssue?.priority ?? initialValues?.priority ?? 'medium',
+  );
+  const [labelInput, setLabelInput] = useState(
+    editIssue?.labels?.join(', ') ?? initialValues?.labels?.join(', ') ?? '',
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -155,6 +170,8 @@ export function CreateIssueDialog({ projectId, onClose, editIssue }: CreateIssue
             );
           }
         }
+
+        onCreated?.(created);
       }
       onClose();
     } catch (err) {

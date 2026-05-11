@@ -6,13 +6,24 @@ import type { UserMessageOption } from './useSessionChanges';
 interface SinceSelectorProps {
   options: UserMessageOption[];
   selectedId: string | null;
+  /** The currently selected user message rendered for the button label.
+   *  Passed in by the parent so the label doesn't need the options list to be
+   *  computed (which is gated behind the dropdown being open). */
+  selectedOption: UserMessageOption | null;
   onSelect: (id: string | null) => void;
   // Controlled: parent owns `open` so it can gate option computation behind it.
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-export function SinceSelector({ options, selectedId, onSelect, open, onOpenChange }: SinceSelectorProps) {
+export function SinceSelector({
+  options,
+  selectedId,
+  selectedOption,
+  onSelect,
+  open,
+  onOpenChange,
+}: SinceSelectorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -26,7 +37,9 @@ export function SinceSelector({ options, selectedId, onSelect, open, onOpenChang
     return () => document.removeEventListener('mousedown', onDocMouseDown);
   }, [open, onOpenChange]);
 
-  const selected = options.find((o) => o.id === selectedId) ?? null;
+  // Prefer the parent-supplied selection for the label, fall back to scanning
+  // the options list (only populated while the dropdown is open).
+  const selected = selectedOption ?? options.find((o) => o.id === selectedId) ?? null;
   const buttonLabel = selected
     ? `Since: "${selected.preview}" · ${timeAgo(selected.timestamp)}`
     : selectedId === null

@@ -17,6 +17,7 @@ import { registerNotificationDomain } from '../../domains/notification-feed/inde
 import { registerSupervisionDomain, type SupervisionAiRunPort, type SupervisionProjectPort, type SupervisionSessionPort, type SupervisionSessionModelPort } from '../../domains/supervision/index.js';
 import { registerLocalPRDomain, type LocalPRAiSessionPort, type LocalPRSchedulingPort } from '../../domains/local-pr/index.js';
 import { registerLocalIssueDomain } from '../../domains/local-issues/index.js';
+import { registerTurnSummaryDomain } from '../../domains/turn-summaries/index.js';
 import { registerAttachmentDomain } from '../../domains/attachments/index.js';
 import { registerWorkflowDomain, type WorkflowAiRunPort, type WorkflowSchedulingPort } from '../../domains/workflows/index.js';
 import { PermissionWorkflowResolver } from '../../domains/workflows/index.js';
@@ -180,6 +181,12 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
         attachmentService.deleteByOwner('local_issue', issueId);
       },
     },
+  });
+
+  registerTurnSummaryDomain({
+    db,
+    app,
+    authMiddleware,
   });
 
   // Permission bridge — connects workflow engine to conversation permission system
