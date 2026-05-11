@@ -1049,6 +1049,34 @@ describe('ToolCallList', () => {
       expect(screen.getByText('3 tool calls')).toBeInTheDocument();
     });
 
+    it('treats AskUserQuestion error status as completed in collapsed summary', () => {
+      const toolCalls = [
+        makeTc('tc-1', { status: 'completed' }),
+        makeTc('tc-2', {
+          toolName: 'AskUserQuestion',
+          toolInput: {
+            questions: [{ header: '范围', question: 'Choose scope', options: [] }],
+          },
+          status: 'error',
+          isError: true,
+        }),
+        makeTc('tc-3', {
+          toolName: 'Bash',
+          toolInput: { command: 'npm test' },
+          status: 'error',
+          isError: true,
+        }),
+      ];
+
+      render(<ToolCallList toolCalls={toolCalls} defaultCollapsed />);
+
+      const countRow = screen.getByText('3 tool calls').parentElement!;
+      expect(countRow).toHaveTextContent(/3 tool calls\s*2\s*1\s*Click to expand/);
+
+      expect(screen.getByText('范围').parentElement).toHaveClass('bg-secondary', 'text-muted-foreground');
+      expect(screen.getByText('npm').parentElement).toHaveClass('bg-destructive/20', 'text-destructive');
+    });
+
     it('expands when collapsed summary is clicked', () => {
       const toolCalls = [makeTc('tc-1')];
       render(<ToolCallList toolCalls={toolCalls} defaultCollapsed />);

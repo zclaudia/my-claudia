@@ -975,12 +975,21 @@ function getStatusIconComponent(status: ToolCallState['status']) {
   }
 }
 
+function getToolCallDisplayStatus(tc: ToolCallState): ToolCallState['status'] {
+  // AskUserQuestion reports normal user answers through the provider's error path.
+  // Match ToolCallItem's non-destructive rendering in collapsed summaries.
+  if (tc.toolName === 'AskUserQuestion' && tc.status === 'error') {
+    return 'completed';
+  }
+  return tc.status;
+}
+
 const MAX_VISIBLE_TOOLS = 5;
 
 function SummaryBar({ toolCalls, onClick }: { toolCalls: ToolCallState[]; onClick: () => void }) {
-  const completedCount = toolCalls.filter((tc) => tc.status === 'completed').length;
-  const errorCount = toolCalls.filter((tc) => tc.status === 'error').length;
-  const runningCount = toolCalls.filter((tc) => tc.status === 'running').length;
+  const completedCount = toolCalls.filter((tc) => getToolCallDisplayStatus(tc) === 'completed').length;
+  const errorCount = toolCalls.filter((tc) => getToolCallDisplayStatus(tc) === 'error').length;
+  const runningCount = toolCalls.filter((tc) => getToolCallDisplayStatus(tc) === 'running').length;
 
   return (
     <div
@@ -1000,22 +1009,25 @@ function SummaryBar({ toolCalls, onClick }: { toolCalls: ToolCallState[]; onClic
         <span className="flex items-center gap-0.5 text-muted-foreground ml-auto text-[10px]">Click to expand <ChevronRight size={10} /></span>
       </div>
       <div className="flex flex-wrap gap-1.5">
-        {toolCalls.map((tc, idx) => (
-          <span
-            key={tc.id || idx}
-            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] ${
-              tc.status === 'error'
-                ? 'bg-destructive/20 text-destructive'
-                : tc.status === 'running'
-                ? 'bg-primary/20 text-primary'
-                : 'bg-secondary text-muted-foreground'
-            }`}
-            title={formatToolInput(tc.toolName, tc.toolInput)}
-          >
-            <span>{getStatusIconComponent(tc.status)}</span>
-            <span className="truncate max-w-[120px]">{getToolCallSummary(tc)}</span>
-          </span>
-        ))}
+        {toolCalls.map((tc, idx) => {
+          const displayStatus = getToolCallDisplayStatus(tc);
+          return (
+            <span
+              key={tc.id || idx}
+              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] ${
+                displayStatus === 'error'
+                  ? 'bg-destructive/20 text-destructive'
+                  : displayStatus === 'running'
+                  ? 'bg-primary/20 text-primary'
+                  : 'bg-secondary text-muted-foreground'
+              }`}
+              title={formatToolInput(tc.toolName, tc.toolInput)}
+            >
+              <span>{getStatusIconComponent(displayStatus)}</span>
+              <span className="truncate max-w-[120px]">{getToolCallSummary(tc)}</span>
+            </span>
+          );
+        })}
       </div>
     </div>
   );
