@@ -12,7 +12,8 @@ import type { ContentBlock } from '@my-claudia/shared';
 import { useFilePushStore, type FilePushItem } from '../../stores/filePushStore';
 import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
 import { downloadFile } from '../../services/fileUpload';
-import type { MessageInput, MessageAttachment } from '@my-claudia/shared';
+import type { MessageAttachment } from '@my-claudia/shared';
+import { tryParseMessageInput } from '../../utils/messageContent';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useBottomPanelStore } from '../../stores/bottomPanelStore';
 import { useProjectStore } from '../../stores/projectStore';
@@ -248,23 +249,9 @@ export const MessageList = memo(function MessageList({
         return true;
       }
 
-      // For user messages, check if content is empty
-      let textContent = message.content;
-      let hasAttachments = false;
-
-      // Try to parse as MessageInput JSON
-      try {
-        const parsed: MessageInput = JSON.parse(message.content);
-        if (typeof parsed === 'object' && 'text' in parsed) {
-          textContent = parsed.text || '';
-          hasAttachments = (parsed.attachments?.length || 0) > 0;
-        }
-      } catch {
-        // Not JSON, use as plain text
-        textContent = message.content;
-      }
-
-      // Keep message if it has text content or attachments
+      const parsed = tryParseMessageInput(message.content);
+      const textContent = parsed?.text ?? message.content;
+      const hasAttachments = (parsed?.attachments?.length ?? 0) > 0;
       return textContent.trim().length > 0 || hasAttachments;
     });
   }, [messages]);
@@ -805,20 +792,9 @@ const MessageItem = memo(function MessageItem({ message, streamingContentBlocks,
   const hasStreamingBlocks = streamingContentBlocks && streamingContentBlocks.length > 0 && streamingToolCalls && streamingToolCalls.length > 0;
   const useSegmented = !isUser && !isSystem && ((hasContentBlocks && hasToolCalls) || hasStreamingBlocks);
 
-  // Parse message content (supports both plain text and structured MessageInput)
-  let textContent = message.content;
-  let attachments: MessageAttachment[] = [];
-
-  try {
-    const parsed: MessageInput = JSON.parse(message.content);
-    if (typeof parsed === 'object' && 'text' in parsed) {
-      textContent = parsed.text || '';
-      attachments = parsed.attachments || [];
-    }
-  } catch {
-    // Not JSON or not MessageInput, use as plain text
-    textContent = message.content;
-  }
+  const parsedInput = tryParseMessageInput(message.content);
+  const textContent: string = parsedInput?.text ?? message.content;
+  const attachments: MessageAttachment[] = parsedInput?.attachments ?? [];
 
   // Extract thinking blocks for assistant messages (rendered outside bubble for consistent width)
   const { thinking, content: mainContent } = useMemo(

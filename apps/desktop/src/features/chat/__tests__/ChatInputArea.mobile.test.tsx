@@ -242,7 +242,7 @@ describe('ChatInputArea mobile selectors', () => {
 
   it('hides selectors and terminal tool when capabilities/features are unavailable', () => {
     serverStoreState.activeServerSupports.mockReturnValue(false);
-    pluginStoreState.disabledBuiltinPanels = ['draft', 'file-viewer'];
+    pluginStoreState.disabledBuiltinPanels = ['draft', 'file-viewer', 'session-changes'];
 
     render(<ChatInputArea {...baseProps} capabilities={null} modelOverride={null} />);
 

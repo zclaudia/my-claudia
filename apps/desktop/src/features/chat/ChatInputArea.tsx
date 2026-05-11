@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Lock, Unlock, X, FileText, FileEdit, Terminal as TerminalIcon, ChevronDown, ChevronUp, Plus } from 'lucide-react';
+import { Lock, Unlock, X, FileText, FileEdit, FileDiff, Terminal as TerminalIcon, ChevronDown, ChevronUp, Plus } from 'lucide-react';
 import { ModeSelector } from './ModeSelector';
 import { SystemInfoButton } from './SystemInfoButton';
 import { ModelSelector } from './ModelSelector';
@@ -99,6 +99,7 @@ export function ChatInputArea({
   const draftPanelActive = usePanelIsActive('draft');
   const fileViewerPanelActive = usePanelIsActive('file-viewer');
   const terminalPanelActive = usePanelIsActive('terminal');
+  const changesPanelActive = usePanelIsActive('session-changes');
   // Mobile toolbar popover state
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
   const mobileToolsRef = useRef<HTMLDivElement>(null);
@@ -265,6 +266,24 @@ export function ChatInputArea({
             <FileText size={16} strokeWidth={1.75} />
           </button>
         )}
+        {/* Desktop: Session changes button */}
+        {!isMobile && !disabledBuiltinPanels.includes('session-changes') && currentSession && (
+          <button
+            onClick={() => {
+              const store = usePluginStore.getState();
+              if (changesPanelActive) {
+                store.updatePanelVisibility('session-changes', false);
+              } else {
+                store.updatePanelVisibility('session-changes', true);
+                activatePanel('session-changes');
+              }
+            }}
+            className={`p-1.5 rounded-md hover:bg-secondary ${changesPanelActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+            title={changesPanelActive ? 'Hide session changes' : 'Show session changes'}
+          >
+            <FileDiff size={16} strokeWidth={1.75} />
+          </button>
+        )}
         {/* Desktop: Terminal button */}
         {!isMobile && !disabledBuiltinPanels.includes('terminal') && useServerStore.getState().activeServerSupports('remoteTerminal') && currentSession?.projectId && (() => {
           const pid = currentSession.projectId;
@@ -366,6 +385,26 @@ export function ChatInputArea({
                   store.togglePanel();
                   store.setSearchOpen(true);
                   activatePanel('file-viewer');
+                }
+                closeMobileTools();
+              },
+            });
+          }
+
+          if (!disabledBuiltinPanels.includes('session-changes') && currentSession) {
+            const isActive = changesPanelActive;
+            toolItems.push({
+              key: 'session-changes',
+              icon: <FileDiff size={18} strokeWidth={1.75} />,
+              label: isActive ? 'Hide Changes' : 'Session Changes',
+              isActive,
+              onClick: () => {
+                const store = usePluginStore.getState();
+                if (isActive) {
+                  store.updatePanelVisibility('session-changes', false);
+                } else {
+                  store.updatePanelVisibility('session-changes', true);
+                  activatePanel('session-changes');
                 }
                 closeMobileTools();
               },

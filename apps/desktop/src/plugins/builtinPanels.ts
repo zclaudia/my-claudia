@@ -12,6 +12,7 @@ import { TerminalPanel, TerminalActions } from '../components/terminal/TerminalP
 import { FileViewerPanel, FileViewerActions } from '../components/fileviewer/FileViewerPanel';
 import { DraftPanel } from '../components/draft/DraftPanel';
 import { NotificationsPanel } from '../components/notifications/NotificationsPanel';
+import { ChangesPanel } from '../components/changes/ChangesPanel';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useFileViewerStore } from '../stores/fileViewerStore';
 import { useDraftEditorStore } from '../stores/draftEditorStore';
@@ -85,6 +86,24 @@ export function initBuiltinPanels() {
     },
   });
 
+  // Changes: per-session view of files modified since a chosen user message
+  registerPanel({
+    id: 'session-changes',
+    pluginId: 'com.claudia.changes',
+    type: 'panel',
+    label: 'Changes',
+    icon: 'FileDiff',
+    component: ChangesPanel,
+    order: 3,
+    platforms: ['desktop', 'mobile'],
+    defaultPlacement: 'right',
+    alwaysMount: false,
+    visible: false,
+    onClose: () => {
+      usePluginStore.getState().updatePanelVisibility('session-changes', false);
+    },
+  });
+
   registerPanel({
     id: 'notifications',
     pluginId: 'com.claudia.notifications',
@@ -92,7 +111,7 @@ export function initBuiltinPanels() {
     label: 'Notifications',
     icon: 'Activity',
     component: NotificationsPanel,
-    order: 3,
+    order: 4,
     platforms: ['desktop', 'mobile'],
     alwaysMount: false,
     visible: false,

@@ -17,6 +17,9 @@ vi.mock('../../components/draft/DraftPanel', () => ({
 vi.mock('../../components/notifications/NotificationsPanel', () => ({
   NotificationsPanel: () => null,
 }));
+vi.mock('../../components/changes/ChangesPanel', () => ({
+  ChangesPanel: () => null,
+}));
 vi.mock('../../stores/terminalStore', () => ({
   useTerminalStore: { getState: () => ({ drawerOpen: {}, setDrawerOpen: vi.fn() }) },
 }));
@@ -34,7 +37,7 @@ describe('initBuiltinPanels', () => {
     } as any);
   });
 
-  it('registers terminal, file-viewer, draft, and notifications panels', async () => {
+  it('registers terminal, file-viewer, draft, session-changes, and notifications panels', async () => {
     const registerSpy = vi.fn();
     usePluginStore.setState({ registerPanel: registerSpy } as any);
 
@@ -42,7 +45,7 @@ describe('initBuiltinPanels', () => {
     const { initBuiltinPanels } = await import('../builtinPanels');
     initBuiltinPanels();
 
-    expect(registerSpy).toHaveBeenCalledTimes(4);
+    expect(registerSpy).toHaveBeenCalledTimes(5);
     expect(registerSpy).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'terminal', pluginId: 'com.claudia.terminal' })
     );
@@ -51,6 +54,9 @@ describe('initBuiltinPanels', () => {
     );
     expect(registerSpy).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'draft', pluginId: 'com.claudia.draft' })
+    );
+    expect(registerSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'session-changes', pluginId: 'com.claudia.changes' })
     );
     expect(registerSpy).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'notifications', pluginId: 'com.claudia.notifications' })

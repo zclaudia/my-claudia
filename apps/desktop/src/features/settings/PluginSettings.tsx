@@ -15,6 +15,7 @@ const BUILTIN_PLUGIN_IDS = new Set([
   'com.claudia.terminal',
   'com.claudia.file-viewer',
   'com.claudia.draft',
+  'com.claudia.changes',
   'com.claudia.notifications',
 ]);
 
