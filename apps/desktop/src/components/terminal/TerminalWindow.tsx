@@ -11,12 +11,16 @@ function useWindowCloseSync(terminalId: string) {
   useEffect(() => {
     let dispose: (() => void) | undefined;
     (async () => {
-      const { emitTo } = await import('@tauri-apps/api/event');
+      const { emit } = await import('@tauri-apps/api/event');
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
       const win = getCurrentWindow();
       const unlistenCloseRequested = await win.onCloseRequested(() => {
         sendMessage({ type: 'terminal_detach', terminalId });
-        void emitTo('main', 'terminal-window-closed', { terminalId }).catch(() => {});
+        // Broadcast (not emitTo) — the standalone window only needs to notify whichever
+        // webview holds the listener; in practice that's the main window, but using
+        // emit() avoids hard-coding a label that has historically drifted.
+        // The popout window itself does not subscribe to this event, so there is no echo.
+        void emit('terminal-window-closed', { terminalId }).catch(() => {});
       });
 
       dispose = () => {
