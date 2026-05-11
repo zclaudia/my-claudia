@@ -12,6 +12,7 @@ import { ConnectionProvider } from '../contexts/ConnectionContext';
 // Lazy-loaded popout windows
 const FileViewerWindow = lazy(() => import('../components/fileviewer/FileViewerWindow').then(m => ({ default: m.FileViewerWindow })));
 const WorkflowEditorWindow = lazy(() => import('../features/workflows/components/WorkflowEditorWindow').then(m => ({ default: m.WorkflowEditorWindow })));
+const AIReviewLogsWindow = lazy(() => import('../features/permissions/AIReviewLogsWindow').then(m => ({ default: m.AIReviewLogsWindow })));
 const AutomationWindow = lazy(() => import('../features/automation/AutomationWindow').then(m => ({ default: m.AutomationWindow })));
 const SessionChatWindow = lazy(() => import('../features/chat/SessionChatWindow').then(m => ({ default: m.SessionChatWindow })));
 const TerminalWindow = lazy(() => import('../components/terminal/TerminalWindow').then(m => ({ default: m.TerminalWindow })));
@@ -97,6 +98,25 @@ export function WindowRouter({ children }: { children: React.ReactNode }) {
               gatewaySecret={params.get('gatewaySecret') || undefined}
               initialMode={(params.get('initialMode') as 'toolbox' | 'ai') || undefined}
               readOnly={params.get('readOnly') === '1'}
+            />
+          </Suspense>
+        </ErrorBoundary>
+      </ThemeProvider>
+    );
+  }
+
+  // AI review logs window
+  const aiReviewLogsRunId = params.get('aiReviewLogs');
+  if (aiReviewLogsRunId) {
+    return (
+      <ThemeProvider defaultTheme="dark-neutral">
+        <ErrorBoundary label="AIReviewLogs">
+          <Suspense fallback={<LazyFallback />}>
+            <AIReviewLogsWindow
+              runId={aiReviewLogsRunId}
+              serverUrl={params.get('serverUrl') || ''}
+              authToken={params.get('authToken') || ''}
+              serverName={params.get('serverName') || undefined}
             />
           </Suspense>
         </ErrorBoundary>

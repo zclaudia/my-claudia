@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { Check, X, Lock, AlertTriangle, Bot } from 'lucide-react';
+import { Check, X, Lock, AlertTriangle, Bot, FileText } from 'lucide-react';
 import { usePermissionStore, type PermissionRequest } from '../../stores/permissionStore';
 import { PermissionDetailView } from '../../components/permission/PermissionDetailView';
+import { isDesktopTauri } from '../../utils/platform';
+import { buildPopoutUrl, openPopoutWindow } from '../../utils/popoutWindow';
 
 interface InlinePermissionRequestProps {
   request: PermissionRequest;
@@ -40,6 +42,24 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
   const aiReviewMetadataHint = buildAIReviewMetadataHint(aiReviewResult);
   const workflowProgress = usePermissionStore((state) => state.workflowProgress[request.requestId]);
   const isExitPlanModeRequest = request.toolName.toLowerCase().includes('exitplanmode');
+  const workflowRunId = request.workflowRunId || workflowProgress?.workflowRunId;
+
+  const handleOpenReviewLogs = () => {
+    if (!workflowRunId) return;
+    const params = { aiReviewLogs: workflowRunId };
+    const title = `AI Review Logs · ${request.toolName}`;
+    if (isDesktopTauri()) {
+      void openPopoutWindow({
+        type: 'ai-review-logs',
+        params,
+        title,
+        width: 900,
+        height: 700,
+      });
+      return;
+    }
+    window.open(buildPopoutUrl(params), '_blank', 'width=900,height=700');
+  };
 
   useEffect(() => {
     onDecisionRef.current = onDecision;
@@ -234,6 +254,17 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
               <Bot size={12} />
               Workflow processing...
             </span>
+          )}
+          {workflowRunId && (
+            <button
+              type="button"
+              onClick={handleOpenReviewLogs}
+              className="text-[11px] flex items-center gap-1 px-2 py-0.5 rounded-full border border-border text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+              title="Open AI review logs in a new window"
+            >
+              <FileText size={11} />
+              View logs
+            </button>
           )}
           {/* AI Review status (populated by workflow's ai_risk_analysis step) */}
           {aiReviewResult && (
