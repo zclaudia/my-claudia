@@ -100,6 +100,13 @@ export class GatewayManager {
       this.serverContext.terminalManager.detachClient(channelId);
     }
     this.virtualClients.clear();
+    // The facade-local virtual client is created lazily by createLocalBackendHandler() and
+    // registered into connectedClients for terminal-output routing. It's not tracked in
+    // this.virtualClients, so we have to clean it up explicitly.
+    if (this.connectedClients.has('facade-local')) {
+      this.connectedClients.delete('facade-local');
+      this.serverContext.terminalManager.detachClient('facade-local');
+    }
   }
 
   private attachFacadeProvider(nextProvider: FacadeProvider): void {
@@ -333,6 +340,7 @@ export class GatewayManager {
     const serverContext = this.serverContext;
     const activeRuns = this.activeRuns;
     const createVirtualClient = this.createVirtualClient;
+    const connectedClients = this.connectedClients;
 
     // Virtual client for facade-routed messages (shares lifecycle with facade)
     let facadeVirtualClient: ReturnType<typeof createVirtualClient> | null = null;
@@ -352,6 +360,10 @@ export class GatewayManager {
               }
             },
           });
+          // Register in connectedClients so that components which look up clients by id
+          // (notably TerminalManager.sendToClient for terminal_output) can reach the facade.
+          // Without this, PTYs created via the facade path would silently drop their output.
+          connectedClients.set('facade-local', facadeVirtualClient);
         }
         await serverContext.handleMessage(facadeVirtualClient, message);
       },
