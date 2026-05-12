@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { resolveProviderCwd } from '../provider-cwd.js';
 
 describe('resolveProviderCwd', () => {
-  it('pins resumed kimi sessions to the session root path', () => {
+  it('pins resumed sessions to the session root when the manifest says so', () => {
     expect(resolveProviderCwd({
-      providerType: 'kimi',
+      sessionCwdPolicy: 'pinned',
       sdkSessionId: 'kimi-session-1',
       requestedCwd: '/project/subdir',
       sessionRootPath: '/project',
@@ -14,7 +14,7 @@ describe('resolveProviderCwd', () => {
 
   it('falls back to the persisted working directory when root path is missing', () => {
     expect(resolveProviderCwd({
-      providerType: 'kimi',
+      sessionCwdPolicy: 'pinned',
       sdkSessionId: 'kimi-session-1',
       requestedCwd: '/project/subdir',
       sessionRootPath: null,
@@ -22,10 +22,29 @@ describe('resolveProviderCwd', () => {
     })).toBe('/project/subdir');
   });
 
-  it('keeps the requested cwd for non-kimi providers', () => {
+  it('keeps the requested cwd for providers that request the default policy', () => {
     expect(resolveProviderCwd({
-      providerType: 'claude',
+      sessionCwdPolicy: 'requested',
       sdkSessionId: 'sess-1',
+      requestedCwd: '/project/subdir',
+      sessionRootPath: '/project',
+      persistedWorkingDirectory: '/project/subdir',
+    })).toBe('/project/subdir');
+  });
+
+  it('keeps the requested cwd when the manifest declares no policy at all', () => {
+    expect(resolveProviderCwd({
+      sdkSessionId: 'sess-1',
+      requestedCwd: '/project/subdir',
+      sessionRootPath: '/project',
+      persistedWorkingDirectory: '/project/subdir',
+    })).toBe('/project/subdir');
+  });
+
+  it('does not pin when there is no resumed sdk session yet', () => {
+    expect(resolveProviderCwd({
+      sessionCwdPolicy: 'pinned',
+      sdkSessionId: undefined,
       requestedCwd: '/project/subdir',
       sessionRootPath: '/project',
       persistedWorkingDirectory: '/project/subdir',

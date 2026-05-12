@@ -117,8 +117,12 @@ export async function handleRunStart(
       return;
     }
 
-    if (providerType === 'kimi' && sdkSessionId && cwd !== requestedCwd) {
-      console.log(`[Kimi] Resuming session ${sdkSessionId} with stable work dir ${cwd} (requested ${requestedCwd})`);
+    // When the manifest says the provider pins cwd on resume, we logged the
+    // override and must NOT persist the requested cwd back over it; otherwise
+    // we trust the caller's cwd and persist it as the session's new root.
+    const cwdPinned = sdkSessionId && cwd !== requestedCwd;
+    if (cwdPinned) {
+      console.log(`[Run] Resuming session ${sdkSessionId} with pinned work dir ${cwd} (requested ${requestedCwd}, provider=${providerType})`);
     } else {
       persistSessionWorkingDirectory(cwd);
     }
@@ -209,6 +213,7 @@ export async function handleRunStart(
       db,
       error,
       formatProviderErrorMessage,
+      providerRegistry: ctx!.providerRegistry,
       handleRetry: async () => {
         await handleRunStart(
           client,

@@ -159,7 +159,11 @@ export const DEFAULT_UNIFIED_POLICY: UnifiedPermissionPolicy = {
   profile: DEFAULT_UNIFIED_PROFILE,
   globalGuards: DEFAULT_GLOBAL_GUARDS,
   customRules: [],
-  escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
+  // Only generic, provider-agnostic tool names live in the shared default.
+  // Provider-specific always-escalate tools (e.g. Claude's ExitPlanMode) come
+  // from each provider's PCP manifest (`escalateAlwaysTools`) and are unioned
+  // into the effective policy at evaluation time.
+  escalateAlways: ['AskUserQuestion'],
   aiReview: DEFAULT_AI_REVIEW_CONFIG,
 };
 
@@ -175,10 +179,15 @@ function cloneUnifiedPolicy(policy: UnifiedPermissionPolicy): UnifiedPermissionP
 }
 
 
-/** Ensure AskUserQuestion and ExitPlanMode are always in the escalateAlways list */
+/**
+ * Ensure AskUserQuestion is present in the escalateAlways list. Provider-
+ * specific tools (e.g. plan-mode submissions) are NOT added here — those
+ * live on each provider's PCP manifest (`escalateAlwaysTools`) and get
+ * unioned in at evaluation time.
+ */
 export function ensureEscalateAlways(list?: string[]): string[] {
-  const result = [...(list || ['AskUserQuestion'])];
-  if (!result.includes('ExitPlanMode')) result.push('ExitPlanMode');
+  const result = [...(list || [])];
+  if (!result.includes('AskUserQuestion')) result.push('AskUserQuestion');
   return result;
 }
 

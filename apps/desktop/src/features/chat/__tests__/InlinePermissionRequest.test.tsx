@@ -4,10 +4,12 @@ import { InlinePermissionRequest } from '../InlinePermissionRequest';
 import { usePermissionStore, type PermissionRequest } from '../../../stores/permissionStore';
 
 function makeRequest(overrides: Partial<PermissionRequest> = {}): PermissionRequest {
+  // Plan-proposal requests are detected by input shape (`detail` is JSON with
+  // a non-empty `plan` string), not by tool name — see InlinePermissionRequest.
   return {
     requestId: 'req-exit-plan-1',
     toolName: 'ExitPlanMode',
-    detail: 'Exit plan mode',
+    detail: JSON.stringify({ plan: '# Plan\n\nDo X' }),
     timeoutSec: 0,
     ...overrides,
   };
@@ -140,7 +142,7 @@ describe('InlinePermissionRequest', () => {
     expect(screen.getByText('My Server')).toBeInTheDocument();
   });
 
-  it('shows Deny + Comment button for ExitPlanMode', () => {
+  it('shows Deny + Comment button for plan-proposal requests', () => {
     render(<InlinePermissionRequest request={makeRequest()} onDecision={vi.fn()} />);
     expect(screen.getByText('Deny + Comment')).toBeInTheDocument();
   });
@@ -150,14 +152,24 @@ describe('InlinePermissionRequest', () => {
     expect(screen.getByText('Deny + Comment')).toBeDisabled();
   });
 
-  it('does not show Deny + Comment for non-ExitPlanMode tools', () => {
+  it('does not show Deny + Comment when detail has no plan field', () => {
     render(<InlinePermissionRequest request={makeRequest({ toolName: 'Bash', detail: '{}' })} onDecision={vi.fn()} />);
     expect(screen.queryByText('Deny + Comment')).not.toBeInTheDocument();
   });
 
-  it('does not show feedback textarea for non-ExitPlanMode tools', () => {
+  it('does not show feedback textarea when detail has no plan field', () => {
     render(<InlinePermissionRequest request={makeRequest({ toolName: 'Bash', detail: '{}' })} onDecision={vi.fn()} />);
     expect(screen.queryByPlaceholderText(/Why do you reject/)).not.toBeInTheDocument();
+  });
+
+  it('also recognizes plan-proposal requests from non-Claude tool names (semantic-driven)', () => {
+    // Cursor's createPlan also carries a `plan` field — same UX applies.
+    const cursorRequest = makeRequest({
+      toolName: 'createPlan',
+      detail: JSON.stringify({ plan: '# Cursor Plan' }),
+    });
+    render(<InlinePermissionRequest request={cursorRequest} onDecision={vi.fn()} />);
+    expect(screen.getByText('Deny + Comment')).toBeInTheDocument();
   });
 
   it('restores feedback after remount and clears it on deny with comment', () => {

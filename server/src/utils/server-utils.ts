@@ -160,20 +160,27 @@ export function buildStatusOutput(systemInfo: SystemInfo): string {
   return lines.join('\n');
 }
 
-export function formatProviderErrorMessage(raw: string, providerType?: string): string {
+export function formatProviderErrorMessage(
+  raw: string,
+  providerType?: string,
+  authErrorHint?: { matchAny: Array<string | string[]>; message: string },
+): string {
   const msg = raw.trim();
   const lower = msg.toLowerCase();
   const provider = providerType ? providerType.toUpperCase() : 'Provider';
-  const isExpiredClaudeOAuth =
-    providerType === 'claude' &&
-    (
-      lower.includes('oauth token has expired') ||
-      (lower.includes('authentication_error') && lower.includes('token has expired')) ||
-      (lower.includes('failed to authenticate') && lower.includes('401'))
-    );
 
-  if (isExpiredClaudeOAuth) {
-    return `Claude authentication expired on this machine. Re-login with \`claude auth login\` and retry. (${msg})`;
+  // Each provider's manifest can declare patterns that indicate auth expiry,
+  // along with the hint message to show. The runtime stays provider-agnostic.
+  if (authErrorHint) {
+    const matched = authErrorHint.matchAny.some((pattern) => {
+      if (Array.isArray(pattern)) {
+        return pattern.every((p) => lower.includes(p.toLowerCase()));
+      }
+      return lower.includes(pattern.toLowerCase());
+    });
+    if (matched) {
+      return authErrorHint.message.replace('{raw}', msg);
+    }
   }
 
   const isLimitLike =

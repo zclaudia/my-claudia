@@ -19,7 +19,12 @@ interface HandleRunExceptionInput {
   ctx: unknown;
   db: ActiveRun['db'];
   error: unknown;
-  formatProviderErrorMessage: (message: string, providerType?: string) => string;
+  formatProviderErrorMessage: (
+    message: string,
+    providerType?: string,
+    authErrorHint?: { matchAny: Array<string | string[]>; message: string },
+  ) => string;
+  providerRegistry?: { get(type: string): { manifest?: { authErrorHint?: { matchAny: Array<string | string[]>; message: string } } } | undefined };
   handleRetry: () => Promise<void>;
   isHardQuotaExceededError: (message: string) => boolean;
   message: {
@@ -61,7 +66,10 @@ export async function handleRunException(input: HandleRunExceptionInput): Promis
   trace.log('server_norm', 'run_exception', error, 'handleRunStart exception');
 
   const errMsg = error instanceof Error ? error.message : '';
-  const formattedErrMsg = formatProviderErrorMessage(errMsg, activeRun.providerType);
+  const authHint = activeRun.providerType
+    ? input.providerRegistry?.get(activeRun.providerType)?.manifest?.authErrorHint
+    : undefined;
+  const formattedErrMsg = formatProviderErrorMessage(errMsg, activeRun.providerType, authHint);
   const sessionResetRetryCount = recoveryState.sessionResetRetryCount || 0;
 
   if (

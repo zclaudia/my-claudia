@@ -293,20 +293,25 @@ export function handleProviderEvent({
         }
       }
 
+      // Providers may declare a fallback message in their manifest for the
+      // case where a tool-driven turn ends without any final assistant text
+      // (the manifest is the source of truth — no provider-type literal here).
       if (
         !activeRun.fullContent &&
-        activeRun.providerType === 'opencode' &&
-        activeRun.collectedToolCalls.length > 0
+        activeRun.collectedToolCalls.length > 0 &&
+        activeRun.providerType
       ) {
-        const fallback = 'Task execution completed, but the provider did not return a final visible text response. Send "summarize the result" to get a structured conclusion.';
-        activeRun.fullContent = fallback;
-        activeRun.contentBlocks.push({ type: 'text', content: fallback });
-        sendRunEvent({
-          type: 'delta',
-          runId,
-          sessionId: activeRun.sessionId,
-          content: fallback,
-        });
+        const fallback = providerRegistry.get(activeRun.providerType)?.manifest?.emptyResultFallback;
+        if (fallback) {
+          activeRun.fullContent = fallback;
+          activeRun.contentBlocks.push({ type: 'text', content: fallback });
+          sendRunEvent({
+            type: 'delta',
+            runId,
+            sessionId: activeRun.sessionId,
+            content: fallback,
+          });
+        }
       }
 
       const lastBlock = activeRun.contentBlocks[activeRun.contentBlocks.length - 1];
@@ -389,7 +394,10 @@ export function handleProviderEvent({
 
     case 'error': {
       const rawProviderError = (msg.error || 'Provider error') as string;
-      const errorMessage = formatProviderErrorMessage(rawProviderError, activeRun.providerType);
+      const authHint = activeRun.providerType
+        ? providerRegistry.get(activeRun.providerType)?.manifest?.authErrorHint
+        : undefined;
+      const errorMessage = formatProviderErrorMessage(rawProviderError, activeRun.providerType, authHint);
       console.error(`[Provider Error] runId=${runId} provider=${activeRun.providerType}: ${rawProviderError}`);
 
       if (!activeRun.completed) {

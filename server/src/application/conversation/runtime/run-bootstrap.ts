@@ -11,6 +11,7 @@ import {
 import type { SessionSyncPort } from '../../../application/conversation/session-sync-port.js';
 import { normalizeSessionWorkingDirectory } from '../../../utils/server-utils.js';
 import { resolveProviderCwd } from '../../../utils/provider-cwd.js';
+import { providerRegistry } from '../../../infrastructure/providers/registry.js';
 import type { initDatabase } from '../../../infrastructure/storage/db.js';
 import type { TraceRecorder } from '../../../utils/provider-trace.js';
 
@@ -176,7 +177,7 @@ export function initializeRunBootstrap(input: InitializeRunBootstrapInput): RunB
   }
 
   const cwd = resolveProviderCwd({
-    providerType: providerConfig?.type || 'claude',
+    sessionCwdPolicy: providerRegistry.get(providerConfig?.type || 'claude')?.manifest?.sessionCwdPolicy,
     sdkSessionId: effectiveSdkSessionId,
     requestedCwd,
     sessionRootPath: session.root_path,

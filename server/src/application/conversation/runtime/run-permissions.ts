@@ -25,6 +25,7 @@ import {
   resolveRememberedDecision,
 } from '../agent/permission-evaluator.js';
 import { isBashLikeTool, isSudoCommand } from '../../../utils/server-utils.js';
+import { providerRegistry } from '../../../infrastructure/providers/registry.js';
 
 /** Read-only bash commands that are safe to auto-approve for remembered outside-workspace directories. */
 const READONLY_BASH_COMMANDS = /^\s*(ls|cat|head|tail|wc|file|stat|du|find|tree|realpath|dirname|basename)\b/;
@@ -173,6 +174,15 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
 
       if (sessionPermissionOverride) {
         effectivePolicy = mergePolicy(effectivePolicy, sessionPermissionOverride);
+      }
+
+      // Union the active provider's manifest-declared always-escalate tools
+      // into the policy. This keeps provider-specific tool names (e.g.
+      // Claude/Codex's `ExitPlanMode`) out of the shared default policy.
+      const providerEscalateTools = providerRegistry.get(providerType)?.manifest?.escalateAlwaysTools;
+      if (providerEscalateTools && providerEscalateTools.length > 0) {
+        const merged = new Set([...(effectivePolicy.escalateAlways || []), ...providerEscalateTools]);
+        effectivePolicy = { ...effectivePolicy, escalateAlways: Array.from(merged) };
       }
 
       const commandPreview = isBashLikeTool(request.toolName)

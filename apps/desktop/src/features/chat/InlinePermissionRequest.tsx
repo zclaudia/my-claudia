@@ -41,7 +41,21 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
   const aiReviewResult = usePermissionStore((state) => state.aiReviewResults[request.requestId]);
   const aiReviewMetadataHint = buildAIReviewMetadataHint(aiReviewResult);
   const workflowProgress = usePermissionStore((state) => state.workflowProgress[request.requestId]);
-  const isExitPlanModeRequest = request.toolName.toLowerCase().includes('exitplanmode');
+  // Detect plan-proposal requests by inspecting the tool input shape, not the
+  // tool name. Anything carrying a non-empty `plan` markdown string opts into
+  // the Comment textarea + "Deny + Comment" path, so the same UX applies to
+  // Claude's ExitPlanMode, the MCP-bridged exit_plan_mode, Cursor's createPlan,
+  // and any future provider's plan tool — no name list to maintain here.
+  const isPlanProposalRequest = ((): boolean => {
+    try {
+      const parsed = JSON.parse(request.detail);
+      return !!parsed && typeof parsed === 'object'
+        && typeof (parsed as Record<string, unknown>).plan === 'string'
+        && ((parsed as Record<string, unknown>).plan as string).length > 0;
+    } catch {
+      return false;
+    }
+  })();
   const workflowRunId = request.workflowRunId || workflowProgress?.workflowRunId;
 
   const handleOpenReviewLogs = () => {
@@ -221,7 +235,7 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
             </p>
           </div>
         )}
-        {isExitPlanModeRequest && (
+        {isPlanProposalRequest && (
           <div className="mt-2">
             <label className="text-[11px] text-muted-foreground block mb-1">
               Comment (sent with deny)
@@ -307,7 +321,7 @@ export function InlinePermissionRequest({ request, onDecision }: InlinePermissio
           >
             Deny
           </button>
-          {isExitPlanModeRequest && (
+          {isPlanProposalRequest && (
             <button
               onClick={handleDenyWithFeedback}
               disabled={!feedback.trim()}

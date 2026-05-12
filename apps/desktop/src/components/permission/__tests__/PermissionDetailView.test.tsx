@@ -27,7 +27,7 @@ vi.mock('../../../contexts/ThemeContext', () => ({
 }));
 
 // Mock DiffViewer
-vi.mock('../../../features/chat/DiffViewer', () => ({
+vi.mock('../../renderers/DiffViewer', () => ({
   DiffViewer: ({ oldString, newString, filePath }: any) => (
     <div data-testid="diff-viewer" data-old={oldString} data-new={newString} data-file={filePath}>
       Diff
@@ -36,7 +36,7 @@ vi.mock('../../../features/chat/DiffViewer', () => ({
 }));
 
 // Mock CodeViewer
-vi.mock('../../../features/chat/CodeViewer', () => ({
+vi.mock('../../renderers/CodeViewer', () => ({
   CodeViewer: ({ content, filePath }: any) => (
     <div data-testid="code-viewer" data-content={content} data-file={filePath}>
       Code
@@ -175,12 +175,21 @@ describe('PermissionDetailView', () => {
     });
   });
 
-  describe('ExitPlanMode tool', () => {
-    it('renders plan as markdown', () => {
+  describe('plan-proposal tools', () => {
+    it('renders plan as markdown for Claude ExitPlanMode', () => {
       const detail = JSON.stringify({
         plan: '# My Plan\n\n- Step 1\n- Step 2',
       });
       render(<PermissionDetailView toolName="ExitPlanMode" detail={detail} />);
+      expect(screen.getByTestId('markdown')).toBeInTheDocument();
+    });
+
+    it('renders plan markdown for any tool whose input has a string plan field', () => {
+      // Detection is shape-based, not name-based: cursor's createPlan,
+      // MCP-bridged exit_plan_mode, and any future provider's plan tool all
+      // light up the same renderer.
+      const detail = JSON.stringify({ plan: '# Cursor Plan' });
+      render(<PermissionDetailView toolName="createPlan" detail={detail} />);
       expect(screen.getByTestId('markdown')).toBeInTheDocument();
     });
 

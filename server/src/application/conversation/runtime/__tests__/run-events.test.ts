@@ -235,6 +235,105 @@ describe('ws/run-events', () => {
     expect(broadcastHeartbeatMock).toHaveBeenCalledTimes(1);
   });
 
+  it('injects an emptyResultFallback delta from the manifest when a tool-only turn ends silently', async () => {
+    const sendRunEventMock = vi.fn();
+    const registry = {
+      get: vi.fn(() => ({ manifest: { emptyResultFallback: 'fallback text' } })),
+    };
+    const activeRun = {
+      sessionId: 'session-1',
+      providerType: 'opencode',
+      assistantMessageId: 'a-1',
+      sessionType: 'regular',
+      collectedToolCalls: [{ toolUseId: 't1', name: 'Bash', input: {} }],
+      contentBlocks: [],
+      fullContent: '',
+      pendingPermissions: new Map(),
+      recentToolCalls: [],
+      completed: false,
+    } as any;
+
+    const { handleProviderEvent } = await import('../run-events.js');
+
+    handleProviderEvent({
+      activeRun,
+      activeRuns: new Map([['run-1', activeRun]]),
+      broadcastHeartbeat: vi.fn(),
+      client: { ws: {} as any } as any,
+      db: {} as any,
+      input: 'hello',
+      modeValue: 'default',
+      msg: { type: 'result', subtype: 'success', usage: { inputTokens: 1, outputTokens: 2 } } as any,
+      notificationService: { notify: vi.fn() } as any,
+      notificationsService: { postItem: vi.fn() } as any,
+      persistSessionWorkingDirectory: vi.fn(),
+      providerType: 'opencode',
+      runId: 'run-1',
+      sendRunEvent: sendRunEventMock,
+      sessionId: 'session-1',
+      sessionType: 'regular',
+      state: {},
+      toolUseIdToName: new Map(),
+      providerRegistry: registry as any,
+    });
+
+    expect(sendRunEventMock).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'delta',
+      content: 'fallback text',
+    }));
+    expect(activeRun.fullContent).toBe('fallback text');
+  });
+
+  it('does not inject a fallback when the provider manifest declares none', async () => {
+    const sendRunEventMock = vi.fn();
+    const registry = {
+      get: vi.fn(() => ({ manifest: {} })),
+    };
+    const activeRun = {
+      sessionId: 'session-1',
+      providerType: 'cursor',
+      assistantMessageId: 'a-2',
+      sessionType: 'regular',
+      collectedToolCalls: [{ toolUseId: 't1', name: 'Read', input: {} }],
+      contentBlocks: [],
+      fullContent: '',
+      pendingPermissions: new Map(),
+      recentToolCalls: [],
+      completed: false,
+    } as any;
+
+    const { handleProviderEvent } = await import('../run-events.js');
+
+    handleProviderEvent({
+      activeRun,
+      activeRuns: new Map([['run-1', activeRun]]),
+      broadcastHeartbeat: vi.fn(),
+      client: { ws: {} as any } as any,
+      db: {} as any,
+      input: 'hello',
+      modeValue: 'default',
+      msg: { type: 'result', subtype: 'success', usage: { inputTokens: 1, outputTokens: 2 } } as any,
+      notificationService: { notify: vi.fn() } as any,
+      notificationsService: { postItem: vi.fn() } as any,
+      persistSessionWorkingDirectory: vi.fn(),
+      providerType: 'cursor',
+      runId: 'run-1',
+      sendRunEvent: sendRunEventMock,
+      sessionId: 'session-1',
+      sessionType: 'regular',
+      state: {},
+      toolUseIdToName: new Map(),
+      providerRegistry: registry as any,
+    });
+
+    expect(activeRun.fullContent).toBe('');
+    // No delta event for a synthetic fallback.
+    expect(sendRunEventMock).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: 'delta',
+      content: expect.any(String),
+    }));
+  });
+
   it('fails runs on provider error and removes them from activeRuns', async () => {
     const sendRunEventMock = vi.fn();
     const broadcastHeartbeatMock = vi.fn();

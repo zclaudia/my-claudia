@@ -869,25 +869,39 @@ describe('normalizePolicy', () => {
     expect(result.profile.fileRead).toBe(DEFAULT_UNIFIED_PROFILE.fileRead);
   });
 
-  it('should always include ExitPlanMode in escalateAlways', () => {
+  it('always includes AskUserQuestion in escalateAlways (provider-agnostic baseline)', () => {
     const oldPolicy = {
       enabled: true,
       trustLevel: 'moderate',
       customRules: [],
-      escalateAlways: ['AskUserQuestion'],
+      escalateAlways: [],
     };
     const result = normalizePolicy(oldPolicy);
-    expect(result.escalateAlways).toContain('ExitPlanMode');
+    expect(result.escalateAlways).toContain('AskUserQuestion');
   });
 
-  it('should not duplicate ExitPlanMode if already present', () => {
+  it('does not duplicate AskUserQuestion if already present', () => {
     const policy: UnifiedPermissionPolicy = {
       ...DEFAULT_UNIFIED_POLICY,
-      escalateAlways: ['AskUserQuestion', 'ExitPlanMode'],
+      escalateAlways: ['AskUserQuestion'],
     };
     const result = normalizePolicy(policy);
-    const count = result.escalateAlways.filter(x => x === 'ExitPlanMode').length;
+    const count = result.escalateAlways.filter(x => x === 'AskUserQuestion').length;
     expect(count).toBe(1);
+  });
+
+  it('does not inject provider-specific tool names like ExitPlanMode into the baseline', () => {
+    // Provider-specific always-escalate tools (e.g. ExitPlanMode) come from
+    // the provider's PCP manifest at evaluation time, not from the shared
+    // default policy. The normalizer must not re-introduce them.
+    const policy = {
+      enabled: true,
+      trustLevel: 'moderate' as const,
+      customRules: [],
+      escalateAlways: ['AskUserQuestion'],
+    };
+    const result = normalizePolicy(policy);
+    expect(result.escalateAlways).not.toContain('ExitPlanMode');
   });
 
   it('should strip deprecated strategies field from old format', () => {
@@ -915,7 +929,9 @@ describe('normalizePolicy', () => {
     const result = normalizePolicy(policy);
     expect(result.customRules).toEqual([]);
     expect(result.escalateAlways).toContain('AskUserQuestion');
-    expect(result.escalateAlways).toContain('ExitPlanMode');
+    // Provider-specific tools (e.g. ExitPlanMode) live on the provider's PCP
+    // manifest now, not in the shared default policy.
+    expect(result.escalateAlways).not.toContain('ExitPlanMode');
   });
 
   it('should return default policy for null/undefined', () => {

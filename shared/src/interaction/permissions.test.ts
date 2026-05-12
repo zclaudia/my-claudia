@@ -26,7 +26,10 @@ describe('normalizeToUnifiedPolicy', () => {
 
     expect(DEFAULT_UNIFIED_POLICY.profile.fileRead).toBe('auto-approve');
     expect(DEFAULT_UNIFIED_POLICY.globalGuards.blockSensitiveFiles).toBe(true);
-    expect(DEFAULT_UNIFIED_POLICY.escalateAlways).toEqual(['AskUserQuestion', 'ExitPlanMode']);
+    // Shared default keeps only generic, provider-agnostic tool names — plan
+    // submissions and other provider-specific escalations come from each
+    // provider's PCP manifest.
+    expect(DEFAULT_UNIFIED_POLICY.escalateAlways).toEqual(['AskUserQuestion']);
     expect(DEFAULT_UNIFIED_POLICY.aiReview.enabled).toBe(true);
   });
 });

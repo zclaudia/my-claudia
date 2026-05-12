@@ -10,6 +10,20 @@ export const CLAUDE_MANIFEST: PCPProviderManifest = {
   // Claude has native: TodoWrite ≈ update_todo_list, AskUserQuestion ≈ ask_user_form/request_approval,
   // plan mode ≈ enter/exit_plan_mode. Only push_file has no Claude equivalent.
   nativeInteractionTools: ['update_todo_list', 'ask_user_form', 'request_approval', 'enter_plan_mode', 'exit_plan_mode'],
+  // Claude's CLI surfaces auth expiry through several phrasings; recognize all
+  // of them and steer the user to `claude auth login`.
+  authErrorHint: {
+    matchAny: [
+      'oauth token has expired',
+      ['authentication_error', 'token has expired'],
+      ['failed to authenticate', '401'],
+    ],
+    message: 'Claude authentication expired on this machine. Re-login with `claude auth login` and retry. ({raw})',
+  },
+  // Plan submissions need explicit user approval — declared at the provider
+  // level so the shared permission policy stays free of provider-specific
+  // tool names.
+  escalateAlwaysTools: ['ExitPlanMode'],
   capabilities: [
     { id: 'chat.generate', supported: false, notes: 'Not implemented yet, planned for plugin API' },
     { id: 'chat.stream', supported: true, mode: 'native', reliability: 'strict' },
@@ -42,6 +56,10 @@ export const OPENCODE_MANIFEST: PCPProviderManifest = {
   apiVersion: 'pcp/v1',
   providerType: 'opencode',
   runtime: 'cli',
+  // OpenCode sometimes completes a tool-heavy turn without emitting a final
+  // assistant text. The runtime treats this declarative fallback as the
+  // visible reply so the conversation never ends in an empty bubble.
+  emptyResultFallback: 'Task execution completed, but the provider did not return a final visible text response. Send "summarize the result" to get a structured conclusion.',
   capabilities: [
     { id: 'chat.generate', supported: false },
     { id: 'chat.stream', supported: true, mode: 'native', reliability: 'strict' },
@@ -72,6 +90,8 @@ export const CODEX_MANIFEST: PCPProviderManifest = {
   apiVersion: 'pcp/v1',
   providerType: 'codex',
   runtime: 'cli',
+  // Codex routes plan-mode through the MCP bridge under canonical Pascal names.
+  escalateAlwaysTools: ['ExitPlanMode'],
   capabilities: [
     { id: 'chat.generate', supported: false },
     { id: 'chat.stream', supported: true, mode: 'native', reliability: 'strict' },
@@ -103,6 +123,8 @@ export const CURSOR_MANIFEST: PCPProviderManifest = {
   apiVersion: 'pcp/v1',
   providerType: 'cursor',
   runtime: 'cli',
+  // Cursor's plan-mode UX is informational (read-only enforcement happens at
+  // cursor-agent itself) — no escalateAlwaysTools needed here.
   capabilities: [
     { id: 'chat.generate', supported: false },
     { id: 'chat.stream', supported: true, mode: 'native', reliability: 'best_effort' },
@@ -133,6 +155,10 @@ export const KIMI_MANIFEST: PCPProviderManifest = {
   apiVersion: 'pcp/v1',
   providerType: 'kimi',
   runtime: 'cli',
+  // Kimi persists sessions under a work-dir-scoped storage tree — resuming
+  // with a different cwd silently creates a fresh empty session, so any
+  // resumed run must stay pinned to the original session root.
+  sessionCwdPolicy: 'pinned',
   capabilities: [
     { id: 'chat.generate', supported: false },
     { id: 'chat.stream', supported: true, mode: 'native', reliability: 'best_effort',

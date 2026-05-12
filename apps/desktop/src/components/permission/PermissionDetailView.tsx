@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Maximize2, X } from 'lucide-react';
-import { DiffViewer } from '../../features/chat/DiffViewer';
-import { CodeViewer } from '../../features/chat/CodeViewer';
+import { CodeViewer } from '../renderers/CodeViewer';
+import { DiffViewer } from '../renderers/DiffViewer';
 import { useAndroidBack } from '../../hooks/useAndroidBack';
 
 interface PermissionDetailViewProps {
@@ -123,8 +123,11 @@ export function PermissionDetailView({ toolName, detail, maxHeightClass = 'max-h
     );
   }
 
-  // ExitPlanMode: render plan as markdown + allowedPrompts as a list
-  if (toolName === 'ExitPlanMode' && input) {
+  // Plan-proposal tools: shape-based detection (`input.plan` markdown string)
+  // so any provider's plan tool — Claude's `ExitPlanMode`, the MCP-bridged
+  // `exit_plan_mode`, Cursor's `createPlan`, etc. — gets the same rendering
+  // without the UI knowing each provider's tool vocabulary.
+  if (input && typeof input.plan === 'string' && input.plan.length > 0) {
     return <ExitPlanModeDetail input={input} maxHeightClass={maxHeightClass} />;
   }
 
