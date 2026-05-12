@@ -18,6 +18,7 @@ import { parseMessageInput, prependNonImageNotes } from './provider-input.js';
 import { sanitizeInheritedProviderEnv } from '../../utils/startup-env.js';
 import { buildMcpBridgeEntry } from '../../utils/mcp-bridge-launch.js';
 import { loadMcpServersFromDb } from '../../utils/mcp-config.js';
+import { fileChangeEffectFromSummaryText, makeShellEffect } from './tool-effects.js';
 
 
 // ── Types ─────────────────────────────────────────────────────
@@ -202,14 +203,19 @@ function mapItemStarted(item: ThreadItem): ClaudeMessage | null {
         toolUseId,
         toolName: 'Bash',
         toolInput: { command: item.command },
+        toolEffect: makeShellEffect(item.command),
       };
     case 'file_change':
-      return {
-        type: 'tool_use',
-        toolUseId,
-        toolName: 'Edit',
-        toolInput: { changes: item.changes },
-      };
+      {
+        const changes = typeof item.changes === 'string' ? item.changes : undefined;
+        return {
+          type: 'tool_use',
+          toolUseId,
+          toolName: 'Edit',
+          toolInput: { changes: item.changes },
+          toolEffect: fileChangeEffectFromSummaryText(changes),
+        };
+      }
     case 'mcp_tool_call': {
       const toolName = normalizeMcpToolName(item.server, item.tool);
       return {

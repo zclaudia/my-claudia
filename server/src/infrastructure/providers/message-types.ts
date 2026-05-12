@@ -6,6 +6,7 @@
  */
 
 import type { PermissionRequest } from '@my-claudia/shared/interaction/permissions';
+import type { ToolEffect } from '@my-claudia/shared/core/message';
 import type { ToolSemantic } from '@my-claudia/shared/protocol/messages/run';
 
 export interface PermissionDecision {
@@ -47,6 +48,11 @@ export interface ClaudeMessage {
   toolUseId?: string;
   toolName?: string;
   toolInput?: unknown;
+  /**
+   * Provider-normalized side effect. Provider SDKs/adapters translate their
+   * native tool vocabulary into this shape so common layers stay provider-agnostic.
+   */
+  toolEffect?: ToolEffect;
   /**
    * Provider-supplied semantic tag for the tool. The provider SDK is the only
    * place that knows whether one of its native tools carries a plan proposal

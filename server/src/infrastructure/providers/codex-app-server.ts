@@ -21,6 +21,7 @@ import { sanitizeInheritedProviderEnv } from '../../utils/startup-env.js';
 import { buildMcpBridgeEntry } from '../../utils/mcp-bridge-launch.js';
 import { loadMcpServersFromDb } from '../../utils/mcp-config.js';
 import { getGlobalProcessSupervisor } from '../services/process-supervisor.js';
+import { fileChangeEffectFromMap, makeShellEffect } from './tool-effects.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -990,6 +991,7 @@ export class CodexAppServerClient {
           toolUseId: item.id,
           toolName: 'Bash',
           toolInput: { command: item.command || item.action || '' },
+          toolEffect: makeShellEffect(item.command || item.action || ''),
         }];
 
       case 'fileChange': {
@@ -1009,6 +1011,7 @@ export class CodexAppServerClient {
           toolUseId: item.id,
           toolName: 'Edit',
           toolInput: { changes: changesSummary },
+          toolEffect: fileChangeEffectFromMap(fileChanges),
         }];
       }
 

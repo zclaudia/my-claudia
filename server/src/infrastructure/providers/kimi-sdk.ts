@@ -9,6 +9,8 @@ import { sanitizeInheritedProviderEnv } from '../../utils/startup-env.js';
 import { getGlobalProcessSupervisor } from '../services/process-supervisor.js';
 import { createTraceRecorder, summarizeProviderMessage } from '../../utils/provider-trace.js';
 import { buildMcpBridgeEntry } from '../../utils/mcp-bridge-launch.js';
+import type { ToolEffect } from '@my-claudia/shared/core/message';
+import { fileChangeEffectFromInput, makeShellEffect } from './tool-effects.js';
 
 
 // ── Types ─────────────────────────────────────────────────────
@@ -46,6 +48,17 @@ const KIMI_TOOL_MAP: Record<string, string> = {
 interface KimiToolCall {
   tool: string;
   input: Record<string, unknown>;
+}
+
+function deriveKimiToolEffect(toolName: string, input: unknown): ToolEffect | undefined {
+  if (toolName === 'Edit' || toolName === 'Write') {
+    return fileChangeEffectFromInput(input, toolName === 'Write' ? 'add' : 'modify');
+  }
+  if (toolName === 'Bash') {
+    const record = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+    return makeShellEffect(typeof record.command === 'string' ? record.command : undefined);
+  }
+  return undefined;
 }
 
 function extractTextContent(value: unknown, depth = 0): string | undefined {
@@ -273,6 +286,7 @@ function processContentArray(
               toolName: mappedTool,
               toolInput,
               toolUseId: (block.id as string) || (block.tool_use_id as string) || crypto.randomUUID(),
+              toolEffect: deriveKimiToolEffect(mappedTool, toolInput),
             },
           });
         }
@@ -444,6 +458,7 @@ function mapKimiEvent(
             toolName: toolCall.tool,
             toolInput: toolCall.input,
             toolUseId: (event.tool_use_id as string) || crypto.randomUUID(),
+            toolEffect: deriveKimiToolEffect(toolCall.tool, toolCall.input),
           },
         });
       }
@@ -471,6 +486,7 @@ function mapKimiEvent(
               toolName: toolCall.tool,
               toolInput: toolCall.input,
               toolUseId: (event.tool_use_id as string) || (event.call_id as string) || crypto.randomUUID(),
+              toolEffect: deriveKimiToolEffect(toolCall.tool, toolCall.input),
             },
           });
         }

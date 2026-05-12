@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Message, SystemInfo, UsageInfo, ContentBlock, RunHealthStatus, UnifiedPermissionPolicy, ToolSemantic } from '@my-claudia/shared';
+import type { Message, SystemInfo, UsageInfo, ContentBlock, RunHealthStatus, UnifiedPermissionPolicy, ToolEffect, ToolSemantic } from '@my-claudia/shared';
 
 export interface PaginationInfo {
   total: number;
@@ -24,6 +24,7 @@ export interface ToolCallState {
    * UI pick a renderer without string-matching provider-specific tool names.
    */
   semantic?: ToolSemantic;
+  effect?: ToolEffect;
 }
 
 // Extended message with tool calls for display
@@ -112,7 +113,7 @@ interface ChatState {
   updateRunHealth: (runId: string, health: RunHealth) => void;
 
   // Actions — Tool calls (per run)
-  addToolCall: (runId: string, toolUseId: string, toolName: string, toolInput: unknown, semantic?: ToolSemantic) => void;
+  addToolCall: (runId: string, toolUseId: string, toolName: string, toolInput: unknown, semantic?: ToolSemantic, effect?: ToolEffect) => void;
   updateToolCallResult: (runId: string, toolUseId: string, result: unknown, isError?: boolean) => void;
   updateToolCallActivity: (runId: string, toolUseId: string, activity: string) => void;
 
@@ -422,7 +423,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   // ── Tool call actions (per run) ────────────────────────────────
 
-  addToolCall: (runId, toolUseId, toolName, toolInput, semantic) =>
+  addToolCall: (runId, toolUseId, toolName, toolInput, semantic, effect) =>
     set((state) => {
       const newToolCall: ToolCallState = {
         id: toolUseId,
@@ -430,6 +431,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         toolInput,
         status: 'running',
         semantic,
+        effect,
       };
       const runToolCalls = state.activeToolCalls[runId] || {};
       const runHistory = state.toolCallsHistory[runId] || [];

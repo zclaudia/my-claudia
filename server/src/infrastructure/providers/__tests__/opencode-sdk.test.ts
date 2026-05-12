@@ -1531,6 +1531,10 @@ describe('runOpenCode SSE event processing', () => {
     const toolResults = messages.filter(m => m.type === 'tool_result');
     // Each should appear exactly once despite duplicates in SSE
     expect(toolUses).toHaveLength(1);
+    expect(toolUses[0].toolEffect).toMatchObject({
+      kind: 'file_change',
+      files: [{ path: 'test.txt', changeKind: 'add' }],
+    });
     expect(toolResults).toHaveLength(1);
   });
 

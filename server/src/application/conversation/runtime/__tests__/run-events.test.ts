@@ -506,7 +506,7 @@ describe('ws/run-events', () => {
     expect(setSessionModeMock).toHaveBeenCalledWith('session-1', 'default');
   });
 
-  it('forwards toolSemantic from internal tool_use through to the wire event', async () => {
+  it('forwards normalized tool metadata from internal tool_use through to the wire event', async () => {
     const sendRunEventMock = vi.fn();
     const activeRun = {
       sessionId: 'session-1',
@@ -534,6 +534,7 @@ describe('ws/run-events', () => {
         toolName: 'createPlan',
         toolInput: { plan: '# Plan' },
         toolSemantic: 'plan_proposal',
+        toolEffect: { kind: 'file_change', files: [{ path: 'src/a.ts', changeKind: 'modify' }] },
       } as any,
       notificationService: {} as any,
       persistSessionWorkingDirectory: vi.fn(),
@@ -551,7 +552,12 @@ describe('ws/run-events', () => {
       type: 'tool_use',
       toolName: 'createPlan',
       semantic: 'plan_proposal',
+      effect: { kind: 'file_change', files: [{ path: 'src/a.ts', changeKind: 'modify' }] },
     }));
+    expect(activeRun.collectedToolCalls[0]).toMatchObject({
+      toolUseId: 'tu-x',
+      effect: { kind: 'file_change', files: [{ path: 'src/a.ts', changeKind: 'modify' }] },
+    });
   });
 
   it('swallows PID backfill errors and logs a warning', async () => {

@@ -22,6 +22,7 @@ function restoreToolCalls(messages: Message[]): MessageWithToolCalls[] {
         status: tc.isError ? 'error' as const : 'completed' as const,
         result: tc.output,
         isError: tc.isError,
+        effect: tc.effect,
       }));
     }
     if (msg.metadata?.contentBlocks && msg.metadata.contentBlocks.length > 0) {

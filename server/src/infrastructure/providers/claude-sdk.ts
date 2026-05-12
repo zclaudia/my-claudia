@@ -17,6 +17,7 @@ import { extractRetryDelayMsFromError } from '../../utils/retry-window.js';
 import { sanitizeInheritedProviderEnv } from '../../utils/startup-env.js';
 import { buildMcpBridgeEntry } from '../../utils/mcp-bridge-launch.js';
 import { getGlobalProcessSupervisor } from '../services/process-supervisor.js';
+import { makeShellEffect } from './tool-effects.js';
 
 // ── Claude-specific plan-mode semantics ──────────────────────
 //
@@ -30,6 +31,17 @@ function detectClaudeToolSemantic(
 ): 'plan_enter' | 'plan_exit' | 'plan_proposal' | undefined {
   if (toolName === 'EnterPlanMode') return 'plan_enter';
   if (toolName === 'ExitPlanMode') return 'plan_proposal';
+  return undefined;
+}
+
+function deriveClaudeToolEffect(
+  toolName: string | undefined,
+  input: unknown,
+) {
+  if (toolName === 'Bash') {
+    const record = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+    return makeShellEffect(typeof record.command === 'string' ? record.command : undefined);
+  }
   return undefined;
 }
 
@@ -635,6 +647,7 @@ function transformMessage(message: unknown): ClaudeMessage | ClaudeMessage[] {
             toolName: block.name,
             toolInput: block.input,
             toolSemantic: semantic,
+            toolEffect: deriveClaudeToolEffect(block.name, block.input),
           });
 
           // EnterPlanMode / ExitPlanMode are Claude-specific names. The SDK

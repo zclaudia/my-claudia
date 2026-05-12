@@ -73,6 +73,10 @@ describe('cursor-sdk', () => {
       if (msg.type === 'tool_use') {
         expect(msg.toolName).toBe('Edit');
         expect(msg.toolInput).toEqual({ file: '/path/to/file.ts', content: 'new content' });
+        expect(msg.toolEffect).toMatchObject({
+          kind: 'file_change',
+          files: [{ path: '/path/to/file.ts', changeKind: 'modify' }],
+        });
       }
     });
 
@@ -101,6 +105,7 @@ describe('cursor-sdk', () => {
       if (msg.type === 'tool_use') {
         expect(msg.toolName).toBe('Bash');
         expect(msg.toolInput).toEqual({ command: 'ls -la' });
+        expect(msg.toolEffect).toEqual({ kind: 'shell', command: 'ls -la' });
       }
     });
 

@@ -30,6 +30,22 @@ export type ContentBlock =
   | { type: 'text'; content: string }
   | { type: 'tool_use'; toolUseId: string };
 
+export interface FileChangeEffectFile {
+  path: string;
+  changeKind?: 'add' | 'modify' | 'delete' | 'rename' | 'unknown';
+  summary?: string;
+}
+
+export type ToolEffect =
+  | {
+      kind: 'file_change';
+      files: FileChangeEffectFile[];
+    }
+  | {
+      kind: 'shell';
+      command: string;
+    };
+
 export interface MessageMetadata {
   toolCalls?: ToolCall[];
   contentBlocks?: ContentBlock[];
@@ -52,6 +68,7 @@ export interface ToolCall {
   input: unknown;
   output?: unknown;
   isError?: boolean;
+  effect?: ToolEffect;
 }
 
 export interface UsageInfo {

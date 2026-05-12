@@ -140,6 +140,7 @@ export function handleProviderEvent({
         toolUseId: msg.toolUseId || '',
         name: msg.toolName || '',
         input: msg.toolInput,
+        effect: msg.toolEffect,
       });
       activeRun.contentBlocks.push({ type: 'tool_use', toolUseId: msg.toolUseId || '' });
       sendRunEvent({
@@ -150,6 +151,7 @@ export function handleProviderEvent({
         toolName: msg.toolName || '',
         toolInput: msg.toolInput,
         semantic: msg.toolSemantic,
+        effect: msg.toolEffect,
       });
       pluginEvents.emit('run.toolCall', {
         runId,

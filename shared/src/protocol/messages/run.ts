@@ -5,7 +5,7 @@
 
 import type { PermissionMode } from '../../core/provider.js';
 import type { SessionType } from '../../core/session.js';
-import type { UsageInfo } from '../../core/message.js';
+import type { ToolEffect, UsageInfo } from '../../core/message.js';
 import type { UnifiedPermissionPolicy } from '../../interaction/permissions.js';
 
 export interface RunStartMessage {
@@ -83,6 +83,8 @@ export interface ToolUseMessage {
   toolInput: unknown;
   /** Optional provider-declared semantic category. See {@link ToolSemantic}. */
   semantic?: ToolSemantic;
+  /** Provider-normalized side effect; common UI consumes this instead of provider tool names. */
+  effect?: ToolEffect;
   seq?: number;
 }
 

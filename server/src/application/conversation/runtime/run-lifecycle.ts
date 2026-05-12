@@ -175,8 +175,8 @@ export function upsertAssistantMessage(
     metadata.usage = options.usage;
   }
   if (run.collectedToolCalls.length > 0) {
-    metadata.toolCalls = run.collectedToolCalls.map(({ toolUseId, name, input, output, isError }) => ({
-      toolUseId, name, input, output, isError
+    metadata.toolCalls = run.collectedToolCalls.map(({ toolUseId, name, input, output, isError, effect }) => ({
+      toolUseId, name, input, output, isError, effect
     }));
   }
   if (run.contentBlocks.length > 0) {

@@ -6,6 +6,7 @@ interface MessageMetadata {
     input?: Record<string, unknown>;
     result?: unknown;
     isError?: boolean;
+    effect?: unknown;
   }>;
   attachments?: Array<{
     path: string;

@@ -9,6 +9,8 @@ import { sanitizeInheritedProviderEnv } from '../../utils/startup-env.js';
 import { getGlobalProcessSupervisor } from '../services/process-supervisor.js';
 import { buildMcpBridgeEntry } from '../../utils/mcp-bridge-launch.js';
 import { fileStore } from '../storage/fileStore.js';
+import type { ToolEffect } from '@my-claudia/shared/core/message';
+import { fileChangeEffectFromInput, makeShellEffect } from './tool-effects.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -40,6 +42,7 @@ interface ToolCallInfo {
   toolName: string;
   args: unknown;
   result?: unknown;
+  effect?: ToolEffect;
 }
 
 // ── Cursor-specific plan-mode semantics ──────────────────────
@@ -113,7 +116,15 @@ function extractToolCall(toolCallObj: Record<string, unknown>): ToolCallInfo | n
       }
     }
 
-    return { toolName, args: tc.args, result };
+    let effect: ToolEffect | undefined;
+    if (toolName === 'Edit') {
+      effect = fileChangeEffectFromInput(tc.args, 'modify');
+    } else if (toolName === 'Bash') {
+      const args = tc.args && typeof tc.args === 'object' ? tc.args as Record<string, unknown> : {};
+      effect = makeShellEffect(typeof args.command === 'string' ? args.command : undefined);
+    }
+
+    return { toolName, args: tc.args, result, effect };
   }
   return null;
 }
@@ -451,6 +462,7 @@ function mapCursorEvent(
             toolName: info.toolName,
             toolInput: info.args,
             toolSemantic: semantic,
+            toolEffect: info.effect,
           },
         });
       } else if (evSubtype === 'completed') {

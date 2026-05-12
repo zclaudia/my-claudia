@@ -594,13 +594,24 @@ describe('codex-sdk', () => {
       const { runCodex } = await import('../codex-sdk');
       const mockEvents = {
         [Symbol.asyncIterator]: async function* () {
-          yield { type: 'item.started', item: { id: 'fc-1', type: 'file_change', changes: 'diff' } };
+          yield {
+            type: 'item.started',
+            item: { id: 'fc-1', type: 'file_change', changes: 'src/a.ts:\n@@ -1 +1 @@\n-a\n+b' },
+          };
         },
       };
       mockRunStreamed.mockResolvedValue({ events: mockEvents });
       const gen = runCodex('test', { cwd: '/test' }, vi.fn());
       const result = await gen.next();
-      expect(result.value).toMatchObject({ type: 'tool_use', toolName: 'Edit', toolUseId: 'fc-1' });
+      expect(result.value).toMatchObject({
+        type: 'tool_use',
+        toolName: 'Edit',
+        toolUseId: 'fc-1',
+        toolEffect: {
+          kind: 'file_change',
+          files: [expect.objectContaining({ path: 'src/a.ts' })],
+        },
+      });
     });
 
     it('映射 item.started mcp_tool_call', async () => {

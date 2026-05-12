@@ -10,6 +10,8 @@ import type { OpenCodeServer } from './opencode-server-manager.js';
 import { openCodeJsonRequest } from './opencode-server-manager.js';
 import type { TraceRecorder } from '../../utils/provider-trace.js';
 import { enrichOpenCodeErrorMessage, ocLog, ocImportantLog } from './opencode-sdk.js';
+import type { ToolEffect } from '@my-claudia/shared/core/message';
+import { fileChangeEffectFromInput, makeShellEffect } from './tool-effects.js';
 
 // ============================================
 // Test-aware timers
@@ -25,6 +27,18 @@ const FAST_TEST_TIMERS = isVitestProcess();
 export const OPENCODE_SSE_PRIME_DELAY_MS = FAST_TEST_TIMERS ? 0 : 100;
 export const OPENCODE_SSE_FALLBACK_TIMEOUT_MS = FAST_TEST_TIMERS ? 50 : 5000;
 export const OPENCODE_POLL_INTERVAL_MS = FAST_TEST_TIMERS ? 10 : 300;
+
+function deriveOpenCodeToolEffect(toolName: string, input: unknown): ToolEffect | undefined {
+  const normalized = toolName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (normalized.includes('write') || normalized.includes('edit') || normalized.includes('patch')) {
+    return fileChangeEffectFromInput(input, normalized.includes('write') ? 'add' : 'modify');
+  }
+  if (normalized.includes('command') || normalized.includes('bash') || normalized.includes('shell')) {
+    const record = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+    return makeShellEffect(typeof record.command === 'string' ? record.command : undefined);
+  }
+  return undefined;
+}
 
 // ============================================
 // Think-tag streaming filter
@@ -373,6 +387,7 @@ export async function* pollSessionMessages(
                 toolUseId: toolId,
                 toolName: part.tool || 'unknown',
                 toolInput: state.input,
+                toolEffect: deriveOpenCodeToolEffect(part.tool || 'unknown', state.input),
               };
               emittedToolUse.add(partId);
             }
@@ -491,6 +506,7 @@ export async function* mapOpenCodeEvent(
               toolUseId,
               toolName,
               toolInput: state.input,
+              toolEffect: deriveOpenCodeToolEffect(toolName, state.input),
             };
             streamState.emittedToolUse.add(dedupeKey);
           } else if (state.status === 'completed' && !streamState.emittedToolResult.has(dedupeKey)) {

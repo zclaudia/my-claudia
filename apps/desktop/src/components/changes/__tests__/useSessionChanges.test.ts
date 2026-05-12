@@ -16,8 +16,9 @@ function tool(
   toolInput: unknown,
   status: ToolCallState['status'] = 'completed',
   isError = false,
+  effect?: ToolCallState['effect'],
 ): ToolCallState {
-  return { id, toolName, toolInput, status, isError };
+  return { id, toolName, toolInput, status, isError, effect };
 }
 
 function userMsg(id: string, content: string, t: number): MessageWithToolCalls {
@@ -73,12 +74,18 @@ describe('aggregateSessionChanges', () => {
     });
   });
 
-  it('collects non-Claude write tools that use path aliases', () => {
+  it('collects provider-normalized file change effects', () => {
     const messages: MessageWithToolCalls[] = [
       userMsg('u1', 'write via provider', 100),
       assistantMsg('a1', [
-        tool('t1', 'write_file', { path: '/repo/open.ts' }),
-        tool('t2', 'Edit', { file: '/repo/cursor.ts', content: 'new content' }),
+        tool('t1', 'write_file', { path: '/repo/open.ts' }, 'completed', false, {
+          kind: 'file_change',
+          files: [{ path: '/repo/open.ts', changeKind: 'add', summary: '(add)' }],
+        }),
+        tool('t2', 'provider_native_edit', { file: '/repo/cursor.ts' }, 'completed', false, {
+          kind: 'file_change',
+          files: [{ path: '/repo/cursor.ts', changeKind: 'modify', summary: 'provider diff' }],
+        }),
       ], 110),
     ];
     const r = aggregateSessionChanges({
@@ -93,29 +100,22 @@ describe('aggregateSessionChanges', () => {
       toolName: 'write_file',
     });
     expect(r.modified[1].groups[0].fragments[0]).toMatchObject({
-      kind: 'edit',
-      newText: 'new content',
+      kind: 'summary',
+      summary: 'provider diff',
     });
     expect(r.turns[0].stats).toMatchObject({ fileCount: 2, editCount: 1, writeCount: 1 });
   });
 
-  it('extracts Codex file_change summaries into modified files', () => {
+  it('uses provider-normalized summaries for Codex file_change events', () => {
     const messages: MessageWithToolCalls[] = [
       userMsg('u1', 'codex change', 100),
       assistantMsg('a1', [
-        tool('t1', 'Edit', {
-          changes: [
-            'src/a.ts:',
-            '@@ -1 +1 @@',
-            '-old',
-            '+new',
-            'diff --git a/src/b.ts b/src/b.ts',
-            '--- a/src/b.ts',
-            '+++ b/src/b.ts',
-            '@@ -2 +2 @@',
-            '-before',
-            '+after',
-          ].join('\n'),
+        tool('t1', 'Edit', { changes: 'provider-native diff payload' }, 'completed', false, {
+          kind: 'file_change',
+          files: [
+            { path: 'src/a.ts', changeKind: 'modify', summary: 'src/a.ts:\n@@ -1 +1 @@\n-old\n+new' },
+            { path: 'src/b.ts', changeKind: 'modify', summary: 'diff --git a/src/b.ts b/src/b.ts' },
+          ],
         }),
       ], 110),
     ];
@@ -135,7 +135,7 @@ describe('aggregateSessionChanges', () => {
     expect(r.turns[0].stats).toMatchObject({ fileCount: 2, editCount: 2 });
   });
 
-  it('extracts structured provider fileChanges maps', () => {
+  it('ignores provider-native fileChanges maps without normalized effect', () => {
     const messages: MessageWithToolCalls[] = [
       userMsg('u1', 'app server change', 100),
       assistantMsg('a1', [
@@ -152,15 +152,8 @@ describe('aggregateSessionChanges', () => {
       sinceMessageId: null,
       projectRoot: PROJECT_ROOT,
     });
-    expect(r.modified.map((m) => m.path)).toEqual(['src/app.ts', 'src/new.ts']);
-    expect(r.modified[0].groups[0].fragments[0]).toMatchObject({
-      kind: 'summary',
-      summary: '@@ -1 +1 @@\n-a\n+b',
-    });
-    expect(r.modified[1].groups[0].fragments[0]).toMatchObject({
-      kind: 'summary',
-      summary: '(add)',
-    });
+    expect(r.modified).toEqual([]);
+    expect(r.turns[0].stats.fileCount).toBe(0);
   });
 
   it('filters out failed tool calls (isError or non-completed status)', () => {
@@ -324,11 +317,14 @@ describe('aggregateSessionChanges', () => {
     expect(r.affected[3].path).toBeUndefined();
   });
 
-  it('detects non-Claude shell tools as bash commands', () => {
+  it('detects provider-normalized shell effects as bash commands', () => {
     const messages: MessageWithToolCalls[] = [
       userMsg('u1', 'cleanup', 100),
       assistantMsg('a1', [
-        tool('t1', 'execute_command', { command: 'rm /repo/tmp/generated.ts' }),
+        tool('t1', 'execute_command', { command: 'provider-native payload' }, 'completed', false, {
+          kind: 'shell',
+          command: 'rm /repo/tmp/generated.ts',
+        }),
       ], 110),
     ];
     const r = aggregateSessionChanges({
