@@ -11,7 +11,7 @@ import { getProjectsForBackend } from '../api/projects';
 import { resolveCanonicalBackendId, resolveLocalBackendId } from '../../utils/controlPlane';
 import { parseBackendId } from '../../stores/gatewayStore';
 import { useBackgroundTaskStore } from '../../stores/backgroundTaskStore';
-import type { MessageHandlerContext } from '../messageHandler';
+import type { MessageHandlerContext } from './types';
 import type { InteractionPromptMessage } from '@my-claudia/shared';
 
 function resolveOwnerBackendId(backendId: string | null, serverId: string): string {

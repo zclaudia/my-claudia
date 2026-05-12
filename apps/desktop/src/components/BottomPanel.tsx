@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useBottomPanelStore } from '../stores/bottomPanelStore';
-import { usePluginStore, selectPluginPanels, type UIExtension } from '../stores/pluginStore';
+import { usePluginStore } from '../stores/pluginStore';
 import { useRightSidebarStore } from '../stores/rightSidebarStore';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import { useAndroidBack } from '../hooks/useAndroidBack';
-import { PluginPanelRenderer } from './notch/PluginPanelRenderer';
+import { PanelActions, PanelContent } from './panels/PanelRenderer';
+import { usePanelRegion } from './panels/usePanelRegion';
 
 const MIN_HEIGHT = 100;
 const MAX_HEIGHT_VH = 70;
@@ -17,76 +18,26 @@ interface BottomPanelProps {
   workingDirectory?: string;
 }
 
-/** Renders a builtin panel's React component, forwarding common props */
-function PanelContent({ panel, projectId, projectRoot, workingDirectory }: {
-  panel: UIExtension;
-  projectId?: string;
-  projectRoot?: string;
-  workingDirectory?: string;
-}) {
-  if (panel.iframeUrl) {
-    return (
-      <PluginPanelRenderer
-        activePluginPanelId={panel.id}
-        projectRoot={projectRoot}
-        projectId={projectId}
-      />
-    );
-  }
-  if (!panel.component) return null;
-  const Component = panel.component as React.ComponentType<Record<string, unknown>>;
-  return <Component projectId={projectId} projectRoot={projectRoot} workingDirectory={workingDirectory} panelId={panel.id} />;
-}
-
-/** Renders a panel's action buttons */
-function PanelActions({ panel, projectId }: { panel: UIExtension; projectId?: string }) {
-  if (!panel.actions) return null;
-  const Actions = panel.actions as React.ComponentType<Record<string, unknown>>;
-  return <Actions projectId={projectId} />;
-}
-
 export function BottomPanel({ projectId, projectRoot, workingDirectory }: BottomPanelProps) {
   const isMobile = useIsMobile();
-  const platform = isMobile ? 'mobile' : 'desktop';
-  const allPanels = usePluginStore(selectPluginPanels);
-  const disabledBuiltinPanels = usePluginStore((s) => s.disabledBuiltinPanels);
-  const panelPlacements = usePluginStore((s) => s.panelPlacements);
   const setPanelPlacement = usePluginStore((s) => s.setPanelPlacement);
   const setRightSidebarTab = useRightSidebarStore((s) => s.setActiveTab);
   const activeTab = useBottomPanelStore((s) => s.activeTab);
   const setActiveTab = useBottomPanelStore((s) => s.setActiveTab);
-
-  // Filter panels by current platform, excluding disabled built-in panels.
-  // On desktop, also filter out panels whose effective placement is 'right'
-  // (those render in RightSidebar instead). Mobile ignores placement.
-  const platformPanels = allPanels.filter((p) => {
-    if (!(p.platforms ?? ['desktop']).includes(platform)) return false;
-    if (disabledBuiltinPanels.includes(p.id)) return false;
-    if (!isMobile) {
-      const placement = panelPlacements[p.id] ?? p.defaultPlacement ?? 'bottom';
-      if (placement === 'right') return false;
-    }
-    return true;
+  const {
+    visiblePanels,
+    mountedPanels,
+    isOpen,
+    hasAlwaysMount,
+    effectiveTab,
+    activePanel,
+    showTabs,
+  } = usePanelRegion({
+    region: 'bottom',
+    activeTab,
+    isMobile,
+    fallbackToActiveTabWhenEmpty: true,
   });
-
-  // Panels whose tab should appear
-  const visiblePanels = platformPanels.filter((p) => p.visible !== false);
-
-  // Panels that should be in the DOM (visible ones + alwaysMount ones even if hidden)
-  const mountedPanels = platformPanels.filter((p) => p.alwaysMount || p.visible !== false);
-
-  const isOpen = visiblePanels.length > 0;
-
-  // Pick effective tab: validate activeTab against visible panels, with fallback
-  const effectiveTab = (() => {
-    if (visiblePanels.some((p) => p.id === activeTab)) return activeTab;
-    // Fallback to first visible panel
-    if (visiblePanels.length > 0) return visiblePanels[0].id;
-    return activeTab;
-  })();
-
-  const activePanel = visiblePanels.find((p) => p.id === effectiveTab);
-  const showTabs = visiblePanels.length > 1;
 
   // Height / drag state
   const containerRef = useRef<HTMLDivElement>(null);
@@ -165,8 +116,6 @@ export function BottomPanel({ projectId, projectRoot, workingDirectory }: Bottom
     setRightSidebarTab(activePanel.id);
   };
 
-  // Keep mounted if any alwaysMount panel exists (e.g. terminal preserving xterm state)
-  const hasAlwaysMount = mountedPanels.some((p) => p.alwaysMount);
   if (!isOpen && !hasAlwaysMount) return null;
 
   // ── Mobile: full-screen overlay ────────────────────────────────────────────

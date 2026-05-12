@@ -23,6 +23,7 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     include: [
+      'src/app/**/*.test.tsx',
       'src/components/**/*.test.tsx',
       'src/contexts/**/*.test.tsx',
       'src/hooks/**/*.test.ts',

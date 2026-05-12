@@ -157,12 +157,20 @@ export function initializeRunBootstrap(input: InitializeRunBootstrapInput): RunB
 
   const sessionType = (session.session_type || 'regular') as 'regular' | 'background' | 'agent';
   const projectId = session.project_id || message.sessionId;
+  const providerTypeForSession = providerConfig?.type || 'claude';
+  const providerManifest = providerRegistry.get(providerTypeForSession)?.manifest;
 
-  // When the user switches permission mode (e.g. default → plan), the Claude
-  // Agent SDK ignores the new permissionMode if we resume an existing SDK
-  // session.  Force a fresh SDK session whenever mode changes.
+  // Some providers ignore a new non-default mode when resuming an existing
+  // provider session. Keep the previous behavior by default, and let providers
+  // that support `resume + mode` opt into preservation via their manifest.
   const requestedMode = message.mode || message.permissionMode;
-  const modeRequiresNewSession = requestedMode && requestedMode !== 'default' && session.sdk_session_id;
+  const preservesSessionOnModeSwitch = providerManifest?.modeSwitchSessionPolicy === 'preserve';
+  const modeRequiresNewSession = Boolean(
+    requestedMode
+      && requestedMode !== 'default'
+      && session.sdk_session_id
+      && !preservesSessionOnModeSwitch
+  );
   const effectiveSdkSessionId = modeRequiresNewSession ? undefined : (session.sdk_session_id || undefined);
 
   const requestedCwd = message.workingDirectory
@@ -177,7 +185,7 @@ export function initializeRunBootstrap(input: InitializeRunBootstrapInput): RunB
   }
 
   const cwd = resolveProviderCwd({
-    sessionCwdPolicy: providerRegistry.get(providerConfig?.type || 'claude')?.manifest?.sessionCwdPolicy,
+    sessionCwdPolicy: providerManifest?.sessionCwdPolicy,
     sdkSessionId: effectiveSdkSessionId,
     requestedCwd,
     sessionRootPath: session.root_path,

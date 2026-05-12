@@ -97,6 +97,16 @@ export interface PCPProviderManifest {
   sessionCwdPolicy?: 'pinned' | 'requested';
 
   /**
+   * Whether a provider-side session can be resumed when the next turn starts
+   * in a non-default mode.
+   *   - `'reset'` (default) drops the stored provider session so the requested
+   *                  mode is definitely applied.
+   *   - `'preserve'` keeps the stored provider session and passes the mode to
+   *                  the provider alongside the resume id.
+   */
+  modeSwitchSessionPolicy?: 'reset' | 'preserve';
+
+  /**
    * Auth-related error hint: when a raw provider error matches one of these
    * patterns the runtime rewrites the message to point the user at the
    * correct re-auth flow. Each entry is either a single case-insensitive
@@ -156,4 +166,3 @@ export function hasCapability(
   const minTierIndex = tiers.indexOf(minReliability);
   return capTierIndex <= minTierIndex;
 }
-

@@ -123,6 +123,9 @@ export const CURSOR_MANIFEST: PCPProviderManifest = {
   apiVersion: 'pcp/v1',
   providerType: 'cursor',
   runtime: 'cli',
+  // cursor-agent accepts --resume together with --mode=plan/ask, so keeping
+  // the chat id is required for follow-up turns in read-only modes.
+  modeSwitchSessionPolicy: 'preserve',
   // Cursor's plan-mode UX is informational (read-only enforcement happens at
   // cursor-agent itself) — no escalateAlwaysTools needed here.
   capabilities: [
@@ -183,4 +186,3 @@ export const KIMI_MANIFEST: PCPProviderManifest = {
     plan_only: 'plan',
   },
 };
-

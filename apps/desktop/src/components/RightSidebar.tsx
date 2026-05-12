@@ -1,45 +1,15 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useRightSidebarStore, RIGHT_SIDEBAR_LIMITS } from '../stores/rightSidebarStore';
-import {
-  usePluginStore,
-  selectPluginPanels,
-  type UIExtension,
-} from '../stores/pluginStore';
+import { usePluginStore } from '../stores/pluginStore';
 import { useBottomPanelStore } from '../stores/bottomPanelStore';
 import { useIsMobile } from '../hooks/useMediaQuery';
-import { PluginPanelRenderer } from './notch/PluginPanelRenderer';
+import { PanelActions, PanelContent } from './panels/PanelRenderer';
+import { usePanelRegion } from './panels/usePanelRegion';
 
 interface RightSidebarProps {
   projectId: string | undefined;
   projectRoot: string | undefined;
   workingDirectory?: string;
-}
-
-/** Renders a builtin panel's React component, forwarding common props */
-function PanelContent({ panel, projectId, projectRoot, workingDirectory }: {
-  panel: UIExtension;
-  projectId?: string;
-  projectRoot?: string;
-  workingDirectory?: string;
-}) {
-  if (panel.iframeUrl) {
-    return (
-      <PluginPanelRenderer
-        activePluginPanelId={panel.id}
-        projectRoot={projectRoot}
-        projectId={projectId}
-      />
-    );
-  }
-  if (!panel.component) return null;
-  const Component = panel.component as React.ComponentType<Record<string, unknown>>;
-  return <Component projectId={projectId} projectRoot={projectRoot} workingDirectory={workingDirectory} panelId={panel.id} />;
-}
-
-function PanelActions({ panel, projectId }: { panel: UIExtension; projectId?: string }) {
-  if (!panel.actions) return null;
-  const Actions = panel.actions as React.ComponentType<Record<string, unknown>>;
-  return <Actions projectId={projectId} />;
 }
 
 /**
@@ -53,40 +23,25 @@ function PanelActions({ panel, projectId }: { panel: UIExtension; projectId?: st
  */
 export function RightSidebar({ projectId, projectRoot, workingDirectory }: RightSidebarProps) {
   const isMobile = useIsMobile();
-  const allPanels = usePluginStore(selectPluginPanels);
-  const disabledBuiltinPanels = usePluginStore((s) => s.disabledBuiltinPanels);
-  const panelPlacements = usePluginStore((s) => s.panelPlacements);
   const setPanelPlacement = usePluginStore((s) => s.setPanelPlacement);
   const widthPx = useRightSidebarStore((s) => s.widthPx);
   const activeTab = useRightSidebarStore((s) => s.activeTab);
   const setActiveTab = useRightSidebarStore((s) => s.setActiveTab);
   const setWidth = useRightSidebarStore((s) => s.setWidth);
   const setBottomPanelTab = useBottomPanelStore((s) => s.setActiveTab);
-
-  // Filter: desktop, enabled, placement === 'right'
-  const rightPanels = allPanels.filter((p) => {
-    if (!(p.platforms ?? ['desktop']).includes('desktop')) return false;
-    if (disabledBuiltinPanels.includes(p.id)) return false;
-    const placement = panelPlacements[p.id] ?? p.defaultPlacement ?? 'bottom';
-    return placement === 'right';
+  const {
+    visiblePanels,
+    mountedPanels,
+    isOpen,
+    hasAlwaysMount,
+    effectiveTab,
+    activePanel,
+    showTabs,
+  } = usePanelRegion({
+    region: 'right',
+    activeTab,
+    isMobile,
   });
-
-  // Visible vs mounted (alwaysMount stays in DOM even when hidden)
-  const visiblePanels = rightPanels.filter((p) => p.visible !== false);
-  const mountedPanels = rightPanels.filter((p) => p.alwaysMount || p.visible !== false);
-
-  const isOpen = visiblePanels.length > 0;
-  const hasAlwaysMount = mountedPanels.some((p) => p.alwaysMount);
-
-  // Effective active tab — fallback to first visible if stored value isn't valid
-  const effectiveTab = (() => {
-    if (activeTab && visiblePanels.some((p) => p.id === activeTab)) return activeTab;
-    if (visiblePanels.length > 0) return visiblePanels[0].id;
-    return null;
-  })();
-
-  const activePanel = visiblePanels.find((p) => p.id === effectiveTab);
-  const showTabs = visiblePanels.length > 1;
 
   // Width drag state
   const dragging = useRef(false);
