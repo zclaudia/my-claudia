@@ -62,7 +62,6 @@ vi.mock('../../../stores/terminalStore', () => ({
 }));
 
 const mockProjectState = {
-  selectedSessionId: null as string | null,
   sessions: [] as any[],
 };
 
@@ -70,6 +69,17 @@ vi.mock('../../../stores/projectStore', () => ({
   useProjectStore: Object.assign(
     (selector: any) => selector(mockProjectState),
     { getState: () => mockProjectState },
+  ),
+}));
+
+const mockSelectionState = {
+  selectedSessionId: null as string | null,
+};
+
+vi.mock('../../../stores/selectionStore', () => ({
+  useSelectionStore: Object.assign(
+    (selector: any) => selector(mockSelectionState),
+    { getState: () => mockSelectionState },
   ),
 }));
 
@@ -124,7 +134,7 @@ const createToolCall = (overrides: Partial<ToolCallState> = {}): ToolCallState =
 describe('ToolCallItem', () => {
   beforeEach(() => {
     mockInteractionState.interactions = {};
-    mockProjectState.selectedSessionId = null;
+    mockSelectionState.selectedSessionId = null;
     mockProjectState.sessions = [];
     mockSendMessage.mockReset();
     mockHandlePromptAnswer.mockReset();
@@ -492,7 +502,7 @@ describe('ToolCallItem', () => {
     });
 
     it('sends Bash command to the scoped terminal after backend switch', async () => {
-      mockProjectState.selectedSessionId = 's1';
+      mockSelectionState.selectedSessionId = 's1';
       mockProjectState.sessions = [{ id: 's1', projectId: 'proj-1' }];
       terminalIdsByBackend.set('backend-1:proj-1', 'term-backend-1-proj-1');
 
@@ -738,7 +748,7 @@ describe('ToolCallItem', () => {
         createdAt: Date.now(),
         plan: 'Review this plan',
       };
-      mockProjectState.selectedSessionId = 's1';
+      mockSelectionState.selectedSessionId = 's1';
 
       render(<ToolCallItem toolCall={createToolCall({
         toolName: 'ExitPlanMode',
@@ -772,7 +782,7 @@ describe('ToolCallItem', () => {
           allowCustomValue: true,
         }],
       };
-      mockProjectState.selectedSessionId = 's1';
+      mockSelectionState.selectedSessionId = 's1';
 
       render(<ToolCallItem toolCall={createToolCall({
         toolName: 'AskUserQuestion',
@@ -792,7 +802,7 @@ describe('ToolCallItem', () => {
     });
 
     it('falls back to a prompt interaction when the request is pending but interaction store is missing', () => {
-      mockProjectState.selectedSessionId = 's1';
+      mockSelectionState.selectedSessionId = 's1';
       mockPromptRequestState.pendingRequests = [{
         requestId: 'pending-question-1',
         sessionId: 's1',
@@ -826,7 +836,7 @@ describe('ToolCallItem', () => {
         createdAt: Date.now(),
         plan: 'Review this plan',
       };
-      mockProjectState.selectedSessionId = 's1';
+      mockSelectionState.selectedSessionId = 's1';
 
       render(<ToolCallItem toolCall={createToolCall({
         toolName: 'ExitPlanMode',

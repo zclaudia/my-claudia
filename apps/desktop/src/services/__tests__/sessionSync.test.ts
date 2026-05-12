@@ -10,6 +10,7 @@ const {
   gatewayState,
   chatState,
   projectState,
+  selectionState,
 } = vi.hoisted(() => ({
   mockGetSessionMessages: vi.fn(),
   mockResolveGatewayBackendUrl: vi.fn((backendId: string) => `http://gateway.test/${backendId}`),
@@ -48,8 +49,10 @@ const {
     mergeMessages: vi.fn(),
   },
   projectState: {
-    selectedSessionId: null as string | null,
     deleteSession: vi.fn(),
+  },
+  selectionState: {
+    selectedSessionId: null as string | null,
   },
 }));
 
@@ -86,6 +89,12 @@ vi.mock('../../stores/chatStore', () => ({
 vi.mock('../../stores/projectStore', () => ({
   useProjectStore: {
     getState: vi.fn(() => projectState),
+  },
+}));
+
+vi.mock('../../stores/selectionStore', () => ({
+  useSelectionStore: {
+    getState: vi.fn(() => selectionState),
   },
 }));
 
@@ -134,8 +143,8 @@ function resetMockState() {
   chatState.appendMessages.mockReset();
   chatState.mergeMessages.mockReset();
 
-  projectState.selectedSessionId = null;
   projectState.deleteSession.mockReset();
+  selectionState.selectedSessionId = null;
 
   mockGetSessionMessages.mockReset();
   mockResolveGatewayBackendUrl.mockClear();
@@ -259,7 +268,7 @@ describe('services/sessionSync', () => {
 
   describe('eagerSyncCurrentSession', () => {
     it('appends missing messages for the selected session', async () => {
-      projectState.selectedSessionId = 'session-1';
+      selectionState.selectedSessionId = 'session-1';
       chatState.pagination = { 'session-1': { maxOffset: 5 } };
       mockGetSessionMessages.mockResolvedValue({
         messages: [{ id: 'message-6' }],
@@ -284,7 +293,7 @@ describe('services/sessionSync', () => {
       const { eagerSyncCurrentSession } = await import('../sessionSync.js');
 
       await eagerSyncCurrentSession('backend-1');
-      projectState.selectedSessionId = 'session-1';
+      selectionState.selectedSessionId = 'session-1';
       await eagerSyncCurrentSession('backend-1');
 
       expect(mockGetSessionMessages).not.toHaveBeenCalled();
@@ -294,7 +303,7 @@ describe('services/sessionSync', () => {
 
   describe('recoverCurrentSessionTail', () => {
     it('merges the latest message window for the active session', async () => {
-      projectState.selectedSessionId = 'session-1';
+      selectionState.selectedSessionId = 'session-1';
       serverState.activeServerId = 'backend-1';
       mockGetSessionMessages.mockResolvedValue({
         messages: [{ id: 'message-10' }],
@@ -313,7 +322,7 @@ describe('services/sessionSync', () => {
     });
 
     it('coalesces concurrent recovery calls and runs one trailing retry', async () => {
-      projectState.selectedSessionId = 'session-1';
+      selectionState.selectedSessionId = 'session-1';
       serverState.activeServerId = 'backend-1';
       vi.useFakeTimers();
 
@@ -351,7 +360,7 @@ describe('services/sessionSync', () => {
     });
 
     it('skips recovery when session or backend does not match current selection', async () => {
-      projectState.selectedSessionId = 'session-1';
+      selectionState.selectedSessionId = 'session-1';
       serverState.activeServerId = 'backend-1';
 
       const { recoverCurrentSessionTail } = await import('../sessionSync.js');

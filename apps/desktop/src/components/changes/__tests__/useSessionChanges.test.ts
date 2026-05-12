@@ -73,6 +73,96 @@ describe('aggregateSessionChanges', () => {
     });
   });
 
+  it('collects non-Claude write tools that use path aliases', () => {
+    const messages: MessageWithToolCalls[] = [
+      userMsg('u1', 'write via provider', 100),
+      assistantMsg('a1', [
+        tool('t1', 'write_file', { path: '/repo/open.ts' }),
+        tool('t2', 'Edit', { file: '/repo/cursor.ts', content: 'new content' }),
+      ], 110),
+    ];
+    const r = aggregateSessionChanges({
+      messages,
+      sinceMessageId: null,
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(r.modified.map((m) => m.path)).toEqual(['open.ts', 'cursor.ts']);
+    expect(r.modified[0].toolCounts).toEqual({ write_file: 1 });
+    expect(r.modified[0].groups[0].fragments[0]).toMatchObject({
+      kind: 'summary',
+      toolName: 'write_file',
+    });
+    expect(r.modified[1].groups[0].fragments[0]).toMatchObject({
+      kind: 'edit',
+      newText: 'new content',
+    });
+    expect(r.turns[0].stats).toMatchObject({ fileCount: 2, editCount: 1, writeCount: 1 });
+  });
+
+  it('extracts Codex file_change summaries into modified files', () => {
+    const messages: MessageWithToolCalls[] = [
+      userMsg('u1', 'codex change', 100),
+      assistantMsg('a1', [
+        tool('t1', 'Edit', {
+          changes: [
+            'src/a.ts:',
+            '@@ -1 +1 @@',
+            '-old',
+            '+new',
+            'diff --git a/src/b.ts b/src/b.ts',
+            '--- a/src/b.ts',
+            '+++ b/src/b.ts',
+            '@@ -2 +2 @@',
+            '-before',
+            '+after',
+          ].join('\n'),
+        }),
+      ], 110),
+    ];
+    const r = aggregateSessionChanges({
+      messages,
+      sinceMessageId: null,
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(r.modified.map((m) => m.path)).toEqual(['src/a.ts', 'src/b.ts']);
+    expect(r.modified[0].groups[0].fragments[0]).toMatchObject({
+      kind: 'summary',
+      toolName: 'Edit',
+    });
+    expect(r.modified[0].groups[0].fragments[0]).toMatchObject({
+      summary: expect.stringContaining('src/a.ts:'),
+    });
+    expect(r.turns[0].stats).toMatchObject({ fileCount: 2, editCount: 2 });
+  });
+
+  it('extracts structured provider fileChanges maps', () => {
+    const messages: MessageWithToolCalls[] = [
+      userMsg('u1', 'app server change', 100),
+      assistantMsg('a1', [
+        tool('t1', 'file_change', {
+          fileChanges: {
+            '/repo/src/app.ts': { type: 'modify', unified_diff: '@@ -1 +1 @@\n-a\n+b' },
+            '/repo/src/new.ts': { type: 'add' },
+          },
+        }),
+      ], 110),
+    ];
+    const r = aggregateSessionChanges({
+      messages,
+      sinceMessageId: null,
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(r.modified.map((m) => m.path)).toEqual(['src/app.ts', 'src/new.ts']);
+    expect(r.modified[0].groups[0].fragments[0]).toMatchObject({
+      kind: 'summary',
+      summary: '@@ -1 +1 @@\n-a\n+b',
+    });
+    expect(r.modified[1].groups[0].fragments[0]).toMatchObject({
+      kind: 'summary',
+      summary: '(add)',
+    });
+  });
+
   it('filters out failed tool calls (isError or non-completed status)', () => {
     const messages: MessageWithToolCalls[] = [
       userMsg('u1', 'try', 100),
@@ -232,6 +322,23 @@ describe('aggregateSessionChanges', () => {
     expect(r.affected[2].path).toBe('b.ts');
     expect(r.affected[3].command).toContain('git reset');
     expect(r.affected[3].path).toBeUndefined();
+  });
+
+  it('detects non-Claude shell tools as bash commands', () => {
+    const messages: MessageWithToolCalls[] = [
+      userMsg('u1', 'cleanup', 100),
+      assistantMsg('a1', [
+        tool('t1', 'execute_command', { command: 'rm /repo/tmp/generated.ts' }),
+      ], 110),
+    ];
+    const r = aggregateSessionChanges({
+      messages,
+      sinceMessageId: null,
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(r.affected).toHaveLength(1);
+    expect(r.affected[0].path).toBe('tmp/generated.ts');
+    expect(r.turns[0].stats).toMatchObject({ bashCount: 1, destructiveBashCount: 1 });
   });
 
   it('splits chained bash commands on && / ; and detects each segment', () => {

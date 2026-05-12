@@ -43,7 +43,16 @@ export function FragmentDiffBlock({ fragment, index, filePath }: FragmentDiffBlo
     );
   }
 
-  // notebook
+  if (fragment.kind === 'summary') {
+    return (
+      <SummaryFragmentBlock
+        summary={fragment.summary}
+        index={index}
+        toolName={fragment.toolName}
+      />
+    );
+  }
+
   return (
     <div className="space-y-1">
       <div className="text-[10px] font-mono text-muted-foreground flex items-center gap-2">
@@ -59,6 +68,33 @@ export function FragmentDiffBlock({ fragment, index, filePath }: FragmentDiffBlo
         )}
       </div>
       <CodeBlock content={fragment.newSource} tone="add" />
+    </div>
+  );
+}
+
+function SummaryFragmentBlock({
+  summary,
+  index,
+  toolName,
+}: {
+  summary: string;
+  index: number;
+  toolName: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="text-[10px] font-mono text-muted-foreground flex items-center gap-2">
+        <span>{index})</span>
+        <span>{toolName}</span>
+        <span className="text-muted-foreground/60">· Provider change summary</span>
+      </div>
+      <div className="rounded-md border border-border overflow-hidden">
+        <div className="overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch] bg-muted/30 text-foreground">
+          <pre className="text-xs leading-5 font-mono whitespace-pre px-3 py-1">
+            {summary}
+          </pre>
+        </div>
+      </div>
     </div>
   );
 }

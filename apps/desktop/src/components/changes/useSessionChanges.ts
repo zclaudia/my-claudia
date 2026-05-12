@@ -2,7 +2,39 @@ import { useMemo } from 'react';
 import { useChatStore, type MessageWithToolCalls, type ToolCallState } from '../../stores/chatStore';
 import { extractMessageText } from '../../utils/messageContent';
 
-const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+type WriteToolKind = 'edit' | 'write' | 'multiEdit' | 'notebook' | 'generic';
+
+const TOOL_KIND_BY_NORMALIZED_NAME: Record<string, WriteToolKind> = {
+  edit: 'edit',
+  editfile: 'edit',
+  updatefile: 'edit',
+  replacefile: 'edit',
+  multiedit: 'multiEdit',
+  multiwrite: 'multiEdit',
+  write: 'write',
+  writefile: 'write',
+  createfile: 'write',
+  notebookedit: 'notebook',
+  filechange: 'generic',
+  applypatch: 'generic',
+  patch: 'generic',
+};
+
+const PATH_INPUT_KEYS = [
+  'file_path',
+  'notebook_path',
+  'path',
+  'file',
+  'filename',
+  'target_file',
+  'targetFile',
+  'relative_path',
+  'relativePath',
+  'absolute_path',
+  'absolutePath',
+];
+
+const BASH_TOOL_NAMES = new Set(['bash', 'shell', 'shelltoolcall', 'executecommand', 'commandexecution']);
 
 const BASH_PATTERNS: Array<{ kind: 'rm' | 'rmdir' | 'mv' | 'git'; re: RegExp; argIndex?: number }> = [
   { kind: 'rm', re: /^\s*rm(?:\s+-\S+)*\s+(.+?)\s*$/, argIndex: 1 },
@@ -35,6 +67,14 @@ export type EditFragment =
       editMode: string;
       cellId?: string;
       newSource: string;
+      messageId: string;
+      toolCallId: string;
+      toolName: string;
+      timestamp: number;
+    }
+  | {
+      kind: 'summary';
+      summary: string;
       messageId: string;
       toolCallId: string;
       toolName: string;
@@ -230,57 +270,279 @@ function detectDestructiveBash(rawCommand: string): BashDetection[] {
   return detections;
 }
 
-function getToolPath(toolName: string, toolInput: unknown): string | undefined {
-  if (!toolInput || typeof toolInput !== 'object') return undefined;
-  const input = toolInput as Record<string, unknown>;
-  if (toolName === 'NotebookEdit') {
-    return typeof input.notebook_path === 'string' ? input.notebook_path : undefined;
+function normalizeToolName(toolName: string): string {
+  const lastSegment = toolName.includes(':') ? toolName.split(':').pop() ?? toolName : toolName;
+  return lastSegment.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function getWriteToolKind(toolName: string): WriteToolKind | null {
+  return TOOL_KIND_BY_NORMALIZED_NAME[normalizeToolName(toolName)] ?? null;
+}
+
+function isBashTool(toolName: string): boolean {
+  return BASH_TOOL_NAMES.has(normalizeToolName(toolName));
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function readStringField(input: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === 'string') return value;
   }
-  return typeof input.file_path === 'string' ? input.file_path : undefined;
+  return undefined;
+}
+
+function hasAnyField(input: Record<string, unknown>, keys: string[]): boolean {
+  return keys.some((key) => key in input);
+}
+
+function getToolPath(toolName: string, toolInput: unknown): string | undefined {
+  const input = asRecord(toolInput);
+  if (!input) return undefined;
+  const keys = normalizeToolName(toolName) === 'notebookedit'
+    ? ['notebook_path', ...PATH_INPUT_KEYS]
+    : PATH_INPUT_KEYS;
+  return readStringField(input, keys);
+}
+
+function cleanDiffPath(rawPath: string | undefined): string | undefined {
+  if (!rawPath) return undefined;
+  let value = rawPath.trim();
+  if (!value || value === '/dev/null') return undefined;
+  value = value.replace(/^["']|["']$/g, '');
+  if (value.startsWith('a/') || value.startsWith('b/')) value = value.slice(2);
+  const tabIdx = value.indexOf('\t');
+  if (tabIdx >= 0) value = value.slice(0, tabIdx);
+  return value || undefined;
+}
+
+function looksLikeFilePath(rawPath: string | undefined): boolean {
+  const path = cleanDiffPath(rawPath);
+  if (!path) return false;
+  return path.startsWith('/')
+    || path.startsWith('./')
+    || path.startsWith('../')
+    || path.includes('/')
+    || /\.[A-Za-z0-9][A-Za-z0-9_-]{0,12}$/.test(path);
+}
+
+interface ParsedChangeSummary {
+  absolutePath: string;
+  summary: string;
+}
+
+function summarizeStructuredChange(change: unknown): string {
+  if (typeof change === 'string') return change;
+  const record = asRecord(change);
+  if (!record) return '';
+  const detail = readStringField(record, [
+    'unified_diff',
+    'unifiedDiff',
+    'diff',
+    'patch',
+    'changes',
+    'content',
+    'summary',
+    'description',
+  ]);
+  if (detail) return detail;
+  const type = readStringField(record, ['type', 'status', 'kind']);
+  return type ? `(${type})` : JSON.stringify(record);
+}
+
+function parseChangeObject(value: unknown): ParsedChangeSummary[] {
+  const record = asRecord(value);
+  if (!record) return [];
+
+  const entries: ParsedChangeSummary[] = [];
+  for (const [rawPath, change] of Object.entries(record)) {
+    const path = cleanDiffPath(rawPath);
+    if (!path) continue;
+    entries.push({
+      absolutePath: path,
+      summary: summarizeStructuredChange(change),
+    });
+  }
+  return entries;
+}
+
+function parseChangeArray(value: unknown): ParsedChangeSummary[] {
+  if (!Array.isArray(value)) return [];
+  const entries: ParsedChangeSummary[] = [];
+  for (const item of value) {
+    const record = asRecord(item);
+    if (!record) continue;
+    const path = cleanDiffPath(readStringField(record, PATH_INPUT_KEYS));
+    if (!path) continue;
+    entries.push({
+      absolutePath: path,
+      summary: summarizeStructuredChange(record),
+    });
+  }
+  return entries;
+}
+
+function parseChangeSummaryText(text: string): ParsedChangeSummary[] {
+  const lines = text.split(/\r?\n/);
+  const byPath = new Map<string, string[]>();
+  let currentPath: string | undefined;
+
+  const setCurrentPath = (rawPath: string | undefined) => {
+    const path = cleanDiffPath(rawPath);
+    if (!path) return;
+    currentPath = path;
+    if (!byPath.has(path)) byPath.set(path, []);
+  };
+
+  for (const line of lines) {
+    const gitDiff = line.match(/^diff --git\s+(?:"?a\/(.+?)"?\s+)?(?:"?b\/(.+?)"?)\s*$/);
+    if (gitDiff) {
+      setCurrentPath(gitDiff[2] ?? gitDiff[1]);
+    }
+
+    const plusPath = line.match(/^\+\+\+\s+(.+)$/);
+    if (plusPath) {
+      setCurrentPath(plusPath[1]);
+    }
+
+    const patchPath = line.match(/^\*\*\*\s+(?:Update|Add|Delete)\s+File:\s+(.+)$/);
+    if (patchPath) {
+      setCurrentPath(patchPath[1]);
+    }
+
+    const headerPath = line.match(/^([^:\n]+):(?:\s+\((?:new file|deleted|modified|updated|renamed)\))?\s*$/i);
+    if (headerPath
+      && !line.startsWith('+')
+      && !line.startsWith('-')
+      && !line.startsWith('@')
+      && looksLikeFilePath(headerPath[1])) {
+      setCurrentPath(headerPath[1]);
+    }
+
+    if (currentPath) {
+      byPath.get(currentPath)?.push(line);
+    }
+  }
+
+  return Array.from(byPath.entries()).map(([absolutePath, summaryLines]) => ({
+    absolutePath,
+    summary: summaryLines.join('\n').trim() || text,
+  }));
+}
+
+function parseChangeSummaries(toolInput: unknown): ParsedChangeSummary[] {
+  const input = asRecord(toolInput);
+  if (!input) return [];
+
+  const structuredCandidates = [
+    input.fileChanges,
+    input.file_changes,
+    input.files,
+    input.changedFiles,
+    input.changed_files,
+  ];
+  for (const candidate of structuredCandidates) {
+    const parsed = parseChangeObject(candidate);
+    if (parsed.length > 0) return parsed;
+    const arrayParsed = parseChangeArray(candidate);
+    if (arrayParsed.length > 0) return arrayParsed;
+  }
+
+  const changes = input.changes;
+  const parsedChangesObject = parseChangeObject(changes);
+  if (parsedChangesObject.length > 0) return parsedChangesObject;
+  const parsedChangesArray = parseChangeArray(changes);
+  if (parsedChangesArray.length > 0) return parsedChangesArray;
+  if (typeof changes === 'string' && changes.trim()) {
+    return parseChangeSummaryText(changes);
+  }
+
+  const diff = readStringField(input, ['unified_diff', 'unifiedDiff', 'diff', 'patch']);
+  if (diff) return parseChangeSummaryText(diff);
+
+  return [];
+}
+
+function buildSummaryFragment(
+  toolCall: ToolCallState,
+  messageId: string,
+  timestamp: number,
+  summary: string,
+): EditFragment {
+  return {
+    kind: 'summary',
+    summary: summary.trim() || `${toolCall.toolName} changed this file`,
+    messageId,
+    toolCallId: toolCall.id,
+    toolName: toolCall.toolName,
+    timestamp,
+  };
 }
 
 function buildFragments(
   toolCall: ToolCallState,
   messageId: string,
   timestamp: number,
+  kind: WriteToolKind,
+  summary?: string,
 ): EditFragment[] {
-  const input = (toolCall.toolInput ?? {}) as Record<string, unknown>;
+  const input = asRecord(toolCall.toolInput) ?? {};
   const meta = {
     messageId,
     toolCallId: toolCall.id,
     toolName: toolCall.toolName,
     timestamp,
   };
-  if (toolCall.toolName === 'Edit') {
+  if (summary) return [buildSummaryFragment(toolCall, messageId, timestamp, summary)];
+  const providerSummary = readStringField(input, ['summary', 'changes', 'diff', 'patch', 'unified_diff', 'unifiedDiff']);
+
+  if (kind === 'edit') {
+    const oldKeys = ['old_string', 'oldString', 'old_text', 'oldText', 'old', 'before'];
+    const newKeys = ['new_string', 'newString', 'new_text', 'newText', 'new', 'after', 'replacement', 'content', 'text'];
+    if (!hasAnyField(input, [...oldKeys, ...newKeys])) {
+      return [buildSummaryFragment(toolCall, messageId, timestamp, providerSummary ?? '')];
+    }
     return [{
       kind: 'edit',
-      oldText: typeof input.old_string === 'string' ? input.old_string : '',
-      newText: typeof input.new_string === 'string' ? input.new_string : '',
+      oldText: readStringField(input, oldKeys) ?? '',
+      newText: readStringField(input, newKeys) ?? '',
       replaceAll: input.replace_all === true,
       ...meta,
     }];
   }
-  if (toolCall.toolName === 'MultiEdit') {
+  if (kind === 'multiEdit') {
     const edits = Array.isArray(input.edits) ? input.edits : [];
+    if (edits.length === 0) {
+      return [buildSummaryFragment(toolCall, messageId, timestamp, providerSummary ?? '')];
+    }
     return edits.map((e) => {
       const obj = (e ?? {}) as Record<string, unknown>;
       return {
         kind: 'edit' as const,
-        oldText: typeof obj.old_string === 'string' ? obj.old_string : '',
-        newText: typeof obj.new_string === 'string' ? obj.new_string : '',
+        oldText: readStringField(obj, ['old_string', 'oldString', 'old_text', 'oldText', 'old', 'before']) ?? '',
+        newText: readStringField(obj, ['new_string', 'newString', 'new_text', 'newText', 'new', 'after', 'replacement']) ?? '',
         replaceAll: obj.replace_all === true,
         ...meta,
       };
     });
   }
-  if (toolCall.toolName === 'Write') {
+  if (kind === 'write') {
+    const content = readStringField(input, ['content', 'text', 'new_content', 'newContent', 'source', 'value']);
+    if (content === undefined) {
+      return [buildSummaryFragment(toolCall, messageId, timestamp, providerSummary ?? '')];
+    }
     return [{
       kind: 'write',
-      content: typeof input.content === 'string' ? input.content : '',
+      content,
       ...meta,
     }];
   }
-  if (toolCall.toolName === 'NotebookEdit') {
+  if (kind === 'notebook') {
     return [{
       kind: 'notebook',
       editMode: typeof input.edit_mode === 'string' ? input.edit_mode : 'replace',
@@ -289,7 +551,7 @@ function buildFragments(
       ...meta,
     }];
   }
-  return [];
+  return [buildSummaryFragment(toolCall, messageId, timestamp, providerSummary ?? '')];
 }
 
 interface AggregateInput {
@@ -390,55 +652,62 @@ export function aggregateSessionChanges({
         if (tc.toolName === 'AskUserQuestion') turn.stats.pendingQuestionCount += 1;
         else turn.stats.runningToolCount += 1;
       }
-      if (tc.toolName === 'Bash') turn.stats.bashCount += 1;
+      if (isBashTool(tc.toolName)) turn.stats.bashCount += 1;
 
       // ── Modified files / affected entries (only for successful calls) ──
       if (tc.status !== 'completed' || tc.isError) continue;
 
-      if (WRITE_TOOLS.has(tc.toolName)) {
-        const absolutePath = getToolPath(tc.toolName, tc.toolInput);
-        if (!absolutePath) continue;
-        const path = normalizePath(absolutePath, projectRoot);
-        const fragments = buildFragments(tc, message.id, message.createdAt);
-        if (fragments.length === 0) continue;
+      const writeToolKind = getWriteToolKind(tc.toolName);
+      if (writeToolKind) {
+        const directPath = cleanDiffPath(getToolPath(tc.toolName, tc.toolInput));
+        const parsedSummaries = directPath ? [] : parseChangeSummaries(tc.toolInput);
+        const changeTargets = directPath
+          ? [{ absolutePath: directPath, summary: undefined as string | undefined }]
+          : parsedSummaries.map((item) => ({ absolutePath: item.absolutePath, summary: item.summary }));
 
-        turn.files.add(absolutePath);
-        if (tc.toolName === 'Edit') turn.stats.editCount += 1;
-        else if (tc.toolName === 'MultiEdit') turn.stats.editCount += fragments.length;
-        else if (tc.toolName === 'Write') turn.stats.writeCount += 1;
-        else if (tc.toolName === 'NotebookEdit') turn.stats.notebookEditCount += 1;
+        for (const target of changeTargets) {
+          const fragments = buildFragments(tc, message.id, message.createdAt, writeToolKind, target.summary);
+          if (fragments.length === 0) continue;
 
-        let entry = modifiedMap.get(absolutePath);
-        if (!entry) {
-          entry = {
-            path,
-            absolutePath,
-            toolCounts: {},
-            groups: [],
-            lastTimestamp: message.createdAt,
-          };
-          modifiedMap.set(absolutePath, entry);
-        }
-        entry.toolCounts[tc.toolName] = (entry.toolCounts[tc.toolName] ?? 0) + 1;
-        entry.lastTimestamp = Math.max(entry.lastTimestamp, message.createdAt);
+          const absolutePath = target.absolutePath;
+          const path = normalizePath(absolutePath, projectRoot);
+          turn.files.add(absolutePath);
+          if (writeToolKind === 'write') turn.stats.writeCount += 1;
+          else if (writeToolKind === 'notebook') turn.stats.notebookEditCount += 1;
+          else turn.stats.editCount += fragments.length;
 
-        const lastGroup = entry.groups[entry.groups.length - 1];
-        if (lastGroup && lastGroup.sinceUserMessageId === currentGroup.id) {
-          lastGroup.fragments.push(...fragments);
-        } else {
-          entry.groups.push({
-            sinceUserMessageId: currentGroup.id,
-            sinceUserMessagePreview: currentGroup.preview,
-            sinceUserMessageTimestamp: currentGroup.timestamp,
-            fragments: [...fragments],
-          });
+          let entry = modifiedMap.get(absolutePath);
+          if (!entry) {
+            entry = {
+              path,
+              absolutePath,
+              toolCounts: {},
+              groups: [],
+              lastTimestamp: message.createdAt,
+            };
+            modifiedMap.set(absolutePath, entry);
+          }
+          entry.toolCounts[tc.toolName] = (entry.toolCounts[tc.toolName] ?? 0) + 1;
+          entry.lastTimestamp = Math.max(entry.lastTimestamp, message.createdAt);
+
+          const lastGroup = entry.groups[entry.groups.length - 1];
+          if (lastGroup && lastGroup.sinceUserMessageId === currentGroup.id) {
+            lastGroup.fragments.push(...fragments);
+          } else {
+            entry.groups.push({
+              sinceUserMessageId: currentGroup.id,
+              sinceUserMessagePreview: currentGroup.preview,
+              sinceUserMessageTimestamp: currentGroup.timestamp,
+              fragments: [...fragments],
+            });
+          }
         }
         continue;
       }
 
-      if (tc.toolName === 'Bash') {
-        const input = (tc.toolInput ?? {}) as Record<string, unknown>;
-        const cmd = typeof input.command === 'string' ? input.command : '';
+      if (isBashTool(tc.toolName)) {
+        const input = asRecord(tc.toolInput) ?? {};
+        const cmd = readStringField(input, ['command', 'cmd', 'script']) ?? '';
         if (!cmd) continue;
         const detections = detectDestructiveBash(cmd);
         turn.stats.destructiveBashCount += detections.length;

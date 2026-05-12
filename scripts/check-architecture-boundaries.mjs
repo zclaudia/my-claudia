@@ -9,8 +9,6 @@ const DEFAULT_DESKTOP_COMPONENT_FEATURE_IMPORT_ALLOWLIST = [
 
 const DEFAULT_DESKTOP_LEGACY_PROJECT_STORE_ALLOWLIST = [
   // Existing migration targets. New code should use selectionStore directly.
-  'apps/desktop/src/features/chat/ToolCallItem.tsx',
-  'apps/desktop/src/services/sessionSync.ts',
 ];
 
 const DEFAULT_DESKTOP_SERVICES_FEATURE_API_REEXPORT_ALLOWLIST = [

@@ -10,6 +10,7 @@ import { DiffViewer } from '../../components/renderers/DiffViewer';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useBottomPanelStore } from '../../stores/bottomPanelStore';
 import { useProjectStore } from '../../stores/projectStore';
+import { useSelectionStore } from '../../stores/selectionStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useServerStore } from '../../stores/serverStore';
 import { toolRendererRegistry } from '../../services/toolRendererRegistry';
@@ -285,7 +286,8 @@ function RunInTerminalButton({ command }: { command: string }) {
     <button
       onClick={async (e) => {
         e.stopPropagation();
-        const { selectedSessionId, sessions } = useProjectStore.getState();
+        const { selectedSessionId } = useSelectionStore.getState();
+        const { sessions } = useProjectStore.getState();
         const session = sessions.find(s => s.id === selectedSessionId);
         if (!session?.projectId) return;
 
@@ -767,12 +769,13 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError, sem
 export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallItemProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const { toolName, toolInput, status, result, isError, activity, semantic } = toolCall;
-  const selectedSessionId = useProjectStore((s) => s.selectedSessionId);
+  const selectedSessionId = useSelectionStore((s) => s.selectedSessionId);
   const pendingPromptRequest = usePromptRequestStore((s) => {
     if (!selectedSessionId || toolName !== 'AskUserQuestion') return null;
-    return [...s.pendingRequests]
-      .reverse()
-      .find((request) => request.sessionId === selectedSessionId) ?? null;
+    for (let i = s.pendingRequests.length - 1; i >= 0; i--) {
+      if (s.pendingRequests[i].sessionId === selectedSessionId) return s.pendingRequests[i];
+    }
+    return null;
   });
   const fallbackPromptInteraction = useMemo(() => {
     if (!selectedSessionId || !pendingPromptRequest || toolName !== 'AskUserQuestion') return null;
@@ -1055,11 +1058,11 @@ export const ToolCallList = memo(function ToolCallList({ toolCalls, defaultColla
   const prevLengthRef = useRef(toolCalls.length);
   useEffect(() => {
     if (isStreaming && toolCalls.length !== prevLengthRef.current) {
-      if (userOverride !== null) setUserOverride(null);
-      if (showAll) setShowAll(false);
+      setUserOverride(null);
+      setShowAll(false);
     }
     prevLengthRef.current = toolCalls.length;
-  }, [toolCalls.length, isStreaming, userOverride, showAll]);
+  }, [toolCalls.length, isStreaming]);
 
   if (toolCalls.length === 0) return null;
 

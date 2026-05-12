@@ -12,6 +12,7 @@ import { useServerStore } from '../stores/serverStore';
 import { resolveGatewayBackendUrl, getGatewayAuthHeaders } from './gatewayProxy';
 import { useChatStore } from '../stores/chatStore';
 import { useProjectStore } from '../stores/projectStore';
+import { useSelectionStore } from '../stores/selectionStore';
 import * as api from './api';
 import { getControlPlaneMode, isLocalBackendId } from '../utils/controlPlane';
 
@@ -34,7 +35,7 @@ async function fillMessageGapForSession(
   session: RemoteSession,
   afterOffsetOverride?: number
 ): Promise<void> {
-  const currentSessionId = useProjectStore.getState().selectedSessionId;
+  const currentSessionId = useSelectionStore.getState().selectedSessionId;
   if (!currentSessionId || session.id !== currentSessionId) return;
   if (!session.lastMessageOffset) return;
 
@@ -63,7 +64,7 @@ async function fillMessageGapForSession(
 }
 
 async function checkAndFillMessageGaps(sessions: RemoteSession[]): Promise<void> {
-  const currentSessionId = useProjectStore.getState().selectedSessionId;
+  const currentSessionId = useSelectionStore.getState().selectedSessionId;
   if (!currentSessionId) return;
 
   const session = sessions.find((s) => s.id === currentSessionId);
@@ -315,7 +316,7 @@ export async function syncBackendData(
  * Directly fetches messages after the local maxOffset without depending on session list.
  */
 export async function eagerSyncCurrentSession(_backendId: string): Promise<void> {
-  const currentSessionId = useProjectStore.getState().selectedSessionId;
+  const currentSessionId = useSelectionStore.getState().selectedSessionId;
   if (!currentSessionId) return;
 
   const pagination = useChatStore.getState().pagination[currentSessionId];
@@ -348,7 +349,7 @@ const pendingRecovery = new Map<string, Promise<void>>();
 const trailingRecovery = new Set<string>();
 
 export async function recoverCurrentSessionTail(targetServerId: string, sessionId?: string): Promise<void> {
-  const currentSessionId = useProjectStore.getState().selectedSessionId;
+  const currentSessionId = useSelectionStore.getState().selectedSessionId;
   const activeServerId = useServerStore.getState().activeServerId;
   const targetSessionId = sessionId ?? currentSessionId;
 
