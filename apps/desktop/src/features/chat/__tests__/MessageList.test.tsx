@@ -102,8 +102,12 @@ vi.mock('react-syntax-highlighter/dist/esm/styles/prism', () => ({
 }));
 
 vi.mock('../ToolCallItem', () => ({
-  ToolCallList: ({ toolCalls }: any) => (
-    <div data-testid="tool-call-list">
+  ToolCallList: ({ toolCalls, defaultCollapsed, isStreaming }: any) => (
+    <div
+      data-testid="tool-call-list"
+      data-default-collapsed={String(Boolean(defaultCollapsed))}
+      data-is-streaming={String(Boolean(isStreaming))}
+    >
       {toolCalls.length} tool calls
       {toolCalls.map((toolCall: any, index: number) => (
         <div data-testid="tool-call-item" key={`${toolCall.id}-${index}`}>
@@ -548,6 +552,7 @@ describe('MessageList', () => {
     render(<MessageList messages={messages} />);
     expect(screen.getByTestId('tool-call-list')).toBeInTheDocument();
     expect(screen.getByTestId('tool-call-list').textContent).toContain('2 tool calls');
+    expect(screen.getByTestId('tool-call-list')).toHaveAttribute('data-default-collapsed', 'true');
   });
 
   it('does not render ToolCallList for user messages', () => {
@@ -582,6 +587,7 @@ describe('MessageList', () => {
     // The segmented path renders tool-call-item instead of tool-call-list
     expect(screen.getByTestId('tool-call-item')).toBeInTheDocument();
     expect(screen.getByTestId('tool-call-item').textContent).toContain('tc-1');
+    expect(screen.getByTestId('tool-call-list')).toHaveAttribute('data-default-collapsed', 'true');
   });
 
   it('does not reuse React keys when the same toolUseId appears multiple times in contentBlocks', () => {
@@ -608,6 +614,10 @@ describe('MessageList', () => {
     render(<MessageList messages={messages} />);
 
     expect(screen.getAllByTestId('tool-call-item')).toHaveLength(2);
+    expect(screen.getAllByTestId('tool-call-list')).toHaveLength(2);
+    for (const list of screen.getAllByTestId('tool-call-list')) {
+      expect(list).toHaveAttribute('data-default-collapsed', 'true');
+    }
     expect(consoleErrorSpy).not.toHaveBeenCalledWith(
       expect.stringContaining('Encountered two children with the same key'),
     );
@@ -889,6 +899,8 @@ describe('MessageList', () => {
     );
     // The streaming tool call should render via segmented content
     expect(screen.getByTestId('tool-call-item')).toBeInTheDocument();
+    expect(screen.getByTestId('tool-call-list')).toHaveAttribute('data-default-collapsed', 'false');
+    expect(screen.getByTestId('tool-call-list')).toHaveAttribute('data-is-streaming', 'true');
   });
 
   // ── Edge cases ────────────────────────────────────────────────────────────

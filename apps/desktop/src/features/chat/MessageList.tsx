@@ -740,7 +740,11 @@ const SegmentedContent = memo(function SegmentedContent({
               key={`tools-${segIdx}`}
               className="w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl min-w-0"
             >
-              <ToolCallList toolCalls={segment.toolCalls} isStreaming={isStreaming && isTrailingTools} />
+              <ToolCallList
+                toolCalls={segment.toolCalls}
+                defaultCollapsed={!isStreaming || !isTrailingTools}
+                isStreaming={isStreaming && isTrailingTools}
+              />
             </div>
           );
         }
@@ -833,7 +837,7 @@ const MessageItem = memo(function MessageItem({ message, streamingContentBlocks,
       {/* Tool calls section (shown before the message content for assistant) — legacy rendering */}
       {!isUser && hasToolCalls && (
         <div className="w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl mb-2 min-w-0">
-          <ToolCallList toolCalls={message.toolCalls!} />
+          <ToolCallList toolCalls={message.toolCalls!} defaultCollapsed />
         </div>
       )}
 
