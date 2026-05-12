@@ -51,6 +51,17 @@ export function SummarySection({
     return entry.summary.asOfMessageId !== latestMessageIdInTurn;
   }, [entry?.summary, latestMessageIdInTurn]);
 
+  // Must be called before the early return below to keep hook call count stable.
+  const initialIssue = useMemo(() => {
+    if (!entry?.summary || !turn) return null;
+    return buildIssueFromSummary({
+      openIssues: entry.summary.openIssues,
+      goal: entry.summary.goal,
+      userMessagePreview: turn.userMessagePreview,
+      turnTimestamp: turn.timestamp,
+    });
+  }, [entry?.summary, turn]);
+
   const hasContent = !!entry?.summary;
   const isLoading = entry?.status === 'loading';
   const hasError = entry?.status === 'error';
@@ -60,16 +71,6 @@ export function SummarySection({
   const handleGenerate = (force = false) => {
     void generate(sessionId, turn.userMessageId, { force });
   };
-
-  const initialIssue = useMemo(() => {
-    if (!entry?.summary) return null;
-    return buildIssueFromSummary({
-      openIssues: entry.summary.openIssues,
-      goal: entry.summary.goal,
-      userMessagePreview: turn.userMessagePreview,
-      turnTimestamp: turn.timestamp,
-    });
-  }, [entry?.summary, turn.userMessagePreview, turn.timestamp]);
 
   const showCreateIssue =
     !!entry?.summary && !!projectId && hasOpenIssues(entry.summary.openIssues);
