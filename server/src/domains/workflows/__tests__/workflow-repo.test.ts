@@ -147,4 +147,16 @@ describe('WorkflowRepository', () => {
       expect(mockDb.prepare).toHaveBeenCalledWith(expect.stringContaining("status = 'active'"));
     });
   });
+
+  describe('findOverrideMetadataById', () => {
+    it('returns only the fields needed to validate permission workflow overrides', () => {
+      mockDb.prepare().get.mockReturnValue({ id: 'wf-user', is_system: 0 });
+
+      const result = repo.findOverrideMetadataById('wf-user');
+
+      expect(mockDb.prepare).toHaveBeenCalledWith(expect.stringContaining('SELECT id, is_system FROM workflows WHERE id = ?'));
+      expect(mockDb.prepare().get).toHaveBeenCalledWith('wf-user');
+      expect(result).toEqual({ id: 'wf-user', isSystem: false });
+    });
+  });
 });

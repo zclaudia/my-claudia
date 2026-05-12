@@ -7,6 +7,11 @@ import { v4 as uuidv4 } from 'uuid';
 type WorkflowCreate = Omit<Workflow, 'id' | 'createdAt' | 'updatedAt'>;
 type WorkflowUpdate = Partial<Omit<Workflow, 'id' | 'projectId' | 'createdAt'>>;
 
+export interface WorkflowOverrideMetadata {
+  id: string;
+  isSystem: boolean;
+}
+
 export class WorkflowRepository extends BaseRepository<Workflow, WorkflowCreate, WorkflowUpdate> {
   constructor(db: Database) {
     super(db, 'workflows');
@@ -112,6 +117,13 @@ export class WorkflowRepository extends BaseRepository<Workflow, WorkflowCreate,
   findBySystemKey(systemKey: string): Workflow | null {
     const row = this.db.prepare('SELECT * FROM workflows WHERE system_key = ?').get(systemKey);
     return row ? this.mapRow(row) : null;
+  }
+
+  findOverrideMetadataById(id: string): WorkflowOverrideMetadata | null {
+    const row = this.db.prepare(
+      'SELECT id, is_system FROM workflows WHERE id = ?'
+    ).get(id) as { id: string; is_system?: number | null } | undefined;
+    return row ? { id: row.id, isSystem: row.is_system === 1 } : null;
   }
 
   findAllActive(): Workflow[] {

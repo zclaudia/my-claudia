@@ -4,6 +4,7 @@ import type { Project } from '@my-claudia/shared/core/project';
 import type { ApiResponse } from '@my-claudia/shared/core/api';
 import { ProjectRepository } from './repository.js';
 import { ProjectWorktreeService, ProjectNotFoundError, ProjectRootPathMissingError } from './worktree-service.js';
+import { WorkflowRepository } from '../workflows/repository.js';
 import {
   applyProjectPatch,
   assertValidProjectState,
@@ -22,13 +23,14 @@ export function createProjectRoutes(
 ): Router {
   const router = Router();
   const repo = new ProjectRepository(db);
+  const workflowRepo = new WorkflowRepository(db);
   const worktreeService = new ProjectWorktreeService(db);
 
   function validatePermissionWorkflowOverride(permissionWorkflowOverrideId: string | undefined): string | null {
     if (!permissionWorkflowOverrideId) return null;
-    const workflow = db.prepare('SELECT id, is_system FROM workflows WHERE id = ?').get(permissionWorkflowOverrideId) as { id: string; is_system?: number } | undefined;
+    const workflow = workflowRepo.findOverrideMetadataById(permissionWorkflowOverrideId);
     if (!workflow) return 'permissionWorkflowOverrideId must reference an existing workflow';
-    if (workflow.is_system === 1) return 'System fallback workflow cannot be used as a project override';
+    if (workflow.isSystem) return 'System fallback workflow cannot be used as a project override';
     return null;
   }
 
