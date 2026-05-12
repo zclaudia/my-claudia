@@ -1,9 +1,9 @@
 import type { NotificationItem as NotificationItemData } from '@my-claudia/shared';
-import { extractThinking } from '../../features/chat/MessageList';
 import { useNotificationFeedStore } from '../../stores/notificationFeedStore';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useSelectionCoordinator } from '../../hooks/useSelectionCoordinator';
 import { timeAgo } from '../../utils/timeAgo';
+import { extractThinking } from '../../utils/messageContent';
 
 const STATUS_STYLES: Record<string, { dot: string }> = {
   running: { dot: 'bg-amber-500 animate-pulse' },

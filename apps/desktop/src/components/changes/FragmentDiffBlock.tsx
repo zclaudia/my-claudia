@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { DiffViewer } from '../../features/chat/DiffViewer';
+import { DiffViewer } from '../renderers/DiffViewer';
 import type { EditFragment } from './useSessionChanges';
 
 const WRITE_PREVIEW_LINES = 40;

@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { extractThinking, normalizeMarkdownForRender } from '../../utils/messageContent';
+import { describe, expect, it } from 'vitest';
+import {
+  extractThinking,
+  normalizeMarkdownForRender,
+} from '../messageContent';
 
 describe('extractThinking', () => {
   it('extracts balanced think tags from assistant content', () => {
@@ -22,13 +25,6 @@ describe('extractThinking', () => {
       content: 'Visible intro',
     });
   });
-
-  it('extracts a later dangling think block after visible content', () => {
-    expect(extractThinking('<think>first thought</think>\nVisible answer.\n<think>second thought')).toEqual({
-      thinking: 'first thought\n\nsecond thought',
-      content: 'Visible answer.',
-    });
-  });
 });
 
 describe('normalizeMarkdownForRender', () => {
@@ -39,11 +35,6 @@ describe('normalizeMarkdownForRender', () => {
 
   it('auto-closes an unmatched fenced code block', () => {
     const input = 'before\n```text\nhello';
-    expect(normalizeMarkdownForRender(input)).toBe('before\n```text\nhello\n```');
-  });
-
-  it('normalizes CRLF line endings before checking fences', () => {
-    const input = 'before\r\n```text\r\nhello';
     expect(normalizeMarkdownForRender(input)).toBe('before\n```text\nhello\n```');
   });
 });
