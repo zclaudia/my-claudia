@@ -14,8 +14,6 @@ export * from './api/session-search';
 export * from './api/providers';
 export * from './api/servers';
 export * from './api/supervision';
-export * from '../features/local-pr/api';
-export * from '../features/workflows/api';
 export * from './api/mcp-servers';
 export * from './api/workspace-skills';
 export * from './api/gateway';

@@ -54,21 +54,6 @@ import {
   deleteMcpServer,
   toggleMcpServer,
   importMcpServers,
-  listLocalPRs,
-  createLocalPR,
-  closeLocalPR,
-  reviewLocalPR,
-  mergeLocalPR,
-  listWorkflows,
-  createWorkflow,
-  updateWorkflow,
-  deleteWorkflow as deleteWorkflowFn,
-  triggerWorkflow,
-  listWorkflowRuns,
-  getWorkflowRun,
-  cancelWorkflowRun,
-  approveWorkflowStep,
-  rejectWorkflowStep,
   fetchLocalApi,
   setProjectReviewProvider,
   getWorktreeConfigs,
@@ -99,7 +84,13 @@ import {
   getSupervisionContext,
   getSupervisionBudget,
   getSupervisionLogs,
-  // Local PR additional
+} from '../api';
+import {
+  listLocalPRs,
+  createLocalPR,
+  closeLocalPR,
+  reviewLocalPR,
+  mergeLocalPR,
   precheckLocalPRCreation,
   retryLocalPRReview,
   cancelLocalPRMerge,
@@ -108,12 +99,23 @@ import {
   revertLocalPRMerge,
   cancelLocalPRQueue,
   retryLocalPR,
-  // Workflow additional
+} from '../../features/local-pr/api';
+import {
+  listWorkflows,
+  createWorkflow,
+  updateWorkflow,
+  deleteWorkflow as deleteWorkflowFn,
+  triggerWorkflow,
+  listWorkflowRuns,
+  getWorkflowRun,
+  cancelWorkflowRun,
+  approveWorkflowStep,
+  rejectWorkflowStep,
   getWorkflow,
   listWorkflowTemplates,
   listWorkflowStepTypes,
   createWorkflowFromTemplate,
-} from '../api';
+} from '../../features/workflows/api';
 import { useServerStore } from '../../stores/serverStore';
 
 let mockControlPlaneMode = 'embedded-local';

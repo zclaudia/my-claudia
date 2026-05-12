@@ -12,7 +12,7 @@ import { TerminalPanel, TerminalActions } from '../components/terminal/TerminalP
 import { FileViewerPanel, FileViewerActions } from '../components/fileviewer/FileViewerPanel';
 import { DraftPanel } from '../components/draft/DraftPanel';
 import { NotificationsPanel } from '../components/notifications/NotificationsPanel';
-import { ChangesPanel } from '../components/changes/ChangesPanel';
+import { ChangesPanel } from '../features/changes/ChangesPanel';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useFileViewerStore } from '../stores/fileViewerStore';
 import { useDraftEditorStore } from '../stores/draftEditorStore';

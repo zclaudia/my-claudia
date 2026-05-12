@@ -9,6 +9,7 @@ import * as api from '../../services/api';
 import { useAndroidBack } from '../../hooks/useAndroidBack';
 import { isMobileBackendUsable } from '../../services/mobileConnectionState';
 import { Select } from '../../components/ui/Select';
+import { listAllWorkflows } from '../workflows/api';
 
 const CATEGORY_LABELS: Record<PermissionCategory, { label: string; description: string }> = {
   fileRead: { label: 'File Read', description: 'Read, Glob, Grep, WebFetch' },
@@ -181,7 +182,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
   const loadPermissionWorkflowOptions = useCallback(async () => {
     if (!project?.id) return;
     try {
-      const workflows = await api.listAllWorkflows();
+      const workflows = await listAllWorkflows();
       setWorkflowOptions(
         workflows.filter((workflow) =>
           workflow.status === 'active'

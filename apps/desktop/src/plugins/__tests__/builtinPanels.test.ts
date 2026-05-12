@@ -17,7 +17,7 @@ vi.mock('../../components/draft/DraftPanel', () => ({
 vi.mock('../../components/notifications/NotificationsPanel', () => ({
   NotificationsPanel: () => null,
 }));
-vi.mock('../../components/changes/ChangesPanel', () => ({
+vi.mock('../../features/changes/ChangesPanel', () => ({
   ChangesPanel: () => null,
 }));
 vi.mock('../../stores/terminalStore', () => ({

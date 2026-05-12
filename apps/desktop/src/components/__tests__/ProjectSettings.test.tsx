@@ -19,7 +19,6 @@ vi.mock('../../utils/platform', async (importOriginal) => {
 
 vi.mock('../../services/api', () => ({
   getProviders: vi.fn(() => new Promise(() => {})),
-  listAllWorkflows: vi.fn().mockResolvedValue([]),
   updateProject: vi.fn().mockResolvedValue({}),
   getSupervisionAgent: vi.fn(() => new Promise(() => {})),
   initSupervisionAgent: vi.fn().mockResolvedValue({
@@ -34,6 +33,10 @@ vi.mock('../../services/api', () => ({
     projectId: 'proj-1',
     phase: 'archived',
   }),
+}));
+
+vi.mock('../../features/workflows/api', () => ({
+  listAllWorkflows: vi.fn().mockResolvedValue([]),
 }));
 
 const mockProject = {
@@ -220,8 +223,8 @@ describe('ProjectSettings', () => {
   });
 
   it('loads active non-system workflows for permission override', async () => {
-    const api = await import('../../services/api');
-    vi.mocked(api.listAllWorkflows).mockResolvedValueOnce([
+    const workflowApi = await import('../../features/workflows/api');
+    vi.mocked(workflowApi.listAllWorkflows).mockResolvedValueOnce([
       { id: 'wf-global', name: 'Global Review', status: 'active', definition: { nodes: [], edges: [], entryNodeId: '', triggers: [] } } as any,
       { id: 'wf-project', name: 'Project Review', projectId: 'proj-1', status: 'active', definition: { nodes: [], edges: [], entryNodeId: '', triggers: [] } } as any,
       { id: 'wf-other', name: 'Other Project Review', projectId: 'proj-2', status: 'active', definition: { nodes: [], edges: [], entryNodeId: '', triggers: [] } } as any,
@@ -231,7 +234,7 @@ describe('ProjectSettings', () => {
     await renderProjectSettings();
 
     await waitFor(() => {
-      expect(api.listAllWorkflows).toHaveBeenCalled();
+      expect(workflowApi.listAllWorkflows).toHaveBeenCalled();
     });
 
     // Open the workflow override Select panel to inspect options
@@ -415,7 +418,8 @@ describe('ProjectSettings', () => {
 
   it('saves permission workflow override', async () => {
     const api = await import('../../services/api');
-    vi.mocked(api.listAllWorkflows).mockResolvedValueOnce([
+    const workflowApi = await import('../../features/workflows/api');
+    vi.mocked(workflowApi.listAllWorkflows).mockResolvedValueOnce([
       { id: 'wf-project', name: 'Project Review', projectId: 'proj-1', status: 'active', definition: { nodes: [], edges: [], entryNodeId: '', triggers: [] } } as any,
     ]);
 

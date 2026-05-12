@@ -5,10 +5,6 @@ import { pathToFileURL } from 'node:url';
 const DEFAULT_DESKTOP_COMPONENT_FEATURE_IMPORT_ALLOWLIST = [
   // Existing migration targets. New shared components should not depend on features.
   'apps/desktop/src/components/SettingsPanel.tsx',
-  'apps/desktop/src/components/changes/SummarySection.tsx',
-  'apps/desktop/src/components/draft/DraftWindow.tsx',
-  'apps/desktop/src/components/fileviewer/FileViewerWindow.tsx',
-  'apps/desktop/src/components/terminal/TerminalWindow.tsx',
 ];
 
 const DEFAULT_DESKTOP_LEGACY_PROJECT_STORE_ALLOWLIST = [
@@ -19,8 +15,6 @@ const DEFAULT_DESKTOP_LEGACY_PROJECT_STORE_ALLOWLIST = [
 
 const DEFAULT_DESKTOP_SERVICES_FEATURE_API_REEXPORT_ALLOWLIST = [
   // Existing migration targets for phase 2 of the apps architecture cleanup.
-  '../features/local-pr/api',
-  '../features/workflows/api',
 ];
 
 function read(repoRoot, relativePath) {

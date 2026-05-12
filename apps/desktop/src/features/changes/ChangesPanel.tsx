@@ -2,11 +2,15 @@ import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Terminal as TerminalIcon } from 'lucide-react';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useChangesPanelStore } from '../../stores/changesPanelStore';
-import { SinceSelector } from './SinceSelector';
-import { ChangeListItem } from './ChangeListItem';
-import { TurnSummaryCard } from './TurnSummaryCard';
+import { SinceSelector } from '../../components/changes/SinceSelector';
+import { ChangeListItem } from '../../components/changes/ChangeListItem';
+import { TurnSummaryCard } from '../../components/changes/TurnSummaryCard';
 import { SummarySection } from './SummarySection';
-import { isTurnEmpty, useChangesData, useUserMessageOptions } from './useSessionChanges';
+import {
+  isTurnEmpty,
+  useChangesData,
+  useUserMessageOptions,
+} from '../../components/changes/useSessionChanges';
 
 interface ChangesPanelProps {
   projectId?: string;

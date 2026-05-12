@@ -10,6 +10,7 @@ vi.mock('@tauri-apps/api/core', async (importOriginal) => {
 });
 
 vi.mock('@tauri-apps/api/event', () => ({
+  emit: vi.fn(),
   emitTo: vi.fn(),
 }));
 
@@ -43,7 +44,7 @@ vi.mock('../../../contexts/ConnectionContext', () => ({
   }),
 }));
 
-vi.mock('../../chat/SessionChatWindow', () => ({
+vi.mock('../../window/WindowContextBar', () => ({
   WindowContextBar: ({ serverName, projectId }: any) => (
     <div data-testid="window-context">{serverName}:{projectId}</div>
   ),

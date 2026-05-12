@@ -21,6 +21,7 @@ import { useProviderMetaStore } from '../../../stores/providerMetaStore';
 import { useServerStore } from '../../../stores/serverStore';
 import { useIsMobile } from '../../../hooks/useMediaQuery';
 import * as api from '../../../services/api';
+import { cancelLocalPRQueue, retryLocalPR } from '../api';
 import { DiffViewerModal } from './DiffViewerModal';
 
 const STATUS_CONFIG: Record<LocalPRStatus, { label: string; color: string }> = {
@@ -182,7 +183,7 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
     setActionError(null);
     setLoading(true);
     try {
-      await api.cancelLocalPRQueue(pr.id);
+      await cancelLocalPRQueue(pr.id);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to cancel queue');
     } finally {
@@ -194,7 +195,7 @@ export function LocalPRCard({ pr, projectId }: LocalPRCardProps) {
     setActionError(null);
     setLoading(true);
     try {
-      await api.retryLocalPR(pr.id);
+      await retryLocalPR(pr.id);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to retry');
     } finally {

@@ -10,12 +10,12 @@ import type { TurnSummary } from '@my-claudia/shared';
 import { useSummaryStore } from '../../stores/summaryStore';
 import { useToastStore } from '../../stores/toastStore';
 import { timeAgo } from '../../utils/timeAgo';
-import { CreateIssueDialog } from '../../features/local-issues/components/CreateIssueDialog';
+import { CreateIssueDialog } from '../local-issues/components/CreateIssueDialog';
 import {
   buildIssueFromSummary,
   hasOpenIssues,
   type TurnStat,
-} from './useSessionChanges';
+} from '../../components/changes/useSessionChanges';
 
 interface SummarySectionProps {
   sessionId: string;

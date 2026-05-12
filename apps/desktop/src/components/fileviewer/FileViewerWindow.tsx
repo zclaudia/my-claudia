@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
-import { WindowContextBar } from '../../features/chat/SessionChatWindow';
+import { WindowContextBar } from '../window/WindowContextBar';
 import * as api from '../../services/api';
 import { MarkdownFileContent } from './MarkdownFileContent';
 

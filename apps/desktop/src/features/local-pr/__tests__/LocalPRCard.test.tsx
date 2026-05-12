@@ -9,6 +9,9 @@ vi.mock('../../../hooks/useMediaQuery', () => ({
 
 vi.mock('../../../services/api', () => ({
   getSessions: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock('../api', () => ({
   cancelLocalPRQueue: vi.fn().mockResolvedValue(undefined),
   retryLocalPR: vi.fn().mockResolvedValue(undefined),
 }));
@@ -443,7 +446,7 @@ describe('LocalPRCard', () => {
   });
 
   it('calls cancelLocalPRQueue when cancel queue button is clicked', async () => {
-    const api = await import('../../../services/api');
+    const api = await import('../api');
     const pr = createPR({ executionState: 'queued' });
     const { container } = render(<LocalPRCard pr={pr} projectId="proj-1" />);
     const cancelBtn = container.querySelector('button[title="Cancel queue"]') as HTMLButtonElement;
@@ -454,7 +457,7 @@ describe('LocalPRCard', () => {
   });
 
   it('calls retryLocalPR when retry button is clicked', async () => {
-    const api = await import('../../../services/api');
+    const api = await import('../api');
     const pr = createPR({ executionState: 'failed' });
     const { container } = render(<LocalPRCard pr={pr} projectId="proj-1" />);
     const retryBtn = container.querySelector('button[title="Retry"]') as HTMLButtonElement;
