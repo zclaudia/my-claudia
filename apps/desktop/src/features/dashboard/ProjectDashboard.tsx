@@ -10,6 +10,7 @@ import { SupervisorWorkspacePanel } from '../../features/supervision/components/
 import { SessionChatLayout } from '../../features/chat/SessionChatLayout';
 import { LocalPRsPanel } from '../../features/local-pr/components/LocalPRsPanel';
 import { LocalIssuesPanel } from '../../features/local-issues/components/LocalIssuesPanel';
+import { useLocalIssueStore } from '../../features/local-issues/store';
 import { DashboardHome } from './DashboardHome';
 import { useSelectionStore } from '../../stores/selectionStore';
 import type { OpenAutomationWindowOptions } from '../automation/openAutomationWindow';
@@ -41,16 +42,26 @@ export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations
   const setDashboardView = useSelectionStore((s) => s.setDashboardView);
   const [view, setView] = useState<DashboardView>(savedView);
   const [supervisorPane, setSupervisorPane] = useState<'workspace' | 'chat'>('workspace');
+  // Lifted from LocalIssuesPanel — kept here so the dashboard breadcrumb can
+  // include the issue title as a third segment when an issue is open.
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
+  const selectedIssueTitle = useLocalIssueStore((s) => {
+    if (!selectedIssueId) return null;
+    const issue = (s.issues[projectId] ?? []).find((i) => i.id === selectedIssueId);
+    return issue?.title ?? null;
+  });
 
   const navigate = useCallback((nextView: DashboardView) => {
     setView(nextView);
     setDashboardView(projectId, nextView);
+    setSelectedIssueId(null);
   }, [projectId, setDashboardView]);
 
   // Restore last dashboard sub-view for this project
   useEffect(() => {
     setView(savedView);
     setSupervisorPane('workspace');
+    setSelectedIssueId(null);
   }, [projectId, savedView]);
 
   // Hydrate supervision store
@@ -83,16 +94,32 @@ export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations
     <div className="flex flex-col h-full bg-background">
       {/* Back button for drill-down views */}
       {view !== 'home' && (
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-border">
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-border min-w-0">
           <button
             onClick={() => navigate('home')}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             Dashboard
           </button>
-          <span className="text-xs text-muted-foreground">/</span>
-          <span className="text-xs font-medium">{VIEW_LABELS[view]}</span>
+          <span className="text-xs text-muted-foreground flex-shrink-0">/</span>
+          {view === 'issues' && selectedIssueId ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setSelectedIssueId(null)}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+              >
+                {VIEW_LABELS.issues}
+              </button>
+              <span className="text-xs text-muted-foreground flex-shrink-0">/</span>
+              <span className="text-xs font-medium truncate" title={selectedIssueTitle ?? undefined}>
+                {selectedIssueTitle ?? 'Issue'}
+              </span>
+            </>
+          ) : (
+            <span className="text-xs font-medium">{VIEW_LABELS[view]}</span>
+          )}
         </div>
       )}
 
@@ -130,7 +157,11 @@ export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations
 
       {view === 'issues' && (
         <div className="flex-1 overflow-hidden">
-          <LocalIssuesPanel projectId={projectId} />
+          <LocalIssuesPanel
+            projectId={projectId}
+            selectedIssueId={selectedIssueId}
+            onSelectIssue={setSelectedIssueId}
+          />
         </div>
       )}
 

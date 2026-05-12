@@ -1,8 +1,6 @@
-import { useState } from 'react';
 import type { LocalIssue } from '@my-claudia/shared';
-import { ChevronDown, ChevronRight, Paperclip, Pencil, X, RotateCcw, Trash2 } from 'lucide-react';
-import { useLocalIssueStore } from '../store';
-import { AttachmentList, useAttachments, useAttachmentCount } from '../../attachments';
+import { Paperclip, ChevronRight } from 'lucide-react';
+import { useAttachmentCount } from '../../attachments';
 
 const PRIORITY_COLORS: Record<string, string> = {
   low: 'bg-gray-500/10 text-gray-400',
@@ -20,43 +18,20 @@ const STATUS_COLORS: Record<string, string> = {
 interface LocalIssueCardProps {
   issue: LocalIssue;
   projectId: string;
-  onEdit: (issue: LocalIssue) => void;
+  onOpen: (issueId: string) => void;
 }
 
-export function LocalIssueCard({ issue, projectId, onEdit }: LocalIssueCardProps) {
-  const [expanded, setExpanded] = useState(false);
-  const { closeIssue, reopenIssue, deleteIssue, updateIssue } = useLocalIssueStore();
-  // Count comes from the lightweight store cache (populated by the panel's
-  // batch loader). The full list is fetched only when expanded.
+export function LocalIssueCard({ issue, onOpen }: LocalIssueCardProps) {
   const attachmentCount = useAttachmentCount('local_issue', issue.id);
-  const attachments = useAttachments(expanded ? 'local_issue' : null, expanded ? issue.id : null);
-
-  const handleStatusToggle = async () => {
-    if (issue.status === 'closed') {
-      await reopenIssue(issue.id, projectId);
-    } else if (issue.status === 'open') {
-      await updateIssue(issue.id, projectId, { status: 'in_progress' });
-    } else {
-      await closeIssue(issue.id, projectId);
-    }
-  };
-
-  const handleDelete = async () => {
-    await deleteIssue(issue.id, projectId);
-  };
-
-  const timeAgo = formatTimeAgo(issue.createdAt);
+  const timeText = formatTimeAgo(issue.createdAt);
 
   return (
-    <div className="border border-border rounded-lg bg-card">
+    <button
+      type="button"
+      onClick={() => onOpen(issue.id)}
+      className="w-full text-left border border-border rounded-lg bg-card hover:bg-secondary/50 transition-colors group"
+    >
       <div className="flex items-center gap-2 px-3 py-2">
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="text-muted-foreground hover:text-foreground shrink-0"
-        >
-          {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-        </button>
-
         <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${STATUS_COLORS[issue.status] ?? ''}`}>
           {issue.status.replace('_', ' ')}
         </span>
@@ -90,60 +65,11 @@ export function LocalIssueCard({ issue, projectId, onEdit }: LocalIssueCardProps
           </span>
         )}
 
-        <span className="text-xs text-muted-foreground shrink-0">{timeAgo}</span>
+        <span className="text-xs text-muted-foreground shrink-0">{timeText}</span>
 
-        <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={() => onEdit(issue)}
-            className="p-1 text-muted-foreground hover:text-foreground rounded-md transition-colors"
-            title="Edit"
-          >
-            <Pencil className="w-3 h-3" />
-          </button>
-          {issue.status === 'closed' ? (
-            <button
-              onClick={handleStatusToggle}
-              className="p-1 text-muted-foreground hover:text-green-500 rounded-md transition-colors"
-              title="Reopen"
-            >
-              <RotateCcw className="w-3 h-3" />
-            </button>
-          ) : (
-            <button
-              onClick={handleStatusToggle}
-              className="p-1 text-muted-foreground hover:text-foreground rounded-md transition-colors"
-              title={issue.status === 'open' ? 'Start' : 'Close'}
-            >
-              <X className="w-3 h-3" />
-            </button>
-          )}
-          <button
-            onClick={handleDelete}
-            className="p-1 text-muted-foreground hover:text-red-500 rounded-md transition-colors"
-            title="Delete"
-          >
-            <Trash2 className="w-3 h-3" />
-          </button>
-        </div>
+        <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-muted-foreground shrink-0" />
       </div>
-
-      {expanded && (
-        <div className="px-3 pb-3 pt-0 ml-6 space-y-2">
-          {issue.description && (
-            <div className="text-xs text-muted-foreground whitespace-pre-wrap">{issue.description}</div>
-          )}
-          {attachmentCount > 0 && (
-            <AttachmentList
-              items={attachments.items}
-              onRemove={(id) => void attachments.remove(id)}
-              sortable
-              ownerKind="local_issue"
-              ownerId={issue.id}
-            />
-          )}
-        </div>
-      )}
-    </div>
+    </button>
   );
 }
 

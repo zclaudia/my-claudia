@@ -212,20 +212,20 @@ export function CreateIssueDialog({ projectId, onClose, editIssue, initialValues
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div
-        className="bg-card border border-border rounded-lg shadow-lg w-full max-w-md mx-4"
+        className="bg-card border border-border rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
           <h2 className="text-sm font-semibold">{isEdit ? 'Edit Issue' : 'New Issue'}</h2>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <AttachmentDropZone onFiles={addFiles} className="rounded-b-lg" label="Drop files to attach">
-          <form onSubmit={handleSubmit} onPaste={handlePaste} className="p-4 space-y-3">
+        <AttachmentDropZone onFiles={addFiles} className="rounded-b-lg flex-1 min-h-0 flex flex-col" label="Drop files to attach">
+          <form onSubmit={handleSubmit} onPaste={handlePaste} className="p-4 space-y-3 flex-1 overflow-y-auto">
             <div>
               <label className="text-xs font-medium text-muted-foreground">Title</label>
               <input
@@ -243,8 +243,8 @@ export function CreateIssueDialog({ projectId, onClose, editIssue, initialValues
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary min-h-[80px] resize-y"
-                placeholder="Describe the issue (optional)"
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary min-h-[240px] resize-y leading-relaxed"
+                placeholder="Describe the issue (optional, markdown supported)"
               />
             </div>
 

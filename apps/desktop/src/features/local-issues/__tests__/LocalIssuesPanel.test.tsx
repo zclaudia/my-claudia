@@ -58,24 +58,24 @@ beforeEach(() => {
 
 describe('LocalIssuesPanel - attachment count batching', () => {
   it('triggers loadIssues for the project', async () => {
-    render(<LocalIssuesPanel projectId="proj-1" />);
+    render(<LocalIssuesPanel projectId="proj-1" selectedIssueId={null} onSelectIssue={() => {}} />);
     await waitFor(() => expect(mockLoadIssues).toHaveBeenCalledWith('proj-1'));
   });
 
   it('passes all issue ids to useAttachmentCounts', () => {
     mockIssues = [makeIssue('a'), makeIssue('b'), makeIssue('c')];
-    render(<LocalIssuesPanel projectId="proj-1" />);
+    render(<LocalIssuesPanel projectId="proj-1" selectedIssueId={null} onSelectIssue={() => {}} />);
     expect(mockUseAttachmentCounts).toHaveBeenCalledWith('local_issue', ['a', 'b', 'c']);
   });
 
   it('passes empty array when there are no issues', () => {
-    render(<LocalIssuesPanel projectId="proj-1" />);
+    render(<LocalIssuesPanel projectId="proj-1" selectedIssueId={null} onSelectIssue={() => {}} />);
     expect(mockUseAttachmentCounts).toHaveBeenCalledWith('local_issue', []);
   });
 
   it('renders an issue card per issue', () => {
     mockIssues = [makeIssue('a'), makeIssue('b')];
-    render(<LocalIssuesPanel projectId="proj-1" />);
+    render(<LocalIssuesPanel projectId="proj-1" selectedIssueId={null} onSelectIssue={() => {}} />);
     expect(screen.getByText('Issue a')).toBeInTheDocument();
     expect(screen.getByText('Issue b')).toBeInTheDocument();
   });

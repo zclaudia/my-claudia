@@ -3,7 +3,7 @@
 import type { Workflow, WorkflowRun, WorkflowStepRun } from '../../features/workflows.js';
 import type { SystemTaskInfo } from '../../features/system-tasks.js';
 import type { LocalPR } from '../../features/local-pr.js';
-import type { LocalIssue } from '../../features/local-issue.js';
+import type { LocalIssue, LocalIssueComment } from '../../features/local-issue.js';
 import type { Attachment, AttachmentOwnerKind } from '../../features/attachment.js';
 
 // Workflow messages (Server → Client)
@@ -66,6 +66,22 @@ export interface LocalIssueDeletedMessage {
   type: 'local_issue_deleted';
   projectId: string;
   issueId: string;
+}
+
+// Local Issue comment upsert (Server → Client)
+export interface LocalIssueCommentUpdateMessage {
+  type: 'local_issue_comment_update';
+  projectId: string;
+  issueId: string;
+  comment: LocalIssueComment;
+}
+
+// Local Issue comment deleted (Server → Client)
+export interface LocalIssueCommentDeletedMessage {
+  type: 'local_issue_comment_deleted';
+  projectId: string;
+  issueId: string;
+  commentId: string;
 }
 
 // Attachment added to an owner (Server → Client)

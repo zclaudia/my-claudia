@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
-import type { LocalIssue, LocalIssueStatus } from '@my-claudia/shared';
+import type { LocalIssueStatus } from '@my-claudia/shared';
 import { useLocalIssueStore } from '../store';
 import { useAttachmentCounts } from '../../attachments';
 import { LocalIssueCard } from './LocalIssueCard';
 import { CreateIssueDialog } from './CreateIssueDialog';
+import { LocalIssueDetailView } from './LocalIssueDetailView';
 
 interface LocalIssuesPanelProps {
   projectId: string;
+  /** Controlled: the issue currently shown in detail view, or null for the list. */
+  selectedIssueId: string | null;
+  /** Called when the user picks an issue from the list, or clears selection. */
+  onSelectIssue: (issueId: string | null) => void;
 }
 
 type FilterStatus = 'all' | LocalIssueStatus;
@@ -26,12 +31,11 @@ const PRIORITY_ORDER: Record<string, number> = {
   low: 3,
 };
 
-export function LocalIssuesPanel({ projectId }: LocalIssuesPanelProps) {
+export function LocalIssuesPanel({ projectId, selectedIssueId, onSelectIssue }: LocalIssuesPanelProps) {
   const issues = useLocalIssueStore((s) => s.issues[projectId] ?? []);
   const loadIssues = useLocalIssueStore((s) => s.loadIssues);
   const [filter, setFilter] = useState<FilterStatus>('all');
   const [showCreate, setShowCreate] = useState(false);
-  const [editIssue, setEditIssue] = useState<LocalIssue | null>(null);
 
   useEffect(() => {
     loadIssues(projectId).catch(() => {});
@@ -41,6 +45,26 @@ export function LocalIssuesPanel({ projectId }: LocalIssuesPanelProps) {
   // each card making its own request.
   const issueIds = useMemo(() => issues.map((i) => i.id), [issues]);
   useAttachmentCounts('local_issue', issueIds);
+
+  const selectedIssue = useMemo(
+    () => (selectedIssueId ? issues.find((i) => i.id === selectedIssueId) ?? null : null),
+    [selectedIssueId, issues],
+  );
+
+  // If the selected issue was deleted (e.g. via WS broadcast), drop selection.
+  useEffect(() => {
+    if (selectedIssueId && !selectedIssue) onSelectIssue(null);
+  }, [selectedIssueId, selectedIssue, onSelectIssue]);
+
+  if (selectedIssue) {
+    return (
+      <LocalIssueDetailView
+        issue={selectedIssue}
+        projectId={projectId}
+        onDeleted={() => onSelectIssue(null)}
+      />
+    );
+  }
 
   const filtered = issues
     .filter((issue) => filter === 'all' || issue.status === filter)
@@ -107,7 +131,7 @@ export function LocalIssuesPanel({ projectId }: LocalIssuesPanelProps) {
               key={issue.id}
               issue={issue}
               projectId={projectId}
-              onEdit={setEditIssue}
+              onOpen={onSelectIssue}
             />
           ))
         )}
@@ -118,13 +142,6 @@ export function LocalIssuesPanel({ projectId }: LocalIssuesPanelProps) {
         <CreateIssueDialog
           projectId={projectId}
           onClose={() => setShowCreate(false)}
-        />
-      )}
-      {editIssue && (
-        <CreateIssueDialog
-          projectId={projectId}
-          editIssue={editIssue}
-          onClose={() => setEditIssue(null)}
         />
       )}
     </div>

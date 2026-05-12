@@ -3,3 +3,5 @@ export type { LocalIssueDomainDeps, LocalIssueDomainResult } from './register.js
 export { createLocalIssueRoutes } from './routes.js';
 export { LocalIssueService } from './service.js';
 export { LocalIssueRepository } from './repository.js';
+export { LocalIssueCommentService } from './comment-service.js';
+export { LocalIssueCommentRepository } from './comment-repository.js';
