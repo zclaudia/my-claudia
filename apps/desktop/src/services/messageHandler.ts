@@ -366,7 +366,7 @@ export function handleServerMessage(
       if (isStaleRunEvent(msg.runId, msg.seq)) break;
       const toolSession = msg.sessionId || useChatStore.getState().activeRuns[msg.runId];
       if (toolSession) {
-        useChatStore.getState().addToolCall(msg.runId, msg.toolUseId, msg.toolName, msg.toolInput);
+        useChatStore.getState().addToolCall(msg.runId, msg.toolUseId, msg.toolName, msg.toolInput, msg.semantic);
         useChatStore.getState().addToolUseBlock(msg.runId, msg.toolUseId);
       } else if (msg.runId) {
         console.warn(`[${logTag}] tool_use for untracked run ${msg.runId}`);

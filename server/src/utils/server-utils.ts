@@ -41,8 +41,20 @@ export function isBashLikeTool(toolName: string): boolean {
   return lower === 'bash' || lower === 'execute_command' || lower === 'run_terminal_cmd' || lower === 'terminal';
 }
 
-export function providerSupportsNativePlanMode(providerType: string): boolean {
-  return providerType === 'claude' || providerType === 'cursor' || providerType === 'codex';
+/**
+ * Whether a provider exposes a *native* plan-mode (so the runtime should not
+ * synthesize a non-native plan-mode prompt). Derived from the provider's PCP
+ * manifest: a provider that declares a `plan_only` permission-mode mapping is
+ * understood to enforce plan mode at the CLI/SDK level.
+ *
+ * No provider-type literals appear here — this keeps the common layer
+ * provider-agnostic; the truth lives in `manifests.ts`.
+ */
+export function providerSupportsNativePlanMode(
+  manifest?: { permissionModeMap?: Record<string, string | undefined> },
+): boolean {
+  if (!manifest?.permissionModeMap) return false;
+  return 'plan_only' in manifest.permissionModeMap;
 }
 
 export function buildNonNativePlanPrompt(providerType: string): string {

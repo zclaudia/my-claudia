@@ -154,6 +154,39 @@ function normalizeMcpToolName(server: string, tool: string): string {
   return `mcp:${server}:${tool}`;
 }
 
+// ── Codex-specific plan-mode semantics ───────────────────────
+//
+// Codex injects plan-mode through the MCP bridge using the
+// `enter_plan_mode` / `exit_plan_mode` tool names, which are normalized to
+// `EnterPlanMode` / `ExitPlanMode` above. The codex SDK keeps that knowledge
+// local: it tags outgoing tool_use messages with the shared `toolSemantic`
+// and emits a `mode_transition` event so downstream runtime/UI never branch
+// on codex-specific tool vocabulary.
+
+function detectCodexToolSemantic(
+  toolName: string,
+): 'plan_enter' | 'plan_exit' | 'plan_proposal' | undefined {
+  if (toolName === 'EnterPlanMode') return 'plan_enter';
+  if (toolName === 'ExitPlanMode') return 'plan_proposal';
+  return undefined;
+}
+
+function deriveCodexModeTransition(
+  toolName: string,
+  input: unknown,
+  sourceToolUseId: string | undefined,
+): { mode: string; reason: 'enter' | 'exit'; plan?: string; sourceToolUseId?: string } | undefined {
+  if (toolName === 'EnterPlanMode') {
+    return { mode: 'plan', reason: 'enter', sourceToolUseId };
+  }
+  if (toolName === 'ExitPlanMode') {
+    const record = (input && typeof input === 'object') ? (input as Record<string, unknown>) : undefined;
+    const plan = typeof record?.plan === 'string' ? (record.plan as string) : undefined;
+    return { mode: 'default', reason: 'exit', plan, sourceToolUseId };
+  }
+  return undefined;
+}
+
 // ── ThreadItem → ClaudeMessage mapping ───────────────────────
 
 function mapItemStarted(item: ThreadItem): ClaudeMessage | null {
@@ -177,13 +210,16 @@ function mapItemStarted(item: ThreadItem): ClaudeMessage | null {
         toolName: 'Edit',
         toolInput: { changes: item.changes },
       };
-    case 'mcp_tool_call':
+    case 'mcp_tool_call': {
+      const toolName = normalizeMcpToolName(item.server, item.tool);
       return {
         type: 'tool_use',
         toolUseId,
-        toolName: normalizeMcpToolName(item.server, item.tool),
+        toolName,
         toolInput: item.arguments,
+        toolSemantic: detectCodexToolSemantic(toolName),
       };
+    }
     case 'web_search':
       return {
         type: 'tool_use',
@@ -601,6 +637,18 @@ function mapThreadEvent(event: ThreadEvent, sessionId?: string, initSystemInfo?:
       } else {
         const msg = mapItemCompleted(event.item);
         if (msg) messages.push(msg);
+
+        // Surface plan-mode transitions via the shared mode_transition event.
+        // Codex's `enter_plan_mode` / `exit_plan_mode` come through as MCP tool
+        // calls; the SDK normalizes them locally so the runtime never branches
+        // on codex-specific tool names.
+        if (event.item.type === 'mcp_tool_call' && event.item.status === 'completed') {
+          const toolName = normalizeMcpToolName(event.item.server, event.item.tool);
+          const transition = deriveCodexModeTransition(toolName, event.item.arguments, itemId);
+          if (transition) {
+            messages.push({ type: 'mode_transition', modeTransition: transition });
+          }
+        }
       }
       break;
     }

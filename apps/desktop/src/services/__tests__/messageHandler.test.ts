@@ -359,7 +359,7 @@ describe('handleServerMessage', () => {
       handleServerMessage({
         type: 'tool_use', runId: 'r1', toolUseId: 'tu1', toolName: 'Read', toolInput: {},
       }, makeCtx());
-      expect(mockChatStore.addToolCall).toHaveBeenCalledWith('r1', 'tu1', 'Read', {});
+      expect(mockChatStore.addToolCall).toHaveBeenCalledWith('r1', 'tu1', 'Read', {}, undefined);
       expect(mockChatStore.addToolUseBlock).toHaveBeenCalledWith('r1', 'tu1');
     });
 

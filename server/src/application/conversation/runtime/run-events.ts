@@ -149,6 +149,7 @@ export function handleProviderEvent({
         toolUseId: msg.toolUseId || '',
         toolName: msg.toolName || '',
         toolInput: msg.toolInput,
+        semantic: msg.toolSemantic,
       });
       pluginEvents.emit('run.toolCall', {
         runId,
@@ -215,26 +216,38 @@ export function handleProviderEvent({
         console.warn('[PluginEvents] Event emission failed:', err instanceof Error ? err.message : err);
       });
 
-      if ((activeRun.providerType === 'claude' || activeRun.providerType === 'codex') && !msg.isToolError) {
-        if (toolName === 'EnterPlanMode') {
-          sendRunEvent({ type: 'mode_change', runId, sessionId: activeRun.sessionId, mode: 'plan' });
-          if (modeValue !== 'plan') {
-            activeRun.aiInitiatedPlanMode = true;
-            activeRun.originalMode = activeRun.originalMode ?? modeValue;
-            console.log(`[Permission] AI entered plan mode during ${modeValue} run`);
-          }
-          // Dynamically switch provider's mode so approval handler enforces read-only
-          const adapter = providerRegistry.get(activeRun.providerType!);
-          adapter?.setSessionMode?.(activeRun.sessionId, 'plan');
-        } else if (toolName === 'ExitPlanMode') {
-          const restoreMode = activeRun.originalMode || 'default';
-          sendRunEvent({ type: 'mode_change', runId, sessionId: activeRun.sessionId, mode: restoreMode });
-          activeRun.aiInitiatedPlanMode = false;
-          // Restore provider's original mode so writes are allowed again
-          const adapter = providerRegistry.get(activeRun.providerType!);
-          adapter?.setSessionMode?.(activeRun.sessionId, restoreMode);
+      break;
+    }
+
+    case 'mode_transition': {
+      // Provider SDKs translate their own plan-mode tool calls (Claude's
+      // EnterPlanMode / ExitPlanMode, Codex's normalized equivalents, Cursor's
+      // switchMode, …) into this normalized event. The runtime stays
+      // provider-agnostic — no tool-name or providerType branches here.
+      const transition = msg.modeTransition;
+      if (!transition) break;
+
+      const targetMode = transition.mode;
+      sendRunEvent({
+        type: 'mode_change',
+        runId,
+        sessionId: activeRun.sessionId,
+        mode: targetMode,
+      });
+
+      if (transition.reason === 'enter') {
+        if (modeValue !== 'plan') {
+          activeRun.aiInitiatedPlanMode = true;
+          activeRun.originalMode = activeRun.originalMode ?? modeValue;
+          console.log(`[Permission] AI entered plan mode during ${modeValue} run (provider=${activeRun.providerType})`);
         }
+      } else if (transition.reason === 'exit') {
+        activeRun.aiInitiatedPlanMode = false;
       }
+
+      // Let the provider sync any session-level mode state (permission gating).
+      const adapter = activeRun.providerType ? providerRegistry.get(activeRun.providerType) : undefined;
+      adapter?.setSessionMode?.(activeRun.sessionId, targetMode);
       break;
     }
 

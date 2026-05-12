@@ -1,11 +1,12 @@
 import { useState, useMemo, useEffect, useRef, memo } from 'react';
 import { AnsiUp } from 'ansi_up';
 import type { ToolCallState } from '../../stores/chatStore';
+import type { ToolSemantic } from '@my-claudia/shared';
 import { getToolIcon } from '../../config/icons';
 import { Icon } from '../../components/ui/Icon';
 import { CheckCircle2, XCircle, Loader2, ChevronDown, ChevronRight, Wrench, Square } from 'lucide-react';
-import { DiffViewer } from './DiffViewer';
-import { CodeViewer } from './CodeViewer';
+import { CodeViewer } from '../../components/renderers/CodeViewer';
+import { DiffViewer } from '../../components/renderers/DiffViewer';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useBottomPanelStore } from '../../stores/bottomPanelStore';
 import { useProjectStore } from '../../stores/projectStore';
@@ -126,22 +127,34 @@ function isPushFileTool(toolName: string): boolean {
   return hasInteractionToolSuffix(toolName, 'push_file');
 }
 
-// Check if tool is enter_plan_mode or exit_plan_mode (MCP or normalized)
-function isPlanModeTool(toolName: string): boolean {
+// Whether a tool participates in plan-mode UX. The provider SDK is the source
+// of truth — it tags its native plan tools with `toolSemantic`. We fall back to
+// MCP-bridge suffix detection for providers that don't speak the semantic yet
+// (i.e. the `claudia-plugins` enter/exit_plan_mode bridge).
+function isPlanModeTool(toolName: string, semantic?: ToolSemantic): boolean {
+  if (semantic === 'plan_enter' || semantic === 'plan_exit' || semantic === 'plan_proposal') {
+    return true;
+  }
   return hasInteractionToolSuffix(toolName, 'enter_plan_mode')
-    || hasInteractionToolSuffix(toolName, 'exit_plan_mode')
-    || toolName === 'EnterPlanMode'
-    || toolName === 'ExitPlanMode';
+    || hasInteractionToolSuffix(toolName, 'exit_plan_mode');
+}
+
+// Whether a tool carries a plan proposal that should be rendered as a plan
+// card. Driven by the shared `toolSemantic` so the UI does not need to know
+// provider-specific names like `ExitPlanMode` or `createPlan`.
+function isPlanProposalTool(toolName: string, semantic?: ToolSemantic): boolean {
+  if (semantic === 'plan_proposal') return true;
+  return hasInteractionToolSuffix(toolName, 'exit_plan_mode');
 }
 
 // Check if tool is any MCP interaction tool
-function isInteractionTool(toolName: string): boolean {
+function isInteractionTool(toolName: string, semantic?: ToolSemantic): boolean {
   return isTodoTool(toolName)
     || isAskUserFormTool(toolName)
     || isAskUserQuestionTool(toolName)
     || isApprovalTool(toolName)
     || isPushFileTool(toolName)
-    || isPlanModeTool(toolName);
+    || isPlanModeTool(toolName, semantic);
 }
 
 type TodoItem = {
@@ -178,7 +191,7 @@ function normalizeTodoItems(value: unknown): TodoItem[] {
 }
 
 // Format tool input for display
-function formatToolInput(toolName: string, input: unknown): string {
+function formatToolInput(toolName: string, input: unknown, semantic?: ToolSemantic): string {
   input = normalizeToolInput(input);
   if (!input || typeof input !== 'object') {
     return JSON.stringify(input, null, 2);
@@ -199,6 +212,22 @@ function formatToolInput(toolName: string, input: unknown): string {
   if (isPushFileTool(toolName)) {
     const filePath = obj.filePath as string || '';
     return filePath ? filePath.split('/').pop()! : 'Push file';
+  }
+
+  // Plan-mode tools (semantic-driven, provider-agnostic).
+  if (semantic === 'plan_enter') return 'Entering plan mode';
+  if (semantic === 'plan_exit') return 'Exiting plan mode';
+  if (isPlanProposalTool(toolName, semantic)) {
+    let planText = '';
+    if (obj.plan) {
+      planText = typeof obj.plan === 'string' ? obj.plan : JSON.stringify(obj.plan);
+    } else if (obj.plan_file && typeof obj.plan_file === 'string') {
+      planText = obj.plan_file as string;
+    } else if (Object.keys(obj).length > 0) {
+      planText = JSON.stringify(obj);
+    }
+    const firstLine = planText.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '') || 'Plan ready for review';
+    return firstLine.length > 60 ? firstLine.slice(0, 60) + '…' : firstLine;
   }
 
   switch (toolName) {
@@ -224,27 +253,6 @@ function formatToolInput(toolName: string, input: unknown): string {
       const questions = extractQuestions(obj.questions);
       return `${questions.length} question${questions.length !== 1 ? 's' : ''}`;
     }
-    case 'ExitPlanMode': {
-      // Try to extract a meaningful summary from plan data
-      let planText = '';
-
-      if (obj.plan) {
-        if (typeof obj.plan === 'string') {
-          planText = obj.plan;
-        } else if (typeof obj.plan === 'object') {
-          planText = JSON.stringify(obj.plan);
-        }
-      } else if (obj.plan_file && typeof obj.plan_file === 'string') {
-        planText = obj.plan_file;
-      } else if (Object.keys(obj).length > 0) {
-        planText = JSON.stringify(obj);
-      }
-
-      const firstLine = planText.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '') || 'Plan ready for review';
-      return firstLine.length > 60 ? firstLine.slice(0, 60) + '…' : firstLine;
-    }
-    case 'EnterPlanMode':
-      return 'Entering plan mode';
     default:
       return JSON.stringify(input, null, 2);
   }
@@ -405,12 +413,13 @@ function PlanContent({ content }: { content: string }) {
 }
 
 // Render expanded content based on tool type
-function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
+function ToolExpandedContent({ toolName, toolInput, status, result, isError, semantic }: {
   toolName: string;
   toolInput: unknown;
   status: ToolCallState['status'];
   result?: unknown;
   isError?: boolean;
+  semantic?: ToolSemantic;
 }) {
   // Check for custom plugin tool renderer
   const CustomRenderer = toolRendererRegistry.get(toolName);
@@ -573,8 +582,11 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
     );
   }
 
-  // ExitPlanMode: show plan content formatted
-  if (toolName === 'ExitPlanMode') {
+  // Plan proposal: show plan content formatted. Driven by the shared
+  // `toolSemantic` so this works for Claude's ExitPlanMode, Codex's MCP
+  // exit_plan_mode, Cursor's createPlan, and any future provider that tags
+  // its plan tool with `plan_proposal`.
+  if (isPlanProposalTool(toolName, semantic)) {
     // Try to get plan content from various possible formats
     let planContent = '';
 
@@ -754,7 +766,7 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError }: {
 
 export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallItemProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const { toolName, toolInput, status, result, isError, activity } = toolCall;
+  const { toolName, toolInput, status, result, isError, activity, semantic } = toolCall;
   const selectedSessionId = useProjectStore((s) => s.selectedSessionId);
   const pendingPromptRequest = usePromptRequestStore((s) => {
     if (!selectedSessionId || toolName !== 'AskUserQuestion') return null;
@@ -780,8 +792,10 @@ export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallIte
     const direct = s.interactions[toolCall.id] || (interactionId ? s.interactions[interactionId] : undefined);
     if (direct) return direct;
 
-    // exit_plan_mode creates a separate interaction before the tool result exists.
-    if (selectedSessionId && status === 'running' && (toolName === 'ExitPlanMode' || hasInteractionToolSuffix(toolName, 'exit_plan_mode'))) {
+    // A plan-proposal tool creates a separate interaction before the tool
+    // result exists. We match on the shared semantic (plus the MCP bridge
+    // suffix fallback) instead of provider-specific tool names.
+    if (selectedSessionId && status === 'running' && isPlanProposalTool(toolName, semantic)) {
       return Object.values(s.interactions)
         .filter((item) => item.sessionId === selectedSessionId && item.type === 'interaction_plan_review')
         .sort((a, b) => b.createdAt - a.createdAt)[0];
@@ -801,7 +815,7 @@ export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallIte
     return undefined;
   });
   const resolvedInteraction = interaction ?? fallbackPromptInteraction;
-  if (resolvedInteraction && isInteractionTool(toolName)) {
+  if (resolvedInteraction && isInteractionTool(toolName, semantic)) {
     if (resolvedInteraction.type === 'interaction_todo_update' && resolvedInteraction.todos.length > 0) {
       return <InteractionItem interaction={resolvedInteraction} />;
     }
@@ -816,7 +830,7 @@ export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallIte
     : isApprovalTool(toolName) ? 'RequestApproval'
     : isPushFileTool(toolName) ? 'PushFile'
     : toolName;
-  const summary = formatToolInput(toolName, toolInput);
+  const summary = formatToolInput(toolName, toolInput, semantic);
 
   // AskUserQuestion: user answers come back as "deny" (isError=true), but that's expected behavior
   const showAsError = isError && toolName !== 'AskUserQuestion';
@@ -878,6 +892,7 @@ export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallIte
           status={status}
           result={result}
           isError={isError}
+          semantic={semantic}
         />
       )}
     </div>
@@ -910,6 +925,22 @@ function getToolCallSummary(tc: ToolCallState): string {
     return fp ? fp.split('/').pop()! : 'Push file';
   }
 
+  // Plan-mode tools: semantic-driven so we don't hardcode provider tool names.
+  if (tc.semantic === 'plan_enter') return 'Enter plan mode';
+  if (tc.semantic === 'plan_exit') return 'Exit plan mode';
+  if (isPlanProposalTool(tc.toolName, tc.semantic)) {
+    let planText = '';
+    if (input.plan) {
+      planText = typeof input.plan === 'string' ? input.plan : JSON.stringify(input.plan);
+    } else if (input.plan_file && typeof input.plan_file === 'string') {
+      planText = input.plan_file;
+    } else if (Object.keys(input).length > 0) {
+      planText = JSON.stringify(input);
+    }
+    const title = planText.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '') || 'Plan';
+    return title.substring(0, 25);
+  }
+
   switch (tc.toolName) {
     case 'Read':
       return input.file_path ? String(input.file_path).split('/').pop()! : 'Read';
@@ -940,26 +971,6 @@ function getToolCallSummary(tc: ToolCallState): string {
       const questions = (input.questions as Array<{ header: string }>) || [];
       return questions[0]?.header || 'question';
     }
-    case 'ExitPlanMode': {
-      let planText = '';
-
-      if (input.plan) {
-        if (typeof input.plan === 'string') {
-          planText = input.plan;
-        } else if (typeof input.plan === 'object') {
-          planText = JSON.stringify(input.plan);
-        }
-      } else if (input.plan_file && typeof input.plan_file === 'string') {
-        planText = input.plan_file;
-      } else if (Object.keys(input).length > 0) {
-        planText = JSON.stringify(input);
-      }
-
-      const title = planText.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '') || 'Plan';
-      return title.substring(0, 25);
-    }
-    case 'EnterPlanMode':
-      return 'Enter plan mode';
     default:
       return tc.toolName;
   }

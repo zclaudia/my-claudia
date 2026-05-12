@@ -36,6 +36,7 @@ interface ProviderConfigContext {
 interface AdapterContext {
   manifest?: {
     nativeInteractionTools?: string[];
+    permissionModeMap?: Record<string, string | undefined>;
   };
 }
 
@@ -97,7 +98,7 @@ export async function buildRunContext(input: BuildRunContextInput): Promise<{
     }
   }
 
-  const nonNativePlanPrompt = modeValue === 'plan' && !providerSupportsNativePlanMode(providerType)
+  const nonNativePlanPrompt = modeValue === 'plan' && !providerSupportsNativePlanMode(adapter.manifest)
     ? buildNonNativePlanPrompt(providerType)
     : undefined;
   const planDocumentPrompt = forcedPlanBySession && session.task_id

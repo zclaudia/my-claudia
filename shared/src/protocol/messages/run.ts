@@ -59,6 +59,21 @@ export interface DeltaMessage {
   seq?: number;
 }
 
+/**
+ * Provider-declared semantic category for a tool call. Used by the UI to pick
+ * the right renderer (and by the runtime for cross-provider behaviors) without
+ * hardcoding provider-specific tool names. Each provider's SDK is responsible
+ * for tagging its own tools with the appropriate semantic; the common layers
+ * never branch on `toolName`.
+ */
+export type ToolSemantic =
+  /** Tool call whose input.plan carries a markdown plan to render to the user. */
+  | 'plan_proposal'
+  /** Tool call that transitions the session into plan mode. */
+  | 'plan_enter'
+  /** Tool call that transitions the session out of plan mode. */
+  | 'plan_exit';
+
 export interface ToolUseMessage {
   type: 'tool_use';
   runId: string;
@@ -66,6 +81,8 @@ export interface ToolUseMessage {
   toolUseId: string;
   toolName: string;
   toolInput: unknown;
+  /** Optional provider-declared semantic category. See {@link ToolSemantic}. */
+  semantic?: ToolSemantic;
   seq?: number;
 }
 

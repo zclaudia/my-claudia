@@ -6,6 +6,7 @@
  */
 
 import type { PermissionRequest } from '@my-claudia/shared/interaction/permissions';
+import type { ToolSemantic } from '@my-claudia/shared/protocol/messages/run';
 
 export interface PermissionDecision {
   behavior: 'allow' | 'deny';
@@ -30,13 +31,29 @@ export interface SystemInfo {
 }
 
 export interface ClaudeMessage {
-  type: 'init' | 'assistant' | 'result' | 'tool_use' | 'tool_result' | 'error' | 'task_notification' | 'tool_activity';
+  type:
+    | 'init'
+    | 'assistant'
+    | 'result'
+    | 'tool_use'
+    | 'tool_result'
+    | 'error'
+    | 'task_notification'
+    | 'tool_activity'
+    | 'mode_transition';
   sessionId?: string;
   content?: string;
   systemInfo?: SystemInfo;
   toolUseId?: string;
   toolName?: string;
   toolInput?: unknown;
+  /**
+   * Provider-supplied semantic tag for the tool. The provider SDK is the only
+   * place that knows whether one of its native tools carries a plan proposal
+   * or controls plan-mode; it tags those events here so the runtime and UI
+   * can react without string-matching tool names.
+   */
+  toolSemantic?: ToolSemantic;
   toolResult?: unknown;
   isToolError?: boolean;
   error?: string;
@@ -50,4 +67,20 @@ export interface ClaudeMessage {
   taskStatus?: string;
   taskMessage?: string;
   taskToolUseId?: string;
+
+  /**
+   * Provider-emitted semantic event. The provider SDK is the only place that
+   * knows the names of its own plan / mode-switching tools; it normalizes them
+   * into this event so the runtime stays provider-agnostic.
+   */
+  modeTransition?: {
+    /** Canonical target mode (e.g. 'plan', 'default'). */
+    mode: string;
+    /** 'enter' = entering plan mode, 'exit' = leaving plan mode. */
+    reason: 'enter' | 'exit';
+    /** Optional plan markdown to surface to the user (typically with reason='exit'). */
+    plan?: string;
+    /** Tool use id of the tool call that triggered this transition. */
+    sourceToolUseId?: string;
+  };
 }

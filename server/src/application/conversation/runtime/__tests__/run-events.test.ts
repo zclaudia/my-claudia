@@ -301,6 +301,160 @@ describe('ws/run-events', () => {
     expect(activeRuns.has('run-1')).toBe(false);
   });
 
+  // mode_transition is a provider-agnostic event. The runtime must react to it
+  // identically regardless of which provider emitted it — that's the whole
+  // point of normalizing plan-mode semantics into a single internal event.
+  it('routes a mode_transition (enter) into mode_change + aiInitiatedPlanMode + setSessionMode', async () => {
+    const sendRunEventMock = vi.fn();
+    const setSessionModeMock = vi.fn();
+    const registry = {
+      get: vi.fn(() => ({ setSessionMode: setSessionModeMock })),
+    };
+    const activeRun = {
+      sessionId: 'session-1',
+      // providerType is intentionally an arbitrary string — the runtime must
+      // not care what it is, only the manifest/adapter behavior matters.
+      providerType: 'cursor',
+      collectedToolCalls: [],
+      contentBlocks: [],
+      fullContent: '',
+      pendingPermissions: new Map(),
+      recentToolCalls: [],
+    } as any;
+
+    const { handleProviderEvent } = await import('../run-events.js');
+
+    handleProviderEvent({
+      activeRun,
+      activeRuns: new Map(),
+      broadcastHeartbeat: vi.fn(),
+      client: { ws: {} as any } as any,
+      db: {} as any,
+      input: 'hello',
+      modeValue: 'default',
+      msg: {
+        type: 'mode_transition',
+        modeTransition: { mode: 'plan', reason: 'enter', sourceToolUseId: 'tu-1' },
+      } as any,
+      notificationService: {} as any,
+      persistSessionWorkingDirectory: vi.fn(),
+      providerType: 'cursor',
+      runId: 'run-1',
+      sendRunEvent: sendRunEventMock,
+      sessionId: 'session-1',
+      sessionType: 'regular',
+      state: {},
+      toolUseIdToName: new Map(),
+      providerRegistry: registry as any,
+    });
+
+    expect(sendRunEventMock).toHaveBeenCalledWith({
+      type: 'mode_change', runId: 'run-1', sessionId: 'session-1', mode: 'plan',
+    });
+    expect(activeRun.aiInitiatedPlanMode).toBe(true);
+    expect(activeRun.originalMode).toBe('default');
+    expect(setSessionModeMock).toHaveBeenCalledWith('session-1', 'plan');
+  });
+
+  it('routes a mode_transition (exit) and clears aiInitiatedPlanMode', async () => {
+    const sendRunEventMock = vi.fn();
+    const setSessionModeMock = vi.fn();
+    const registry = {
+      get: vi.fn(() => ({ setSessionMode: setSessionModeMock })),
+    };
+    const activeRun = {
+      sessionId: 'session-1',
+      providerType: 'claude',
+      aiInitiatedPlanMode: true,
+      originalMode: 'default',
+      collectedToolCalls: [],
+      contentBlocks: [],
+      fullContent: '',
+      pendingPermissions: new Map(),
+      recentToolCalls: [],
+    } as any;
+
+    const { handleProviderEvent } = await import('../run-events.js');
+
+    handleProviderEvent({
+      activeRun,
+      activeRuns: new Map(),
+      broadcastHeartbeat: vi.fn(),
+      client: { ws: {} as any } as any,
+      db: {} as any,
+      input: 'hello',
+      modeValue: 'plan',
+      msg: {
+        type: 'mode_transition',
+        modeTransition: { mode: 'default', reason: 'exit' },
+      } as any,
+      notificationService: {} as any,
+      persistSessionWorkingDirectory: vi.fn(),
+      providerType: 'claude',
+      runId: 'run-1',
+      sendRunEvent: sendRunEventMock,
+      sessionId: 'session-1',
+      sessionType: 'regular',
+      state: {},
+      toolUseIdToName: new Map(),
+      providerRegistry: registry as any,
+    });
+
+    expect(sendRunEventMock).toHaveBeenCalledWith({
+      type: 'mode_change', runId: 'run-1', sessionId: 'session-1', mode: 'default',
+    });
+    expect(activeRun.aiInitiatedPlanMode).toBe(false);
+    expect(setSessionModeMock).toHaveBeenCalledWith('session-1', 'default');
+  });
+
+  it('forwards toolSemantic from internal tool_use through to the wire event', async () => {
+    const sendRunEventMock = vi.fn();
+    const activeRun = {
+      sessionId: 'session-1',
+      providerType: 'cursor',
+      collectedToolCalls: [],
+      contentBlocks: [],
+      fullContent: '',
+      pendingPermissions: new Map(),
+      recentToolCalls: [],
+    } as any;
+
+    const { handleProviderEvent } = await import('../run-events.js');
+
+    handleProviderEvent({
+      activeRun,
+      activeRuns: new Map(),
+      broadcastHeartbeat: vi.fn(),
+      client: { ws: {} as any } as any,
+      db: {} as any,
+      input: 'hello',
+      modeValue: 'default',
+      msg: {
+        type: 'tool_use',
+        toolUseId: 'tu-x',
+        toolName: 'createPlan',
+        toolInput: { plan: '# Plan' },
+        toolSemantic: 'plan_proposal',
+      } as any,
+      notificationService: {} as any,
+      persistSessionWorkingDirectory: vi.fn(),
+      providerType: 'cursor',
+      runId: 'run-1',
+      sendRunEvent: sendRunEventMock,
+      sessionId: 'session-1',
+      sessionType: 'regular',
+      state: {},
+      toolUseIdToName: new Map(),
+      providerRegistry: mockProviderRegistry as any,
+    });
+
+    expect(sendRunEventMock).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'tool_use',
+      toolName: 'createPlan',
+      semantic: 'plan_proposal',
+    }));
+  });
+
   it('swallows PID backfill errors and logs a warning', async () => {
     findProcessPidsByTaskCommandMock.mockRejectedValue(new Error('ps failed'));
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});

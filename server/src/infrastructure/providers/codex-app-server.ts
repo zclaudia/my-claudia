@@ -81,6 +81,37 @@ function normalizeClaudiaToolName(namespace: string | undefined, name: string): 
   return namespace ? `mcp:${namespace}:${name}` : name || 'Unknown';
 }
 
+// ── Codex AppServer plan-mode semantics ──────────────────────
+//
+// Plan-mode is routed through the claudia-plugins MCP bridge above, but the
+// downstream runtime and UI should not know that. The codex AppServer SDK
+// tags its outgoing tool_use messages with the shared `toolSemantic` and
+// emits a `mode_transition` event for the runtime to consume.
+
+function detectCodexAppServerToolSemantic(
+  toolName: string,
+): 'plan_enter' | 'plan_exit' | 'plan_proposal' | undefined {
+  if (toolName === 'EnterPlanMode') return 'plan_enter';
+  if (toolName === 'ExitPlanMode') return 'plan_proposal';
+  return undefined;
+}
+
+function deriveCodexAppServerModeTransition(
+  toolName: string,
+  input: unknown,
+  sourceToolUseId: string | undefined,
+): { mode: string; reason: 'enter' | 'exit'; plan?: string; sourceToolUseId?: string } | undefined {
+  if (toolName === 'EnterPlanMode') {
+    return { mode: 'plan', reason: 'enter', sourceToolUseId };
+  }
+  if (toolName === 'ExitPlanMode') {
+    const record = (input && typeof input === 'object') ? (input as Record<string, unknown>) : undefined;
+    const plan = typeof record?.plan === 'string' ? (record.plan as string) : undefined;
+    return { mode: 'default', reason: 'exit', plan, sourceToolUseId };
+  }
+  return undefined;
+}
+
 // ── Mode → sandbox/approval config args ──────────────────────
 //
 // NOTE: `sandbox_permissions` via `-c` has no effect in app-server mode
@@ -993,11 +1024,13 @@ export class CodexAppServerClient {
             toolInput = { _raw: String(item.arguments) };
           }
         }
+        const toolName = normalizeClaudiaToolName(item.namespace, item.name);
         return [{
           type: 'tool_use',
           toolUseId: item.id,
-          toolName: normalizeClaudiaToolName(item.namespace, item.name),
+          toolName,
           toolInput,
+          toolSemantic: detectCodexAppServerToolSemantic(toolName),
         }];
       }
 
@@ -1047,13 +1080,33 @@ export class CodexAppServerClient {
         const resultText = item.output
           ? (typeof item.output === 'string' ? item.output : JSON.stringify(item.output))
           : '';
-        return [{
+        const toolName = normalizeClaudiaToolName(item.namespace, item.name);
+        const messages: ClaudeMessage[] = [{
           type: 'tool_result',
           toolUseId: item.id,
-          toolName: normalizeClaudiaToolName(item.namespace, item.name),
+          toolName,
           toolResult: resultText,
           isToolError: item.status === 'failed',
         }];
+        if (item.status === 'completed') {
+          // Plan-mode transitions: surface via the shared mode_transition event
+          // so downstream layers stay provider-agnostic.
+          let parsedInput: unknown = {};
+          if (item.arguments) {
+            try {
+              parsedInput = typeof item.arguments === 'string'
+                ? JSON.parse(item.arguments)
+                : item.arguments;
+            } catch {
+              parsedInput = {};
+            }
+          }
+          const transition = deriveCodexAppServerModeTransition(toolName, parsedInput, item.id);
+          if (transition) {
+            messages.push({ type: 'mode_transition', modeTransition: transition });
+          }
+        }
+        return messages;
       }
 
       case 'webSearch': {

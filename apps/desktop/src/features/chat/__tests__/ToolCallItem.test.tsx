@@ -11,7 +11,7 @@ const mockWaitForReady = vi.fn();
 const terminalIdsByBackend = new Map<string, string>();
 
 // Mock heavy sub-components
-vi.mock('../DiffViewer', () => ({
+vi.mock('../../../components/renderers/DiffViewer', () => ({
   DiffViewer: ({ oldString, newString, filePath }: any) => (
     <div data-testid="diff-viewer">
       <span>{oldString}</span>
@@ -21,7 +21,7 @@ vi.mock('../DiffViewer', () => ({
   ),
 }));
 
-vi.mock('../CodeViewer', () => ({
+vi.mock('../../../components/renderers/CodeViewer', () => ({
   CodeViewer: ({ content, filePath }: any) => (
     <div data-testid="code-viewer">
       <span>{content}</span>
@@ -399,6 +399,7 @@ describe('ToolCallItem', () => {
       render(<ToolCallItem toolCall={createToolCall({
         toolName: 'EnterPlanMode',
         toolInput: {},
+        semantic: 'plan_enter',
       })} />);
       expect(screen.getByText('Entering plan mode')).toBeInTheDocument();
     });
@@ -743,6 +744,7 @@ describe('ToolCallItem', () => {
         toolName: 'ExitPlanMode',
         toolInput: { plan: 'Raw plan' },
         status: 'running',
+        semantic: 'plan_proposal',
       })} />);
 
       expect(screen.getByText('Plan Review')).toBeInTheDocument();
@@ -830,6 +832,7 @@ describe('ToolCallItem', () => {
         toolName: 'ExitPlanMode',
         toolInput: { plan: 'Raw plan' },
         status: 'running',
+        semantic: 'plan_proposal',
       })} />);
 
       fireEvent.change(
@@ -907,6 +910,7 @@ describe('ToolCallItem', () => {
       render(<ToolCallItem toolCall={createToolCall({
         toolName: 'ExitPlanMode',
         toolInput: { plan: '# My Plan\n\nStep 1: Do something' },
+        semantic: 'plan_proposal',
       })} />);
       fireEvent.click(screen.getByRole('button'));
       expect(screen.getAllByText(/My Plan/).length).toBeGreaterThanOrEqual(1);
@@ -917,6 +921,7 @@ describe('ToolCallItem', () => {
       render(<ToolCallItem toolCall={createToolCall({
         toolName: 'ExitPlanMode',
         toolInput: { plan: { steps: ['a', 'b'] } },
+        semantic: 'plan_proposal',
       })} />);
       fireEvent.click(screen.getByRole('button'));
       expect(screen.getAllByText(/"steps"/).length).toBeGreaterThanOrEqual(1);
@@ -926,6 +931,7 @@ describe('ToolCallItem', () => {
       render(<ToolCallItem toolCall={createToolCall({
         toolName: 'ExitPlanMode',
         toolInput: { plan_file: '/path/to/plan.md' },
+        semantic: 'plan_proposal',
       })} />);
       fireEvent.click(screen.getByRole('button'));
       expect(screen.getAllByText(/Plan file:/).length).toBeGreaterThanOrEqual(1);
@@ -935,6 +941,7 @@ describe('ToolCallItem', () => {
       render(<ToolCallItem toolCall={createToolCall({
         toolName: 'ExitPlanMode',
         toolInput: {},
+        semantic: 'plan_proposal',
       })} />);
       fireEvent.click(screen.getByRole('button'));
       expect(screen.getAllByText(/Plan ready for review/).length).toBeGreaterThanOrEqual(1);
@@ -946,6 +953,7 @@ describe('ToolCallItem', () => {
         toolInput: { plan: '# Plan' },
         status: 'completed',
         result: 'Plan approved',
+        semantic: 'plan_proposal',
       })} />);
       fireEvent.click(screen.getByRole('button'));
       expect(screen.getByTestId('tool-result').textContent).toContain('Plan approved');
@@ -956,9 +964,21 @@ describe('ToolCallItem', () => {
       render(<ToolCallItem toolCall={createToolCall({
         toolName: 'ExitPlanMode',
         toolInput: { plan: longPlan },
+        semantic: 'plan_proposal',
       })} />);
       fireEvent.click(screen.getByRole('button'));
       expect(screen.getByText(/Show full plan/)).toBeInTheDocument();
+    });
+
+    it('renders plan content for cursor-style createPlan via semantic only', () => {
+      render(<ToolCallItem toolCall={createToolCall({
+        toolName: 'createPlan',
+        toolInput: { plan: '# Cursor Plan\n\nDo X first' },
+        semantic: 'plan_proposal',
+      })} />);
+      fireEvent.click(screen.getByRole('button'));
+      expect(screen.getAllByText(/Cursor Plan/).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText(/Do X first/).length).toBeGreaterThanOrEqual(1);
     });
   });
 

@@ -201,6 +201,109 @@ describe('cursor-sdk', () => {
     });
   });
 
+  describe('plan-mode normalization', () => {
+    async function collectAll(generator: AsyncGenerator<ClaudeMessage, void, void>): Promise<ClaudeMessage[]> {
+      const out: ClaudeMessage[] = [];
+      for await (const msg of generator) out.push(msg);
+      return out;
+    }
+
+    it('switchMode(targetModeId=plan) tags tool_use with plan_enter and emits enter mode_transition', async () => {
+      const startedEvent = {
+        type: 'tool_call', subtype: 'started', call_id: 'sm-1',
+        tool_call: { switchModeToolCall: { args: { targetModeId: 'plan' } } },
+      };
+      const completedEvent = {
+        type: 'tool_call', subtype: 'completed', call_id: 'sm-1',
+        tool_call: { switchModeToolCall: { args: { targetModeId: 'plan' }, result: { success: { message: 'switched' } } } },
+      };
+
+      const generator = runCursor('test', { cwd: '/test' }, vi.fn());
+      stdout.push(JSON.stringify(startedEvent) + '\n');
+      stdout.push(JSON.stringify(completedEvent) + '\n');
+      stdout.push(null);
+
+      const messages = await collectAll(generator);
+      const toolUse = messages.find((m) => m.type === 'tool_use');
+      expect(toolUse?.toolName).toBe('switchMode');
+      expect(toolUse?.toolSemantic).toBe('plan_enter');
+
+      const transition = messages.find((m) => m.type === 'mode_transition');
+      expect(transition?.modeTransition?.mode).toBe('plan');
+      expect(transition?.modeTransition?.reason).toBe('enter');
+      expect(transition?.modeTransition?.sourceToolUseId).toBe('sm-1');
+    });
+
+    it('switchMode(targetModeId=agent) tags tool_use with plan_exit and emits exit mode_transition', async () => {
+      const startedEvent = {
+        type: 'tool_call', subtype: 'started', call_id: 'sm-2',
+        tool_call: { switchModeToolCall: { args: { targetModeId: 'agent' } } },
+      };
+      const completedEvent = {
+        type: 'tool_call', subtype: 'completed', call_id: 'sm-2',
+        tool_call: { switchModeToolCall: { args: { targetModeId: 'agent' }, result: { success: { message: 'switched' } } } },
+      };
+
+      const generator = runCursor('test', { cwd: '/test' }, vi.fn());
+      stdout.push(JSON.stringify(startedEvent) + '\n');
+      stdout.push(JSON.stringify(completedEvent) + '\n');
+      stdout.push(null);
+
+      const messages = await collectAll(generator);
+      const toolUse = messages.find((m) => m.type === 'tool_use');
+      expect(toolUse?.toolSemantic).toBe('plan_exit');
+
+      const transition = messages.find((m) => m.type === 'mode_transition');
+      expect(transition?.modeTransition?.reason).toBe('exit');
+      expect(transition?.modeTransition?.mode).toBe('default');
+    });
+
+    it('createPlan tags tool_use with plan_proposal and does not emit a mode_transition', async () => {
+      const startedEvent = {
+        type: 'tool_call', subtype: 'started', call_id: 'cp-1',
+        tool_call: { createPlanToolCall: { args: { plan: '# Plan\n\n- step 1' } } },
+      };
+      const completedEvent = {
+        type: 'tool_call', subtype: 'completed', call_id: 'cp-1',
+        tool_call: { createPlanToolCall: { args: { plan: '# Plan\n\n- step 1' }, result: { success: { message: 'done' } } } },
+      };
+
+      const generator = runCursor('test', { cwd: '/test' }, vi.fn());
+      stdout.push(JSON.stringify(startedEvent) + '\n');
+      stdout.push(JSON.stringify(completedEvent) + '\n');
+      stdout.push(null);
+
+      const messages = await collectAll(generator);
+      const toolUse = messages.find((m) => m.type === 'tool_use');
+      expect(toolUse?.toolName).toBe('createPlan');
+      expect(toolUse?.toolSemantic).toBe('plan_proposal');
+
+      const transitions = messages.filter((m) => m.type === 'mode_transition');
+      expect(transitions).toHaveLength(0);
+    });
+
+    it('non-plan switchMode args do not emit a transition', async () => {
+      const startedEvent = {
+        type: 'tool_call', subtype: 'started', call_id: 'sm-3',
+        tool_call: { switchModeToolCall: { args: {} } },
+      };
+      const completedEvent = {
+        type: 'tool_call', subtype: 'completed', call_id: 'sm-3',
+        tool_call: { switchModeToolCall: { args: {}, result: { success: { message: 'noop' } } } },
+      };
+
+      const generator = runCursor('test', { cwd: '/test' }, vi.fn());
+      stdout.push(JSON.stringify(startedEvent) + '\n');
+      stdout.push(JSON.stringify(completedEvent) + '\n');
+      stdout.push(null);
+
+      const messages = await collectAll(generator);
+      const toolUse = messages.find((m) => m.type === 'tool_use');
+      expect(toolUse?.toolSemantic).toBeUndefined();
+      expect(messages.filter((m) => m.type === 'mode_transition')).toHaveLength(0);
+    });
+  });
+
   describe('prepareCursorInput (via runCursor)', () => {
     it('应该正确处理纯文本输入', async () => {
       const initEvent = {

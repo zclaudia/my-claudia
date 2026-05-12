@@ -42,6 +42,56 @@ interface ToolCallInfo {
   result?: unknown;
 }
 
+// ── Cursor-specific plan-mode semantics ──────────────────────
+//
+// cursor-agent owns two native tools we need to surface to the common UX:
+//   - `switchMode`  → flips the session into/out of plan mode
+//   - `createPlan`  → emits a markdown plan proposal while in plan mode
+//
+// The cursor SDK is the only place that knows these names. It normalizes them
+// into the provider-agnostic `toolSemantic` tag (for UI rendering) and
+// `mode_transition` event (for runtime mode state) so nothing downstream
+// branches on provider type or cursor-specific tool names.
+
+function detectCursorToolSemantic(
+  toolName: string,
+  args: unknown,
+): 'plan_enter' | 'plan_exit' | 'plan_proposal' | undefined {
+  if (toolName === 'createPlan') return 'plan_proposal';
+  if (toolName === 'switchMode') {
+    const target = readSwitchModeTarget(args);
+    if (target === 'plan') return 'plan_enter';
+    if (target) return 'plan_exit';
+  }
+  return undefined;
+}
+
+function deriveCursorModeTransition(
+  toolName: string,
+  args: unknown,
+  sourceToolUseId: string | undefined,
+): { mode: string; reason: 'enter' | 'exit'; sourceToolUseId?: string; plan?: string } | undefined {
+  if (toolName !== 'switchMode') return undefined;
+  const target = readSwitchModeTarget(args);
+  if (!target) return undefined;
+  return {
+    mode: target === 'plan' ? 'plan' : 'default',
+    reason: target === 'plan' ? 'enter' : 'exit',
+    sourceToolUseId,
+  };
+}
+
+function readSwitchModeTarget(args: unknown): string | undefined {
+  if (!args || typeof args !== 'object') return undefined;
+  const record = args as Record<string, unknown>;
+  const candidates = ['targetModeId', 'targetMode', 'mode'];
+  for (const key of candidates) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
 function extractToolCall(toolCallObj: Record<string, unknown>): ToolCallInfo | null {
   for (const key of Object.keys(toolCallObj)) {
     const tc = toolCallObj[key] as { args?: unknown; result?: unknown } | undefined;
@@ -391,6 +441,8 @@ function mapCursorEvent(
       const info = extractToolCall(toolCallObj);
       if (!info) break;
 
+      const semantic = detectCursorToolSemantic(info.toolName, info.args);
+
       if (evSubtype === 'started') {
         results.push({
           msg: {
@@ -398,6 +450,7 @@ function mapCursorEvent(
             toolUseId: callId,
             toolName: info.toolName,
             toolInput: info.args,
+            toolSemantic: semantic,
           },
         });
       } else if (evSubtype === 'completed') {
@@ -411,6 +464,13 @@ function mapCursorEvent(
             toolResult: resultStr,
           },
         });
+
+        // After a successful mode-switching tool completes, normalize to the
+        // shared mode_transition event so the runtime stays provider-agnostic.
+        const transition = deriveCursorModeTransition(info.toolName, info.args, callId);
+        if (transition) {
+          results.push({ msg: { type: 'mode_transition', modeTransition: transition } });
+        }
       }
       break;
     }
