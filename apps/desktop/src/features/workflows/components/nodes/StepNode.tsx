@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { GitCommit, GitMerge, GitBranch, GitPullRequest, Bot, Terminal, Globe, Bell, HelpCircle, Pause, Puzzle, Shield, ShieldCheck, ShieldAlert } from 'lucide-react';
 import type { BuiltinWorkflowStepType } from '@my-claudia/shared';
+import { useWorkflowStore } from '../../store';
 
 const STEP_ICONS: Record<BuiltinWorkflowStepType, React.ReactNode> = {
   git_commit: <GitCommit size={14} />,
@@ -35,7 +36,9 @@ export const StepNode = memo(function StepNode({ data, selected }: NodeProps) {
   const nodeData = data as StepNodeData;
   const isCondition = nodeData.stepType === 'condition';
   const hasErrorRoute = nodeData.onError === 'route';
-  const supportsLoop = !isCondition;
+  const supportsLoop = useWorkflowStore((state) =>
+    !isCondition && state.stepTypes.some((m) => m.type === nodeData.stepType && m.supportsLoop === true),
+  );
 
   return (
     <div className={`px-4 py-3 rounded-lg border-2 shadow-sm min-w-[180px] transition-colors ${

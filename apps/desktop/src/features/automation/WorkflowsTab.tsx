@@ -52,17 +52,24 @@ export function WorkflowsTab({ api, projects, globalPermissionWorkflowOverrideId
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const query = effectiveProjectId ? `?projectId=${encodeURIComponent(effectiveProjectId)}` : '';
+      // Global view shows workflows with project_id IS NULL (truly global + system fallback),
+      // which won't match the internal __global project id. Fetch unscoped and filter.
+      const query = selectedIsGlobal || !effectiveProjectId
+        ? ''
+        : `?projectId=${encodeURIComponent(effectiveProjectId)}`;
       const [wfs, tpls] = await Promise.all([
         api.get(`/api/workflows${query}`),
         api.get('/api/workflow-templates'),
       ]);
+      const scoped = selectedIsGlobal
+        ? wfs.filter((w: Workflow) => !w.projectId)
+        : wfs;
       // Filter out simple automations — they belong in Automations tab
-      setWorkflows(wfs.filter((w: Workflow) => w.authoringMode !== 'simple'));
+      setWorkflows(scoped.filter((w: Workflow) => w.authoringMode !== 'simple'));
       setTemplates(tpls.filter((template: WorkflowTemplate) => template.id !== PERMISSION_FALLBACK_TEMPLATE_ID));
     } catch { /* ignore */ }
     setLoading(false);
-  }, [api, effectiveProjectId]);
+  }, [api, effectiveProjectId, selectedIsGlobal]);
 
   useEffect(() => { refresh(); }, [refresh]);
 

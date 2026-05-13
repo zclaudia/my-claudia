@@ -471,14 +471,14 @@ export function createWorkflowRoutes(
   // GET /api/workflow-step-types
   router.get('/workflow-step-types', (_req: Request, res: Response) => {
     const builtinMeta: WorkflowStepTypeMeta[] = [
-      { type: 'git_commit', name: 'Git Commit', description: 'Commit changes', category: 'Git', source: 'builtin' },
-      { type: 'git_merge', name: 'Git Merge', description: 'Merge branches', category: 'Git', source: 'builtin' },
+      { type: 'git_commit', name: 'Git Commit', description: 'Commit changes', category: 'Git', source: 'builtin', supportsLoop: true },
+      { type: 'git_merge', name: 'Git Merge', description: 'Merge branches', category: 'Git', source: 'builtin', supportsLoop: true },
       { type: 'create_worktree', name: 'Create Worktree', description: 'Create a git worktree', category: 'Git', source: 'builtin' },
-      { type: 'create_pr', name: 'Create PR', description: 'Create a pull request', category: 'Git', source: 'builtin' },
-      { type: 'ai_review', name: 'AI Review', description: 'AI code review', category: 'AI', source: 'builtin' },
-      { type: 'ai_prompt', name: 'AI Prompt', description: 'Send prompt to AI', category: 'AI', source: 'builtin' },
-      { type: 'shell', name: 'Shell Command', description: 'Execute shell command', category: 'Automation', source: 'builtin' },
-      { type: 'webhook', name: 'Webhook', description: 'HTTP webhook call', category: 'Automation', source: 'builtin' },
+      { type: 'create_pr', name: 'Create PR', description: 'Create a pull request', category: 'Git', source: 'builtin', supportsLoop: true },
+      { type: 'ai_review', name: 'AI Review', description: 'AI code review', category: 'AI', source: 'builtin', supportsLoop: true },
+      { type: 'ai_prompt', name: 'AI Prompt', description: 'Send prompt to AI', category: 'AI', source: 'builtin', supportsLoop: true },
+      { type: 'shell', name: 'Shell Command', description: 'Execute shell command', category: 'Automation', source: 'builtin', supportsLoop: true },
+      { type: 'webhook', name: 'Webhook', description: 'HTTP webhook call', category: 'Automation', source: 'builtin', supportsLoop: true },
       { type: 'notify', name: 'Notify', description: 'Send notification', category: 'Automation', source: 'builtin' },
       { type: 'condition', name: 'Condition', description: 'Conditional branching', category: 'Flow Control', source: 'builtin' },
       { type: 'wait', name: 'Wait / Approval', description: 'Wait or require approval', category: 'Flow Control', source: 'builtin' },

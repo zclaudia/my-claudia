@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Terminal as TerminalIcon } from 'lucide-react';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useChangesPanelStore } from '../../stores/changesPanelStore';
@@ -26,6 +26,8 @@ export function ChangesPanel({ projectId, projectRoot }: ChangesPanelProps) {
   const pickedSinceBySession = useChangesPanelStore((s) => s.pickedSinceBySession);
   const setPickedSince = useChangesPanelStore((s) => s.setPickedSince);
 
+  const clearPickedSince = useChangesPanelStore((s) => s.clearPickedSince);
+
   const pickedSince = selectedSessionId && selectedSessionId in pickedSinceBySession
     ? pickedSinceBySession[selectedSessionId]
     : undefined;
@@ -39,11 +41,21 @@ export function ChangesPanel({ projectId, projectRoot }: ChangesPanelProps) {
   // dropdown being open — JSON-parsing all user messages is O(N) per render.
   const [sinceOpen, setSinceOpen] = useState(false);
 
-  const { result, effectiveSinceId, effectiveSinceOption } = useChangesData(
+  const { result, effectiveSinceId, effectiveSinceOption, latestUserMessageId } = useChangesData(
     selectedSessionId,
     pickedSince,
     projectRoot,
   );
+
+  // Auto-clear stale pickedSince: if messages have loaded (latestUserMessageId is set)
+  // but the stored ID can no longer be found, reset to the default (latest message).
+  useEffect(() => {
+    if (!selectedSessionId || pickedSince === undefined || pickedSince === null) return;
+    if (latestUserMessageId && !effectiveSinceOption) {
+      clearPickedSince(selectedSessionId);
+    }
+  }, [selectedSessionId, pickedSince, latestUserMessageId, effectiveSinceOption, clearPickedSince]);
+
   const { modified, affected, turns } = result;
   // Newest turn first so the user's latest context is at the top of the panel.
   // Empty turns (no Done activity, no Open issues) are hidden — they add noise
@@ -118,7 +130,7 @@ export function ChangesPanel({ projectId, projectRoot }: ChangesPanelProps) {
             user has anchored "since" to a specific user message (i.e. the
             view is scoped to one or more turns rooted at that turn).
             "Entire session" picks span all turns — skip until merge UI is built. */}
-        {effectiveSinceId && (() => {
+        {effectiveSinceId && effectiveSinceOption && (() => {
           const summaryTurn = turns.find((t) => t.userMessageId === effectiveSinceId) ?? null;
           return (
             <SummarySection

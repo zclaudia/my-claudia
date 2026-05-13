@@ -57,8 +57,8 @@ export function WorkflowEditor({ workflow, projectId, onBack, onSaved, standalon
   const providerId = project?.providerId ?? projects.find(p => p.providerId)?.providerId ?? '';
 
   useEffect(() => {
-    if (!standalone) loadStepTypes();
-  }, [standalone]);
+    loadStepTypes();
+  }, [loadStepTypes]);
 
   const initial = getInitialDefinition(workflow);
 

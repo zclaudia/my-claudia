@@ -210,7 +210,7 @@ describe('WorkflowEditor', () => {
     expect(mockLoadStepTypes).toHaveBeenCalled();
   });
 
-  it('does not call loadStepTypes on mount when standalone', () => {
+  it('calls loadStepTypes on mount in standalone mode', () => {
     render(
       <WorkflowEditor
         projectId="proj-1"
@@ -220,7 +220,7 @@ describe('WorkflowEditor', () => {
         serverUrl="http://localhost:3100"
       />
     );
-    expect(mockLoadStepTypes).not.toHaveBeenCalled();
+    expect(mockLoadStepTypes).toHaveBeenCalled();
   });
 
   it('renders breadcrumb navigation (non-standalone)', () => {

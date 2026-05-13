@@ -38,6 +38,8 @@ export interface WorkflowStepTypeMeta {
   icon?: string;
   configSchema?: Record<string, unknown>;
   source: string;
+  /** When true, the editor renders loop / loop_exhausted source handles for this step type. */
+  supportsLoop?: boolean;
 }
 
 export interface WorkflowTriggerSourceMeta {
