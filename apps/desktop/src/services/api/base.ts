@@ -18,6 +18,15 @@ export class AuthError extends Error {
   }
 }
 
+async function readAuthErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const body = await response.clone().json() as { error?: { message?: string } } | undefined;
+    return body?.error?.message?.trim() || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function getBaseUrlForBackend(backendId?: string | null): string {
   const activeId = backendId ?? useServerStore.getState().activeServerId;
   const controlPlaneMode = getControlPlaneMode();
@@ -117,10 +126,10 @@ export async function fetchApiForBackend<T>(
 
   // Handle authentication errors
   if (response.status === 401) {
-    throw new AuthError('Authentication required');
+    throw new AuthError(await readAuthErrorMessage(response, 'Authentication required'));
   }
   if (response.status === 403) {
-    throw new AuthError('Access forbidden');
+    throw new AuthError(await readAuthErrorMessage(response, 'Access forbidden'));
   }
 
   return response.json();
@@ -173,10 +182,10 @@ export async function fetchLocalApi<T>(
   });
 
   if (response.status === 401) {
-    throw new AuthError('Authentication required');
+    throw new AuthError(await readAuthErrorMessage(response, 'Authentication required'));
   }
   if (response.status === 403) {
-    throw new AuthError('Access forbidden');
+    throw new AuthError(await readAuthErrorMessage(response, 'Access forbidden'));
   }
 
   return response.json();

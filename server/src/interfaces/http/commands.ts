@@ -132,6 +132,7 @@ export function createCommandsRoutes(): Router {
       // Security: validate commandPath is within allowed directories
       const resolvedPath = path.resolve(commandPath);
       const userBase = path.resolve(path.join(os.homedir(), '.claude', 'commands'));
+      const pluginsBase = path.resolve(path.join(os.homedir(), '.claude', 'plugins'));
       const projectBase = context?.projectPath
         ? path.resolve(path.join(context.projectPath, '.claude', 'commands'))
         : null;
@@ -141,10 +142,10 @@ export function createCommandsRoutes(): Router {
         return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
       };
 
-      if (!(isUnderBase(userBase) || (projectBase && isUnderBase(projectBase)))) {
+      if (!(isUnderBase(userBase) || isUnderBase(pluginsBase) || (projectBase && isUnderBase(projectBase)))) {
         res.status(403).json({
           success: false,
-          error: { code: 'FORBIDDEN', message: 'Command must be in .claude/commands directory' }
+          error: { code: 'FORBIDDEN', message: 'Command must be in .claude/commands or .claude/plugins directory' }
         });
         return;
       }

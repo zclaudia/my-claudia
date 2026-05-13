@@ -256,6 +256,24 @@ describe('commands routes', () => {
         expect(res.body.error.code).toBe('FORBIDDEN');
       });
 
+      it('allows plugin command paths under .claude/plugins', async () => {
+        const commandContent = '# Plugin Command\nHello from plugin.';
+        vi.mocked(fs.existsSync).mockReturnValue(true);
+        vi.mocked(fs.readFileSync).mockReturnValue(commandContent);
+
+        const res = await request(app)
+          .post('/api/commands/execute')
+          .send({
+            commandName: '/plugin-cmd',
+            commandPath: '/home/testuser/.claude/plugins/foo-plugin/commands/foo.md',
+            context: {}
+          });
+
+        expect(res.status).toBe(200);
+        expect(res.body.data.type).toBe('custom');
+        expect(res.body.data.content).toBe(commandContent);
+      });
+
       it('returns 404 when command file not found', async () => {
         vi.mocked(fs.existsSync).mockReturnValue(false);
 
