@@ -1,10 +1,11 @@
 import type { ProviderAdapter, RunOptions, ClaudeMessage, PermissionCallback } from './types.js';
 import { runCursor, abortCursorSession } from './cursor-sdk.js';
-import { CURSOR_MANIFEST } from './manifests.js';
+import { CURSOR_MANIFEST, CURSOR_POLICY } from './manifests.js';
 
 export class CursorAdapter implements ProviderAdapter {
   readonly type = 'cursor';
   readonly manifest = CURSOR_MANIFEST;
+  readonly policy = CURSOR_POLICY;
 
   /**
    * cursor-agent spawns a fresh child process per turn (mode passed via the

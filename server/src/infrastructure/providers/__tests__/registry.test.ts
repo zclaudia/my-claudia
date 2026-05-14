@@ -87,4 +87,15 @@ describe('ProviderRegistry', () => {
       expect(adapter).toBeDefined();
     });
   });
+
+  describe('provider definition', () => {
+    it('returns provider policy separately from the PCP capability manifest', () => {
+      const policy = providerRegistry.getPolicy('cursor');
+      const definition = providerRegistry.getDefinition('cursor');
+
+      expect(policy?.modeSwitchSessionPolicy).toBe('preserve');
+      expect(definition?.capabilityManifest.providerType).toBe('cursor');
+      expect(definition?.policy).toBe(policy);
+    });
+  });
 });

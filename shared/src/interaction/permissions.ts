@@ -161,7 +161,7 @@ export const DEFAULT_UNIFIED_POLICY: UnifiedPermissionPolicy = {
   customRules: [],
   // Only generic, provider-agnostic tool names live in the shared default.
   // Provider-specific always-escalate tools (e.g. Claude's ExitPlanMode) come
-  // from each provider's PCP manifest (`escalateAlwaysTools`) and are unioned
+  // from each provider's policy (`escalateAlwaysTools`) and are unioned
   // into the effective policy at evaluation time.
   escalateAlways: ['AskUserQuestion'],
   aiReview: DEFAULT_AI_REVIEW_CONFIG,
@@ -182,7 +182,7 @@ function cloneUnifiedPolicy(policy: UnifiedPermissionPolicy): UnifiedPermissionP
 /**
  * Ensure AskUserQuestion is present in the escalateAlways list. Provider-
  * specific tools (e.g. plan-mode submissions) are NOT added here — those
- * live on each provider's PCP manifest (`escalateAlwaysTools`) and get
+ * live on each provider's policy (`escalateAlwaysTools`) and get
  * unioned in at evaluation time.
  */
 export function ensureEscalateAlways(list?: string[]): string[] {

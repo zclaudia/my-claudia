@@ -35,8 +35,10 @@ interface ProviderConfigContext {
 
 interface AdapterContext {
   manifest?: {
-    nativeInteractionTools?: string[];
     permissionModeMap?: Record<string, string | undefined>;
+  };
+  policy?: {
+    nativeInteractionTools?: string[];
   };
 }
 
@@ -81,7 +83,7 @@ export async function buildRunContext(input: BuildRunContextInput): Promise<{
     sessionType,
   } = input;
 
-  const nativeToolSet = new Set(adapter?.manifest?.nativeInteractionTools ?? []);
+  const nativeToolSet = new Set(adapter?.policy?.nativeInteractionTools ?? []);
   const allInteractionTools = pluginToolRegistry.getAll().filter((tool) => tool.source === 'interaction');
   const injectableInteractionTools = allInteractionTools.filter((tool) => !nativeToolSet.has(tool.id));
   const hasInteractionTools = injectableInteractionTools.length > 0;

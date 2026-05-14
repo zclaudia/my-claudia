@@ -1,7 +1,7 @@
 import type { ProviderAdapter, RunOptions, ClaudeMessage, PermissionCallback } from './types.js';
 import { runClaude, type ClaudeQueryHandle } from './claude-sdk.js';
 import type { PermissionMode } from '@my-claudia/shared/core/provider';
-import { CLAUDE_MANIFEST } from './manifests.js';
+import { CLAUDE_MANIFEST, CLAUDE_POLICY } from './manifests.js';
 import {
   isProcessAlive,
   listDescendantProcesses,
@@ -38,6 +38,7 @@ export interface TaskProcessInfo {
 export class ClaudeAdapter implements ProviderAdapter {
   readonly type = 'claude';
   readonly manifest = CLAUDE_MANIFEST;
+  readonly policy = CLAUDE_POLICY;
   private runAbortControllers = new WeakMap<RunOptions, AbortController>();
 
   // Track abort controllers per session so abort() can signal cancellation

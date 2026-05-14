@@ -1,7 +1,7 @@
 /**
  * Decide the cwd a resumed provider run should use.
  *
- * The policy is declarative on the provider's manifest (`sessionCwdPolicy`):
+ * The policy is declarative on the provider's runtime policy (`sessionCwdPolicy`):
  *   - `'pinned'`   → stick to the original session root (Kimi, anyone else
  *                    that stores sessions under work-dir-scoped storage)
  *   - `'requested'` (default) → honour the caller's requested cwd

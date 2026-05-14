@@ -24,7 +24,7 @@ interface HandleRunExceptionInput {
     providerType?: string,
     authErrorHint?: { matchAny: Array<string | string[]>; message: string },
   ) => string;
-  providerRegistry?: { get(type: string): { manifest?: { authErrorHint?: { matchAny: Array<string | string[]>; message: string } } } | undefined };
+  providerRegistry?: { getPolicy(type: string): { authErrorHint?: { matchAny: Array<string | string[]>; message: string } } | undefined };
   handleRetry: () => Promise<void>;
   isHardQuotaExceededError: (message: string) => boolean;
   message: {
@@ -67,7 +67,7 @@ export async function handleRunException(input: HandleRunExceptionInput): Promis
 
   const errMsg = error instanceof Error ? error.message : '';
   const authHint = activeRun.providerType
-    ? input.providerRegistry?.get(activeRun.providerType)?.manifest?.authErrorHint
+    ? input.providerRegistry?.getPolicy(activeRun.providerType)?.authErrorHint
     : undefined;
   const formattedErrMsg = formatProviderErrorMessage(errMsg, activeRun.providerType, authHint);
   const sessionResetRetryCount = recoveryState.sessionResetRetryCount || 0;

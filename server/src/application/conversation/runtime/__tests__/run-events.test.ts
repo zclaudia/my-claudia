@@ -20,6 +20,7 @@ const mockProviderRegistry = {
       rootPid: undefined,
     })),
   })),
+  getPolicy: vi.fn(() => undefined),
   getOrDefault: vi.fn(),
 };
 
@@ -235,10 +236,11 @@ describe('ws/run-events', () => {
     expect(broadcastHeartbeatMock).toHaveBeenCalledTimes(1);
   });
 
-  it('injects an emptyResultFallback delta from the manifest when a tool-only turn ends silently', async () => {
+  it('injects an emptyResultFallback delta from provider policy when a tool-only turn ends silently', async () => {
     const sendRunEventMock = vi.fn();
     const registry = {
-      get: vi.fn(() => ({ manifest: { emptyResultFallback: 'fallback text' } })),
+      get: vi.fn(),
+      getPolicy: vi.fn(() => ({ emptyResultFallback: 'fallback text' })),
     };
     const activeRun = {
       sessionId: 'session-1',
@@ -284,10 +286,11 @@ describe('ws/run-events', () => {
     expect(activeRun.fullContent).toBe('fallback text');
   });
 
-  it('does not inject a fallback when the provider manifest declares none', async () => {
+  it('does not inject a fallback when provider policy declares none', async () => {
     const sendRunEventMock = vi.fn();
     const registry = {
-      get: vi.fn(() => ({ manifest: {} })),
+      get: vi.fn(),
+      getPolicy: vi.fn(() => ({})),
     };
     const activeRun = {
       sessionId: 'session-1',

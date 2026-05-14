@@ -1,10 +1,11 @@
 import type { ProviderAdapter, RunOptions, ClaudeMessage, PermissionCallback } from './types.js';
 import { runCodexAppServer, abortCodexAppServer, setAppServerClientMode } from './codex-app-server.js';
-import { CODEX_MANIFEST } from './manifests.js';
+import { CODEX_MANIFEST, CODEX_POLICY } from './manifests.js';
 
 export class CodexAppServerAdapter implements ProviderAdapter {
   readonly type = 'codex';
   readonly manifest = CODEX_MANIFEST;
+  readonly policy = CODEX_POLICY;
 
   async *run(
     input: string,

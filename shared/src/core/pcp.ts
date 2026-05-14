@@ -68,64 +68,6 @@ export interface PCPProviderManifest {
 
   /** PCP standard mode → provider native mode string */
   permissionModeMap?: Partial<Record<PCPPermissionMode, string>>;
-
-  /**
-   * Interaction tool IDs that this provider supports natively.
-   * Tools listed here will NOT be injected via MCP bridge (to avoid conflicts).
-   * Tools NOT listed here will be injected so the provider gains those capabilities.
-   */
-  nativeInteractionTools?: string[];
-
-  /**
-   * Message the runtime should inject as the assistant's reply if the run
-   * completed with at least one tool call but no text output. Used by
-   * providers (e.g. OpenCode) that sometimes finish without emitting a final
-   * narrative — the alternative would be a silently empty assistant message.
-   * Absence means "no fallback, allow empty replies".
-   */
-  emptyResultFallback?: string;
-
-  /**
-   * Working-directory policy when resuming a persisted session:
-   *   - `'pinned'`   keep the original session root, ignore any new cwd the
-   *                  client passes. Required for providers (e.g. Kimi) that
-   *                  store sessions under work-dir-scoped storage, where
-   *                  resuming with a different cwd silently creates a fresh
-   *                  empty session.
-   *   - `'requested'` (default) use whatever cwd the caller requests.
-   */
-  sessionCwdPolicy?: 'pinned' | 'requested';
-
-  /**
-   * Whether a provider-side session can be resumed when the next turn starts
-   * in a non-default mode.
-   *   - `'reset'` (default) drops the stored provider session so the requested
-   *                  mode is definitely applied.
-   *   - `'preserve'` keeps the stored provider session and passes the mode to
-   *                  the provider alongside the resume id.
-   */
-  modeSwitchSessionPolicy?: 'reset' | 'preserve';
-
-  /**
-   * Auth-related error hint: when a raw provider error matches one of these
-   * patterns the runtime rewrites the message to point the user at the
-   * correct re-auth flow. Each entry is either a single case-insensitive
-   * substring or an array (treated as all-of). The token `{raw}` in the
-   * `message` is replaced with the original error.
-   */
-  authErrorHint?: {
-    matchAny: Array<string | string[]>;
-    message: string;
-  };
-
-  /**
-   * Tool names this provider produces that must always escalate to the user
-   * (e.g. plan-mode submissions, which need explicit approval). Unioned with
-   * the user's policy at permission-evaluation time. Lets each provider keep
-   * ownership of "which of MY tool names are interactive" instead of putting
-   * the names into the shared default policy.
-   */
-  escalateAlwaysTools?: string[];
 }
 
 // === Effective Provider Profile ===

@@ -295,15 +295,15 @@ export function handleProviderEvent({
         }
       }
 
-      // Providers may declare a fallback message in their manifest for the
+      // Providers may declare a fallback message in their policy for the
       // case where a tool-driven turn ends without any final assistant text
-      // (the manifest is the source of truth — no provider-type literal here).
+      // (the policy is the source of truth — no provider-type literal here).
       if (
         !activeRun.fullContent &&
         activeRun.collectedToolCalls.length > 0 &&
         activeRun.providerType
       ) {
-        const fallback = providerRegistry.get(activeRun.providerType)?.manifest?.emptyResultFallback;
+        const fallback = providerRegistry.getPolicy(activeRun.providerType)?.emptyResultFallback;
         if (fallback) {
           activeRun.fullContent = fallback;
           activeRun.contentBlocks.push({ type: 'text', content: fallback });
@@ -397,7 +397,7 @@ export function handleProviderEvent({
     case 'error': {
       const rawProviderError = (msg.error || 'Provider error') as string;
       const authHint = activeRun.providerType
-        ? providerRegistry.get(activeRun.providerType)?.manifest?.authErrorHint
+        ? providerRegistry.getPolicy(activeRun.providerType)?.authErrorHint
         : undefined;
       const errorMessage = formatProviderErrorMessage(rawProviderError, activeRun.providerType, authHint);
       console.error(`[Provider Error] runId=${runId} provider=${activeRun.providerType}: ${rawProviderError}`);

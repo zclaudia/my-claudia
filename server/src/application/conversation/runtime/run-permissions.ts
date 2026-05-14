@@ -176,10 +176,10 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
         effectivePolicy = mergePolicy(effectivePolicy, sessionPermissionOverride);
       }
 
-      // Union the active provider's manifest-declared always-escalate tools
+      // Union the active provider's policy-declared always-escalate tools
       // into the policy. This keeps provider-specific tool names (e.g.
       // Claude/Codex's `ExitPlanMode`) out of the shared default policy.
-      const providerEscalateTools = providerRegistry.get(providerType)?.manifest?.escalateAlwaysTools;
+      const providerEscalateTools = providerRegistry.getPolicy(providerType)?.escalateAlwaysTools;
       if (providerEscalateTools && providerEscalateTools.length > 0) {
         const merged = new Set([...(effectivePolicy.escalateAlways || []), ...providerEscalateTools]);
         effectivePolicy = { ...effectivePolicy, escalateAlways: Array.from(merged) };

@@ -1,5 +1,6 @@
 import type { PermissionRequest } from '@my-claudia/shared/interaction/permissions';
 import type { PCPProviderManifest } from '@my-claudia/shared/core/pcp';
+import type { ProviderPolicy } from '@my-claudia/shared/core/provider-policy';
 import type Database from 'better-sqlite3';
 
 // Re-export core provider message types (shared across all providers)
@@ -26,6 +27,9 @@ export interface ProviderAdapter {
 
   /** PCP manifest — static capability declaration */
   readonly manifest?: PCPProviderManifest;
+
+  /** MyClaudia runtime policy for provider-specific behavior */
+  readonly policy?: ProviderPolicy;
 
   /** Start a run, returns async generator of messages */
   run(

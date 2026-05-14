@@ -1,29 +1,13 @@
 import type { PCPProviderManifest } from '@my-claudia/shared/core/pcp';
+import type { ProviderPolicy } from '@my-claudia/shared/core/provider-policy';
 
-export const CLAUDE_MANIFEST: PCPProviderManifest = {
+export const CLAUDE_CAPABILITY_MANIFEST: PCPProviderManifest = {
   id: 'claude',
   name: 'Claude',
   version: '1.0.0',
   apiVersion: 'pcp/v1',
   providerType: 'claude',
   runtime: 'cli',
-  // Claude has native: TodoWrite ≈ update_todo_list, AskUserQuestion ≈ ask_user_form/request_approval,
-  // plan mode ≈ enter/exit_plan_mode. Only push_file has no Claude equivalent.
-  nativeInteractionTools: ['update_todo_list', 'ask_user_form', 'request_approval', 'enter_plan_mode', 'exit_plan_mode'],
-  // Claude's CLI surfaces auth expiry through several phrasings; recognize all
-  // of them and steer the user to `claude auth login`.
-  authErrorHint: {
-    matchAny: [
-      'oauth token has expired',
-      ['authentication_error', 'token has expired'],
-      ['failed to authenticate', '401'],
-    ],
-    message: 'Claude authentication expired on this machine. Re-login with `claude auth login` and retry. ({raw})',
-  },
-  // Plan submissions need explicit user approval — declared at the provider
-  // level so the shared permission policy stays free of provider-specific
-  // tool names.
-  escalateAlwaysTools: ['ExitPlanMode'],
   capabilities: [
     { id: 'chat.generate', supported: false, notes: 'Not implemented yet, planned for plugin API' },
     { id: 'chat.stream', supported: true, mode: 'native', reliability: 'strict' },
@@ -49,17 +33,35 @@ export const CLAUDE_MANIFEST: PCPProviderManifest = {
   },
 };
 
-export const OPENCODE_MANIFEST: PCPProviderManifest = {
+export const CLAUDE_POLICY: ProviderPolicy = {
+  // Claude has native: TodoWrite ~= update_todo_list, AskUserQuestion ~= ask_user_form/request_approval,
+  // plan mode ~= enter/exit_plan_mode. Only push_file has no Claude equivalent.
+  nativeInteractionTools: ['update_todo_list', 'ask_user_form', 'request_approval', 'enter_plan_mode', 'exit_plan_mode'],
+  // Claude's CLI surfaces auth expiry through several phrasings; recognize all
+  // of them and steer the user to `claude auth login`.
+  authErrorHint: {
+    matchAny: [
+      'oauth token has expired',
+      ['authentication_error', 'token has expired'],
+      ['failed to authenticate', '401'],
+    ],
+    message: 'Claude authentication expired on this machine. Re-login with `claude auth login` and retry. ({raw})',
+  },
+  // Plan submissions need explicit user approval — declared at the provider
+  // level so the shared permission policy stays free of provider-specific
+  // tool names.
+  escalateAlwaysTools: ['ExitPlanMode'],
+};
+
+export const CLAUDE_MANIFEST = CLAUDE_CAPABILITY_MANIFEST;
+
+export const OPENCODE_CAPABILITY_MANIFEST: PCPProviderManifest = {
   id: 'opencode',
   name: 'OpenCode',
   version: '1.0.0',
   apiVersion: 'pcp/v1',
   providerType: 'opencode',
   runtime: 'cli',
-  // OpenCode sometimes completes a tool-heavy turn without emitting a final
-  // assistant text. The runtime treats this declarative fallback as the
-  // visible reply so the conversation never ends in an empty bubble.
-  emptyResultFallback: 'Task execution completed, but the provider did not return a final visible text response. Send "summarize the result" to get a structured conclusion.',
   capabilities: [
     { id: 'chat.generate', supported: false },
     { id: 'chat.stream', supported: true, mode: 'native', reliability: 'strict' },
@@ -83,15 +85,22 @@ export const OPENCODE_MANIFEST: PCPProviderManifest = {
   },
 };
 
-export const CODEX_MANIFEST: PCPProviderManifest = {
+export const OPENCODE_POLICY: ProviderPolicy = {
+  // OpenCode sometimes completes a tool-heavy turn without emitting a final
+  // assistant text. The runtime treats this declarative fallback as the
+  // visible reply so the conversation never ends in an empty bubble.
+  emptyResultFallback: 'Task execution completed, but the provider did not return a final visible text response. Send "summarize the result" to get a structured conclusion.',
+};
+
+export const OPENCODE_MANIFEST = OPENCODE_CAPABILITY_MANIFEST;
+
+export const CODEX_CAPABILITY_MANIFEST: PCPProviderManifest = {
   id: 'codex',
   name: 'Codex',
   version: '1.0.0',
   apiVersion: 'pcp/v1',
   providerType: 'codex',
   runtime: 'cli',
-  // Codex routes plan-mode through the MCP bridge under canonical Pascal names.
-  escalateAlwaysTools: ['ExitPlanMode'],
   capabilities: [
     { id: 'chat.generate', supported: false },
     { id: 'chat.stream', supported: true, mode: 'native', reliability: 'strict' },
@@ -116,18 +125,20 @@ export const CODEX_MANIFEST: PCPProviderManifest = {
   },
 };
 
-export const CURSOR_MANIFEST: PCPProviderManifest = {
+export const CODEX_POLICY: ProviderPolicy = {
+  // Codex routes plan-mode through the MCP bridge under canonical Pascal names.
+  escalateAlwaysTools: ['ExitPlanMode'],
+};
+
+export const CODEX_MANIFEST = CODEX_CAPABILITY_MANIFEST;
+
+export const CURSOR_CAPABILITY_MANIFEST: PCPProviderManifest = {
   id: 'cursor',
   name: 'Cursor',
   version: '1.0.0',
   apiVersion: 'pcp/v1',
   providerType: 'cursor',
   runtime: 'cli',
-  // cursor-agent accepts --resume together with --mode=plan/ask, so keeping
-  // the chat id is required for follow-up turns in read-only modes.
-  modeSwitchSessionPolicy: 'preserve',
-  // Cursor's plan-mode UX is informational (read-only enforcement happens at
-  // cursor-agent itself) — no escalateAlwaysTools needed here.
   capabilities: [
     { id: 'chat.generate', supported: false },
     { id: 'chat.stream', supported: true, mode: 'native', reliability: 'best_effort' },
@@ -151,17 +162,23 @@ export const CURSOR_MANIFEST: PCPProviderManifest = {
   },
 };
 
-export const KIMI_MANIFEST: PCPProviderManifest = {
+export const CURSOR_POLICY: ProviderPolicy = {
+  // cursor-agent accepts --resume together with --mode=plan/ask, so keeping
+  // the chat id is required for follow-up turns in read-only modes.
+  modeSwitchSessionPolicy: 'preserve',
+  // Cursor's plan-mode UX is informational (read-only enforcement happens at
+  // cursor-agent itself) — no escalateAlwaysTools needed here.
+};
+
+export const CURSOR_MANIFEST = CURSOR_CAPABILITY_MANIFEST;
+
+export const KIMI_CAPABILITY_MANIFEST: PCPProviderManifest = {
   id: 'kimi',
   name: 'Kimi',
   version: '1.0.0',
   apiVersion: 'pcp/v1',
   providerType: 'kimi',
   runtime: 'cli',
-  // Kimi persists sessions under a work-dir-scoped storage tree — resuming
-  // with a different cwd silently creates a fresh empty session, so any
-  // resumed run must stay pinned to the original session root.
-  sessionCwdPolicy: 'pinned',
   capabilities: [
     { id: 'chat.generate', supported: false },
     { id: 'chat.stream', supported: true, mode: 'native', reliability: 'best_effort',
@@ -186,3 +203,12 @@ export const KIMI_MANIFEST: PCPProviderManifest = {
     plan_only: 'plan',
   },
 };
+
+export const KIMI_POLICY: ProviderPolicy = {
+  // Kimi persists sessions under a work-dir-scoped storage tree — resuming
+  // with a different cwd silently creates a fresh empty session, so any
+  // resumed run must stay pinned to the original session root.
+  sessionCwdPolicy: 'pinned',
+};
+
+export const KIMI_MANIFEST = KIMI_CAPABILITY_MANIFEST;

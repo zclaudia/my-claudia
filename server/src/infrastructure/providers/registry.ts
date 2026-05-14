@@ -1,4 +1,6 @@
 import type { PCPProviderManifest } from '@my-claudia/shared/core/pcp';
+import type { ProviderPolicy } from '@my-claudia/shared/core/provider-policy';
+import type { ProviderDefinition } from './definitions.js';
 import type { ProviderAdapter } from './types.js';
 import { ClaudeAdapter } from './claude-adapter.js';
 import { OpenCodeAdapter } from './opencode-adapter.js';
@@ -10,6 +12,8 @@ import { KimiAdapter } from './kimi-adapter.js';
 export interface ProviderRegistryPort {
   get(type: string): ProviderAdapter | undefined;
   getOrDefault(type: string): ProviderAdapter;
+  getPolicy(type: string): ProviderPolicy | undefined;
+  getDefinition(type: string): ProviderDefinition | undefined;
 }
 
 class ProviderRegistry implements ProviderRegistryPort {
@@ -39,6 +43,22 @@ class ProviderRegistry implements ProviderRegistryPort {
   /** Get PCP manifest for a provider */
   getManifest(type: string): PCPProviderManifest | undefined {
     return this.adapters.get(type)?.manifest;
+  }
+
+  /** Get MyClaudia runtime policy for a provider */
+  getPolicy(type: string): ProviderPolicy | undefined {
+    return this.adapters.get(type)?.policy;
+  }
+
+  /** Get the composed provider definition used by the runtime. */
+  getDefinition(type: string): ProviderDefinition | undefined {
+    const adapter = this.adapters.get(type);
+    if (!adapter?.manifest) return undefined;
+    return {
+      adapter,
+      capabilityManifest: adapter.manifest,
+      policy: adapter.policy ?? {},
+    };
   }
 
   /** Get all registered PCP manifests */

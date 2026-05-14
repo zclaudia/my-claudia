@@ -158,13 +158,13 @@ export function initializeRunBootstrap(input: InitializeRunBootstrapInput): RunB
   const sessionType = (session.session_type || 'regular') as 'regular' | 'background' | 'agent';
   const projectId = session.project_id || message.sessionId;
   const providerTypeForSession = providerConfig?.type || 'claude';
-  const providerManifest = providerRegistry.get(providerTypeForSession)?.manifest;
+  const providerPolicy = providerRegistry.getPolicy(providerTypeForSession);
 
   // Some providers ignore a new non-default mode when resuming an existing
   // provider session. Keep the previous behavior by default, and let providers
-  // that support `resume + mode` opt into preservation via their manifest.
+  // that support `resume + mode` opt into preservation via their policy.
   const requestedMode = message.mode || message.permissionMode;
-  const preservesSessionOnModeSwitch = providerManifest?.modeSwitchSessionPolicy === 'preserve';
+  const preservesSessionOnModeSwitch = providerPolicy?.modeSwitchSessionPolicy === 'preserve';
   const modeRequiresNewSession = Boolean(
     requestedMode
       && requestedMode !== 'default'
@@ -185,7 +185,7 @@ export function initializeRunBootstrap(input: InitializeRunBootstrapInput): RunB
   }
 
   const cwd = resolveProviderCwd({
-    sessionCwdPolicy: providerManifest?.sessionCwdPolicy,
+    sessionCwdPolicy: providerPolicy?.sessionCwdPolicy,
     sdkSessionId: effectiveSdkSessionId,
     requestedCwd,
     sessionRootPath: session.root_path,
