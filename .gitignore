@@ -128,3 +128,6 @@ gateway/.deploy-version*
 
 # Superpowers plugin generated docs
 docs/superpowers/
+
+
+.3rd-party/
