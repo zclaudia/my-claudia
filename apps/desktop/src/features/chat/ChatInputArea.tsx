@@ -13,6 +13,7 @@ import { useFileViewerStore } from '../../stores/fileViewerStore';
 import { usePluginStore } from '../../stores/pluginStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useDraftEditorStore } from '../../stores/draftEditorStore';
+import { useChatStore } from '../../stores/chatStore';
 import { useUIStore } from '../../stores/uiStore';
 import { activatePanel, usePanelIsActive } from '../../utils/openPanel';
 import * as api from '../../services/api';
@@ -121,6 +122,35 @@ export function ChatInputArea({
   }, [mobileToolsOpen]);
 
   const closeMobileTools = useCallback(() => setMobileToolsOpen(false), []);
+
+  // One-shot prefill (e.g. from the plan "Execute plan" button). Takes
+  // precedence over restoreMessage/initialDraft on its tick, then clears
+  // itself so subsequent user edits aren't clobbered. `prefillConsumed`
+  // gates the fallback sources after consumption so the user's in-progress
+  // edits stay put (otherwise initialValue would revert to the draft and
+  // overwrite them on the next MessageInput effect).
+  const pendingPrefill = useChatStore((s) => s.pendingPrefills[sessionId]);
+  const clearPendingPrefill = useChatStore((s) => s.clearPendingPrefill);
+  const [prefillConsumed, setPrefillConsumed] = useState(false);
+
+  useEffect(() => {
+    setPrefillConsumed(false);
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!pendingPrefill) return;
+    setPrefillConsumed(false);
+    const timer = setTimeout(() => {
+      clearPendingPrefill(sessionId);
+      setPrefillConsumed(true);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [pendingPrefill, sessionId, clearPendingPrefill]);
+
+  const fallbackInitialValue = prefillConsumed
+    ? undefined
+    : restoreMessage?.content ?? initialDraft?.content;
+  const messageInputInitialValue = pendingPrefill?.content ?? fallbackInitialValue;
 
   // Read-only mode
   if (currentSession.isReadOnly) {
@@ -341,7 +371,7 @@ export function ChatInputArea({
         backendId={fileReferenceBackendId}
         disabled={!isConnected}
         isLoading={isLoading}
-        initialValue={restoreMessage?.content ?? initialDraft?.content}
+        initialValue={messageInputInitialValue}
         initialAttachments={restoreMessage?.attachments ?? initialDraft?.attachments}
         advancedMode={advancedInput}
         onRequestAdvancedMode={!isMobile && !advancedInput ? () => setAdvancedInput(true) : undefined}

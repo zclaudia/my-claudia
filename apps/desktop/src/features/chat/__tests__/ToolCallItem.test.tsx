@@ -916,13 +916,14 @@ describe('ToolCallItem', () => {
   // ── ExitPlanMode ──────────────────────────────────────────────────────────
 
   describe('ExitPlanMode', () => {
+    // Plan-proposal cards auto-expand on completion so the plan body and the
+    // "Execute plan" action are visible without an extra click.
     it('displays plan content when plan is a string', () => {
       render(<ToolCallItem toolCall={createToolCall({
         toolName: 'ExitPlanMode',
         toolInput: { plan: '# My Plan\n\nStep 1: Do something' },
         semantic: 'plan_proposal',
       })} />);
-      fireEvent.click(screen.getByRole('button'));
       expect(screen.getAllByText(/My Plan/).length).toBeGreaterThanOrEqual(1);
       expect(screen.getByText(/Step 1/)).toBeInTheDocument();
     });
@@ -933,7 +934,6 @@ describe('ToolCallItem', () => {
         toolInput: { plan: { steps: ['a', 'b'] } },
         semantic: 'plan_proposal',
       })} />);
-      fireEvent.click(screen.getByRole('button'));
       expect(screen.getAllByText(/"steps"/).length).toBeGreaterThanOrEqual(1);
     });
 
@@ -943,7 +943,6 @@ describe('ToolCallItem', () => {
         toolInput: { plan_file: '/path/to/plan.md' },
         semantic: 'plan_proposal',
       })} />);
-      fireEvent.click(screen.getByRole('button'));
       expect(screen.getAllByText(/Plan file:/).length).toBeGreaterThanOrEqual(1);
     });
 
@@ -953,7 +952,6 @@ describe('ToolCallItem', () => {
         toolInput: {},
         semantic: 'plan_proposal',
       })} />);
-      fireEvent.click(screen.getByRole('button'));
       expect(screen.getAllByText(/Plan ready for review/).length).toBeGreaterThanOrEqual(1);
     });
 
@@ -965,7 +963,6 @@ describe('ToolCallItem', () => {
         result: 'Plan approved',
         semantic: 'plan_proposal',
       })} />);
-      fireEvent.click(screen.getByRole('button'));
       expect(screen.getByTestId('tool-result').textContent).toContain('Plan approved');
     });
 
@@ -976,7 +973,6 @@ describe('ToolCallItem', () => {
         toolInput: { plan: longPlan },
         semantic: 'plan_proposal',
       })} />);
-      fireEvent.click(screen.getByRole('button'));
       expect(screen.getByText(/Show full plan/)).toBeInTheDocument();
     });
 
@@ -986,9 +982,57 @@ describe('ToolCallItem', () => {
         toolInput: { plan: '# Cursor Plan\n\nDo X first' },
         semantic: 'plan_proposal',
       })} />);
-      fireEvent.click(screen.getByRole('button'));
       expect(screen.getAllByText(/Cursor Plan/).length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText(/Do X first/).length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('shows "Execute plan" action when session is still in plan mode, switches mode and prefills input on click', async () => {
+      const { useChatStore } = await import('../../../stores/chatStore');
+      mockSelectionState.selectedSessionId = 'sess-1';
+      useChatStore.getState().setMode('sess-1', 'plan');
+      useChatStore.getState().clearPendingPrefill('sess-1');
+
+      try {
+        render(<ToolCallItem toolCall={createToolCall({
+          toolName: 'createPlan',
+          toolInput: { plan: '# Plan' },
+          semantic: 'plan_proposal',
+          status: 'completed',
+        })} />);
+
+        const button = screen.getByRole('button', { name: /Execute plan/i });
+        expect(button).toBeTruthy();
+        fireEvent.click(button);
+
+        expect(useChatStore.getState().getMode('sess-1')).toBe('default');
+        const prefill = useChatStore.getState().pendingPrefills['sess-1'];
+        expect(prefill).toBeTruthy();
+        expect(prefill?.content).toMatch(/Proceed with the plan/i);
+      } finally {
+        mockSelectionState.selectedSessionId = null;
+        useChatStore.getState().setMode('sess-1', '');
+        useChatStore.getState().clearPendingPrefill('sess-1');
+      }
+    });
+
+    it('hides "Execute plan" action once the session has left plan mode', async () => {
+      const { useChatStore } = await import('../../../stores/chatStore');
+      mockSelectionState.selectedSessionId = 'sess-2';
+      useChatStore.getState().setMode('sess-2', 'default');
+
+      try {
+        render(<ToolCallItem toolCall={createToolCall({
+          toolName: 'ExitPlanMode',
+          toolInput: { plan: '# Plan' },
+          semantic: 'plan_proposal',
+          status: 'completed',
+        })} />);
+
+        expect(screen.queryByRole('button', { name: /Execute plan/i })).toBeNull();
+      } finally {
+        mockSelectionState.selectedSessionId = null;
+        useChatStore.getState().setMode('sess-2', '');
+      }
     });
   });
 

@@ -1,10 +1,10 @@
 import { useState, useMemo, useEffect, useRef, memo } from 'react';
 import { AnsiUp } from 'ansi_up';
-import type { ToolCallState } from '../../stores/chatStore';
+import { useChatStore, type ToolCallState } from '../../stores/chatStore';
 import type { ToolSemantic } from '@my-claudia/shared';
 import { getToolIcon } from '../../config/icons';
 import { Icon } from '../../components/ui/Icon';
-import { CheckCircle2, XCircle, Loader2, ChevronDown, ChevronRight, Wrench, Square } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, ChevronDown, ChevronRight, Wrench, Square, Play } from 'lucide-react';
 import { CodeViewer } from '../../components/renderers/CodeViewer';
 import { DiffViewer } from '../../components/renderers/DiffViewer';
 import { useTerminalStore } from '../../stores/terminalStore';
@@ -414,6 +414,46 @@ function PlanContent({ content }: { content: string }) {
   );
 }
 
+// Default follow-up text inserted into the chat input when the user clicks
+// "Execute plan". Kept short and editable — the input is focused so the user
+// can tweak it before sending.
+const EXECUTE_PLAN_PREFILL = 'Proceed with the plan above.';
+
+// Inline "Execute plan" action shown under a non-blocking plan proposal
+// (cursor's `createPlan`). Hidden for the Claude / MCP flows because by the
+// time the tool reaches `completed`, the runtime has already transitioned the
+// session out of plan mode — so the mode filter naturally excludes them.
+function PlanProposalActions({ status }: { status: ToolCallState['status'] }) {
+  const sessionId = useSelectionStore((s) => s.selectedSessionId);
+  const sessionMode = useChatStore((s) =>
+    sessionId ? s.modeOverrides[sessionId] || s.runtimeModes[sessionId] || '' : '',
+  );
+  const setMode = useChatStore((s) => s.setMode);
+  const setPendingPrefill = useChatStore((s) => s.setPendingPrefill);
+
+  if (!sessionId) return null;
+  if (status !== 'completed') return null;
+  if (sessionMode !== 'plan') return null;
+
+  const handleExecute = () => {
+    setMode(sessionId, 'default');
+    setPendingPrefill(sessionId, EXECUTE_PLAN_PREFILL);
+  };
+
+  return (
+    <div className="mt-2 flex items-center justify-end gap-2">
+      <button
+        type="button"
+        onClick={handleExecute}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80 transition-colors"
+      >
+        <Play size={11} strokeWidth={2.2} />
+        Execute plan
+      </button>
+    </div>
+  );
+}
+
 // Render expanded content based on tool type
 function ToolExpandedContent({ toolName, toolInput, status, result, isError, semantic }: {
   toolName: string;
@@ -617,6 +657,7 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError, sem
         <div className="mt-2">
           <PlanContent content={planContent} />
         </div>
+        <PlanProposalActions status={status} />
         {status !== 'running' && result !== undefined && (
           <div className="mt-2">
             <pre
@@ -767,7 +808,23 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError, sem
 }
 
 export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallItemProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  // Plan proposals auto-expand on completion so the plan body and the
+  // "Execute plan" button are visible without an extra click. The state is
+  // user-toggleable afterwards; `autoExpandedRef` ensures we only auto-expand
+  // once per tool call (so user collapses stick).
+  const [isExpanded, setIsExpanded] = useState(() =>
+    isPlanProposalTool(toolCall.toolName, toolCall.semantic) && toolCall.status === 'completed',
+  );
+  const autoExpandedRef = useRef(
+    isPlanProposalTool(toolCall.toolName, toolCall.semantic) && toolCall.status === 'completed',
+  );
+  useEffect(() => {
+    if (autoExpandedRef.current) return;
+    if (!isPlanProposalTool(toolCall.toolName, toolCall.semantic)) return;
+    if (toolCall.status !== 'completed') return;
+    autoExpandedRef.current = true;
+    setIsExpanded(true);
+  }, [toolCall.status, toolCall.toolName, toolCall.semantic]);
   const { toolName, toolInput, status, result, isError, activity, semantic } = toolCall;
   const selectedSessionId = useSelectionStore((s) => s.selectedSessionId);
   const pendingPromptRequest = usePromptRequestStore((s) => {

@@ -95,6 +95,10 @@ interface ChatState {
   worktreeOverrides: Record<string, string>;
   // Input drafts per session (preserved across session switches)
   drafts: Record<string, SessionDraft>;
+  // Pending one-shot prefill into the chat input (e.g. "Execute plan" button).
+  // Consumed by ChatInputArea on next render and immediately cleared.
+  // `ts` distinguishes successive prefills with identical content.
+  pendingPrefills: Record<string, { content: string; ts: number }>;
 
   // Actions — Messages
   setMessages: (sessionId: string, messages: MessageWithToolCalls[], pagination?: Partial<Omit<PaginationInfo, 'isLoadingMore'>>) => void;
@@ -157,6 +161,10 @@ interface ChatState {
   setDraft: (sessionId: string, draft: SessionDraft) => void;
   clearDraft: (sessionId: string) => void;
 
+  // One-shot input prefill (e.g. fired by the plan "Execute plan" button).
+  setPendingPrefill: (sessionId: string, content: string) => void;
+  clearPendingPrefill: (sessionId: string) => void;
+
   // Getters
   getPagination: (sessionId: string) => PaginationInfo | undefined;
   isSessionLoading: (sessionId: string) => boolean;
@@ -197,6 +205,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   permissionOverrides: {},
   worktreeOverrides: {},
   drafts: {},
+  pendingPrefills: {},
 
   setMessages: (sessionId, messages, pagination) =>
     set((state) => ({
@@ -670,6 +679,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) => {
       const { [sessionId]: _, ...rest } = state.drafts;
       return { drafts: rest };
+    }),
+
+  setPendingPrefill: (sessionId, content) =>
+    set((state) => ({
+      pendingPrefills: {
+        ...state.pendingPrefills,
+        [sessionId]: { content, ts: Date.now() },
+      },
+    })),
+
+  clearPendingPrefill: (sessionId) =>
+    set((state) => {
+      if (!state.pendingPrefills[sessionId]) return state;
+      const { [sessionId]: _, ...rest } = state.pendingPrefills;
+      return { pendingPrefills: rest };
     }),
 
   getPagination: (sessionId) => get().pagination[sessionId],
