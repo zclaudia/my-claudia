@@ -250,6 +250,12 @@ export function NotchWindow() {
       invoke('set_notch_passthrough', { passthrough: false }).catch(() => undefined);
       // Non-macOS: resize window.
       invoke('resize_notch_window', { expanded: true }).catch(() => undefined);
+    } else {
+      // Collapsing — enable pass-through immediately so clicks during the
+      // close animation reach the content below. Polling is deferred to the
+      // animation-completion branch to avoid an instant re-expand if the
+      // cursor happens to be over the pill area at collapse start.
+      invoke('set_notch_passthrough', { passthrough: true }).catch(() => undefined);
     }
 
     const startTime = performance.now();
