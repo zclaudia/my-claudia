@@ -170,6 +170,7 @@ export function handleProviderEvent({
         toolUseId: msg.toolUseId || '',
         toolName: msg.toolName || '',
         toolInput: msg.toolInput,
+        interactionKind: msg.toolInteractionKind,
       });
       if (todoInteraction) {
         // Auto-complete items in previous todo lists that disappeared from the new list

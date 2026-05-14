@@ -185,6 +185,63 @@ describe('claude-sdk', () => {
       expect(messages[0].toolInput).toEqual({ path: '/project/file.ts' });
     });
 
+    it('normalizes Claude tool semantics while yielding tool_use messages', async () => {
+      vi.mocked(query).mockReturnValue({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            type: 'assistant',
+            message: {
+              content: [
+                {
+                  type: 'tool_use',
+                  id: 'tool-enter',
+                  name: 'EnterPlanMode',
+                  input: {},
+                },
+                {
+                  type: 'tool_use',
+                  id: 'tool-bash',
+                  name: 'Bash',
+                  input: { command: ' pnpm test ' },
+                },
+              ],
+            },
+          };
+        },
+      } as unknown as ReturnType<typeof query>);
+
+      const generator = runClaude('Plan and test', { cwd: '/project' });
+      const messages: ClaudeMessage[] = [];
+
+      for await (const msg of generator) {
+        messages.push(msg);
+      }
+
+      expect(messages).toHaveLength(3);
+      expect(messages[0]).toMatchObject({
+        type: 'tool_use',
+        toolUseId: 'tool-enter',
+        toolName: 'EnterPlanMode',
+        toolSemantic: 'plan_enter',
+      });
+      expect(messages[1]).toMatchObject({
+        type: 'mode_transition',
+        modeTransition: {
+          mode: 'plan',
+          reason: 'enter',
+          sourceToolUseId: 'tool-enter',
+        },
+      });
+      expect(messages[2]).toMatchObject({
+        type: 'tool_use',
+        toolUseId: 'tool-bash',
+        toolEffect: {
+          kind: 'shell',
+          command: 'pnpm test',
+        },
+      });
+    });
+
     it('yields tool_result messages', async () => {
       vi.mocked(query).mockReturnValue({
         async *[Symbol.asyncIterator]() {

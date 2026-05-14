@@ -97,5 +97,12 @@ describe('ProviderRegistry', () => {
       expect(definition?.capabilityManifest.providerType).toBe('cursor');
       expect(definition?.policy).toBe(policy);
     });
+
+    it('includes provider event normalizers when an adapter exposes one', () => {
+      const definition = providerRegistry.getDefinition('claude');
+
+      expect(definition?.normalizer).toBe(providerRegistry.get('claude')?.normalizer);
+      expect(definition?.normalizer?.normalizeToolUse).toBeTypeOf('function');
+    });
   });
 });

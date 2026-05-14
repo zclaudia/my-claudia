@@ -19,6 +19,19 @@ export type PermissionCallback = (
   request: PermissionRequest
 ) => Promise<PermissionDecision>;
 
+export interface ModeTransition {
+  /** Canonical target mode (e.g. 'plan', 'default'). */
+  mode: string;
+  /** 'enter' = entering plan mode, 'exit' = leaving plan mode. */
+  reason: 'enter' | 'exit';
+  /** Optional plan markdown to surface to the user (typically with reason='exit'). */
+  plan?: string;
+  /** Tool use id of the tool call that triggered this transition. */
+  sourceToolUseId?: string;
+}
+
+export type ToolInteractionKind = 'todo_update';
+
 export interface SystemInfo {
   model?: string;
   claudeCodeVersion?: string;
@@ -54,6 +67,11 @@ export interface ClaudeMessage {
    */
   toolEffect?: ToolEffect;
   /**
+   * Provider-normalized interaction kind. Common runtime layers can use this
+   * instead of matching provider-native tool names such as `TodoWrite`.
+   */
+  toolInteractionKind?: ToolInteractionKind;
+  /**
    * Provider-supplied semantic tag for the tool. The provider SDK is the only
    * place that knows whether one of its native tools carries a plan proposal
    * or controls plan-mode; it tags those events here so the runtime and UI
@@ -79,14 +97,5 @@ export interface ClaudeMessage {
    * knows the names of its own plan / mode-switching tools; it normalizes them
    * into this event so the runtime stays provider-agnostic.
    */
-  modeTransition?: {
-    /** Canonical target mode (e.g. 'plan', 'default'). */
-    mode: string;
-    /** 'enter' = entering plan mode, 'exit' = leaving plan mode. */
-    reason: 'enter' | 'exit';
-    /** Optional plan markdown to surface to the user (typically with reason='exit'). */
-    plan?: string;
-    /** Tool use id of the tool call that triggered this transition. */
-    sourceToolUseId?: string;
-  };
+  modeTransition?: ModeTransition;
 }

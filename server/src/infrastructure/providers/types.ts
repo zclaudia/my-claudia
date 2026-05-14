@@ -2,6 +2,7 @@ import type { PermissionRequest } from '@my-claudia/shared/interaction/permissio
 import type { PCPProviderManifest } from '@my-claudia/shared/core/pcp';
 import type { ProviderPolicy } from '@my-claudia/shared/core/provider-policy';
 import type Database from 'better-sqlite3';
+import type { ProviderEventNormalizer } from './provider-normalizer.js';
 
 // Re-export core provider message types (shared across all providers)
 export type { ClaudeMessage, SystemInfo, PermissionDecision, PermissionCallback } from './message-types.js';
@@ -30,6 +31,9 @@ export interface ProviderAdapter {
 
   /** MyClaudia runtime policy for provider-specific behavior */
   readonly policy?: ProviderPolicy;
+
+  /** Provider-native event/tool normalization rules */
+  readonly normalizer?: ProviderEventNormalizer;
 
   /** Start a run, returns async generator of messages */
   run(

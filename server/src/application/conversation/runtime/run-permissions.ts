@@ -319,8 +319,20 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
         permissionBridge.register(request.requestId, resolve, escalationContext);
 
         // Store pending permission (user can still manually decide via frontend)
-        const isAskUserQuestion = request.toolName === 'AskUserQuestion';
         const toolInput = request.toolInput as Record<string, unknown>;
+        const normalizedPermission = providerRegistry
+          .getDefinition(providerType)
+          ?.normalizer
+          ?.normalizePermissionRequest?.({
+            requestId: request.requestId,
+            toolName: request.toolName,
+            toolInput: request.toolInput,
+          }) ?? {};
+        const isAskUserQuestion = normalizedPermission.interactionKind === 'ask_user_question'
+          || request.toolName === 'AskUserQuestion';
+        const askUserQuestions = normalizedPermission.questions
+          ?? (toolInput.questions as AskUserQuestionItem[] | undefined)
+          ?? [];
         const requiresCredential = !isAskUserQuestion && isSudoCommand(request.toolName, request.toolInput);
         activeRun.pendingPermissions.set(request.requestId, {
           resolve,
@@ -333,7 +345,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
             timeoutSeconds: 0,
             sessionId: message.sessionId,
             ...(requiresCredential && { requiresCredential: true, credentialHint: 'sudo_password' }),
-            ...(isAskUserQuestion && { questions: (toolInput.questions as AskUserQuestionItem[]) || [] }),
+            ...(isAskUserQuestion && { questions: askUserQuestions }),
           },
         });
 
@@ -363,19 +375,18 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
         // Send request to frontend (user can still manually approve/deny)
         if (sessionType !== 'background') {
           if (isAskUserQuestion) {
-            const askUserInput = request.toolInput as { questions?: AskUserQuestionItem[] };
             const askUserInteraction = normalizeFromAskUser({
               requestId: request.requestId,
               sessionId: message.sessionId,
               runId,
               providerType,
-              questions: askUserInput.questions || [],
+              questions: askUserQuestions,
             });
             sendRunEvent(askUserInteraction);
-            const firstQuestion = (askUserInput.questions || [])[0] as { question?: string } | undefined;
+            const firstQuestion = askUserQuestions[0] as { question?: string } | undefined;
             void notificationService.notify({
               type: 'interaction_prompt',
-              title: 'Claude has a question',
+              title: 'Agent has a question',
               body: `${formatSessionBackendContext(db, message.sessionId)}: ${firstQuestion?.question?.slice(0, 200) || 'Interactive question'}`,
               priority: 'high',
               tags: ['question'],

@@ -23,6 +23,7 @@ export interface NormalizeToolUseArgs {
   toolUseId: string;
   toolName: string;
   toolInput: unknown;
+  interactionKind?: 'todo_update';
 }
 
 /**
@@ -30,9 +31,12 @@ export interface NormalizeToolUseArgs {
  * Returns null for all other tools.
  */
 export function normalizeFromToolUse(args: NormalizeToolUseArgs): TodoUpdateInteractionMessage | null {
-  const name = args.toolName.replace(/[^a-z0-9]/gi, '').toLowerCase();
-  if (name !== 'todowrite' && name !== 'updatetodos' && name !== 'todolist' && name !== 'todolistwrite') {
-    return null;
+  if (args.interactionKind !== 'todo_update') {
+    // Fallback for providers not migrated to ProviderEventNormalizer yet.
+    const name = args.toolName.replace(/[^a-z0-9]/gi, '').toLowerCase();
+    if (name !== 'todowrite' && name !== 'updatetodos' && name !== 'todolist' && name !== 'todolistwrite') {
+      return null;
+    }
   }
 
   if (!args.toolUseId) {

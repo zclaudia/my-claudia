@@ -58,6 +58,7 @@ class ProviderRegistry implements ProviderRegistryPort {
       adapter,
       capabilityManifest: adapter.manifest,
       policy: adapter.policy ?? {},
+      normalizer: adapter.normalizer,
     };
   }
 

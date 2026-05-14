@@ -58,6 +58,30 @@ describe('normalizeFromToolUse', () => {
     });
   });
 
+  it('uses provider-normalized interaction kind without matching native tool names', () => {
+    const result = normalizeFromToolUse({
+      sessionId: 'session-1',
+      runId: 'run-1',
+      providerType: 'claude',
+      toolUseId: 'tool-3',
+      toolName: 'provider_native_todo',
+      interactionKind: 'todo_update',
+      toolInput: {
+        todos: [
+          { content: 'Keep runtime provider-agnostic', status: 'pending' },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({
+      type: 'interaction_todo_update',
+      interactionId: 'tool-3',
+      todos: [
+        { content: 'Keep runtime provider-agnostic', status: 'pending' },
+      ],
+    });
+  });
+
   it('returns null when TodoWrite payload cannot be normalized', () => {
     const result = normalizeFromToolUse({
       sessionId: 'session-1',

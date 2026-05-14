@@ -17,48 +17,7 @@ import { extractRetryDelayMsFromError } from '../../utils/retry-window.js';
 import { sanitizeInheritedProviderEnv } from '../../utils/startup-env.js';
 import { buildMcpBridgeEntry } from '../../utils/mcp-bridge-launch.js';
 import { getGlobalProcessSupervisor } from '../services/process-supervisor.js';
-import { makeShellEffect } from './tool-effects.js';
-
-// ── Claude-specific plan-mode semantics ──────────────────────
-//
-// `EnterPlanMode` and `ExitPlanMode` are names that come straight from Claude's
-// built-in tools. The SDK keeps that knowledge local: it tags the outgoing
-// tool_use with the shared `toolSemantic` and emits a `mode_transition` event
-// so the runtime and UI never need to learn Claude-specific tool names.
-
-function detectClaudeToolSemantic(
-  toolName: string | undefined,
-): 'plan_enter' | 'plan_exit' | 'plan_proposal' | undefined {
-  if (toolName === 'EnterPlanMode') return 'plan_enter';
-  if (toolName === 'ExitPlanMode') return 'plan_proposal';
-  return undefined;
-}
-
-function deriveClaudeToolEffect(
-  toolName: string | undefined,
-  input: unknown,
-) {
-  if (toolName === 'Bash') {
-    const record = input && typeof input === 'object' ? input as Record<string, unknown> : {};
-    return makeShellEffect(typeof record.command === 'string' ? record.command : undefined);
-  }
-  return undefined;
-}
-
-function deriveClaudeModeTransition(
-  toolName: string | undefined,
-  input: Record<string, unknown> | undefined,
-  sourceToolUseId: string | undefined,
-): { mode: string; reason: 'enter' | 'exit'; plan?: string; sourceToolUseId?: string } | undefined {
-  if (toolName === 'EnterPlanMode') {
-    return { mode: 'plan', reason: 'enter', sourceToolUseId };
-  }
-  if (toolName === 'ExitPlanMode') {
-    const plan = typeof input?.plan === 'string' ? (input.plan as string) : undefined;
-    return { mode: 'default', reason: 'exit', plan, sourceToolUseId };
-  }
-  return undefined;
-}
+import { CLAUDE_NORMALIZER } from './claude-normalizer.js';
 
 /** Mutable handle exposed by runClaude so the adapter can call query methods (stopTask, etc.) */
 export interface ClaudeQueryHandle {
@@ -639,23 +598,24 @@ function transformMessage(message: unknown): ClaudeMessage | ClaudeMessage[] {
             content: `<think>${block.thinking}</think>`,
           });
         } else if (block.type === 'tool_use') {
-          // Tool use block - Claude is calling a tool
-          const semantic = detectClaudeToolSemantic(block.name);
+          // Provider normalizer owns Claude-specific tool semantics.
+          const normalized = CLAUDE_NORMALIZER.normalizeToolUse?.({
+            toolUseId: block.id,
+            toolName: block.name,
+            toolInput: block.input,
+          }) ?? {};
           messages.push({
             type: 'tool_use',
             toolUseId: block.id,
             toolName: block.name,
             toolInput: block.input,
-            toolSemantic: semantic,
-            toolEffect: deriveClaudeToolEffect(block.name, block.input),
+            toolSemantic: normalized.toolSemantic,
+            toolEffect: normalized.toolEffect,
+            toolInteractionKind: normalized.toolInteractionKind,
           });
 
-          // EnterPlanMode / ExitPlanMode are Claude-specific names. The SDK
-          // translates them into the shared `mode_transition` event so the
-          // runtime can react without knowing Claude's tool vocabulary.
-          const transition = deriveClaudeModeTransition(block.name, block.input as Record<string, unknown> | undefined, block.id);
-          if (transition) {
-            messages.push({ type: 'mode_transition', modeTransition: transition });
+          if (normalized.modeTransition) {
+            messages.push({ type: 'mode_transition', modeTransition: normalized.modeTransition });
           }
         }
       }
