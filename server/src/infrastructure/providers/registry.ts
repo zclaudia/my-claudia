@@ -7,6 +7,7 @@ import { OpenCodeAdapter } from './opencode-adapter.js';
 import { CodexAppServerAdapter } from './codex-app-server-adapter.js';
 import { CursorAdapter } from './cursor-adapter.js';
 import { KimiAdapter } from './kimi-adapter.js';
+import { ACPProviderAdapter } from './acp-adapter.js';
 
 /** Port interface — conversation domain depends on this, not on the concrete registry. */
 export interface ProviderRegistryPort {
@@ -26,6 +27,7 @@ class ProviderRegistry implements ProviderRegistryPort {
     this.register(new CodexAppServerAdapter());
     this.register(new CursorAdapter());
     this.register(new KimiAdapter());
+    this.register(new ACPProviderAdapter());
   }
 
   register(adapter: ProviderAdapter): void {

@@ -212,3 +212,41 @@ export const KIMI_POLICY: ProviderPolicy = {
 };
 
 export const KIMI_MANIFEST = KIMI_CAPABILITY_MANIFEST;
+
+export const ACP_CAPABILITY_MANIFEST: PCPProviderManifest = {
+  id: 'acp',
+  name: 'ACP Agent',
+  version: '0.1.0',
+  apiVersion: 'pcp/v1',
+  providerType: 'acp',
+  runtime: 'bridge',
+  capabilities: [
+    { id: 'chat.generate', supported: false, notes: 'ACP prompt turns are consumed as streams in MyClaudia' },
+    { id: 'chat.stream', supported: true, mode: 'native', reliability: 'best_effort',
+      notes: 'Maps ACP session/update notifications into MyClaudia provider messages' },
+    { id: 'tool.call', supported: true, mode: 'native', reliability: 'best_effort' },
+    { id: 'tool.inject', supported: true, mode: 'native', reliability: 'best_effort',
+      notes: 'ACP session setup can pass MCP server definitions to the agent' },
+    { id: 'interaction.form', supported: true, mode: 'bridged', reliability: 'best_effort',
+      notes: 'ACP permission requests are bridged through MyClaudia permission UI' },
+    { id: 'interaction.approval', supported: true, mode: 'bridged', reliability: 'best_effort' },
+    { id: 'interaction.todo', supported: false,
+      notes: 'ACP does not define a canonical todo update event' },
+    { id: 'input.image', supported: false,
+      notes: 'Experimental adapter currently sends text prompts only' },
+    { id: 'input.text_file', supported: false,
+      notes: 'Client-side ACP filesystem methods are reserved for a follow-up phase' },
+    { id: 'input.binary_file', supported: false,
+      notes: 'Client-side ACP filesystem methods are reserved for a follow-up phase' },
+    { id: 'permission.mode', supported: true, mode: 'native', reliability: 'best_effort',
+      notes: 'ACP agents may emit mode updates; exact modes are agent-defined' },
+    { id: 'session.abort', supported: true, mode: 'native', reliability: 'best_effort',
+      notes: 'Mapped to ACP session/cancel' },
+    { id: 'session.background_task', supported: false,
+      notes: 'No MyClaudia background task process tracking in the experimental ACP adapter' },
+  ],
+};
+
+export const ACP_POLICY: ProviderPolicy = {};
+
+export const ACP_MANIFEST = ACP_CAPABILITY_MANIFEST;
