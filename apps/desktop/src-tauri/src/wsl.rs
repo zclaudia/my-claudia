@@ -1,30 +1,23 @@
 //! Windows-only WSL helpers invoked from the renderer.
 //!
-//! Two distinct Windows quirks both manifest as `wsl bash -c "..."`
-//! hanging forever when called from the Tauri main (windowed) process:
+//! `wsl.exe` depends on console I/O relay to bridge Linux↔Windows stdio.
+//! Spawning it from a GUI (windowless) parent requires care:
 //!
-//! 1. **stdin handle inheritance.** Without `Stdio::null()`, the child
-//!    inherits the windowed parent's stdin handle, which never signals
-//!    EOF, so wsl.exe's stdio relay waits indefinitely.
+//! - **stdin** must be `Stdio::null()` so the child doesn't inherit the
+//!   GUI parent's stdin handle (which never signals EOF).
 //!
-//! 2. **Console allocation.** A windowed Tauri parent has no console.
-//!    Without `CREATE_NO_WINDOW`, wsl.exe wedges while Windows tries
-//!    to attach the child to a non-existent console — calls from
-//!    PowerShell return instantly while calls from Tauri hang forever.
-//!
-//! Both must be set; either alone still hangs in some scenarios.
+//! - **Console allocation**: we intentionally do NOT use `CREATE_NO_WINDOW`.
+//!   That flag suppresses console handle creation, which wsl.exe needs for
+//!   its internal stdio relay. Instead, we let Windows allocate a real
+//!   console for the child (since the GUI parent has none, Windows creates
+//!   a new one automatically). A console window may flash briefly — this is
+//!   acceptable and can be refined later if needed.
 
 use std::ffi::OsStr;
 use std::io::{BufRead, BufReader, Read};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 // 60s is a deliberate compromise: a hot wsl call returns in <1s, but a cold
 // distro start (first invocation after Windows boot, or after `wsl --shutdown`)
@@ -34,13 +27,11 @@ const WSL_EXEC_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Build a `wsl` command that won't hang from a GUI (no-console) parent.
 ///
-/// Running `wsl.exe` directly from a windowless Tauri process hangs on
-/// some Windows builds even with `Stdio::null()` + `CREATE_NO_WINDOW`,
-/// because wsl.exe internally depends on console subsystem initialization.
-///
-/// Workaround: launch via `cmd.exe /C wsl ...` so that cmd allocates a
-/// hidden console for wsl.exe to attach to. `CREATE_NO_WINDOW` ensures
-/// this console is invisible to the user.
+/// We launch via `cmd.exe /C wsl ...` so that cmd.exe creates a real
+/// console for wsl.exe to attach to (wsl.exe depends on console I/O
+/// relay internally). Stdin is null to avoid inheriting the GUI parent's
+/// handle. No `CREATE_NO_WINDOW` — that flag suppresses console handle
+/// creation which breaks wsl.exe. The console window may flash briefly.
 fn wsl_command<I, S>(args: I) -> Command
 where
     I: IntoIterator<Item = S>,
@@ -55,8 +46,6 @@ where
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
     cmd
 }
 
@@ -86,6 +75,10 @@ where
 
 #[cfg(windows)]
 fn kill_child_tree(child: &mut Child) {
+    use std::os::windows::process::CommandExt;
+    // taskkill doesn't need a console — safe to use CREATE_NO_WINDOW here
+    // (unlike wsl.exe which depends on console I/O relay).
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let pid = child.id().to_string();
     let mut cmd = Command::new("taskkill");
     cmd.args(["/PID", &pid, "/T", "/F"])
