@@ -123,4 +123,44 @@ describe('MetaWorkflowService', () => {
     ).all(phase.id);
     expect(artifacts.length).toBeGreaterThan(0);
   });
+
+  it('rerunPhase resets stale phase and reruns', async () => {
+    const run = service.createRun({ projectId: 'proj-1', title: 't' });
+    service.submitRequirements(run.id, 'design/req.md');
+    service.approveRequirements(run.id);
+    service.setPhasesJson(run.id, samplePhasesJson);
+    await service.runPhase(run.id, 'p1');
+
+    // Force the phase to stale state
+    const phase = service.listPhases(run.id)[0];
+    db.prepare(`UPDATE meta_workflow_phases SET status='stale' WHERE id=?`).run(phase.id);
+
+    const result = await service.rerunPhase(run.id, 'p1');
+    expect(result.phase.status).toBe('done');
+  });
+
+  it('ignoreStale clears the stale flag', async () => {
+    const run = service.createRun({ projectId: 'proj-1', title: 't' });
+    service.submitRequirements(run.id, 'design/req.md');
+    service.approveRequirements(run.id);
+    service.setPhasesJson(run.id, samplePhasesJson);
+    await service.runPhase(run.id, 'p1');
+    const phase = service.listPhases(run.id)[0];
+    db.prepare(`UPDATE meta_workflow_phases SET status='stale' WHERE id=?`).run(phase.id);
+
+    const after = service.ignoreStale(run.id, 'p1');
+    expect(after.status).toBe('done');
+  });
+
+  it('evaluateImpact returns a recommendation object', async () => {
+    const run = service.createRun({ projectId: 'proj-1', title: 't' });
+    service.submitRequirements(run.id, 'design/req.md');
+    service.approveRequirements(run.id);
+    service.setPhasesJson(run.id, samplePhasesJson);
+    await service.runPhase(run.id, 'p1');
+
+    const rec = await service.evaluateImpact(run.id, 'p1');
+    expect(['rerun', 'ignore', 'minor-fix']).toContain(rec.kind);
+    expect(typeof rec.reason).toBe('string');
+  });
 });
