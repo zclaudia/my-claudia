@@ -11,6 +11,7 @@ export * from './claudia.js';
 export * from './workflow.js';
 export * from './notification-feed.js';
 export * from './plugins.js';
+export * from './meta-workflow.js';
 
 // Re-import interaction types needed for the ServerMessage union
 import type { InteractionPromptMessage, TodoUpdateInteractionMessage, ApprovalInteractionMessage, PlanReviewInteractionMessage, InteractionResolvedMessage, InteractionResponseMessage } from '../../interaction/forms.js';
@@ -164,6 +165,10 @@ import type {
   NotificationUpdateMessage, NotificationListMessage, NotificationReadMessage,
 } from './notification-feed.js';
 import type {
+  MetaWorkflowRunUpdateMessage,
+  MetaWorkflowPhaseUpdateMessage,
+} from './meta-workflow.js';
+import type {
   PluginStateMessage, PluginNotificationMessage, PluginShowPanelMessage,
   PluginPanelRegisteredMessage, PluginPanelUnregisteredMessage,
   PluginNotchTabRegisteredMessage, PluginNotchTabUnregisteredMessage,
@@ -269,4 +274,7 @@ export type ServerMessage =
   // Notifications
   | NotificationUpdateMessage
   | NotificationListMessage
-  | NotificationReadMessage;
+  | NotificationReadMessage
+  // Meta Workflow
+  | MetaWorkflowRunUpdateMessage
+  | MetaWorkflowPhaseUpdateMessage;
