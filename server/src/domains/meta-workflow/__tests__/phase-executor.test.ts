@@ -1,5 +1,5 @@
 // server/src/domains/meta-workflow/__tests__/phase-executor.test.ts
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { migration as m069 } from '../../../infrastructure/storage/migrations/069_meta_workflow.js';
 import { MetaWorkflowPhaseRepository } from '../repositories/meta-workflow-phase-repository.js';
@@ -107,5 +107,46 @@ describe('MetaPhaseExecutor', () => {
     const final = agg['repo'].findById(phase.id);
     expect(final?.generatedSubagentId).toBeTruthy();
     expect(final?.generatedWorkflowId).toBeUndefined();
+  });
+
+  it('writes a versioned artifact on done', async () => {
+    const phase = agg.instantiate('run-1', phaseDef);
+    const artifactRepo = {
+      findLatestByPhase: vi.fn().mockReturnValue(null),
+      create: vi.fn().mockImplementation((data) => ({ id: 'a1', ...data })),
+    };
+    const executor = new MetaPhaseExecutor({
+      aggregate: agg,
+      runEntity: async () => ({ exitOk: true }),
+      artifactRepo: artifactRepo as never,
+    });
+    await executor.execute(phase.id, phaseDef, workdir);
+    expect(artifactRepo.create).toHaveBeenCalled();
+    const createdArg = artifactRepo.create.mock.calls[0][0];
+    expect(createdArg.phaseRecordId).toBe(phase.id);
+    expect(createdArg.version).toBe(1);
+    expect(createdArg.status).toBe('active');
+    expect(Array.isArray(createdArg.gateResults)).toBe(true);
+  });
+
+  it('writes artifact with status=stale when phase fails', async () => {
+    const failPhase = {
+      ...phaseDef,
+      acceptanceGates: [{ id: 'g1', description: 'no', command: 'false', expect: { exitCode: 0 } }],
+    };
+    const phase = agg.instantiate('run-1', failPhase);
+    const artifactRepo = {
+      findLatestByPhase: vi.fn().mockReturnValue(null),
+      create: vi.fn().mockImplementation((data) => ({ id: 'a1', ...data })),
+    };
+    const executor = new MetaPhaseExecutor({
+      aggregate: agg,
+      runEntity: async () => ({ exitOk: true }),
+      artifactRepo: artifactRepo as never,
+    });
+    await executor.execute(phase.id, failPhase, workdir);
+    expect(artifactRepo.create).toHaveBeenCalled();
+    const createdArg = artifactRepo.create.mock.calls[0][0];
+    expect(createdArg.status).toBe('stale');
   });
 });

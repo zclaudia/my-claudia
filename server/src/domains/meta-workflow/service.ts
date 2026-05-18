@@ -39,7 +39,6 @@ export interface CreateRunInput {
 export class MetaWorkflowService {
   private runRepo: MetaWorkflowRunRepository;
   private phaseRepo: MetaWorkflowPhaseRepository;
-  // Used by `runPhase` once Phase D Task 7 wires artifact creation into the executor.
   private artifactRepo: MetaWorkflowArtifactRepository;
   private poolRepo: MetaWorkflowReusePoolRepository;
   private subagentRepo: MetaSubagentTemplateRepository;
@@ -114,6 +113,7 @@ export class MetaWorkflowService {
     try {
       const executor = new MetaPhaseExecutor({
         aggregate: this.phaseAggregate,
+        artifactRepo: this.artifactRepo,
         runEntity: async (entity, ctx) => {
           if (entity.kind === 'workflow') return this.opts.runEntityForWorkflow(entity, ctx);
           return this.opts.runEntityForSubagent(entity, ctx);

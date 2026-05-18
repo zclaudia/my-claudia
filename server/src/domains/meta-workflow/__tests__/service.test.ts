@@ -110,4 +110,17 @@ describe('MetaWorkflowService', () => {
     const after = service.cancelRun(run.id);
     expect(after.status).toBe('cancelled');
   });
+
+  it('runPhase writes an artifact row on done', async () => {
+    const run = service.createRun({ projectId: 'proj-1', title: 't' });
+    service.submitRequirements(run.id, 'design/req.md');
+    service.approveRequirements(run.id);
+    service.setPhasesJson(run.id, samplePhasesJson);
+    await service.runPhase(run.id, 'p1');
+    const phase = service.listPhases(run.id)[0];
+    const artifacts = db.prepare(
+      `SELECT * FROM meta_workflow_artifacts WHERE phase_record_id = ?`,
+    ).all(phase.id);
+    expect(artifacts.length).toBeGreaterThan(0);
+  });
 });

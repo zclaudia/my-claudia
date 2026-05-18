@@ -10,6 +10,7 @@ import { MetaWorkflowPhaseAggregate } from './phase-aggregate.js';
 import { synthesizeWorkflow } from './workflow-synthesizer.js';
 import { synthesizeSubagent } from './subagent-synthesizer.js';
 import { runGates } from './gate-runner.js';
+import type { MetaWorkflowArtifactRepository } from './repositories/meta-workflow-artifact-repository.js';
 
 export type SynthesizedEntity =
   | { kind: 'workflow'; workflow: WorkflowDefinition; workflowId: string }
@@ -25,6 +26,7 @@ export interface MetaPhaseExecutorOptions {
   aggregate: MetaWorkflowPhaseAggregate;
   /** Injected runner — Phase B uses a stub; Phase C+ wires the real workflow engine. */
   runEntity: RunEntity;
+  artifactRepo?: MetaWorkflowArtifactRepository;
 }
 
 export interface PhaseExecutionResult {
@@ -72,6 +74,13 @@ export class MetaPhaseExecutor {
 
     if (!runOutcome.exitOk) {
       const phase = aggregate.markFailed(phaseRecordId, 'entity runner reported failure');
+      if (this.opts.artifactRepo) {
+        const latest = this.opts.artifactRepo.findLatestByPhase(phaseRecordId);
+        const version = (latest?.version ?? 0) + 1;
+        this.opts.artifactRepo.create({
+          phaseRecordId, version, gateResults: [], status: 'stale', createdAt: Date.now(),
+        });
+      }
       return { phase, gateResults: [] };
     }
 
@@ -83,6 +92,19 @@ export class MetaPhaseExecutor {
     const phase = allPassed
       ? aggregate.markDone(phaseRecordId)
       : aggregate.markFailed(phaseRecordId, 'one or more acceptance gates failed');
+
+    if (this.opts.artifactRepo) {
+      const latest = this.opts.artifactRepo.findLatestByPhase(phaseRecordId);
+      const version = (latest?.version ?? 0) + 1;
+      this.opts.artifactRepo.create({
+        phaseRecordId,
+        version,
+        gateResults,
+        status: allPassed ? 'active' : 'stale',
+        createdAt: Date.now(),
+      });
+    }
+
     return { phase, gateResults };
   }
 
