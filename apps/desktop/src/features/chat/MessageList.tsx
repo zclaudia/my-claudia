@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Brain, ChevronRight, Image, Copy, Check, Terminal } from 'lucide-react';
-import { ToolCallList } from './ToolCallItem';
+import { ToolCallList } from './tool-call/ToolCallList';
 import { FilePushCard } from './FilePushNotification';
 import { FilePreviewModal } from './FilePreviewModal';
 import type { MessageWithToolCalls, ToolCallState } from '../../stores/chatStore';

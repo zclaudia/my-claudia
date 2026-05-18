@@ -88,7 +88,7 @@ vi.mock('../MessageInput', () => ({
     </div>
   ),
 }));
-vi.mock('../ToolCallItem', () => ({
+vi.mock('../tool-call/ToolCallList', () => ({
   ToolCallList: () => <div data-testid="tool-calls">tool calls</div>,
 }));
 vi.mock('../LoadingIndicator', () => ({

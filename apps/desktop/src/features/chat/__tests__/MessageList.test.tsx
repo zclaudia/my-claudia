@@ -101,7 +101,7 @@ vi.mock('react-syntax-highlighter/dist/esm/styles/prism', () => ({
   oneLight: {},
 }));
 
-vi.mock('../ToolCallItem', () => ({
+vi.mock('../tool-call/ToolCallList', () => ({
   ToolCallList: ({ toolCalls, defaultCollapsed, isStreaming }: any) => (
     <div
       data-testid="tool-call-list"
@@ -115,9 +115,6 @@ vi.mock('../ToolCallItem', () => ({
         </div>
       ))}
     </div>
-  ),
-  ToolCallItem: ({ toolCall }: any) => (
-    <div data-testid="tool-call-item">{toolCall.id}</div>
   ),
 }));
 

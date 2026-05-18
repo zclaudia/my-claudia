@@ -1,7 +1,7 @@
 import { useRef, useEffect, useCallback, useMemo, memo, type RefObject } from 'react';
 import { Loader2, AlertTriangle, ArrowDown } from 'lucide-react';
 import { MessageList } from './MessageList';
-import { ToolCallList } from './ToolCallItem';
+import { ToolCallList } from './tool-call/ToolCallList';
 import { LoadingIndicator } from './LoadingIndicator';
 import { InlinePermissionRequest } from './InlinePermissionRequest';
 import { InteractionItem } from './InteractionItem';
