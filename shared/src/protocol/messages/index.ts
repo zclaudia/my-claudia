@@ -61,6 +61,10 @@ import type {
   SetMetaWorkflowPhasesMessage,
   CancelMetaWorkflowRunMessage,
   RunMetaWorkflowPhaseMessage,
+  RerunMetaWorkflowPhaseMessage,
+  IgnoreMetaWorkflowPhaseStaleMessage,
+  EvaluateMetaWorkflowPhaseImpactMessage,
+  CascadeRerunMetaWorkflowPhaseMessage,
 } from './meta-workflow.js';
 
 export type ClientMessage =
@@ -125,7 +129,11 @@ export type ClientMessage =
   | ResolveMetaWorkflowRequirementsMessage
   | SetMetaWorkflowPhasesMessage
   | CancelMetaWorkflowRunMessage
-  | RunMetaWorkflowPhaseMessage;
+  | RunMetaWorkflowPhaseMessage
+  | RerunMetaWorkflowPhaseMessage
+  | IgnoreMetaWorkflowPhaseStaleMessage
+  | EvaluateMetaWorkflowPhaseImpactMessage
+  | CascadeRerunMetaWorkflowPhaseMessage;
 
 // ============================================
 // Server → Client messages (union type)
@@ -182,6 +190,7 @@ import type {
 import type {
   MetaWorkflowRunUpdateMessage,
   MetaWorkflowPhaseUpdateMessage,
+  MetaWorkflowImpactRecommendationMessage,
 } from './meta-workflow.js';
 import type {
   PluginStateMessage, PluginNotificationMessage, PluginShowPanelMessage,
@@ -292,4 +301,5 @@ export type ServerMessage =
   | NotificationReadMessage
   // Meta Workflow
   | MetaWorkflowRunUpdateMessage
-  | MetaWorkflowPhaseUpdateMessage;
+  | MetaWorkflowPhaseUpdateMessage
+  | MetaWorkflowImpactRecommendationMessage;

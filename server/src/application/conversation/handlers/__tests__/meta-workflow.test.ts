@@ -7,6 +7,10 @@ import {
   handleSetMetaWorkflowPhases,
   handleCancelMetaWorkflowRun,
   handleRunMetaWorkflowPhase,
+  handleRerunMetaWorkflowPhase,
+  handleIgnoreMetaWorkflowPhaseStale,
+  handleEvaluateMetaWorkflowPhaseImpact,
+  handleCascadeRerunMetaWorkflowPhase,
 } from '../meta-workflow.js';
 
 function makeClient() {
@@ -105,5 +109,69 @@ describe('meta-workflow WS handlers', () => {
       type: 'create_meta_workflow_run', projectId: 'p', title: 't',
     }, service as never);
     expect(sent[0]).toMatchObject({ type: 'error', message: expect.stringMatching(/boom/) });
+  });
+
+  it('handleRerunMetaWorkflowPhase calls service.rerunPhase + broadcasts updated phase', async () => {
+    const { client, sent } = makeClient();
+    const service = {
+      rerunPhase: vi.fn().mockResolvedValue({
+        phase: { id: 'pr1', runId: 'r1', phaseId: 'p1', status: 'done', executeEntity: 'workflow',
+                 phaseType: 'code-implement', attempt: 2, maxRetries: 3, createdAt: 0 },
+        gateResults: [],
+      }),
+      getRun: vi.fn().mockReturnValue({ projectId: 'p' }),
+    };
+    await handleRerunMetaWorkflowPhase(client, {
+      type: 'rerun_meta_workflow_phase', runId: 'r1', phaseId: 'p1',
+    }, service as never);
+    expect(service.rerunPhase).toHaveBeenCalledWith('r1', 'p1');
+    expect(sent[0]).toMatchObject({ type: 'meta_workflow_phase_update', phase: { status: 'done' } });
+  });
+
+  it('handleIgnoreMetaWorkflowPhaseStale clears stale and broadcasts', () => {
+    const { client, sent } = makeClient();
+    const service = {
+      ignoreStale: vi.fn().mockReturnValue({ id: 'pr1', status: 'done', executeEntity: 'workflow',
+                                              runId: 'r1', phaseId: 'p1', phaseType: 'code-implement',
+                                              attempt: 1, maxRetries: 3, createdAt: 0 }),
+      getRun: vi.fn().mockReturnValue({ projectId: 'p' }),
+    };
+    handleIgnoreMetaWorkflowPhaseStale(client, {
+      type: 'ignore_meta_workflow_phase_stale', runId: 'r1', phaseId: 'p1',
+    }, service as never);
+    expect(service.ignoreStale).toHaveBeenCalledWith('r1', 'p1');
+    expect(sent[0]).toMatchObject({ type: 'meta_workflow_phase_update' });
+  });
+
+  it('handleEvaluateMetaWorkflowPhaseImpact returns recommendation message', async () => {
+    const { client, sent } = makeClient();
+    const service = {
+      evaluateImpact: vi.fn().mockResolvedValue({ kind: 'rerun', reason: 'changed' }),
+    };
+    await handleEvaluateMetaWorkflowPhaseImpact(client, {
+      type: 'evaluate_meta_workflow_phase_impact', runId: 'r1', phaseId: 'p1',
+    }, service as never);
+    expect(sent[0]).toMatchObject({
+      type: 'meta_workflow_impact_recommendation',
+      recommendation: { kind: 'rerun' },
+    });
+  });
+
+  it('handleCascadeRerunMetaWorkflowPhase calls cascadeRerun and broadcasts each phase', async () => {
+    const { client, sent } = makeClient();
+    const service = {
+      cascadeRerun: vi.fn().mockResolvedValue([
+        { phase: { id: 'pr1', runId: 'r1', phaseId: 'p1', status: 'done', executeEntity: 'workflow',
+                   phaseType: 'code-implement', attempt: 1, maxRetries: 3, createdAt: 0 }, gateResults: [] },
+        { phase: { id: 'pr2', runId: 'r1', phaseId: 'p2', status: 'done', executeEntity: 'workflow',
+                   phaseType: 'code-implement', attempt: 1, maxRetries: 3, createdAt: 0 }, gateResults: [] },
+      ]),
+      getRun: vi.fn().mockReturnValue({ projectId: 'p' }),
+    };
+    await handleCascadeRerunMetaWorkflowPhase(client, {
+      type: 'cascade_rerun_meta_workflow_phase', runId: 'r1', phaseId: 'p1',
+    }, service as never);
+    expect(service.cascadeRerun).toHaveBeenCalledWith('r1', 'p1');
+    expect(sent.length).toBe(2);
   });
 });

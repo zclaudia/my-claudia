@@ -40,6 +40,10 @@ import {
   handleSetMetaWorkflowPhases,
   handleCancelMetaWorkflowRun,
   handleRunMetaWorkflowPhase,
+  handleRerunMetaWorkflowPhase,
+  handleIgnoreMetaWorkflowPhaseStale,
+  handleEvaluateMetaWorkflowPhaseImpact,
+  handleCascadeRerunMetaWorkflowPhase,
 } from '../handlers/meta-workflow.js';
 
 /** Context object bundling module-level dependencies for handleClientMessage. */
@@ -203,6 +207,22 @@ export async function handleClientMessage(
 
     case 'run_meta_workflow_phase':
       if (ctx.metaWorkflowService) await handleRunMetaWorkflowPhase(client, message, ctx.metaWorkflowService);
+      break;
+
+    case 'rerun_meta_workflow_phase':
+      if (ctx.metaWorkflowService) await handleRerunMetaWorkflowPhase(client, message, ctx.metaWorkflowService);
+      break;
+
+    case 'ignore_meta_workflow_phase_stale':
+      if (ctx.metaWorkflowService) handleIgnoreMetaWorkflowPhaseStale(client, message, ctx.metaWorkflowService);
+      break;
+
+    case 'evaluate_meta_workflow_phase_impact':
+      if (ctx.metaWorkflowService) await handleEvaluateMetaWorkflowPhaseImpact(client, message, ctx.metaWorkflowService);
+      break;
+
+    case 'cascade_rerun_meta_workflow_phase':
+      if (ctx.metaWorkflowService) await handleCascadeRerunMetaWorkflowPhase(client, message, ctx.metaWorkflowService);
       break;
 
     // ── Terminal ──

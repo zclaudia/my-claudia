@@ -57,3 +57,39 @@ export interface RunMetaWorkflowPhaseMessage {
   runId: string;
   phaseId: string;
 }
+
+// Client → Server: rerun a single phase (clears stale/failed first)
+export interface RerunMetaWorkflowPhaseMessage {
+  type: 'rerun_meta_workflow_phase';
+  runId: string;
+  phaseId: string;
+}
+
+// Client → Server: clear the stale flag on a phase
+export interface IgnoreMetaWorkflowPhaseStaleMessage {
+  type: 'ignore_meta_workflow_phase_stale';
+  runId: string;
+  phaseId: string;
+}
+
+// Client → Server: ask for an impact recommendation
+export interface EvaluateMetaWorkflowPhaseImpactMessage {
+  type: 'evaluate_meta_workflow_phase_impact';
+  runId: string;
+  phaseId: string;
+}
+
+// Client → Server: rerun a phase and all transitive downstreams
+export interface CascadeRerunMetaWorkflowPhaseMessage {
+  type: 'cascade_rerun_meta_workflow_phase';
+  runId: string;
+  phaseId: string;
+}
+
+// Server → Client: response to impact evaluation
+export interface MetaWorkflowImpactRecommendationMessage {
+  type: 'meta_workflow_impact_recommendation';
+  runId: string;
+  phaseId: string;
+  recommendation: { kind: 'rerun' | 'ignore' | 'minor-fix'; reason: string };
+}

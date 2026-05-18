@@ -6,6 +6,10 @@ import type {
   SetMetaWorkflowPhasesMessage,
   CancelMetaWorkflowRunMessage,
   RunMetaWorkflowPhaseMessage,
+  RerunMetaWorkflowPhaseMessage,
+  IgnoreMetaWorkflowPhaseStaleMessage,
+  EvaluateMetaWorkflowPhaseImpactMessage,
+  CascadeRerunMetaWorkflowPhaseMessage,
 } from '@my-claudia/shared/protocol/messages';
 import type { ConnectedClient } from '../transport/types.js';
 import type { MetaWorkflowService } from '../../../domains/meta-workflow/service.js';
@@ -126,6 +130,70 @@ export async function handleRunMetaWorkflowPhase(
     const run = service.getRun(msg.runId);
     if (!run) return;
     broadcastPhase(client, run.projectId, msg.runId, result.phase);
+  } catch (e) {
+    sendError(client, e);
+  }
+}
+
+export async function handleRerunMetaWorkflowPhase(
+  client: ConnectedClient,
+  msg: RerunMetaWorkflowPhaseMessage,
+  service: MetaWorkflowService,
+): Promise<void> {
+  try {
+    const result = await service.rerunPhase(msg.runId, msg.phaseId);
+    const run = service.getRun(msg.runId);
+    if (run) broadcastPhase(client, run.projectId, msg.runId, result.phase);
+  } catch (e) {
+    sendError(client, e);
+  }
+}
+
+export function handleIgnoreMetaWorkflowPhaseStale(
+  client: ConnectedClient,
+  msg: IgnoreMetaWorkflowPhaseStaleMessage,
+  service: MetaWorkflowService,
+): void {
+  try {
+    const phase = service.ignoreStale(msg.runId, msg.phaseId);
+    const run = service.getRun(msg.runId);
+    if (run) broadcastPhase(client, run.projectId, msg.runId, phase);
+  } catch (e) {
+    sendError(client, e);
+  }
+}
+
+export async function handleEvaluateMetaWorkflowPhaseImpact(
+  client: ConnectedClient,
+  msg: EvaluateMetaWorkflowPhaseImpactMessage,
+  service: MetaWorkflowService,
+): Promise<void> {
+  try {
+    const recommendation = await service.evaluateImpact(msg.runId, msg.phaseId);
+    send(client, {
+      type: 'meta_workflow_impact_recommendation',
+      runId: msg.runId,
+      phaseId: msg.phaseId,
+      recommendation,
+    });
+  } catch (e) {
+    sendError(client, e);
+  }
+}
+
+export async function handleCascadeRerunMetaWorkflowPhase(
+  client: ConnectedClient,
+  msg: CascadeRerunMetaWorkflowPhaseMessage,
+  service: MetaWorkflowService,
+): Promise<void> {
+  try {
+    const results = await service.cascadeRerun(msg.runId, msg.phaseId);
+    const run = service.getRun(msg.runId);
+    if (run) {
+      for (const r of results) {
+        broadcastPhase(client, run.projectId, msg.runId, r.phase);
+      }
+    }
   } catch (e) {
     sendError(client, e);
   }
