@@ -33,6 +33,7 @@ export interface CreateRunInput {
 export class MetaWorkflowService {
   private runRepo: MetaWorkflowRunRepository;
   private phaseRepo: MetaWorkflowPhaseRepository;
+  // Used by `runPhase` once Phase D Task 7 wires artifact creation into the executor.
   private artifactRepo: MetaWorkflowArtifactRepository;
   private poolRepo: MetaWorkflowReusePoolRepository;
   private subagentRepo: MetaSubagentTemplateRepository;
