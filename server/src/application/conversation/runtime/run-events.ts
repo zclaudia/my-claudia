@@ -440,6 +440,17 @@ export function handleProviderEvent({
     }
 
     case 'task_notification': {
+      // Track in-flight background tasks so the stream stays open for follow-up turns.
+      if (msg.taskStatus === 'started') {
+        activeRun.pendingBackgroundTasks++;
+      } else if (
+        msg.taskStatus === 'completed' ||
+        msg.taskStatus === 'failed' ||
+        msg.taskStatus === 'stopped'
+      ) {
+        activeRun.pendingBackgroundTasks = Math.max(0, activeRun.pendingBackgroundTasks - 1);
+      }
+
       const adapter = activeRun.providerType ? providerRegistry.get(activeRun.providerType) : undefined;
       const buildTaskNotificationEvent = () => {
         const cliPid = activeRun.providerSessionId

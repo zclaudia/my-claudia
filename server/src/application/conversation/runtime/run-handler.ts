@@ -184,6 +184,7 @@ export async function handleRunStart(
       activeRuns,
       broadcastHeartbeat,
       client,
+      connectedClients,
       cwd,
       db,
       input: message.input,

@@ -208,6 +208,7 @@ export function initializeRunBootstrap(input: InitializeRunBootstrapInput): RunB
     lastActivityAt: Date.now(),
     recentToolCalls: [],
     loopHeartbeatStreak: 0,
+    pendingBackgroundTasks: 0,
     sessionType,
     workspaceRoot: cwd,
     rememberedDecisions: loadSessionRememberedDecisions(db, message.sessionId),

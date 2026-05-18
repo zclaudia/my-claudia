@@ -67,6 +67,10 @@ export interface ActiveRun {
   lastActivityAt: number;
   recentToolCalls: string[];  // Last N tool names (sliding window for loop detection)
   loopHeartbeatStreak: number; // Consecutive heartbeats that detect a loop pattern
+  /** Number of SDK background tasks (run_in_background) still in flight.
+   *  When > 0, the provider stream must stay open after `result` so that
+   *  the follow-up assistant turn triggered by task completion is consumed. */
+  pendingBackgroundTasks: number;
   latestSystemInfo?: SystemInfo; // Used for heartbeat reconciliation on late-joining clients
   eventSeq: number; // Monotonically increasing event sequence number (starts at 0, first event gets seq=1)
   /** PCP effective profile negotiated at run start */
