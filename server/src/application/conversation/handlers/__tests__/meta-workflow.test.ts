@@ -94,7 +94,7 @@ describe('meta-workflow WS handlers', () => {
     await handleRunMetaWorkflowPhase(client, {
       type: 'run_meta_workflow_phase', runId: 'r1', phaseId: 'p1',
     }, service as never);
-    expect(service.runPhase).toHaveBeenCalledWith('r1', 'p1', expect.any(String));
+    expect(service.runPhase).toHaveBeenCalledWith('r1', 'p1');
     expect(sent[0]).toMatchObject({ type: 'meta_workflow_phase_update', phase: { id: 'pr1', status: 'done' } });
   });
 

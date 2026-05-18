@@ -17,10 +17,16 @@ import { ReusePoolPromotionService, type PromoteInput } from './reuse-pool-promo
 import { MetaPhaseExecutor, type RunEntity, type PhaseExecutionResult } from './phase-executor.js';
 import { validatePhasesJson } from './phases-json-validator.js';
 
+export interface WorktreeAllocator {
+  acquire(meta: { runId: string; phaseId: string; attempt: number }): Promise<string>;
+  release(path: string): Promise<void>;
+}
+
 export interface MetaWorkflowServiceOptions {
   db: Database;
   runEntityForWorkflow: RunEntity;
   runEntityForSubagent: RunEntity;
+  worktreeAllocator: WorktreeAllocator;
 }
 
 export interface CreateRunInput {
@@ -90,7 +96,7 @@ export class MetaWorkflowService {
 
   // ── Phase execution ─────────────────────────────────────
 
-  async runPhase(runId: string, phaseId: string, worktreePath: string): Promise<PhaseExecutionResult> {
+  async runPhase(runId: string, phaseId: string): Promise<PhaseExecutionResult> {
     const phase = this.phaseRepo.findByRunAndPhaseId(runId, phaseId);
     if (!phase) throw new Error(`Phase not found: run=${runId} phase=${phaseId}`);
 
@@ -102,14 +108,21 @@ export class MetaWorkflowService {
     const phaseDef = validation.doc.phases.find((p) => p.id === phaseId);
     if (!phaseDef) throw new Error(`Phase def not in phases.json: ${phaseId}`);
 
-    const executor = new MetaPhaseExecutor({
-      aggregate: this.phaseAggregate,
-      runEntity: async (entity, ctx) => {
-        if (entity.kind === 'workflow') return this.opts.runEntityForWorkflow(entity, ctx);
-        return this.opts.runEntityForSubagent(entity, ctx);
-      },
+    const worktreePath = await this.opts.worktreeAllocator.acquire({
+      runId, phaseId, attempt: phase.attempt + 1,
     });
-    return executor.execute(phase.id, phaseDef, worktreePath);
+    try {
+      const executor = new MetaPhaseExecutor({
+        aggregate: this.phaseAggregate,
+        runEntity: async (entity, ctx) => {
+          if (entity.kind === 'workflow') return this.opts.runEntityForWorkflow(entity, ctx);
+          return this.opts.runEntityForSubagent(entity, ctx);
+        },
+      });
+      return await executor.execute(phase.id, phaseDef, worktreePath);
+    } finally {
+      await this.opts.worktreeAllocator.release(worktreePath);
+    }
   }
 
   // ── Reuse pool ──────────────────────────────────────────

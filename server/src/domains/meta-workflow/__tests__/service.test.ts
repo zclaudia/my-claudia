@@ -35,14 +35,20 @@ describe('MetaWorkflowService', () => {
   let db: Database.Database;
   let service: MetaWorkflowService;
   let workdir: string;
+  let fakeAllocator: { acquire: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     db = freshDb();
     workdir = mkdtempSync(join(tmpdir(), 'meta-service-'));
+    fakeAllocator = {
+      acquire: vi.fn().mockResolvedValue(workdir),
+      release: vi.fn().mockResolvedValue(undefined),
+    };
     service = new MetaWorkflowService({
       db,
       runEntityForWorkflow: vi.fn().mockResolvedValue({ exitOk: true }),
       runEntityForSubagent: vi.fn().mockResolvedValue({ exitOk: true }),
+      worktreeAllocator: fakeAllocator,
     });
   });
 
@@ -75,8 +81,20 @@ describe('MetaWorkflowService', () => {
     service.submitRequirements(run.id, 'design/req.md');
     service.approveRequirements(run.id);
     service.setPhasesJson(run.id, samplePhasesJson);
-    const result = await service.runPhase(run.id, 'p1', workdir);
+    const result = await service.runPhase(run.id, 'p1');
     expect(result.phase.status).toBe('done');
+  });
+
+  it('runPhase acquires and releases a worktree via the allocator', async () => {
+    const run = service.createRun({ projectId: 'proj-1', title: 't' });
+    service.submitRequirements(run.id, 'design/req.md');
+    service.approveRequirements(run.id);
+    service.setPhasesJson(run.id, samplePhasesJson);
+    await service.runPhase(run.id, 'p1');
+    expect(fakeAllocator.acquire).toHaveBeenCalledWith({
+      runId: run.id, phaseId: 'p1', attempt: expect.any(Number),
+    });
+    expect(fakeAllocator.release).toHaveBeenCalledWith(workdir);
   });
 
   it('rejectRequirements bumps counter and returns to draft', () => {

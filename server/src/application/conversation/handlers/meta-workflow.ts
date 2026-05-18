@@ -1,7 +1,4 @@
 // server/src/application/conversation/handlers/meta-workflow.ts
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import type {
   CreateMetaWorkflowRunMessage,
   SubmitMetaWorkflowRequirementsMessage,
@@ -125,9 +122,7 @@ export async function handleRunMetaWorkflowPhase(
   service: MetaWorkflowService,
 ): Promise<void> {
   try {
-    // Phase C MVP: per-phase temp worktree. Phase D will wire WorktreeManager.
-    const worktreePath = mkdtempSync(join(tmpdir(), 'meta-phase-'));
-    const result = await service.runPhase(msg.runId, msg.phaseId, worktreePath);
+    const result = await service.runPhase(msg.runId, msg.phaseId);
     const run = service.getRun(msg.runId);
     if (!run) return;
     broadcastPhase(client, run.projectId, msg.runId, result.phase);
