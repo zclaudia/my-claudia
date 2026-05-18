@@ -8,7 +8,20 @@ import type {
 import { v4 as uuidv4 } from 'uuid';
 
 type Create = Omit<MetaWorkflowRun, 'id' | 'completedAt'>;
-type Update = Partial<Omit<MetaWorkflowRun, 'id' | 'projectId' | 'createdAt'>>;
+type Update = {
+  title?: string;
+  description?: string | null;
+  status?: MetaWorkflowRun['status'];
+  requirementsPath?: string | null;
+  phasesJson?: string | null;
+  smokePathRunId?: string | null;
+  rejectCount?: number;
+  defaultProviderId?: string | null;
+  config?: MetaWorkflowRun['config'] | null;
+  worktreeId?: string | null;
+  updatedAt?: number;
+  completedAt?: number | null;
+};
 
 export class MetaWorkflowRunRepository extends BaseRepository<MetaWorkflowRun, Create, Update> {
   constructor(db: Database) {

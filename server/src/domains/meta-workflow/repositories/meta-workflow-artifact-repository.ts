@@ -8,7 +8,13 @@ import type {
 import { v4 as uuidv4 } from 'uuid';
 
 type Create = Omit<MetaWorkflowArtifact, 'id'>;
-type Update = Partial<Omit<MetaWorkflowArtifact, 'id' | 'phaseRecordId' | 'version' | 'createdAt'>>;
+type Update = {
+  commitSha?: string | null;
+  artifactFiles?: MetaWorkflowArtifact['artifactFiles'] | null;
+  gateResults?: MetaWorkflowArtifact['gateResults'] | null;
+  aiReviewNotesPath?: string | null;
+  status?: MetaWorkflowArtifact['status'];
+};
 
 export class MetaWorkflowArtifactRepository extends BaseRepository<MetaWorkflowArtifact, Create, Update> {
   constructor(db: Database) {

@@ -127,8 +127,8 @@ export class MetaWorkflowPhaseAggregate {
     assertPhaseTransition(phase.status, 'done');
     return this.repo.update(phaseId, {
       status: 'done',
-      staleSince: null as unknown as undefined,
-      staleSourcePhaseId: null as unknown as undefined,
+      staleSince: null,
+      staleSourcePhaseId: null,
     });
   }
 

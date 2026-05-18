@@ -14,7 +14,28 @@ import type {
 import { v4 as uuidv4 } from 'uuid';
 
 type Create = Omit<MetaWorkflowPhase, 'id' | 'startedAt' | 'completedAt'>;
-type Update = Partial<Omit<MetaWorkflowPhase, 'id' | 'runId' | 'phaseId' | 'createdAt'>>;
+type Update = {
+  phaseType?: MetaWorkflowPhase['phaseType'];
+  status?: MetaWorkflowPhase['status'];
+  executeEntity?: MetaWorkflowPhase['executeEntity'];
+  reusedFromPoolId?: string | null;
+  generatedWorkflowId?: string | null;
+  generatedSubagentId?: string | null;
+  currentRunId?: string | null;
+  worktreePath?: string | null;
+  staleSince?: number | null;
+  staleSourcePhaseId?: string | null;
+  attempt?: number;
+  maxRetries?: number;
+  inputsSnapshot?: MetaWorkflowPhase['inputsSnapshot'] | null;
+  outputsSnapshot?: MetaWorkflowPhase['outputsSnapshot'] | null;
+  gatesSnapshot?: MetaWorkflowPhase['gatesSnapshot'] | null;
+  executeConfigSnapshot?: MetaWorkflowPhase['executeConfigSnapshot'] | null;
+  synthesizerProviderId?: string | null;
+  runtimeProviderId?: string | null;
+  startedAt?: number;
+  completedAt?: number;
+};
 
 function parseJsonOrUndefined<T>(s: unknown): T | undefined {
   return s ? (JSON.parse(s as string) as T) : undefined;
