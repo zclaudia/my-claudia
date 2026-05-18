@@ -108,4 +108,16 @@ describe('MetaWorkflowPhaseAggregate', () => {
     const phase = agg.instantiate('run-1', phaseDef);
     expect(() => agg.markDone(phase.id)).toThrow(/Invalid phase transition/);
   });
+
+  it('reuse-hit path: searching_reuse → ready_to_run skipping generating', () => {
+    const phase = agg.instantiate('run-1', phaseDef);
+    agg.enterSearchingReuse(phase.id);
+    const updated = agg.enterReadyToRun(phase.id, {
+      reusedFromPoolId: 'pool-item-1',
+      generatedWorkflowId: 'wf-existing',
+    });
+    expect(updated.status).toBe('ready_to_run');
+    expect(updated.reusedFromPoolId).toBe('pool-item-1');
+    expect(updated.generatedWorkflowId).toBe('wf-existing');
+  });
 });

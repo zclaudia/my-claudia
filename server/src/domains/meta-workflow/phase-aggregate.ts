@@ -55,6 +55,7 @@ export class MetaWorkflowPhaseAggregate {
   enterReadyToRun(phaseId: string, opts?: {
     generatedWorkflowId?: string;
     generatedSubagentId?: string;
+    reusedFromPoolId?: string;
   }): MetaWorkflowPhase {
     const phase = this.requirePhase(phaseId);
     assertPhaseStatusIn(phase.status, ['searching_reuse', 'generating'], 'enter ready_to_run');
@@ -63,6 +64,7 @@ export class MetaWorkflowPhaseAggregate {
       status: 'ready_to_run',
       generatedWorkflowId: opts?.generatedWorkflowId,
       generatedSubagentId: opts?.generatedSubagentId,
+      reusedFromPoolId: opts?.reusedFromPoolId,
     });
   }
 
