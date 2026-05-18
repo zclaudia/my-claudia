@@ -68,6 +68,7 @@ import { migration as m_065_local_issues } from './065_local_issues.js';
 import { migration as m_066_attachments } from './066_attachments.js';
 import { migration as m_067_turn_summaries } from './067_turn_summaries.js';
 import { migration as m_068_local_issue_comments } from './068_local_issue_comments.js';
+import { migration as m_069_meta_workflow } from './069_meta_workflow.js';
 
 export type { Migration };
 
@@ -140,4 +141,5 @@ export const migrations: Migration[] = [
   m_066_attachments,
   m_067_turn_summaries,
   m_068_local_issue_comments,
+  m_069_meta_workflow,
 ];
