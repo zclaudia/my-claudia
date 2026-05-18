@@ -54,6 +54,14 @@ import type {
 import type {
   GetNotificationsMessage, MarkNotificationsReadMessage, MarkAllNotificationsReadMessage, DismissNotificationsMessage, ClearReadNotificationsMessage,
 } from './notification-feed.js';
+import type {
+  CreateMetaWorkflowRunMessage,
+  SubmitMetaWorkflowRequirementsMessage,
+  ResolveMetaWorkflowRequirementsMessage,
+  SetMetaWorkflowPhasesMessage,
+  CancelMetaWorkflowRunMessage,
+  RunMetaWorkflowPhaseMessage,
+} from './meta-workflow.js';
 
 export type ClientMessage =
   | AuthMessage
@@ -110,7 +118,14 @@ export type ClientMessage =
   | MarkNotificationsReadMessage
   | MarkAllNotificationsReadMessage
   | DismissNotificationsMessage
-  | ClearReadNotificationsMessage;
+  | ClearReadNotificationsMessage
+  // Meta Workflow
+  | CreateMetaWorkflowRunMessage
+  | SubmitMetaWorkflowRequirementsMessage
+  | ResolveMetaWorkflowRequirementsMessage
+  | SetMetaWorkflowPhasesMessage
+  | CancelMetaWorkflowRunMessage
+  | RunMetaWorkflowPhaseMessage;
 
 // ============================================
 // Server → Client messages (union type)

@@ -33,4 +33,26 @@ describe('meta-workflow protocol messages', () => {
     };
     expect(msg.type).toBe('meta_workflow_phase_update');
   });
+
+  it('CreateMetaWorkflowRunMessage is a valid ClientMessage', async () => {
+    const { describe, it, expect } = await import('vitest');
+    void describe; void it; void expect;
+    const _msg: import('../../protocol/messages/meta-workflow.js').CreateMetaWorkflowRunMessage = {
+      type: 'create_meta_workflow_run',
+      projectId: 'p',
+      title: 't',
+    };
+    const _asUnion: import('../../protocol/messages/index.js').ClientMessage = _msg;
+    expect(_asUnion.type).toBe('create_meta_workflow_run');
+  });
+
+  it('RunMetaWorkflowPhaseMessage roundtrips through union', () => {
+    const msg: import('../../protocol/messages/meta-workflow.js').RunMetaWorkflowPhaseMessage = {
+      type: 'run_meta_workflow_phase',
+      runId: 'r',
+      phaseId: 'p',
+    };
+    const asUnion: import('../../protocol/messages/index.js').ClientMessage = msg;
+    expect(asUnion.type).toBe('run_meta_workflow_phase');
+  });
 });
