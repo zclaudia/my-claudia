@@ -54,6 +54,7 @@ export interface BootstrapResult {
   permissionBridge: import('./conversation/agent/permission-bridge.js').PermissionBridge;
   cancelWorkflowRun: (runId: string) => void;
   permissionWorkflowResolver: import('../domains/workflows/index.js').PermissionWorkflowResolver;
+  metaWorkflowService: import('../domains/meta-workflow/service.js').MetaWorkflowService;
 }
 
 export function bootstrapDomains(deps: BootstrapDeps): BootstrapResult {
@@ -113,6 +114,7 @@ export function bootstrapDomains(deps: BootstrapDeps): BootstrapResult {
     cancelWorkflowRun,
     oneShotRuntime,
     permissionWorkflowResolver,
+    metaWorkflowService,
   } = registerFeatureDomains({
     db,
     app,
@@ -189,5 +191,6 @@ export function bootstrapDomains(deps: BootstrapDeps): BootstrapResult {
     permissionBridge,
     cancelWorkflowRun,
     permissionWorkflowResolver,
+    metaWorkflowService,
   };
 }

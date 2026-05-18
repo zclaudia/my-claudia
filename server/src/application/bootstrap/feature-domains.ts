@@ -19,8 +19,10 @@ import { registerLocalPRDomain, type LocalPRAiSessionPort, type LocalPRSchedulin
 import { registerLocalIssueDomain } from '../../domains/local-issues/index.js';
 import { registerTurnSummaryDomain } from '../../domains/turn-summaries/index.js';
 import { registerAttachmentDomain } from '../../domains/attachments/index.js';
-import { registerWorkflowDomain, type WorkflowAiRunPort, type WorkflowSchedulingPort } from '../../domains/workflows/index.js';
+import { registerWorkflowDomain, WorkflowRunRepository, type WorkflowAiRunPort, type WorkflowSchedulingPort } from '../../domains/workflows/index.js';
 import { PermissionWorkflowResolver } from '../../domains/workflows/index.js';
+import { registerMetaWorkflow } from '../../domains/meta-workflow/register.js';
+import { createWorktreeAllocatorFromSupervisor } from './meta-workflow-allocator.js';
 import { registerPluginsDomain } from '../plugins/register.js';
 import { toolRegistry, workflowStepRegistry, workflowTriggerRegistry } from '../plugins/index.js';
 import { createAutomationRoutes } from '../../interfaces/http/automations.js';
@@ -64,6 +66,7 @@ export interface FeatureDomainsResult {
   cancelWorkflowRun: (runId: string) => void;
   oneShotRuntime: import('../oneshot/types.js').OneShotTaskRuntime;
   permissionWorkflowResolver: PermissionWorkflowResolver;
+  metaWorkflowService: import('../../domains/meta-workflow/service.js').MetaWorkflowService;
 }
 
 function broadcastToAuthenticatedClients(
@@ -320,6 +323,60 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     workflowService.cancelRun(runId);
   };
 
+  // ── Meta Workflow domain ──
+  // defaultProjectId: use the first project in the database for Phase D MVP.
+  // Phase E will wire per-run projectId through the full call stack.
+  // TODO(Phase E): remove this fallback once per-run project context is available.
+  const defaultProjectId = svProjectRepo.findAll()[0]?.id ?? 'default';
+  const workflowRunRepository = new WorkflowRunRepository(db);
+
+  // Adapt WorkflowAiRunPort → AiRunPort:
+  // WorkflowAiRunPort.startVirtualRun requires clientId/sessionId and uses
+  // onMessage: (msg: ServerMessage). AiRunPort uses optional args and a simpler
+  // onMessage shape. This adapter bridges the two by generating synthetic IDs
+  // and re-mapping message shapes.
+  const metaWorkflowAiRunPort = {
+    async startVirtualRun(args: {
+      clientId?: string;
+      sessionId?: string;
+      input: string;
+      workingDirectory?: string;
+      providerId?: string;
+      systemContext?: string;
+      onMessage?: (m: { kind: string; content?: string }) => void;
+    }): Promise<void> {
+      const clientId = args.clientId ?? `meta-virtual-${Date.now()}`;
+      const sessionId = args.sessionId ?? `meta-session-${Date.now()}`;
+      const result = workflowAiRunPort.startVirtualRun({
+        clientId,
+        sessionId,
+        input: args.input,
+        workingDirectory: args.workingDirectory,
+        providerId: args.providerId,
+        systemContext: args.systemContext,
+        onMessage: (msg) => {
+          if (!args.onMessage) return;
+          const m = msg as { type?: string; kind?: string; content?: string; data?: unknown };
+          // Map ServerMessage shape to AiRunPort's simpler {kind, content} shape.
+          const kind = m.kind ?? m.type ?? 'unknown';
+          const content = typeof m.content === 'string' ? m.content : undefined;
+          args.onMessage({ kind, content });
+        },
+      });
+      if (result instanceof Promise) await result;
+    },
+  };
+
+  const metaWorkflow = registerMetaWorkflow({
+    db,
+    workflowEngine,
+    workflowRunRepository,
+    aiRunPort: metaWorkflowAiRunPort,
+    worktreeAllocator: createWorktreeAllocatorFromSupervisor(supervisorService, defaultProjectId),
+    defaultProjectId,
+  });
+  app.use('/api/meta-workflow', authMiddleware, metaWorkflow.routes);
+
   registerPluginsDomain({
     app,
     authMiddleware,
@@ -339,5 +396,6 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     cancelWorkflowRun,
     oneShotRuntime,
     permissionWorkflowResolver,
+    metaWorkflowService: metaWorkflow.service,
   };
 }

@@ -33,6 +33,14 @@ import {
 import {
   handleClaudiaMessage, handleClaudiaTaskSubmit, handleClaudiaTaskContinue, handleClaudiaTaskCancel,
 } from '../handlers/claudia.js';
+import {
+  handleCreateMetaWorkflowRun,
+  handleSubmitMetaWorkflowRequirements,
+  handleResolveMetaWorkflowRequirements,
+  handleSetMetaWorkflowPhases,
+  handleCancelMetaWorkflowRun,
+  handleRunMetaWorkflowPhase,
+} from '../handlers/meta-workflow.js';
 
 /** Context object bundling module-level dependencies for handleClientMessage. */
 export interface MessageHandlerContext {
@@ -49,6 +57,7 @@ export interface MessageHandlerContext {
   providerRegistry?: ProviderRegistryPort;
   permissionBridge?: import('../agent/permission-bridge.js').PermissionBridge;
   cancelWorkflowRun?: (runId: string) => void;
+  metaWorkflowService?: import('../../../domains/meta-workflow/service.js').MetaWorkflowService;
 }
 
 export async function handleClientMessage(
@@ -169,6 +178,31 @@ export async function handleClientMessage(
 
     case 'plugin_permission_response':
       handlePluginPermissionResponse(message, ctx.broadcastPluginState);
+      break;
+
+    // ── Meta Workflow ──
+    case 'create_meta_workflow_run':
+      if (ctx.metaWorkflowService) handleCreateMetaWorkflowRun(client, message, ctx.metaWorkflowService);
+      break;
+
+    case 'submit_meta_workflow_requirements':
+      if (ctx.metaWorkflowService) handleSubmitMetaWorkflowRequirements(client, message, ctx.metaWorkflowService);
+      break;
+
+    case 'resolve_meta_workflow_requirements':
+      if (ctx.metaWorkflowService) handleResolveMetaWorkflowRequirements(client, message, ctx.metaWorkflowService);
+      break;
+
+    case 'set_meta_workflow_phases':
+      if (ctx.metaWorkflowService) handleSetMetaWorkflowPhases(client, message, ctx.metaWorkflowService);
+      break;
+
+    case 'cancel_meta_workflow_run':
+      if (ctx.metaWorkflowService) handleCancelMetaWorkflowRun(client, message, ctx.metaWorkflowService);
+      break;
+
+    case 'run_meta_workflow_phase':
+      if (ctx.metaWorkflowService) await handleRunMetaWorkflowPhase(client, message, ctx.metaWorkflowService);
       break;
 
     // ── Terminal ──

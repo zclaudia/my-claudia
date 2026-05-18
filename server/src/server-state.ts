@@ -51,6 +51,7 @@ export class ServerState {
   permissionWorkflowResolver: PermissionWorkflowResolver | undefined;
   taskOrchestrator: TaskOrchestrator | undefined;
   branchAllocator: ClaudiaBranchService | undefined;
+  metaWorkflowService: import('./domains/meta-workflow/service.js').MetaWorkflowService | undefined;
 
   // --- Broadcast wrappers ---
 
@@ -123,6 +124,7 @@ export class ServerState {
       providerRegistry,
       permissionBridge: this.permissionBridge,
       cancelWorkflowRun: this.cancelWorkflowRun,
+      metaWorkflowService: this.metaWorkflowService,
     };
   }
 
