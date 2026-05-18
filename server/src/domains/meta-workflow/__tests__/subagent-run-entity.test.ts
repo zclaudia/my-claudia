@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createSubagentRunEntity } from '../run-entities/subagent-run-entity.js';
+import { createSubagentRunEntity, createRunVirtualClientFromAiRunPort } from '../run-entities/subagent-run-entity.js';
 import type { MetaSubagentTemplate } from '@my-claudia/shared/features/meta-workflow';
 
 const baseTemplate: MetaSubagentTemplate = {
@@ -95,5 +95,59 @@ describe('subagent run-entity adapter', () => {
       { worktreePath: dir },
     );
     expect(outcome.exitOk).toBe(false);
+  });
+});
+
+// Additional Phase D tests for the AI-runport adapter
+
+describe('createRunVirtualClientFromAiRunPort', () => {
+  it('invokes the AI run port with system prompt as input', async () => {
+    const startVirtualRun = vi.fn().mockImplementation(async (input: { onMessage?: (m: { kind: string; content?: string }) => void }) => {
+      // Simulate the port emitting an assistant message and then completion.
+      input.onMessage?.({ kind: 'assistant_message', content: 'analysis result' });
+      input.onMessage?.({ kind: 'run_completed' });
+    });
+    const runVirtualClient = createRunVirtualClientFromAiRunPort({
+      aiRunPort: { startVirtualRun } as never,
+      defaultProviderId: 'provider-x',
+      timeoutMs: 1000,
+    });
+    const result = await runVirtualClient({
+      systemPrompt: 'You investigate.',
+      allowedTools: ['Read'],
+      maxTurns: 5,
+      cwd: '/tmp',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.output).toMatch(/analysis result/);
+    expect(startVirtualRun).toHaveBeenCalledOnce();
+  });
+
+  it('returns ok=false when the port throws', async () => {
+    const startVirtualRun = vi.fn().mockRejectedValue(new Error('boom'));
+    const runVirtualClient = createRunVirtualClientFromAiRunPort({
+      aiRunPort: { startVirtualRun } as never,
+      defaultProviderId: 'provider-x',
+      timeoutMs: 1000,
+    });
+    const result = await runVirtualClient({
+      systemPrompt: 'p', allowedTools: [], maxTurns: 5, cwd: '/tmp',
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('times out and returns ok=false when no completion is seen', async () => {
+    const startVirtualRun = vi.fn().mockImplementation(async () => {
+      // Never sends a completion event.
+    });
+    const runVirtualClient = createRunVirtualClientFromAiRunPort({
+      aiRunPort: { startVirtualRun } as never,
+      defaultProviderId: 'provider-x',
+      timeoutMs: 5,
+    });
+    const result = await runVirtualClient({
+      systemPrompt: 'p', allowedTools: [], maxTurns: 5, cwd: '/tmp',
+    });
+    expect(result.ok).toBe(false);
   });
 });

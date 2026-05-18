@@ -58,3 +58,61 @@ export function createSubagentRunEntity(opts: CreateSubagentRunEntityOptions): R
     return { exitOk: checkTermination(tmpl, ctx.worktreePath, result.output) };
   };
 }
+
+// ── Real AI-runport adapter (Phase D) ────────────────────────────
+
+export interface AiRunPortStartArgs {
+  clientId?: string;
+  sessionId?: string;
+  input: string;
+  workingDirectory?: string;
+  providerId?: string;
+  systemContext?: string;
+  onMessage?: (m: { kind: string; content?: string }) => void;
+}
+
+export interface AiRunPort {
+  startVirtualRun(args: AiRunPortStartArgs): Promise<void>;
+}
+
+export interface CreateRunVirtualClientFromAiRunPortOptions {
+  aiRunPort: AiRunPort;
+  defaultProviderId?: string;
+  /** Total time to wait for `run_completed` before giving up. Defaults to 5 min. */
+  timeoutMs?: number;
+}
+
+const COMPLETED_KINDS = new Set(['run_completed', 'completed', 'final']);
+
+export function createRunVirtualClientFromAiRunPort(
+  opts: CreateRunVirtualClientFromAiRunPortOptions,
+): RunVirtualClient {
+  const timeoutMs = opts.timeoutMs ?? 5 * 60 * 1000;
+  return async (args: VirtualClientArgs): Promise<VirtualClientResult> => {
+    let collected = '';
+    let resolved = false;
+
+    const completion = new Promise<boolean>((resolveComplete) => {
+      const finish = (ok: boolean) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timer);
+        resolveComplete(ok);
+      };
+      const timer = setTimeout(() => finish(false), timeoutMs);
+
+      opts.aiRunPort.startVirtualRun({
+        input: args.systemPrompt,
+        workingDirectory: args.cwd,
+        providerId: opts.defaultProviderId,
+        onMessage: (m) => {
+          if (m.content) collected += m.content;
+          if (COMPLETED_KINDS.has(m.kind)) finish(true);
+        },
+      }).catch(() => finish(false));
+    });
+
+    const ok = await completion;
+    return ok ? { ok: true, output: collected } : { ok: false };
+  };
+}
