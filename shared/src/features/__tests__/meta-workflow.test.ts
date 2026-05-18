@@ -1,10 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type {
-  PhaseDef, PhasesDoc, AcceptanceGate, PhaseInput, PhaseOutput,
-  MetaWorkflowRun, MetaWorkflowPhase, MetaWorkflowArtifact,
-  ReusablePoolItem, MetaSubagentTemplate, MetaWorkflowConfig,
-  MetaWorkflowRunStatus, MetaWorkflowPhaseStatus, PhaseType, ExecuteEntity,
-  ExecutePattern,
+  PhaseDef, PhasesDoc, AcceptanceGate,
 } from '../meta-workflow.js';
 import {
   PHASE_TYPES, EXECUTE_ENTITIES, EXECUTE_PATTERNS,

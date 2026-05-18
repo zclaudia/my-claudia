@@ -12,6 +12,7 @@ interface ColumnInfo {
 describe('migration 069 — meta workflow tables', () => {
   function freshDb() {
     const db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
     // Minimal prerequisite: projects.id is referenced by FK
     db.exec(`
       CREATE TABLE projects (
@@ -127,5 +128,60 @@ describe('migration 069 — meta workflow tables', () => {
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       ).run('p-2', 'run-1', 'phase-x', 'code-implement', 'pending', 'workflow', 0),
     ).toThrow(/UNIQUE/);
+  });
+
+  it('ON DELETE CASCADE removes phases when run is deleted', () => {
+    const db = freshDb();
+    db.exec(m069.sql);
+    db.prepare(`INSERT INTO projects (id) VALUES (?)`).run('proj-1');
+    db.prepare(
+      `INSERT INTO meta_workflow_runs (id, project_id, title, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run('run-1', 'proj-1', 'T', 'requirement_draft', 0, 0);
+    db.prepare(
+      `INSERT INTO meta_workflow_phases (id, run_id, phase_id, phase_type, status, execute_entity, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run('p-1', 'run-1', 'phase-x', 'code-implement', 'pending', 'workflow', 0);
+
+    db.prepare(`DELETE FROM meta_workflow_runs WHERE id = ?`).run('run-1');
+
+    const remaining = db.prepare(
+      `SELECT COUNT(*) as n FROM meta_workflow_phases WHERE run_id = ?`
+    ).get('run-1') as { n: number };
+    expect(remaining.n).toBe(0);
+  });
+
+  it('UNIQUE (phase_record_id, version) on meta_workflow_artifacts', () => {
+    const db = freshDb();
+    db.exec(m069.sql);
+    db.prepare(`INSERT INTO projects (id) VALUES (?)`).run('proj-1');
+    db.prepare(
+      `INSERT INTO meta_workflow_runs (id, project_id, title, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run('run-1', 'proj-1', 'T', 'requirement_draft', 0, 0);
+    db.prepare(
+      `INSERT INTO meta_workflow_phases (id, run_id, phase_id, phase_type, status, execute_entity, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run('p-1', 'run-1', 'phase-x', 'code-implement', 'pending', 'workflow', 0);
+    db.prepare(
+      `INSERT INTO meta_workflow_artifacts (id, phase_record_id, version, status, created_at)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run('a-1', 'p-1', 1, 'active', 0);
+
+    expect(() =>
+      db.prepare(
+        `INSERT INTO meta_workflow_artifacts (id, phase_record_id, version, status, created_at)
+         VALUES (?, ?, ?, ?, ?)`
+      ).run('a-2', 'p-1', 1, 'active', 0),
+    ).toThrow(/UNIQUE/);
+  });
+
+  it('idx_meta_reuse_entity index exists on meta_workflow_reuse_pool(entity_id)', () => {
+    const db = freshDb();
+    db.exec(m069.sql);
+    const idx = db.prepare(
+      `SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_meta_reuse_entity'`
+    ).get() as { name: string } | undefined;
+    expect(idx?.name).toBe('idx_meta_reuse_entity');
   });
 });

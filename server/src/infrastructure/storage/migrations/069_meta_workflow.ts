@@ -70,7 +70,8 @@ export const migration: Migration = {
       ai_review_notes_path TEXT,
       status TEXT NOT NULL,
       created_at INTEGER NOT NULL,
-      FOREIGN KEY (phase_record_id) REFERENCES meta_workflow_phases(id) ON DELETE CASCADE
+      FOREIGN KEY (phase_record_id) REFERENCES meta_workflow_phases(id) ON DELETE CASCADE,
+      UNIQUE (phase_record_id, version)
     );
     CREATE INDEX IF NOT EXISTS idx_meta_artifacts_phase
       ON meta_workflow_artifacts(phase_record_id, version DESC);
@@ -93,6 +94,8 @@ export const migration: Migration = {
       ON meta_workflow_reuse_pool(phase_type, source_type);
     CREATE INDEX IF NOT EXISTS idx_meta_reuse_kind
       ON meta_workflow_reuse_pool(kind);
+    CREATE INDEX IF NOT EXISTS idx_meta_reuse_entity
+      ON meta_workflow_reuse_pool(entity_id);
 
     CREATE TABLE IF NOT EXISTS meta_subagent_templates (
       id TEXT PRIMARY KEY,
