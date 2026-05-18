@@ -38,4 +38,35 @@ describe('phase template registry', () => {
     // @ts-expect-error — intentionally pass an invalid value at runtime
     expect(() => getPhaseTemplate('nonexistent')).toThrow(/Unknown phaseType/);
   });
+
+  it('buildSynthesizerPrompt mentions the phaseType-specific pattern', () => {
+    const phase = {
+      id: 'p1', name: 'X', description: 'do x', phaseType: 'code-implement' as const,
+      dependsOn: [], inputs: [], outputs: [],
+      acceptanceGates: [{ id: 'g1', description: 'compile', command: 'mvn compile', expect: { exitCode: 0 } }],
+    };
+    const prompt = getPhaseTemplate('code-implement').buildSynthesizerPrompt(phase);
+    expect(prompt).toMatch(/self-healing/);
+    expect(prompt).toMatch(/mvn compile/);
+  });
+
+  it('investigation prompt mentions report file + read-only constraint', () => {
+    const phase = {
+      id: 'p1', name: 'X', description: 'investigate y', phaseType: 'investigation' as const,
+      dependsOn: [], inputs: [], outputs: [],
+      acceptanceGates: [{ id: 'g1', description: 'report exists', command: 'test -f report.md', expect: { exitCode: 0 } }],
+    };
+    const prompt = getPhaseTemplate('investigation').buildSynthesizerPrompt(phase);
+    expect(prompt).toMatch(/report/i);
+    expect(prompt).toMatch(/Do NOT write code/);
+  });
+
+  it('defaultGates returns empty array (Phase B stub behavior)', () => {
+    const phase = {
+      id: 'p1', name: 'X', description: 'x', phaseType: 'code-implement' as const,
+      dependsOn: [], inputs: [], outputs: [],
+      acceptanceGates: [{ id: 'g1', description: 'g', command: 'c', expect: {} }],
+    };
+    expect(getPhaseTemplate('code-implement').defaultGates(phase)).toEqual([]);
+  });
 });
