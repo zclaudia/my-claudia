@@ -8,8 +8,10 @@ import type {
 } from '@my-claudia/shared';
 import type { MessageHandlerContext } from './types';
 import { useClaudiaStore } from '../../stores/claudiaStore';
+import { useInteractionStore } from '../../stores/interactionStore';
 import { useNotchPanelStore } from '../../stores/notchPanelStore';
 import { usePermissionStore } from '../../stores/permissionStore';
+import { usePromptRequestStore } from '../../stores/promptRequestStore';
 import { useToastStore } from '../../stores/toastStore';
 
 function updateClaudiaTaskStatusBySessionId(
@@ -102,6 +104,8 @@ export function handlePermissionMessage(msg: ServerMessage, ctx: MessageHandlerC
         });
       }
       usePermissionStore.getState().clearRequestById(autoMsg.requestId);
+      usePromptRequestStore.getState().clearRequestById(autoMsg.requestId);
+      useInteractionStore.getState().resolveInteraction(autoMsg.requestId);
       return true;
     }
 

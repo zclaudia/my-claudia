@@ -94,11 +94,23 @@ export const ChatMessagePane = memo(function ChatMessagePane({
   fileReferenceBackendId,
 }: ChatMessagePaneProps) {
   const interactionsMap = useInteractionStore((state) => state.interactions);
-  const promptInteractions = useMemo(() =>
-    Object.values(interactionsMap)
-      .filter((interaction) => interaction.sessionId === sessionId && interaction.type === 'interaction_prompt' && interaction.source === 'provider_native')
-      .sort((a, b) => a.createdAt - b.createdAt),
-    [interactionsMap, sessionId],
+  const promptInteractions = useMemo(() => {
+    const inlinePromptInteractionIds = new Set(
+      [...sessionToolCallHistory, ...sessionToolCalls]
+        .filter((toolCall) => toolCall.toolName === 'AskUserQuestion')
+        .map((toolCall) => toolCall.id),
+    );
+
+    return Object.values(interactionsMap)
+      .filter((interaction) =>
+        interaction.sessionId === sessionId
+        && interaction.type === 'interaction_prompt'
+        && interaction.source === 'provider_native'
+        && !inlinePromptInteractionIds.has(interaction.interactionId)
+      )
+      .sort((a, b) => a.createdAt - b.createdAt);
+  },
+    [interactionsMap, sessionId, sessionToolCallHistory, sessionToolCalls],
   );
   const shouldStickToBottomRef = useRef(true);
 

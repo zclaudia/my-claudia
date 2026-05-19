@@ -763,10 +763,10 @@ describe('ToolCallItem', () => {
       expect(screen.queryByText('Raw plan')).not.toBeInTheDocument();
     });
 
-    it('renders prompt interaction for running AskUserQuestion in the active session', () => {
-      mockInteractionState.interactions['interaction-question-1'] = {
+    it('renders prompt interaction for running AskUserQuestion when the interaction id matches the tool call', () => {
+      mockInteractionState.interactions['tool-1'] = {
         type: 'interaction_prompt',
-        interactionId: 'interaction-question-1',
+        interactionId: 'tool-1',
         sessionId: 's1',
         source: 'provider_native',
         createdAt: Date.now(),
@@ -802,10 +802,48 @@ describe('ToolCallItem', () => {
       expect(screen.queryByText('只读旧卡片')).not.toBeInTheDocument();
     });
 
+    it('does not render a session prompt inside an unrelated AskUserQuestion tool call', () => {
+      mockInteractionState.interactions['interaction-question-1'] = {
+        type: 'interaction_prompt',
+        interactionId: 'interaction-question-1',
+        sessionId: 's1',
+        source: 'provider_native',
+        createdAt: Date.now(),
+        title: 'Question',
+        variant: 'question',
+        responseMode: 'prompt_answer',
+        submitLabel: 'Submit',
+        cancelLabel: 'Skip',
+        fields: [{
+          id: 'question_0',
+          label: '是否立刻开工？',
+          type: 'select',
+          options: [{ value: 'yes', label: 'Yes' }],
+          allowCustomValue: true,
+        }],
+      };
+      mockSelectionState.selectedSessionId = 's1';
+
+      render(<ToolCallItem toolCall={createToolCall({
+        toolName: 'AskUserQuestion',
+        toolInput: {
+          questions: [{
+            header: '推进 Phase 2',
+            question: '只读旧卡片',
+            options: [{ label: 'A' }],
+          }],
+        },
+        status: 'running',
+      })} />);
+
+      expect(screen.getByTestId('tool-use')).toBeInTheDocument();
+      expect(screen.queryByText('是否立刻开工？')).not.toBeInTheDocument();
+    });
+
     it('falls back to a prompt interaction when the request is pending but interaction store is missing', () => {
       mockSelectionState.selectedSessionId = 's1';
       mockPromptRequestState.pendingRequests = [{
-        requestId: 'pending-question-1',
+        requestId: 'tool-1',
         sessionId: 's1',
         serverId: 'gw:backend-1',
       }];

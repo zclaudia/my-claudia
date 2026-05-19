@@ -459,6 +459,8 @@ describe('handleServerMessage', () => {
   it('handles permission_auto_resolved', () => {
     handleServerMessage({ type: 'permission_auto_resolved', requestId: 'pr1' }, makeCtx());
     expect(mockPermissionStore.clearRequestById).toHaveBeenCalledWith('pr1');
+    expect(mockPromptRequestStore.clearRequestById).toHaveBeenCalledWith('pr1');
+    expect(mockInteractionStore.resolveInteraction).toHaveBeenCalledWith('pr1');
   });
 
   it('shows toast when permission_auto_resolved includes redaction metadata', () => {

@@ -4,11 +4,13 @@ import { createPermissionCallback } from '../run-permissions.js';
 const {
   broadcastRunMessageMock,
   normalizeFromAskUserMock,
+  permissionEvaluatorEvaluateMock,
   writePermissionLogMock,
   permissionWorkflowResolverMock,
 } = vi.hoisted(() => ({
   broadcastRunMessageMock: vi.fn(),
   normalizeFromAskUserMock: vi.fn(),
+  permissionEvaluatorEvaluateMock: vi.fn(() => 'ask'),
   writePermissionLogMock: vi.fn(),
   permissionWorkflowResolverMock: {
     triggerPermissionEscalation: vi.fn(async () => ({
@@ -65,8 +67,8 @@ vi.mock('../../agent/permission-evaluator.js', () => ({
   mergePolicy: vi.fn((globalPolicy) => globalPolicy),
   normalizePolicy: vi.fn((policy) => policy),
   PermissionEvaluator: class {
-    evaluate() {
-      return 'ask';
+    evaluate(...args: unknown[]) {
+      return permissionEvaluatorEvaluateMock(...args);
     }
   },
   resolveRememberedDecision: vi.fn(() => undefined),
@@ -109,6 +111,7 @@ describe('createPermissionCallback workflow routing', () => {
       resolved: { workflowId: 'wf-system', source: 'system_fallback' },
       run: { id: 'wf-run-1' },
     });
+    permissionEvaluatorEvaluateMock.mockReturnValue('ask');
   });
 
   it('triggers the resolved permission workflow and marks the request as workflow mode', async () => {
@@ -161,5 +164,44 @@ describe('createPermissionCallback workflow routing', () => {
         workflowMode: true,
       }),
     );
+  });
+
+  it('keeps AskUserQuestion waiting for user answer and does not delegate to permission workflow', () => {
+    normalizeFromAskUserMock.mockReturnValue({
+      type: 'interaction_prompt',
+      interactionId: 'question-1',
+      sessionId: 'session-1',
+      source: 'provider_native',
+      createdAt: 123,
+      title: 'Question',
+      fields: [],
+      responseMode: 'prompt_answer',
+    });
+    const input = createInput() as any;
+    const callback = createPermissionCallback(input);
+    permissionEvaluatorEvaluateMock.mockReturnValue('approve');
+
+    void callback({
+      requestId: 'question-1',
+      toolName: 'AskUserQuestion',
+      toolInput: {
+        questions: [{
+          question: 'Continue?',
+          options: [{ label: 'Yes', description: 'Proceed' }],
+        }],
+      },
+      detail: '{"questions":[{"question":"Continue?"}]}',
+      timeoutSeconds: 0,
+    });
+
+    expect(permissionWorkflowResolverMock.triggerPermissionEscalation).not.toHaveBeenCalled();
+    expect(permissionEvaluatorEvaluateMock).not.toHaveBeenCalled();
+    expect(input.permissionBridge.register).not.toHaveBeenCalled();
+    expect(input.activeRun.pendingPermissions.has('question-1')).toBe(true);
+    expect(input.sendRunEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'interaction_prompt',
+      interactionId: 'question-1',
+      responseMode: 'prompt_answer',
+    }));
   });
 });

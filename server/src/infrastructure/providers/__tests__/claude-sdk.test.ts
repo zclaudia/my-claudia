@@ -52,6 +52,18 @@ vi.mock('../../../utils/retry-window.js', () => ({
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import * as fs from 'fs';
 
+function throwingQueryResult(error: unknown): ReturnType<typeof query> {
+  return {
+    [Symbol.asyncIterator]() {
+      return {
+        async next(): Promise<IteratorResult<unknown>> {
+          throw error;
+        },
+      };
+    },
+  } as unknown as ReturnType<typeof query>;
+}
+
 describe('claude-sdk', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -779,6 +791,10 @@ describe('claude-sdk', () => {
       const result = await capturedCanUseTool('AskUserQuestion', { question: 'Do you approve?' }, { signal: new AbortController().signal, toolUseID: 'test' });
       expect(result.behavior).toBe('deny');
       expect(result.message).toBe('User says: yes');
+      expect(permissionCallback).toHaveBeenCalledWith(expect.objectContaining({
+        requestId: 'test',
+        toolName: 'AskUserQuestion',
+      }));
     });
 
     it('auto-approves Read for temp upload files', async () => {
@@ -964,11 +980,7 @@ describe('runClaude - retry logic', () => {
     vi.mocked(query).mockImplementation(() => {
       callCount++;
       if (callCount === 1) {
-        return {
-          async *[Symbol.asyncIterator]() {
-            throw new Error('rate limit exceeded');
-          },
-        } as unknown as ReturnType<typeof query>;
+        return throwingQueryResult(new Error('rate limit exceeded'));
       }
       return {
         async *[Symbol.asyncIterator]() {
@@ -994,11 +1006,7 @@ describe('runClaude - retry logic', () => {
 
   it('does not retry non-retryable errors', async () => {
     vi.mocked(query).mockImplementation(() => {
-      return {
-        async *[Symbol.asyncIterator]() {
-          throw new Error('some random error');
-        },
-      } as unknown as ReturnType<typeof query>;
+      return throwingQueryResult(new Error('some random error'));
     });
 
     const messages: ClaudeMessage[] = [];
@@ -1033,11 +1041,7 @@ describe('runClaude - retry logic', () => {
 
   it('gives up after MAX_AUTO_RETRIES', async () => {
     vi.mocked(query).mockImplementation(() => {
-      return {
-        async *[Symbol.asyncIterator]() {
-          throw new Error('429 too many requests');
-        },
-      } as unknown as ReturnType<typeof query>;
+      return throwingQueryResult(new Error('429 too many requests'));
     });
 
     const consumePromise = (async () => {
@@ -1060,11 +1064,7 @@ describe('runClaude - retry logic', () => {
     vi.mocked(query).mockImplementation(() => {
       callCount++;
       if (callCount === 1) {
-        return {
-          async *[Symbol.asyncIterator]() {
-            throw new Error('rate limit exceeded');
-          },
-        } as unknown as ReturnType<typeof query>;
+        return throwingQueryResult(new Error('rate limit exceeded'));
       }
       return {
         async *[Symbol.asyncIterator]() {
@@ -1086,11 +1086,7 @@ describe('runClaude - retry logic', () => {
 
   it('handles non-Error objects thrown', async () => {
     vi.mocked(query).mockImplementation(() => {
-      return {
-        async *[Symbol.asyncIterator]() {
-          throw 'string error';
-        },
-      } as unknown as ReturnType<typeof query>;
+      return throwingQueryResult('string error');
     });
 
     await expect(async () => {

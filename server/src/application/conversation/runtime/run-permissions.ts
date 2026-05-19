@@ -114,6 +114,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
         }
       }
 
+      const isProviderNativeQuestion = request.toolName === 'AskUserQuestion';
       const rememberKey = buildRememberKey(request.toolName, request.toolInput, request.detail);
       const remembered = resolveRememberedDecision(
         activeRun.rememberedDecisions,
@@ -121,7 +122,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
         request.toolInput,
         request.detail,
       );
-      if (remembered) {
+      if (!isProviderNativeQuestion && remembered) {
         broadcastRunMessage(activeRun, {
           type: 'agent_permission_intercepted',
           toolName: request.toolName,
@@ -141,6 +142,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
         && READONLY_BASH_COMMANDS.test(extractBashCommand(request.toolInput, request.detail) || '');
 
       if (
+        !isProviderNativeQuestion &&
         (category === 'fileRead' || isReadOnlyBash)
         && isOutsideWorkspacePathAllowed(
           request.toolName,
@@ -190,7 +192,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
         : '';
       console.log(`[Permission] Tool=${request.toolName}${commandPreview} | effective=${effectivePolicy?.enabled ? 'enabled' : 'null/disabled'} | sessionType=${sessionType}`);
 
-      if (effectivePolicy?.enabled) {
+      if (!isProviderNativeQuestion && effectivePolicy?.enabled) {
         const evaluator = new PermissionEvaluator();
         const decision = evaluator.evaluate(
           request.toolName,
@@ -225,7 +227,7 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
         }
       }
 
-      const matchedRule = effectivePolicy?.enabled
+      const matchedRule = !isProviderNativeQuestion && effectivePolicy?.enabled
         ? getMatchedPermissionRule(
             request.toolName,
             request.toolInput,
@@ -315,9 +317,6 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
           aiInitiatedPlanMode: !!activeRun.aiInitiatedPlanMode,
         };
 
-        // Register in bridge so workflow's permission_decide step can resolve it
-        permissionBridge.register(request.requestId, resolve, escalationContext);
-
         // Store pending permission (user can still manually decide via frontend)
         const toolInput = request.toolInput as Record<string, unknown>;
         const normalizedPermission = providerRegistry
@@ -334,6 +333,14 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
           ?? (toolInput.questions as AskUserQuestionItem[] | undefined)
           ?? [];
         const requiresCredential = !isAskUserQuestion && isSudoCommand(request.toolName, request.toolInput);
+
+        if (!isAskUserQuestion) {
+          // Register in bridge so workflow's permission_decide step can resolve it.
+          // AskUserQuestion is a user-answer channel, not an approval request:
+          // auto-resolving it would resume the provider with "No answer provided".
+          permissionBridge.register(request.requestId, resolve, escalationContext);
+        }
+
         activeRun.pendingPermissions.set(request.requestId, {
           resolve,
           timeout: null,
@@ -421,7 +428,9 @@ export function createPermissionCallback(input: CreatePermissionCallbackInput) {
 
         // Start workflow after the UI request is visible so a fast auto-approve
         // cannot be delivered before permission_request and leave a stale card.
-        triggerPermissionWorkflow();
+        if (!isAskUserQuestion) {
+          triggerPermissionWorkflow();
+        }
       };
 
       continueWithUserFlow();

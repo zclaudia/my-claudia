@@ -369,7 +369,7 @@ export async function* runClaude(
       // Intercept AskUserQuestion — handled interactively via client UI
       // Always route through permission callback regardless of allowed/disallowed lists
       if (toolName === 'AskUserQuestion') {
-        const requestId = crypto.randomUUID();
+        const requestId = _context.toolUseID || crypto.randomUUID();
         const decision = await onPermissionRequest({
           requestId,
           toolName: 'AskUserQuestion',

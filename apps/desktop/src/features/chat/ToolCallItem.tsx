@@ -51,7 +51,12 @@ export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallIte
   const pendingPromptRequest = usePromptRequestStore((s) => {
     if (!selectedSessionId || toolName !== 'AskUserQuestion') return null;
     for (let i = s.pendingRequests.length - 1; i >= 0; i--) {
-      if (s.pendingRequests[i].sessionId === selectedSessionId) return s.pendingRequests[i];
+      if (
+        s.pendingRequests[i].sessionId === selectedSessionId
+        && s.pendingRequests[i].requestId === toolCall.id
+      ) {
+        return s.pendingRequests[i];
+      }
     }
     return null;
   });
@@ -79,17 +84,6 @@ export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallIte
     if (selectedSessionId && status === 'running' && isPlanProposalTool(toolName, semantic)) {
       return Object.values(s.interactions)
         .filter((item) => item.sessionId === selectedSessionId && item.type === 'interaction_plan_review')
-        .sort((a, b) => b.createdAt - a.createdAt)[0];
-    }
-
-    if (selectedSessionId && status === 'running' && toolName === 'AskUserQuestion') {
-      return Object.values(s.interactions)
-        .filter((item) =>
-          item.sessionId === selectedSessionId
-          && item.type === 'interaction_prompt'
-          && item.source === 'provider_native'
-          && item.variant === 'question',
-        )
         .sort((a, b) => b.createdAt - a.createdAt)[0];
     }
 
