@@ -78,6 +78,30 @@ export function ChangesPanel({ projectId, projectRoot }: ChangesPanelProps) {
     [modified, expandedById],
   );
 
+  const summaryTurn = useMemo(
+    () => (effectiveSinceId ? turns.find((t) => t.userMessageId === effectiveSinceId) ?? null : null),
+    [effectiveSinceId, turns],
+  );
+
+  const summaryRelatedFiles = useMemo(() => {
+    if (!summaryTurn) return [];
+    return modified
+      .filter((entry) => entry.groups.some((group) => group.sinceUserMessageId === summaryTurn.userMessageId))
+      .map((entry) => entry.path || entry.absolutePath);
+  }, [modified, summaryTurn]);
+
+  const summaryAffectedCommands = useMemo(() => {
+    if (!summaryTurn) return [];
+    const turnIndex = turns.findIndex((turn) => turn.userMessageId === summaryTurn.userMessageId);
+    const nextTurn = turnIndex >= 0 ? turns[turnIndex + 1] : undefined;
+    return affected
+      .filter((entry) =>
+        entry.timestamp >= summaryTurn.timestamp
+        && (!nextTurn || entry.timestamp < nextTurn.timestamp),
+      )
+      .map((entry) => entry.command);
+  }, [affected, summaryTurn, turns]);
+
   const toggleAll = () => {
     if (allExpanded) {
       setExpandedById({});
@@ -130,17 +154,16 @@ export function ChangesPanel({ projectId, projectRoot }: ChangesPanelProps) {
             user has anchored "since" to a specific user message (i.e. the
             view is scoped to one or more turns rooted at that turn).
             "Entire session" picks span all turns — skip until merge UI is built. */}
-        {effectiveSinceId && effectiveSinceOption && (() => {
-          const summaryTurn = turns.find((t) => t.userMessageId === effectiveSinceId) ?? null;
-          return (
-            <SummarySection
-              sessionId={selectedSessionId}
-              projectId={projectId}
-              turn={summaryTurn}
-              latestMessageIdInTurn={summaryTurn?.lastMessageId ?? null}
-            />
-          );
-        })()}
+        {effectiveSinceId && effectiveSinceOption && (
+          <SummarySection
+            sessionId={selectedSessionId}
+            projectId={projectId}
+            turn={summaryTurn}
+            latestMessageIdInTurn={summaryTurn?.lastMessageId ?? null}
+            relatedFiles={summaryRelatedFiles}
+            affectedCommands={summaryAffectedCommands}
+          />
+        )}
         {modified.length === 0 && affected.length === 0 && turns.length === 0 ? (
           <div className="h-full flex items-center justify-center text-muted-foreground text-xs text-center px-4">
             {effectiveSinceId

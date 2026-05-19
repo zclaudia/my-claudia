@@ -535,8 +535,24 @@ describe('aggregateSessionChanges', () => {
     const args = {
       openIssues: 'Tests on macOS still fail. Need to check the CI logs for the exact error.',
       goal: 'Make the macOS build green',
+      solved: 'Updated the build script and reproduced the failure locally.',
       userMessagePreview: 'fix macOS CI',
       turnTimestamp: 1700000000000,
+      generatedAt: 1700000300000,
+      stale: false,
+      relatedFiles: ['scripts/build/macos.sh', 'apps/desktop/src/app.tsx'],
+      affectedCommands: ['git reset --hard tmp'],
+      stats: {
+        fileCount: 2,
+        editCount: 3,
+        writeCount: 0,
+        notebookEditCount: 0,
+        bashCount: 1,
+        destructiveBashCount: 1,
+        failureCount: 1,
+        pendingQuestionCount: 0,
+        runningToolCount: 0,
+      },
     };
 
     it('uses the first sentence as the title', () => {
@@ -551,14 +567,22 @@ describe('aggregateSessionChanges', () => {
       expect(title.endsWith('…')).toBe(true);
     });
 
-    it('embeds openIssues text first, then a Context footer with turn + goal', () => {
+    it('embeds a rich context template for follow-up work', () => {
       const { description } = buildIssueFromSummary(args);
       const openIdx = description.indexOf(args.openIssues.trim());
-      const contextIdx = description.indexOf('**Context**');
+      const contextIdx = description.indexOf('## Evidence / Related Context');
       expect(openIdx).toBeGreaterThanOrEqual(0);
       expect(contextIdx).toBeGreaterThan(openIdx);
+      expect(description).toContain('## What Was Already Found / Done');
+      expect(description).toContain(args.solved);
+      expect(description).toContain('## Remaining Work');
       expect(description).toContain(args.userMessagePreview);
       expect(description).toContain(args.goal);
+      expect(description).toContain('scripts/build/macos.sh');
+      expect(description).toContain('apps/desktop/src/app.tsx');
+      expect(description).toContain('git reset --hard tmp');
+      expect(description).toContain('Files touched: 2');
+      expect(description).toContain('Failures: 1');
     });
 
     it('handles Chinese punctuation when splitting the first sentence', () => {

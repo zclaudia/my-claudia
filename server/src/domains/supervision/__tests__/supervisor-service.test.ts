@@ -11,6 +11,9 @@ const { mockExecSync, mockContextManagerLoadAll, mockValidatePlanFile, mockCompu
 
 vi.mock('child_process', () => ({
   execSync: mockExecSync,
+  // execFile is referenced at module init by utils/git-operations.ts (via projects/worktree-service.ts);
+  // tests here don't exercise it, but it must be defined so promisify() doesn't throw.
+  execFile: vi.fn(),
 }));
 
 vi.mock('../context-manager.js', () => {

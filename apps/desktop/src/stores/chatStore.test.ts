@@ -391,6 +391,17 @@ describe('chatStore', () => {
       expect(history[0].status).toBe('completed');
     });
 
+    it('updateToolCallResult can backfill completed tool effects', () => {
+      const effect = { kind: 'file_change' as const, files: [{ path: 'src/a.ts', changeKind: 'modify' as const, summary: '@@ diff' }] };
+      useChatStore.getState().addToolCall(RUN_ID, 'tc-1', 'Edit', {});
+      useChatStore.getState().updateToolCallResult(RUN_ID, 'tc-1', 'done', false, effect);
+
+      const tc = useChatStore.getState().activeToolCalls[RUN_ID]['tc-1'];
+      const history = useChatStore.getState().toolCallsHistory[RUN_ID];
+      expect(tc.effect).toEqual(effect);
+      expect(history[0].effect).toEqual(effect);
+    });
+
     it('updateToolCallResult does nothing for unknown tool id', () => {
       useChatStore.getState().addToolCall(RUN_ID, 'tc-1', 'Read', {});
       useChatStore.getState().updateToolCallResult(RUN_ID, 'tc-unknown', 'result');

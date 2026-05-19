@@ -563,6 +563,166 @@ describe('ws/run-events', () => {
     });
   });
 
+  it('backfills normalized tool effects from internal tool_result events', async () => {
+    const sendRunEventMock = vi.fn();
+    const effect = { kind: 'file_change', files: [{ path: 'src/a.ts', changeKind: 'modify', summary: '@@ diff' }] };
+    const activeRun = {
+      sessionId: 'session-1',
+      providerType: 'cursor',
+      collectedToolCalls: [{ toolUseId: 'tu-x', name: 'Edit', input: { path: 'src/a.ts' } }],
+      contentBlocks: [],
+      fullContent: '',
+      pendingPermissions: new Map(),
+      recentToolCalls: [],
+    } as any;
+    const toolUseIdToName = new Map([['tu-x', 'Edit']]);
+
+    const { handleProviderEvent } = await import('../run-events.js');
+
+    handleProviderEvent({
+      activeRun,
+      activeRuns: new Map(),
+      broadcastHeartbeat: vi.fn(),
+      client: { ws: {} as any } as any,
+      db: {} as any,
+      input: 'hello',
+      modeValue: 'default',
+      msg: {
+        type: 'tool_result',
+        toolUseId: 'tu-x',
+        toolResult: 'updated',
+        toolEffect: effect,
+      } as any,
+      notificationService: {} as any,
+      persistSessionWorkingDirectory: vi.fn(),
+      providerType: 'cursor',
+      runId: 'run-1',
+      sendRunEvent: sendRunEventMock,
+      sessionId: 'session-1',
+      sessionType: 'regular',
+      state: {},
+      toolUseIdToName,
+      providerRegistry: mockProviderRegistry as any,
+    });
+
+    expect(activeRun.collectedToolCalls[0]).toMatchObject({
+      output: 'updated',
+      effect,
+    });
+    expect(sendRunEventMock).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'tool_result',
+      toolName: 'Edit',
+      effect,
+    }));
+  });
+
+  it('tracks background tasks from Bash tool_result text when SDK task notifications are absent', async () => {
+    const sendRunEventMock = vi.fn();
+    const activeRun = {
+      sessionId: 'session-1',
+      providerType: 'claude',
+      collectedToolCalls: [{ toolUseId: 'bash-1', name: 'Bash', input: {} }],
+      contentBlocks: [],
+      fullContent: '',
+      pendingPermissions: new Map(),
+      recentToolCalls: [],
+      pendingBackgroundTasks: 0,
+    } as any;
+    const state: any = {};
+
+    const { handleProviderEvent } = await import('../run-events.js');
+
+    handleProviderEvent({
+      activeRun,
+      activeRuns: new Map(),
+      broadcastHeartbeat: vi.fn(),
+      client: { ws: {} as any } as any,
+      db: {} as any,
+      input: 'hello',
+      modeValue: 'default',
+      msg: {
+        type: 'tool_result',
+        toolUseId: 'bash-1',
+        toolResult: 'Command running in background with ID: b1bh5uv01. Output is being written to: /tmp/out',
+      } as any,
+      notificationService: {} as any,
+      persistSessionWorkingDirectory: vi.fn(),
+      providerType: 'claude',
+      runId: 'run-1',
+      sendRunEvent: sendRunEventMock,
+      sessionId: 'session-1',
+      sessionType: 'regular',
+      state,
+      toolUseIdToName: new Map([['bash-1', 'Bash']]),
+      providerRegistry: mockProviderRegistry as any,
+    });
+
+    expect(activeRun.pendingBackgroundTasks).toBe(1);
+    expect(state.backgroundTaskKeys.has('task:b1bh5uv01')).toBe(true);
+    expect(sendRunEventMock).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'tool_result',
+      toolName: 'Bash',
+    }));
+  });
+
+  it('does not double count Monitor started text and matching SDK task notification', async () => {
+    const activeRun = {
+      sessionId: 'session-1',
+      providerType: 'claude',
+      providerSessionId: 'sdk-1',
+      collectedToolCalls: [{ toolUseId: 'monitor-1', name: 'Monitor', input: {} }],
+      contentBlocks: [],
+      fullContent: '',
+      pendingPermissions: new Map(),
+      recentToolCalls: [],
+      pendingBackgroundTasks: 0,
+    } as any;
+    const state: any = {};
+
+    const { handleProviderEvent } = await import('../run-events.js');
+    const common = {
+      activeRun,
+      activeRuns: new Map(),
+      broadcastHeartbeat: vi.fn(),
+      client: { ws: {} as any } as any,
+      db: {} as any,
+      input: 'hello',
+      modeValue: 'default',
+      notificationService: {} as any,
+      persistSessionWorkingDirectory: vi.fn(),
+      providerType: 'claude',
+      runId: 'run-1',
+      sendRunEvent: vi.fn(),
+      sessionId: 'session-1',
+      sessionType: 'regular' as const,
+      state,
+      providerRegistry: mockProviderRegistry as any,
+    };
+
+    handleProviderEvent({
+      ...common,
+      msg: {
+        type: 'tool_result',
+        toolUseId: 'monitor-1',
+        toolResult: 'Monitor started (task bve70ij13, timeout 300000ms). You will be notified on each event.',
+      } as any,
+      toolUseIdToName: new Map([['monitor-1', 'Monitor']]),
+    });
+    handleProviderEvent({
+      ...common,
+      msg: {
+        type: 'task_notification',
+        taskId: 'bve70ij13',
+        taskStatus: 'started',
+        taskMessage: 'started',
+      } as any,
+      toolUseIdToName: new Map(),
+    });
+
+    expect(activeRun.pendingBackgroundTasks).toBe(1);
+    vi.clearAllTimers();
+  });
+
   it('swallows PID backfill errors and logs a warning', async () => {
     findProcessPidsByTaskCommandMock.mockRejectedValue(new Error('ps failed'));
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});

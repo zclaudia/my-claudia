@@ -96,6 +96,8 @@ export interface ToolResultMessage {
   toolName: string;
   result: unknown;
   isError?: boolean;
+  /** Provider-normalized side effect discovered when the tool completed. */
+  effect?: ToolEffect;
   seq?: number;
 }
 

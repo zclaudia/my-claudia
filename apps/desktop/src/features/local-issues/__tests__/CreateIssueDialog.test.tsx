@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import type { LocalIssue } from '@my-claudia/shared';
+import type * as AttachmentsModule from '../../attachments';
 
 const mockCreate = vi.fn().mockResolvedValue({
   id: 'created-1',
@@ -37,7 +38,7 @@ const mockUseAttachments = {
 const mockUploadAttachment = vi.fn().mockResolvedValue({ id: 'a1' });
 
 vi.mock('../../attachments', async () => {
-  const actual = await vi.importActual<typeof import('../../attachments')>('../../attachments');
+  const actual = await vi.importActual<typeof AttachmentsModule>('../../attachments');
   return {
     ...actual,
     uploadAttachment: (...args: unknown[]) => mockUploadAttachment(...args),
@@ -150,5 +151,26 @@ describe('CreateIssueDialog (with attachments)', () => {
     await waitFor(() => screen.getByTestId('pending-attachment'));
     fireEvent.click(screen.getByRole('button', { name: /remove a\.txt/i }));
     expect(screen.queryByTestId('pending-attachment')).not.toBeInTheDocument();
+  });
+
+  it('creates an issue with built-in and custom labels without duplicates', async () => {
+    render(<CreateIssueDialog projectId="p" onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByPlaceholderText('Issue title'), { target: { value: 'Tagged issue' } });
+    fireEvent.click(screen.getByRole('button', { name: /toggle bug tag/i }));
+
+    const customInput = screen.getByPlaceholderText('Add custom tag...');
+    fireEvent.change(customInput, { target: { value: 'Needs Review' } });
+    fireEvent.keyDown(customInput, { key: 'Enter' });
+    fireEvent.change(customInput, { target: { value: 'needs review' } });
+    fireEvent.click(screen.getByRole('button', { name: /add custom tag/i }));
+
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+
+    await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+    expect(mockCreate).toHaveBeenCalledWith('p', expect.objectContaining({
+      title: 'Tagged issue',
+      labels: ['bug', 'needs-review'],
+    }));
   });
 });

@@ -1,14 +1,33 @@
 import { execFile as execFileCb } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 import { promisify } from 'util';
 
 const execFileAsync = promisify(execFileCb);
 
+export class GitOperationError extends Error {
+  readonly stderr: string;
+  constructor(message: string, stderr: string) {
+    super(message);
+    this.name = 'GitOperationError';
+    this.stderr = stderr;
+  }
+}
+
 async function git(args: string[], cwd: string): Promise<string> {
-  const { stdout } = await execFileAsync('git', args, {
-    cwd,
-    maxBuffer: 20 * 1024 * 1024,
-  });
-  return stdout;
+  try {
+    const { stdout } = await execFileAsync('git', args, {
+      cwd,
+      maxBuffer: 20 * 1024 * 1024,
+    });
+    return stdout;
+  } catch (err) {
+    const e = err as { stderr?: string; stdout?: string; message?: string };
+    const stderr = (e.stderr ?? '').toString();
+    const stdout = (e.stdout ?? '').toString();
+    const message = stderr.trim() || stdout.trim() || e.message || 'git command failed';
+    throw new GitOperationError(message, stderr);
+  }
 }
 
 export interface CommitInfo {
@@ -24,6 +43,8 @@ export interface GitStatusResult {
   unstaged: string[];
   untracked: string[];
 }
+
+export type GitFileDiffKind = 'staged' | 'unstaged' | 'untracked';
 
 export interface GitMergeResult {
   success: boolean;
@@ -145,6 +166,57 @@ export async function getDiff(
   return diff.slice(0, maxBytes) + '\n\n[diff truncated]';
 }
 
+function truncateDiff(diff: string, maxBytes: number): string {
+  if (diff.length <= maxBytes) return diff;
+  return diff.slice(0, maxBytes) + '\n\n[diff truncated]';
+}
+
+function resolveRepoFile(repoPath: string, filePath: string): string {
+  if (path.isAbsolute(filePath)) {
+    throw new GitOperationError('File path must be relative to the worktree', '');
+  }
+  const root = path.resolve(repoPath);
+  const absolute = path.resolve(root, filePath);
+  if (absolute !== root && !absolute.startsWith(root + path.sep)) {
+    throw new GitOperationError('File path escapes the worktree', '');
+  }
+  return absolute;
+}
+
+function renderUntrackedFileDiff(filePath: string, content: string): string {
+  const lines = content.length === 0
+    ? []
+    : content.endsWith('\n')
+    ? content.slice(0, -1).split('\n')
+    : content.split('\n');
+  return [
+    `diff --git a/${filePath} b/${filePath}`,
+    'new file mode 100644',
+    '--- /dev/null',
+    `+++ b/${filePath}`,
+    `@@ -0,0 +1,${lines.length} @@`,
+    ...lines.map((line) => `+${line}`),
+  ].join('\n');
+}
+
+export async function getFileDiff(
+  repoPath: string,
+  filePath: string,
+  kind: GitFileDiffKind,
+  maxBytes = 200 * 1024,
+): Promise<string> {
+  if (kind === 'staged') {
+    return truncateDiff(await git(['diff', '--cached', '--', filePath], repoPath), maxBytes);
+  }
+  if (kind === 'unstaged') {
+    return truncateDiff(await git(['diff', '--', filePath], repoPath), maxBytes);
+  }
+
+  const absolutePath = resolveRepoFile(repoPath, filePath);
+  const content = fs.readFileSync(absolutePath, 'utf-8');
+  return truncateDiff(renderUntrackedFileDiff(filePath, content), maxBytes);
+}
+
 /**
  * Returns the main branch name (master or main).
  */
@@ -252,4 +324,196 @@ export async function removeWorktree(
       console.warn(`[git] Failed to delete branch ${branchName}:`, err.message);
     });
   }
+}
+
+export interface BranchInfo {
+  name: string;
+  isRemote: boolean;
+  isCurrent: boolean;
+  upstream?: string;
+}
+
+/**
+ * Lists all local and remote branches.
+ */
+export async function listBranches(repoPath: string): Promise<BranchInfo[]> {
+  const SEP = '\x1f';
+  // %(HEAD) = '*' for current, ' ' otherwise. %(refname:short) e.g. main, origin/main.
+  const output = await git(
+    [
+      'branch',
+      '-a',
+      `--format=%(HEAD)${SEP}%(refname:short)${SEP}%(upstream:short)`,
+    ],
+    repoPath,
+  );
+
+  const branches: BranchInfo[] = [];
+  for (const line of output.split('\n')) {
+    if (!line.trim()) continue;
+    const [head, refname, upstream] = line.split(SEP);
+    if (!refname) continue;
+    // Skip the HEAD pointer ref like 'origin/HEAD -> origin/main'
+    if (refname.includes(' -> ')) continue;
+    branches.push({
+      name: refname,
+      isRemote: refname.startsWith('origin/') || refname.includes('/HEAD'),
+      isCurrent: head === '*',
+      upstream: upstream && upstream.trim() ? upstream.trim() : undefined,
+    });
+  }
+  return branches;
+}
+
+/**
+ * Returns the last N commits. If `branch` is omitted, uses HEAD.
+ */
+export async function getCommitLog(
+  repoPath: string,
+  limit: number = 50,
+  branch?: string,
+): Promise<Array<CommitInfo & { shortSha: string }>> {
+  const SEP = '\x1f';
+  const args = [
+    'log',
+    `-n`,
+    String(limit),
+    `--format=%H${SEP}%h${SEP}%s${SEP}%an${SEP}%at`,
+  ];
+  if (branch) args.push(branch);
+  const output = await git(args, repoPath).catch(() => '');
+  return output
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [sha, shortSha, message, author, dateStr] = line.split(SEP);
+      return {
+        sha,
+        shortSha,
+        message,
+        author,
+        date: parseInt(dateStr, 10) * 1000,
+      };
+    });
+}
+
+/**
+ * Returns ahead/behind counts between `branch` and `baseBranch`.
+ * `ahead` = commits in `branch` not in base; `behind` = commits in base not in `branch`.
+ */
+export async function getAheadBehind(
+  repoPath: string,
+  branch: string,
+  baseBranch: string,
+): Promise<{ ahead: number; behind: number }> {
+  try {
+    const out = await git(
+      ['rev-list', '--left-right', '--count', `${baseBranch}...${branch}`],
+      repoPath,
+    );
+    // Output is "behind\tahead"
+    const [behind, ahead] = out.trim().split(/\s+/).map((n) => parseInt(n, 10));
+    return {
+      ahead: Number.isFinite(ahead) ? ahead : 0,
+      behind: Number.isFinite(behind) ? behind : 0,
+    };
+  } catch {
+    return { ahead: 0, behind: 0 };
+  }
+}
+
+export interface StashEntry {
+  index: number;
+  message: string;
+  date: number;
+}
+
+export async function listStash(repoPath: string): Promise<StashEntry[]> {
+  const SEP = '\x1f';
+  const output = await git(
+    ['stash', 'list', `--format=%gd${SEP}%s${SEP}%at`],
+    repoPath,
+  ).catch(() => '');
+  const entries: StashEntry[] = [];
+  for (const line of output.split('\n')) {
+    if (!line.trim()) continue;
+    const [ref, message, dateStr] = line.split(SEP);
+    // ref like "stash@{0}" — extract index
+    const match = ref?.match(/stash@\{(\d+)\}/);
+    if (!match) continue;
+    entries.push({
+      index: parseInt(match[1], 10),
+      message: message ?? '',
+      date: parseInt(dateStr, 10) * 1000,
+    });
+  }
+  return entries;
+}
+
+export async function createStash(repoPath: string, message?: string): Promise<void> {
+  const args = ['stash', 'push'];
+  if (message && message.trim()) {
+    args.push('-m', message.trim());
+  }
+  await git(args, repoPath);
+}
+
+export async function applyStash(repoPath: string, index: number): Promise<void> {
+  await git(['stash', 'apply', `stash@{${index}}`], repoPath);
+}
+
+export async function dropStash(repoPath: string, index: number): Promise<void> {
+  await git(['stash', 'drop', `stash@{${index}}`], repoPath);
+}
+
+export async function stageFiles(repoPath: string, files: string[]): Promise<void> {
+  if (files.length === 0) return;
+  await git(['add', '--', ...files], repoPath);
+}
+
+export async function unstageFiles(repoPath: string, files: string[]): Promise<void> {
+  if (files.length === 0) return;
+  // Use `reset HEAD --` so untracked files become untracked again rather than removed.
+  await git(['reset', 'HEAD', '--', ...files], repoPath);
+}
+
+/**
+ * Commits whatever is currently staged with `message`. Throws if there is nothing staged.
+ * Returns the new HEAD sha.
+ */
+export async function commitChanges(repoPath: string, message: string): Promise<string> {
+  const trimmed = message.trim();
+  if (!trimmed) {
+    throw new GitOperationError('Commit message is required', '');
+  }
+  await git(['commit', '-m', trimmed], repoPath);
+  const sha = await git(['rev-parse', 'HEAD'], repoPath);
+  return sha.trim();
+}
+
+export async function fetchRemote(repoPath: string, remote: string = 'origin'): Promise<void> {
+  await git(['fetch', remote], repoPath);
+}
+
+export async function pullRemote(
+  repoPath: string,
+  remote: string = 'origin',
+  branch?: string,
+): Promise<void> {
+  const args = ['pull', '--ff-only', remote];
+  if (branch) args.push(branch);
+  await git(args, repoPath);
+}
+
+export async function pushRemote(
+  repoPath: string,
+  remote: string = 'origin',
+  branch?: string,
+  force: boolean = false,
+): Promise<void> {
+  const args = ['push'];
+  if (force) args.push('--force-with-lease');
+  args.push(remote);
+  if (branch) args.push(branch);
+  await git(args, repoPath);
 }

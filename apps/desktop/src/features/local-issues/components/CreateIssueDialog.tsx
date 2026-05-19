@@ -12,6 +12,7 @@ import {
   useAttachments,
   filesFromDataTransfer,
 } from '../../attachments';
+import { IssueTagPicker } from './IssueTagPicker';
 
 interface CreateIssueDialogProps {
   projectId: string;
@@ -56,9 +57,7 @@ export function CreateIssueDialog({ projectId, onClose, editIssue, initialValues
   const [priority, setPriority] = useState<LocalIssuePriority>(
     editIssue?.priority ?? initialValues?.priority ?? 'medium',
   );
-  const [labelInput, setLabelInput] = useState(
-    editIssue?.labels?.join(', ') ?? initialValues?.labels?.join(', ') ?? '',
-  );
+  const [labels, setLabels] = useState<string[]>(editIssue?.labels ?? initialValues?.labels ?? []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -73,9 +72,10 @@ export function CreateIssueDialog({ projectId, onClose, editIssue, initialValues
   // (e.g. via dialog close after submit) before the cleanup runs.
   const previewUrlsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
+    const previewUrls = previewUrlsRef.current;
     return () => {
-      for (const url of previewUrlsRef.current) URL.revokeObjectURL(url);
-      previewUrlsRef.current.clear();
+      for (const url of previewUrls) URL.revokeObjectURL(url);
+      previewUrls.clear();
     };
   }, []);
 
@@ -137,11 +137,6 @@ export function CreateIssueDialog({ projectId, onClose, editIssue, initialValues
     setLoading(true);
     setError(null);
     try {
-      const labels = labelInput
-        .split(',')
-        .map((l) => l.trim())
-        .filter(Boolean);
-
       if (isEdit) {
         await updateIssue(editIssue.id, projectId, {
           title: title.trim(),
@@ -262,13 +257,7 @@ export function CreateIssueDialog({ projectId, onClose, editIssue, initialValues
 
             <div>
               <label className="text-xs font-medium text-muted-foreground">Labels</label>
-              <input
-                type="text"
-                value={labelInput}
-                onChange={(e) => setLabelInput(e.target.value)}
-                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-                placeholder="bug, enhancement, ... (comma-separated)"
-              />
+              <IssueTagPicker value={labels} onChange={setLabels} />
             </div>
 
             <div>

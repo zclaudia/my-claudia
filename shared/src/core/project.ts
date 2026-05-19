@@ -47,4 +47,36 @@ export interface GitWorktree {
   branch: string;    // 分支名
   isMain: boolean;   // 是否是主 worktree
   commit?: string;   // HEAD commit hash（短）
+  managedBy?: 'supervisor';  // supervisor v2 worktree pool 管理的 slot
+}
+
+export interface GitWorktreeStatus {
+  clean: boolean;
+  staged: string[];
+  unstaged: string[];
+  untracked: string[];
+  currentBranch: string;
+  ahead: number;
+  behind: number;
+}
+
+export interface GitBranch {
+  name: string;
+  isRemote: boolean;
+  isCurrent: boolean;
+  upstream?: string;
+}
+
+export interface GitCommit {
+  sha: string;
+  shortSha: string;
+  message: string;
+  author: string;
+  date: number;
+}
+
+export interface GitStash {
+  index: number;
+  message: string;
+  date: number;
 }

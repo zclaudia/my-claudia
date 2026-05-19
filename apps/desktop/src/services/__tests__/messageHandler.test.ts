@@ -377,7 +377,16 @@ describe('handleServerMessage', () => {
       handleServerMessage({
         type: 'tool_result', runId: 'r1', toolUseId: 'tu1', result: 'data', isError: false,
       }, makeCtx());
-      expect(mockChatStore.updateToolCallResult).toHaveBeenCalledWith('r1', 'tu1', 'data', false);
+      expect(mockChatStore.updateToolCallResult).toHaveBeenCalledWith('r1', 'tu1', 'data', false, undefined);
+    });
+
+    it('passes completed tool effects through to the chat store', () => {
+      mockChatStore.activeRuns = { r1: 's1' };
+      const effect = { kind: 'file_change' as const, files: [{ path: 'src/a.ts', changeKind: 'modify' as const, summary: '@@ diff' }] };
+      handleServerMessage({
+        type: 'tool_result', runId: 'r1', toolUseId: 'tu1', toolName: 'Edit', result: 'data', effect,
+      }, makeCtx());
+      expect(mockChatStore.updateToolCallResult).toHaveBeenCalledWith('r1', 'tu1', 'data', undefined, effect);
     });
   });
 

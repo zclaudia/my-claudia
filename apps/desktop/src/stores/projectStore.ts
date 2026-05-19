@@ -13,7 +13,8 @@ export type ProjectDashboardView =
   | 'tasks'
   | 'local-prs'
   | 'issues'
-  | 'supervisor';
+  | 'supervisor'
+  | 'git';
 
 interface ProjectState {
   projects: Project[];

@@ -5,12 +5,18 @@ vi.mock('child_process', () => ({
   execFile: (...args: unknown[]) => mockExecFile(...args),
 }));
 
+const mockReadFileSync = vi.fn();
+vi.mock('fs', () => ({
+  readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
+}));
+
 import {
   getGitStatus,
   isWorkingTreeClean,
   commitAllChanges,
   getNewCommits,
   getDiff,
+  getFileDiff,
   getMainBranch,
   getCurrentBranch,
   mergeBranch,
@@ -18,15 +24,20 @@ import {
   removeWorktree,
 } from '../git-operations.js';
 
+type ExecFileCallback = (
+  error: Error | null,
+  result: { stdout: string; stderr?: string },
+) => void;
+
 function mockGitSuccess(stdout: string) {
-  mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: any, cb: Function) => {
+  mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: ExecFileCallback) => {
     cb(null, { stdout });
   });
 }
 
 function mockGitSequence(outputs: (string | Error)[]) {
   let i = 0;
-  mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: any, cb: Function) => {
+  mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: ExecFileCallback) => {
     const output = outputs[i++] ?? '';
     if (output instanceof Error) {
       cb(output, { stdout: '', stderr: '' });
@@ -37,7 +48,7 @@ function mockGitSequence(outputs: (string | Error)[]) {
 }
 
 function mockGitError(err: Error & { stderr?: string; stdout?: string }) {
-  mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: any, cb: Function) => {
+  mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: ExecFileCallback) => {
     cb(err, { stdout: err.stdout || '', stderr: err.stderr || '' });
   });
 }
@@ -188,6 +199,31 @@ describe('git-operations', () => {
     });
   });
 
+  describe('getFileDiff', () => {
+    it('returns staged file diff', async () => {
+      mockGitSuccess('diff --git a/file.ts b/file.ts\n+new line\n');
+      const diff = await getFileDiff('/repo', 'file.ts', 'staged');
+      expect(diff).toContain('+new line');
+      expect(mockExecFile.mock.calls[0][1]).toEqual(['diff', '--cached', '--', 'file.ts']);
+    });
+
+    it('returns unstaged file diff', async () => {
+      mockGitSuccess('diff --git a/file.ts b/file.ts\n-old\n+new\n');
+      const diff = await getFileDiff('/repo', 'file.ts', 'unstaged');
+      expect(diff).toContain('-old');
+      expect(mockExecFile.mock.calls[0][1]).toEqual(['diff', '--', 'file.ts']);
+    });
+
+    it('renders untracked file content as a new file diff', async () => {
+      mockReadFileSync.mockReturnValue('first\nsecond\n');
+      const diff = await getFileDiff('/repo', 'new.ts', 'untracked');
+      expect(diff).toContain('--- /dev/null');
+      expect(diff).toContain('+++ b/new.ts');
+      expect(diff).toContain('+first');
+      expect(diff).toContain('+second');
+    });
+  });
+
   describe('getMainBranch', () => {
     it('returns branch from origin/HEAD', async () => {
       mockGitSuccess('origin/main\n');
@@ -245,7 +281,7 @@ describe('git-operations', () => {
       const result = await mergeBranch('/repo', 'feature');
       expect(result.success).toBe(false);
       expect(result.conflicts).toHaveLength(1);
-      expect(result.conflicts![0]).toContain('CONFLICT');
+      expect(result.conflicts?.[0]).toContain('CONFLICT');
     });
 
     it('uses custom merge message', async () => {

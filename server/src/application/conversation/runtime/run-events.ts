@@ -19,6 +19,7 @@ import { postRunCompletedNotification, postRunFailedNotification } from './run-t
 export interface ProviderEventState {
   sdkSessionId?: string;
   systemInfo?: SystemInfo;
+  backgroundTaskKeys?: Set<string>;
 }
 
 interface HandleProviderEventParams {
@@ -41,6 +42,62 @@ interface HandleProviderEventParams {
   msg: ClaudeMessage;
   broadcastHeartbeat: () => void;
   providerRegistry: ProviderRegistryPort;
+}
+
+function markBackgroundTaskStarted(activeRun: ActiveRun, state: ProviderEventState, key?: string): void {
+  if (!key) {
+    activeRun.pendingBackgroundTasks = (activeRun.pendingBackgroundTasks || 0) + 1;
+    return;
+  }
+  state.backgroundTaskKeys ??= new Set();
+  if (state.backgroundTaskKeys.has(key)) return;
+  state.backgroundTaskKeys.add(key);
+  activeRun.pendingBackgroundTasks = (activeRun.pendingBackgroundTasks || 0) + 1;
+}
+
+function markBackgroundTaskFinished(activeRun: ActiveRun, state: ProviderEventState, key?: string): void {
+  if (key && state.backgroundTaskKeys?.has(key)) {
+    state.backgroundTaskKeys.delete(key);
+    activeRun.pendingBackgroundTasks = Math.max(0, (activeRun.pendingBackgroundTasks || 0) - 1);
+    return;
+  }
+  activeRun.pendingBackgroundTasks = Math.max(0, (activeRun.pendingBackgroundTasks || 0) - 1);
+}
+
+function getTaskNotificationKey(msg: ClaudeMessage): string | undefined {
+  if (msg.taskId) return `task:${msg.taskId}`;
+  if (msg.taskToolUseId) return `tool:${msg.taskToolUseId}`;
+  return undefined;
+}
+
+function extractText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value == null) return '';
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function getToolResultBackgroundTaskKey(
+  toolName: string,
+  toolUseId: string | undefined,
+  result: unknown,
+): string | undefined {
+  const text = extractText(result);
+  if (!text) return undefined;
+
+  const bashMatch = text.match(/Command running in background with ID:\s*([A-Za-z0-9_-]+)/i);
+  if (bashMatch?.[1]) return `task:${bashMatch[1]}`;
+
+  const monitorMatch = text.match(/Monitor started\s*\(task\s+([A-Za-z0-9_-]+)/i);
+  if (monitorMatch?.[1]) return `task:${monitorMatch[1]}`;
+
+  if (/Command running in background/i.test(text) || /Monitor started/i.test(text)) {
+    return toolUseId ? `tool:${toolUseId}` : `tool-result:${toolName}:${text.slice(0, 80)}`;
+  }
+  return undefined;
 }
 
 export function handleProviderEvent({
@@ -197,6 +254,7 @@ export function handleProviderEvent({
       if (collected) {
         collected.output = msg.toolResult;
         collected.isError = msg.isToolError || false;
+        if (msg.toolEffect) collected.effect = msg.toolEffect;
       }
 
       sendRunEvent({
@@ -207,6 +265,7 @@ export function handleProviderEvent({
         toolName,
         result: msg.toolResult,
         isError: msg.isToolError,
+        effect: msg.toolEffect,
       });
       pluginEvents.emit('run.toolResult', {
         runId,
@@ -218,6 +277,11 @@ export function handleProviderEvent({
       }).catch((err: unknown) => {
         console.warn('[PluginEvents] Event emission failed:', err instanceof Error ? err.message : err);
       });
+
+      const backgroundTaskKey = getToolResultBackgroundTaskKey(toolName, msg.toolUseId, msg.toolResult);
+      if (!msg.isToolError && backgroundTaskKey) {
+        markBackgroundTaskStarted(activeRun, state, backgroundTaskKey);
+      }
 
       break;
     }
@@ -441,14 +505,15 @@ export function handleProviderEvent({
 
     case 'task_notification': {
       // Track in-flight background tasks so the stream stays open for follow-up turns.
+      const taskKey = getTaskNotificationKey(msg);
       if (msg.taskStatus === 'started') {
-        activeRun.pendingBackgroundTasks++;
+        markBackgroundTaskStarted(activeRun, state, taskKey);
       } else if (
         msg.taskStatus === 'completed' ||
         msg.taskStatus === 'failed' ||
         msg.taskStatus === 'stopped'
       ) {
-        activeRun.pendingBackgroundTasks = Math.max(0, activeRun.pendingBackgroundTasks - 1);
+        markBackgroundTaskFinished(activeRun, state, taskKey);
       }
 
       const adapter = activeRun.providerType ? providerRegistry.get(activeRun.providerType) : undefined;

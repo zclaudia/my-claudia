@@ -1,10 +1,11 @@
 import { useEffect } from 'react';
-import { Bot, ClipboardList, GitPullRequest, CircleDot, Workflow, ChevronRight, Zap } from 'lucide-react';
+import { Bot, ClipboardList, GitBranch, GitPullRequest, CircleDot, Workflow, ChevronRight, Zap } from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSupervisionStore } from '../../features/supervision/store';
 import { useLocalPRStore } from '../../features/local-pr/store';
 import { useLocalIssueStore } from '../../features/local-issues/store';
 import { useWorkflowStore } from '../../features/workflows/store';
+import { useGitStore } from '../../features/git/store';
 import type { DashboardView } from './ProjectDashboard';
 
 interface DashboardHomeProps {
@@ -112,6 +113,14 @@ export function DashboardHome({ projectId, onNavigate, onOpenAutomations }: Dash
   const loadIssues = useLocalIssueStore((s) => s.loadIssues);
   const openIssues = allIssues.filter((i) => i.status === 'open');
   const inProgressIssues = allIssues.filter((i) => i.status === 'in_progress');
+
+  // Git worktrees
+  const worktrees = useGitStore((s) => s.worktrees[projectId] ?? []);
+  const statusByPath = useGitStore((s) => s.statusByPath);
+  const dirtyWorktrees = worktrees.filter((w) => {
+    const status = statusByPath[`${projectId}::${w.path}`];
+    return status && !status.clean;
+  });
 
   // Workflows (DAG only) + Automations (simple)
   const allWorkflows = useWorkflowStore((s) => s.workflows[projectId] ?? []);
@@ -229,6 +238,27 @@ export function DashboardHome({ projectId, onNavigate, onOpenAutomations }: Dash
             <div className="text-xs text-muted-foreground">open</div>
             {inProgressIssues.length > 0 && (
               <div className="text-xs text-blue-500">{inProgressIssues.length} in progress</div>
+            )}
+          </div>
+        </button>
+
+        {/* Git Card */}
+        <button
+          onClick={() => onNavigate('git')}
+          className="text-left bg-card border border-border rounded-lg p-4 hover:border-primary/40 transition-colors group"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <GitBranch className="w-4 h-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Git</span>
+            </div>
+            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+          </div>
+          <div className="space-y-1">
+            <div className="text-2xl font-bold">{worktrees.length}</div>
+            <div className="text-xs text-muted-foreground">worktree{worktrees.length === 1 ? '' : 's'}</div>
+            {dirtyWorktrees.length > 0 && (
+              <div className="text-xs text-orange-500">{dirtyWorktrees.length} with changes</div>
             )}
           </div>
         </button>

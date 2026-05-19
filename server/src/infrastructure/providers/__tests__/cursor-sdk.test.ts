@@ -142,6 +142,47 @@ describe('cursor-sdk', () => {
       }
     });
 
+    it('maps editToolCall completed diffString into a file change effect', async () => {
+      const diffString = '--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new';
+      const toolCallEvent = {
+        type: 'tool_call',
+        subtype: 'completed',
+        call_id: 'call-edit-completed',
+        tool_call: {
+          editToolCall: {
+            args: { path: '/repo/src/app.ts' },
+            result: {
+              success: {
+                path: '/repo/src/app.ts',
+                linesAdded: 1,
+                linesRemoved: 1,
+                diffString,
+                message: 'The file /repo/src/app.ts has been updated.',
+              },
+            },
+          },
+        },
+      };
+
+      const generator = runCursor('test', { cwd: '/test' }, vi.fn());
+      const promise = generator.next();
+
+      stdout.push(JSON.stringify(toolCallEvent) + '\n');
+      stdout.push(null);
+
+      const result = await promise;
+      const msg = result.value as ClaudeMessage;
+
+      expect(msg.type).toBe('tool_result');
+      if (msg.type === 'tool_result') {
+        expect(msg.toolResult).toBe('The file /repo/src/app.ts has been updated.');
+        expect(msg.toolEffect).toEqual({
+          kind: 'file_change',
+          files: [{ path: '/repo/src/app.ts', changeKind: 'modify', summary: diffString }],
+        });
+      }
+    });
+
     it('应该正确提取工具调用结果 (rejected)', async () => {
       const toolCallEvent = {
         type: 'tool_call',

@@ -146,19 +146,70 @@ export function hasOpenIssues(openIssues: string): boolean {
 export function buildIssueFromSummary(args: {
   openIssues: string;
   goal: string;
+  solved?: string;
   userMessagePreview: string;
   turnTimestamp: number;
+  generatedAt?: number;
+  stale?: boolean;
+  relatedFiles?: string[];
+  affectedCommands?: string[];
+  stats?: TurnStats;
 }): { title: string; description: string } {
   const title = extractFirstSentence(args.openIssues, 80);
   const when = new Date(args.turnTimestamp).toLocaleString();
-  const description = [
-    args.openIssues.trim(),
+  const generatedAt = args.generatedAt ? new Date(args.generatedAt).toLocaleString() : null;
+  const relatedFiles = (args.relatedFiles ?? []).slice(0, 10);
+  const affectedCommands = (args.affectedCommands ?? []).slice(0, 5);
+  const stats = args.stats;
+
+  const lines = [
+    '## Open Issue',
+    args.openIssues.trim() || '(No open issue text provided.)',
     '',
-    '---',
-    '**Context**',
+    '## Goal',
+    args.goal.trim() || '(No goal captured.)',
+    '',
+    '## What Was Already Found / Done',
+    args.solved?.trim() || '(No solved context captured.)',
+    '',
+    '## Remaining Work',
+    args.openIssues.trim() || '(Clarify the remaining work.)',
+    '',
+    '## Evidence / Related Context',
     `- Turn: "${args.userMessagePreview}" (${when})`,
-    `- Goal: ${args.goal.trim()}`,
-  ].join('\n');
+    ...(generatedAt ? [`- Summary generated: ${generatedAt}`] : []),
+    `- Summary state: ${args.stale ? 'stale' : 'fresh'}`,
+  ];
+
+  if (relatedFiles.length > 0) {
+    lines.push('', '## Related Files', ...relatedFiles.map((file) => `- \`${file}\``));
+    const hiddenCount = (args.relatedFiles?.length ?? 0) - relatedFiles.length;
+    if (hiddenCount > 0) lines.push(`- ...and ${hiddenCount} more`);
+  }
+
+  if (affectedCommands.length > 0) {
+    lines.push('', '## Possibly Affected Commands', ...affectedCommands.map((command) => `- \`${command}\``));
+    const hiddenCount = (args.affectedCommands?.length ?? 0) - affectedCommands.length;
+    if (hiddenCount > 0) lines.push(`- ...and ${hiddenCount} more`);
+  }
+
+  if (stats) {
+    lines.push(
+      '',
+      '## Turn Stats',
+      `- Files touched: ${stats.fileCount}`,
+      `- Edit operations: ${stats.editCount}`,
+      `- Write operations: ${stats.writeCount}`,
+      `- Notebook edits: ${stats.notebookEditCount}`,
+      `- Bash commands: ${stats.bashCount}`,
+      `- Destructive bash commands: ${stats.destructiveBashCount}`,
+      `- Failures: ${stats.failureCount}`,
+      `- Pending questions: ${stats.pendingQuestionCount}`,
+      `- Running tools: ${stats.runningToolCount}`,
+    );
+  }
+
+  const description = lines.join('\n');
   return { title, description };
 }
 

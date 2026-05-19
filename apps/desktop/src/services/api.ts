@@ -7,6 +7,7 @@ export { apiCall, apiCallVoid } from './api/unwrap';
 
 // Domain APIs
 export * from './api/projects';
+export * from './api/git';
 export * from './api/sessions';
 export * from './api/session-drafts';
 export * from './api/turn-summaries';

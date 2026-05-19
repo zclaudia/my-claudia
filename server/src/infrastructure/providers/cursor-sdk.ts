@@ -10,7 +10,7 @@ import { getGlobalProcessSupervisor } from '../services/process-supervisor.js';
 import { buildMcpBridgeEntry } from '../../utils/mcp-bridge-launch.js';
 import { fileStore } from '../storage/fileStore.js';
 import type { ToolEffect } from '@my-claudia/shared/core/message';
-import { fileChangeEffectFromInput, makeShellEffect } from './tool-effects.js';
+import { fileChangeEffectFromInput, makeFileChangeEffect, makeShellEffect } from './tool-effects.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -95,6 +95,27 @@ function readSwitchModeTarget(args: unknown): string | undefined {
   return undefined;
 }
 
+function readCursorEditResultEffect(args: unknown, result: unknown): ToolEffect | undefined {
+  const resultRecord = result && typeof result === 'object' && !Array.isArray(result)
+    ? result as Record<string, unknown>
+    : undefined;
+  const success = resultRecord?.success && typeof resultRecord.success === 'object' && !Array.isArray(resultRecord.success)
+    ? resultRecord.success as Record<string, unknown>
+    : undefined;
+  const diffString = typeof success?.diffString === 'string' ? success.diffString : undefined;
+  if (diffString) {
+    const path = typeof success?.path === 'string'
+      ? success.path
+      : args && typeof args === 'object' && !Array.isArray(args) && typeof (args as Record<string, unknown>).path === 'string'
+        ? (args as Record<string, unknown>).path as string
+        : undefined;
+    if (path) {
+      return makeFileChangeEffect([{ path, changeKind: 'modify', summary: diffString }]);
+    }
+  }
+  return fileChangeEffectFromInput(args, 'modify');
+}
+
 function extractToolCall(toolCallObj: Record<string, unknown>): ToolCallInfo | null {
   for (const key of Object.keys(toolCallObj)) {
     const tc = toolCallObj[key] as { args?: unknown; result?: unknown } | undefined;
@@ -118,7 +139,7 @@ function extractToolCall(toolCallObj: Record<string, unknown>): ToolCallInfo | n
 
     let effect: ToolEffect | undefined;
     if (toolName === 'Edit') {
-      effect = fileChangeEffectFromInput(tc.args, 'modify');
+      effect = readCursorEditResultEffect(tc.args, tc.result);
     } else if (toolName === 'Bash') {
       const args = tc.args && typeof tc.args === 'object' ? tc.args as Record<string, unknown> : {};
       effect = makeShellEffect(typeof args.command === 'string' ? args.command : undefined);
@@ -474,6 +495,7 @@ function mapCursorEvent(
             type: 'tool_result',
             toolUseId: callId,
             toolResult: resultStr,
+            toolEffect: info.effect,
           },
         });
 

@@ -4,6 +4,7 @@ import type { Project } from '@my-claudia/shared/core/project';
 import type { ApiResponse } from '@my-claudia/shared/core/api';
 import { ProjectRepository } from './repository.js';
 import { ProjectWorktreeService, ProjectNotFoundError, ProjectRootPathMissingError } from './worktree-service.js';
+import { createGitRoutes } from './git-routes.js';
 import { WorkflowRepository } from '../workflows/repository.js';
 import {
   applyProjectPatch,
@@ -233,6 +234,9 @@ export function createProjectRoutes(
       res.status(500).json({ success: false, error: { code: 'GIT_ERROR', message: msg } });
     }
   });
+
+  // Git + worktree management endpoints (DELETE worktree, status, branches, log, stash, stage/commit, sync)
+  router.use(createGitRoutes(db));
 
   router.post('/reorder', (req: Request, res: Response) => {
     try {

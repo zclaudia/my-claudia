@@ -26,6 +26,8 @@ interface SummarySectionProps {
   turn: TurnStat | null;
   /** Latest message id in the turn — used to detect summary staleness. */
   latestMessageIdInTurn: string | null;
+  relatedFiles?: string[];
+  affectedCommands?: string[];
 }
 
 export function SummarySection({
@@ -33,6 +35,8 @@ export function SummarySection({
   projectId,
   turn,
   latestMessageIdInTurn,
+  relatedFiles = [],
+  affectedCommands = [],
 }: SummarySectionProps) {
   const entry = useSummaryStore((s) =>
     turn ? s.entries[`${sessionId}:${turn.userMessageId}`] : undefined,
@@ -57,10 +61,16 @@ export function SummarySection({
     return buildIssueFromSummary({
       openIssues: entry.summary.openIssues,
       goal: entry.summary.goal,
+      solved: entry.summary.solved,
       userMessagePreview: turn.userMessagePreview,
       turnTimestamp: turn.timestamp,
+      generatedAt: entry.summary.generatedAt,
+      stale: isStale,
+      relatedFiles,
+      affectedCommands,
+      stats: turn.stats,
     });
-  }, [entry?.summary, turn]);
+  }, [affectedCommands, entry?.summary, isStale, relatedFiles, turn]);
 
   const hasContent = !!entry?.summary;
   const isLoading = entry?.status === 'loading';

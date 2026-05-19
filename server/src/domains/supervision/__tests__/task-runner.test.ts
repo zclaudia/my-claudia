@@ -11,6 +11,9 @@ const { mockExec, mockExecSync } = vi.hoisted(() => ({
 vi.mock('child_process', () => ({
   exec: mockExec,
   execSync: mockExecSync,
+  // execFile is referenced at module init by utils/git-operations.ts (via projects/worktree-service.ts);
+  // tests here don't exercise it, but it must be defined so promisify() doesn't throw.
+  execFile: vi.fn(),
 }));
 
 import { TaskRunner } from '../task-runner.js';

@@ -118,7 +118,7 @@ interface ChatState {
 
   // Actions — Tool calls (per run)
   addToolCall: (runId: string, toolUseId: string, toolName: string, toolInput: unknown, semantic?: ToolSemantic, effect?: ToolEffect) => void;
-  updateToolCallResult: (runId: string, toolUseId: string, result: unknown, isError?: boolean) => void;
+  updateToolCallResult: (runId: string, toolUseId: string, result: unknown, isError?: boolean, effect?: ToolEffect) => void;
   updateToolCallActivity: (runId: string, toolUseId: string, activity: string) => void;
 
   // Actions — Content blocks (per run)
@@ -458,7 +458,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
     }),
 
-  updateToolCallResult: (runId, toolUseId, result, isError) =>
+  updateToolCallResult: (runId, toolUseId, result, isError, effect) =>
     set((state) => {
       const runToolCalls = state.activeToolCalls[runId];
       if (!runToolCalls) return state;
@@ -472,6 +472,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         status: isError ? 'error' as const : 'completed' as const,
         result,
         isError,
+        effect: effect ?? existing.effect,
       };
 
       const runHistory = state.toolCallsHistory[runId] || [];
