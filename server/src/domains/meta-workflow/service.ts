@@ -197,6 +197,25 @@ export class MetaWorkflowService {
     return this.search.search(phaseDef);
   }
 
+  /**
+   * List active reuse-pool items with optional phaseType + free-text search filters.
+   * The search term is matched (case-insensitive substring) against description,
+   * tags, and entityId.
+   */
+  listReusePool(filters?: { phaseType?: string; search?: string }): ReusablePoolItem[] {
+    const items = this.poolRepo.listActive(filters?.phaseType);
+    const q = filters?.search?.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((it) => {
+      const hay = [
+        it.description ?? '',
+        ...(it.tags ?? []),
+        it.entityId ?? '',
+      ].join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+  }
+
   // ── Read queries (for routes/handlers) ──────────────────
 
   listRuns(projectId: string): MetaWorkflowRun[] {

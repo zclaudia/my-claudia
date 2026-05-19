@@ -92,4 +92,35 @@ describe('MetaWorkflowReusePoolRepository', () => {
     const fetched = repo.findById(item.id);
     expect(fetched?.metadata).toEqual({ usageCount: 2, successRate: 1.0 });
   });
+
+  describe('listActive', () => {
+    it('returns all non-archived items ordered by source_type DESC, created_at DESC', () => {
+      repo.create({ kind: 'workflow', entityId: 'w1', phaseType: 'code-implement',
+                    description: 'first auto', tags: ['x'], sourceType: 'auto',
+                    metadata: { usageCount: 0 }, createdAt: 1 });
+      repo.create({ kind: 'workflow', entityId: 'w2', phaseType: 'code-test-write',
+                    description: 'second user', tags: ['y'], sourceType: 'user',
+                    metadata: { usageCount: 5 }, createdAt: 2 });
+      const archived = repo.create({ kind: 'workflow', entityId: 'w3', phaseType: 'code-implement',
+                    description: 'third archived', tags: ['z'], sourceType: 'auto',
+                    metadata: { usageCount: 0 }, createdAt: 3 });
+      repo.archive(archived.id);
+
+      const items = repo.listActive();
+      // 'user' sorts before 'auto' (DESC), and the only remaining auto is w1.
+      expect(items.map((i) => i.entityId)).toEqual(['w2', 'w1']);
+    });
+
+    it('filters by phaseType when provided', () => {
+      repo.create({ kind: 'workflow', entityId: 'w1', phaseType: 'code-implement',
+                    description: 'impl', tags: [], sourceType: 'auto',
+                    metadata: { usageCount: 0 }, createdAt: 1 });
+      repo.create({ kind: 'workflow', entityId: 'w2', phaseType: 'code-test-write',
+                    description: 'test', tags: [], sourceType: 'auto',
+                    metadata: { usageCount: 0 }, createdAt: 2 });
+
+      const items = repo.listActive('code-test-write');
+      expect(items.map((i) => i.entityId)).toEqual(['w2']);
+    });
+  });
 });

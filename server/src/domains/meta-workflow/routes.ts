@@ -27,6 +27,12 @@ export function createMetaWorkflowRoutes(service: MetaWorkflowService): Router {
     res.json({ phases: service.listPhases(req.params.runId) });
   });
 
+  router.get('/reuse-pool', (req: Request, res: Response) => {
+    const phaseType = (req.query.phaseType as string | undefined) || undefined;
+    const search = (req.query.search as string | undefined) || undefined;
+    res.json({ items: service.listReusePool({ phaseType, search }) });
+  });
+
   router.post('/runs/:runId/promote-item', (req: Request, res: Response) => {
     const body = req.body as {
       itemId?: string;

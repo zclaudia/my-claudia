@@ -95,6 +95,25 @@ export class MetaWorkflowReusePoolRepository extends BaseRepository<ReusablePool
     return rows.map((r) => this.mapRow(r));
   }
 
+  /**
+   * List all non-archived items, optionally filtered by phaseType.
+   * Ordered: user-promoted first (source_type DESC), then by creation time DESC.
+   */
+  listActive(phaseType?: string): ReusablePoolItem[] {
+    const rows = phaseType
+      ? this.db.prepare(
+          `SELECT * FROM meta_workflow_reuse_pool
+             WHERE phase_type = ? AND archived_at IS NULL
+             ORDER BY source_type DESC, created_at DESC`,
+        ).all(phaseType)
+      : this.db.prepare(
+          `SELECT * FROM meta_workflow_reuse_pool
+             WHERE archived_at IS NULL
+             ORDER BY source_type DESC, created_at DESC`,
+        ).all();
+    return rows.map((r) => this.mapRow(r));
+  }
+
   archive(id: string): void {
     this.db.prepare(
       `UPDATE meta_workflow_reuse_pool SET archived_at = ? WHERE id = ?`,
