@@ -46,6 +46,7 @@ export function registerMetaWorkflow(opts: RegisterMetaWorkflowOptions): Registe
     runEntityForWorkflow,
     runEntityForSubagent,
     worktreeAllocator: opts.worktreeAllocator,
+    aiRunPort: opts.aiRunPort,
   });
   const routes = createMetaWorkflowRoutes(service);
 

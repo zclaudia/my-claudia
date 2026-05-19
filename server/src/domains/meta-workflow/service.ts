@@ -17,6 +17,7 @@ import { ReusePoolPromotionService, type PromoteInput } from './reuse-pool-promo
 import { MetaPhaseExecutor, type RunEntity, type PhaseExecutionResult } from './phase-executor.js';
 import { validatePhasesJson } from './phases-json-validator.js';
 import { StalePropagator } from './stale-propagator.js';
+import type { AiRunPort } from './run-entities/subagent-run-entity.js';
 
 export interface WorktreeAllocator {
   acquire(meta: { runId: string; phaseId: string; attempt: number }): Promise<string>;
@@ -28,6 +29,8 @@ export interface MetaWorkflowServiceOptions {
   runEntityForWorkflow: RunEntity;
   runEntityForSubagent: RunEntity;
   worktreeAllocator: WorktreeAllocator;
+  /** Optional — used by `evaluateImpact` once Task 2 lands. Service still works without it (static fallback). */
+  aiRunPort?: AiRunPort;
 }
 
 export interface CreateRunInput {
