@@ -7,6 +7,7 @@ import type {
   RunEntityOutcome,
 } from '../phase-executor.js';
 import type { MetaSubagentTemplate } from '@my-claudia/shared/features/meta-workflow';
+import type { MetaSubagentTerminationCondition } from '@my-claudia/shared/features/meta-workflow';
 
 export interface VirtualClientResult {
   ok: boolean;
@@ -18,6 +19,8 @@ export interface VirtualClientArgs {
   allowedTools: string[];
   maxTurns: number;
   cwd: string;
+  /** Optional — when supplied, the adapter resolves as soon as it's met. */
+  terminationCondition?: MetaSubagentTerminationCondition;
 }
 
 export type RunVirtualClient = (args: VirtualClientArgs) => Promise<VirtualClientResult>;
@@ -53,6 +56,7 @@ export function createSubagentRunEntity(opts: CreateSubagentRunEntityOptions): R
       allowedTools: tmpl.allowedTools,
       maxTurns: tmpl.maxTurns,
       cwd: ctx.worktreePath,
+      terminationCondition: tmpl.terminationCondition,
     });
     if (!result.ok) return { exitOk: false };
     return { exitOk: checkTermination(tmpl, ctx.worktreePath, result.output) };
@@ -92,6 +96,19 @@ export function createRunVirtualClientFromAiRunPort(
     let collected = '';
     let resolved = false;
 
+    const checkTermination = (): boolean => {
+      const cond = args.terminationCondition;
+      if (!cond) return false;
+      if (cond.kind === 'output-file') {
+        const p = isAbsolute(cond.target) ? cond.target : join(args.cwd, cond.target);
+        return existsSync(p);
+      }
+      if (cond.kind === 'output-keyword') {
+        return collected.includes(cond.target);
+      }
+      return false;
+    };
+
     const completion = new Promise<boolean>((resolveComplete) => {
       const finish = (ok: boolean) => {
         if (resolved) return;
@@ -107,6 +124,11 @@ export function createRunVirtualClientFromAiRunPort(
         providerId: opts.defaultProviderId,
         onMessage: (m) => {
           if (m.content) collected += m.content;
+          // Phase E2a: check termination on every message, not just completion.
+          if (checkTermination()) {
+            finish(true);
+            return;
+          }
           if (COMPLETED_KINDS.has(m.kind)) finish(true);
         },
       }).catch(() => finish(false));

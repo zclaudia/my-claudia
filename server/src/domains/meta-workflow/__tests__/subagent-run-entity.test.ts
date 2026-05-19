@@ -151,3 +151,72 @@ describe('createRunVirtualClientFromAiRunPort', () => {
     expect(result.ok).toBe(false);
   });
 });
+
+describe('createRunVirtualClientFromAiRunPort — incremental termination', () => {
+  it('resolves ok=true early when output-file appears mid-conversation', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'subagent-incr-'));
+    let messagesSent = 0;
+    const startVirtualRun = vi.fn().mockImplementation(async (input: { onMessage?: (m: { kind: string; content?: string }) => void }) => {
+      input.onMessage?.({ kind: 'assistant_message', content: 'thinking...' });
+      messagesSent += 1;
+      // create the report file mid-conversation
+      writeFileSync(join(dir, 'report.md'), 'done');
+      input.onMessage?.({ kind: 'assistant_message', content: 'wrote report' });
+      messagesSent += 1;
+      // simulate that more messages follow (which we should ignore once terminated)
+      input.onMessage?.({ kind: 'tool_use', content: 'still chatting' });
+      messagesSent += 1;
+      // The adapter should resolve before run_completed fires.
+    });
+    const runVirtualClient = createRunVirtualClientFromAiRunPort({
+      aiRunPort: { startVirtualRun } as never,
+      timeoutMs: 1000,
+    });
+    const result = await runVirtualClient({
+      systemPrompt: 'investigate',
+      allowedTools: ['Read'],
+      maxTurns: 30,
+      cwd: dir,
+      terminationCondition: { kind: 'output-file', target: 'report.md' },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain('thinking');
+    expect(messagesSent).toBe(3);  // all 3 events fired before we resolved
+  });
+
+  it('resolves ok=true early when output-keyword appears mid-conversation', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'subagent-incr-'));
+    const startVirtualRun = vi.fn().mockImplementation(async (input: { onMessage?: (m: { kind: string; content?: string }) => void }) => {
+      input.onMessage?.({ kind: 'assistant_message', content: 'still thinking' });
+      input.onMessage?.({ kind: 'assistant_message', content: '[INVESTIGATION_COMPLETE]' });
+    });
+    const runVirtualClient = createRunVirtualClientFromAiRunPort({
+      aiRunPort: { startVirtualRun } as never,
+      timeoutMs: 1000,
+    });
+    const result = await runVirtualClient({
+      systemPrompt: 'investigate',
+      allowedTools: ['Read'],
+      maxTurns: 30,
+      cwd: dir,
+      terminationCondition: { kind: 'output-keyword', target: '[INVESTIGATION_COMPLETE]' },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('still resolves at run_completed when no terminationCondition supplied', async () => {
+    // Backward compatibility — Phase D callers that don't pass terminationCondition still work.
+    const startVirtualRun = vi.fn().mockImplementation(async (input: { onMessage?: (m: { kind: string; content?: string }) => void }) => {
+      input.onMessage?.({ kind: 'assistant_message', content: 'hi' });
+      input.onMessage?.({ kind: 'run_completed' });
+    });
+    const runVirtualClient = createRunVirtualClientFromAiRunPort({
+      aiRunPort: { startVirtualRun } as never,
+      timeoutMs: 1000,
+    });
+    const result = await runVirtualClient({
+      systemPrompt: 'p', allowedTools: [], maxTurns: 5, cwd: '/tmp',
+    });
+    expect(result.ok).toBe(true);
+  });
+});
