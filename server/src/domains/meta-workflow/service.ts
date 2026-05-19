@@ -103,7 +103,12 @@ export class MetaWorkflowService {
   }
 
   cancelRun(runId: string): MetaWorkflowRun {
-    return this.runAggregate.cancel(runId);
+    const run = this.runAggregate.cancel(runId);
+    // Recycle the worktree slot. Fire-and-forget; failures here should not abort cancellation.
+    void this.opts.worktreeAllocator.releaseRun(runId).catch((err: unknown) => {
+      console.error(`[MetaWorkflowService] releaseRun failed for ${runId}:`, err);
+    });
+    return run;
   }
 
   // ── Phase execution ─────────────────────────────────────
@@ -123,6 +128,7 @@ export class MetaWorkflowService {
     const worktreePath = await this.opts.worktreeAllocator.acquire({
       runId, phaseId, attempt: phase.attempt + 1,
     });
+    let result: PhaseExecutionResult;
     try {
       const executor = new MetaPhaseExecutor({
         aggregate: this.phaseAggregate,
@@ -132,10 +138,25 @@ export class MetaWorkflowService {
           return this.opts.runEntityForSubagent(entity, ctx);
         },
       });
-      return await executor.execute(phase.id, phaseDef, worktreePath);
+      result = await executor.execute(phase.id, phaseDef, worktreePath);
     } finally {
       await this.opts.worktreeAllocator.release(worktreePath);
     }
+
+    // If this completes the final phase of the run, release the run-level worktree slot.
+    // Fire-and-forget; failures here should not abort the phase result.
+    if (result.phase.status === 'done' && this.allPhasesDone(runId)) {
+      void this.opts.worktreeAllocator.releaseRun(runId).catch((err: unknown) => {
+        console.error(`[MetaWorkflowService] releaseRun failed for ${runId}:`, err);
+      });
+    }
+    return result;
+  }
+
+  private allPhasesDone(runId: string): boolean {
+    const phases = this.phaseRepo.findByRun(runId);
+    if (phases.length === 0) return false;
+    return phases.every((p) => p.status === 'done');
   }
 
   // ── Reuse pool ──────────────────────────────────────────
