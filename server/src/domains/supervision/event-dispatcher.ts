@@ -14,6 +14,21 @@ export class EventDispatcher<E extends { type: string }> {
     this.wildcardHandlers.push(handler);
   }
 
+  off(eventType: string, handler: EventHandler<E>): void {
+    const list = this.handlers.get(eventType);
+    if (!list) return;
+    const idx = list.indexOf(handler);
+    if (idx === -1) return;
+    list.splice(idx, 1);
+    if (list.length === 0) this.handlers.delete(eventType);
+  }
+
+  offAny(handler: EventHandler<E>): void {
+    const idx = this.wildcardHandlers.indexOf(handler);
+    if (idx === -1) return;
+    this.wildcardHandlers.splice(idx, 1);
+  }
+
   dispatch(event: E): void {
     const specific = this.handlers.get(event.type);
     if (specific) {
