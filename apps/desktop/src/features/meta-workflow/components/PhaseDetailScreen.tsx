@@ -9,6 +9,7 @@ import {
   sendEvaluateImpact,
   sendCascadeRerun,
 } from '../api.js';
+import { WorkflowRunViewer } from '../../workflows/components/WorkflowRunViewer.js';
 
 interface Props {
   projectId: string;
@@ -81,6 +82,17 @@ export function PhaseDetailScreen({ projectId, run, phaseId, socket }: Props): R
         {phase.currentRunId && <div>Current sub-workflow run: <code className={codeClass}>{phase.currentRunId}</code></div>}
         {phase.staleSourcePhaseId && <div>Stale source phase: <code className={codeClass}>{phase.staleSourcePhaseId}</code></div>}
       </div>
+
+      {phase.currentRunId && (
+        <details className="border border-border rounded-md bg-muted/30" open>
+          <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
+            Sub-workflow run · <span className="font-mono text-xs">{phase.currentRunId}</span>
+          </summary>
+          <div className="border-t border-border">
+            <WorkflowRunViewer runId={phase.currentRunId} onBack={() => undefined} />
+          </div>
+        </details>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {phase.status === 'pending' && (

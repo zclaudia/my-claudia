@@ -2,6 +2,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+
+vi.mock('../../workflows/components/WorkflowRunViewer.js', () => ({
+  WorkflowRunViewer: ({ runId }: { runId: string }) => (
+    <div data-testid="sub-workflow-stub" data-run-id={runId}>SUB:{runId}</div>
+  ),
+}));
+
 import type {
   MetaWorkflowRun,
   MetaWorkflowPhase,
@@ -181,5 +188,36 @@ describe('PhaseDetailScreen', () => {
     expect(screen.getByText(/Impact recommendation/i)).toBeInTheDocument();
     expect(screen.getByText(/minor-fix/)).toBeInTheDocument();
     expect(screen.getByText(/Only logging changed\./)).toBeInTheDocument();
+  });
+
+  it('renders the sub-workflow viewer when phase.currentRunId is set', () => {
+    useMetaWorkflowStore.setState({
+      phases: { 'run-1': [makePhase({ currentRunId: 'sub-run-xyz' })] },
+    });
+    render(
+      <PhaseDetailScreen
+        projectId="p1"
+        run={makeRun()}
+        phaseId="p1"
+        socket={{ send: vi.fn() }}
+      />,
+    );
+    const stub = screen.getByTestId('sub-workflow-stub');
+    expect(stub).toHaveAttribute('data-run-id', 'sub-run-xyz');
+  });
+
+  it('does not render the viewer when currentRunId is absent', () => {
+    useMetaWorkflowStore.setState({
+      phases: { 'run-1': [makePhase()] },
+    });
+    render(
+      <PhaseDetailScreen
+        projectId="p1"
+        run={makeRun()}
+        phaseId="p1"
+        socket={{ send: vi.fn() }}
+      />,
+    );
+    expect(screen.queryByTestId('sub-workflow-stub')).not.toBeInTheDocument();
   });
 });
