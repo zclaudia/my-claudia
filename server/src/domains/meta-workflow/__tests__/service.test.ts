@@ -35,7 +35,7 @@ describe('MetaWorkflowService', () => {
   let db: Database.Database;
   let service: MetaWorkflowService;
   let workdir: string;
-  let fakeAllocator: { acquire: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> };
+  let fakeAllocator: { acquire: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn>; releaseRun: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     db = freshDb();
@@ -43,6 +43,7 @@ describe('MetaWorkflowService', () => {
     fakeAllocator = {
       acquire: vi.fn().mockResolvedValue(workdir),
       release: vi.fn().mockResolvedValue(undefined),
+      releaseRun: vi.fn().mockResolvedValue(undefined),
     };
     service = new MetaWorkflowService({
       db,

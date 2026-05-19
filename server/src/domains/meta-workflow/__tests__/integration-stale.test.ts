@@ -57,6 +57,7 @@ describe('Phase D integration: stale propagation through full flow', () => {
       worktreeAllocator: {
         acquire: vi.fn().mockResolvedValue(workdir),
         release: vi.fn().mockResolvedValue(undefined),
+        releaseRun: vi.fn().mockResolvedValue(undefined),
       },
     });
   });

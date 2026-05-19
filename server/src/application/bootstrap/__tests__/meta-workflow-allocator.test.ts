@@ -47,4 +47,55 @@ describe('meta-workflow-allocator persistent per-run worktree', () => {
     await allocator.acquire({ runId: 'run-A', phaseId: 'p1', attempt: 1 });
     await expect(allocator.release('/tmp/slot')).resolves.toBeUndefined();
   });
+
+  it('releaseRun returns the cached path to the pool and clears the entry', async () => {
+    const releaseMock = vi.fn();
+    const supervisorService = {
+      getWorktreePoolIfExists: vi.fn().mockReturnValue({
+        acquire: vi.fn().mockResolvedValue('/tmp/slot-x'),
+        release: releaseMock,
+      }),
+    };
+    const allocator = createWorktreeAllocatorFromSupervisor(supervisorService as never, 'proj-1');
+    await allocator.acquire({ runId: 'run-A', phaseId: 'p1', attempt: 1 });
+    await allocator.releaseRun('run-A');
+    expect(releaseMock).toHaveBeenCalledWith('/tmp/slot-x');
+
+    // Subsequent acquire for same runId triggers a fresh underlying acquire.
+    await allocator.acquire({ runId: 'run-A', phaseId: 'p2', attempt: 1 });
+    const pool = supervisorService.getWorktreePoolIfExists.mock.results.at(-1)!.value as { acquire: ReturnType<typeof vi.fn> };
+    expect(pool.acquire).toHaveBeenCalledTimes(2);
+  });
+
+  it('releaseRun is a no-op for an unknown runId', async () => {
+    const releaseMock = vi.fn();
+    const supervisorService = {
+      getWorktreePoolIfExists: vi.fn().mockReturnValue({
+        acquire: vi.fn().mockResolvedValue('/tmp/slot'),
+        release: releaseMock,
+      }),
+    };
+    const allocator = createWorktreeAllocatorFromSupervisor(supervisorService as never, 'proj-1');
+    await expect(allocator.releaseRun('never-acquired')).resolves.toBeUndefined();
+    expect(releaseMock).not.toHaveBeenCalled();
+  });
+
+  it('releaseRun awaits an in-flight acquire before releasing', async () => {
+    let resolveAcquire: (p: string) => void;
+    const acquirePromise = new Promise<string>((res) => { resolveAcquire = res; });
+    const releaseMock = vi.fn();
+    const supervisorService = {
+      getWorktreePoolIfExists: vi.fn().mockReturnValue({
+        acquire: vi.fn().mockReturnValue(acquirePromise),
+        release: releaseMock,
+      }),
+    };
+    const allocator = createWorktreeAllocatorFromSupervisor(supervisorService as never, 'proj-1');
+    const acquired = allocator.acquire({ runId: 'run-A', phaseId: 'p1', attempt: 1 });
+    const released = allocator.releaseRun('run-A');
+    resolveAcquire!('/tmp/slot-y');
+    await acquired;
+    await released;
+    expect(releaseMock).toHaveBeenCalledWith('/tmp/slot-y');
+  });
 });

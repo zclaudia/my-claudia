@@ -21,7 +21,10 @@ import type { AiRunPort } from './run-entities/subagent-run-entity.js';
 
 export interface WorktreeAllocator {
   acquire(meta: { runId: string; phaseId: string; attempt: number }): Promise<string>;
+  /** @deprecated kept for backwards-compat; Phase D callsites still invoke it. Use `releaseRun` instead. */
   release(path: string): Promise<void>;
+  /** Release the worktree slot held for a run (idempotent). */
+  releaseRun(runId: string): Promise<void>;
 }
 
 export interface MetaWorkflowServiceOptions {

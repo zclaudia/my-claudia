@@ -52,9 +52,18 @@ export function createWorktreeAllocatorFromSupervisor(
       }
     },
     async release(_path) {
-      // Phase E2a: release is a no-op per phase. Run-level release lands in
-      // Phase E2b/F when phase teardown is wired (currently the pool slot
-      // recycles naturally when the supervisor task completes).
+      // Phase E2b: deprecated path. Use `releaseRun` for actual recycling.
+    },
+    async releaseRun(runId) {
+      const cached = pathByRun.get(runId);
+      if (!cached) return;
+      try {
+        const path = await cached;
+        const pool = supervisorService.getWorktreePoolIfExists(projectId);
+        if (pool) pool.release(path);
+      } finally {
+        pathByRun.delete(runId);
+      }
     },
   };
 }
