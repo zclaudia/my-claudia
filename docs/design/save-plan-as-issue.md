@@ -59,7 +59,7 @@ extractDefaultTitleFromPlan(planMarkdown: string): string
 ```
 
 Logic:
-1. First `# ` or `## ` heading text → use it (trimmed)
+1. First Markdown ATX heading text (`#` through `######`) → use it (trimmed)
 2. Else first non-empty trimmed line, truncated to ~80 chars
 3. Else fallback `"Plan from <ISO timestamp>"`
 
