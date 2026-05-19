@@ -1,7 +1,11 @@
 import { memo, useState, useCallback } from 'react';
-import { CheckCircle2, Loader2, Square, ListTodo, FileQuestion, Send, Check, ShieldAlert, ThumbsUp, ThumbsDown, ClipboardCheck, Maximize2, Minimize2 } from 'lucide-react';
+import { CheckCircle2, Loader2, Square, ListTodo, FileQuestion, Send, Check, ShieldAlert, ThumbsUp, ThumbsDown, ClipboardCheck, Maximize2, Minimize2, Bookmark } from 'lucide-react';
 import type { InteractionMessage, InteractionPromptMessage, InteractionPromptField, ApprovalInteractionMessage, PlanReviewInteractionMessage } from '@my-claudia/shared';
+import { ACTIONABLE_LABEL, extractDefaultTitleFromPlan } from '@my-claudia/shared';
 import { useConnection } from '../../contexts/ConnectionContext';
+import { useLocalIssueStore } from '../local-issues/store';
+import { useProjectStore } from '../../stores/projectStore';
+import { SavePlanAsIssueDialog } from './SavePlanAsIssueDialog';
 
 interface InteractionItemProps {
   interaction: InteractionMessage;
@@ -370,9 +374,18 @@ function ApprovalRenderer({ interaction }: { interaction: ApprovalInteractionMes
 
 function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractionMessage }) {
   const { sendMessage } = useConnection();
-  const [decision, setDecision] = useState<'approved' | 'rejected' | null>(null);
+  const createIssue = useLocalIssueStore((s) => s.createIssue);
+  const [decision, setDecision] = useState<
+    | { kind: 'approved' }
+    | { kind: 'rejected' }
+    | { kind: 'saved'; issueId: string }
+    | null
+  >(null);
   const [feedback, setFeedback] = useState('');
   const [expanded, setExpanded] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleApprove = useCallback(() => {
     sendMessage({
@@ -381,7 +394,7 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
       sessionId: interaction.sessionId,
       response: { approved: true, feedback: feedback.trim() || undefined },
     });
-    setDecision('approved');
+    setDecision({ kind: 'approved' });
   }, [sendMessage, interaction.interactionId, interaction.sessionId, feedback]);
 
   const handleDeny = useCallback(() => {
@@ -391,15 +404,70 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
       sessionId: interaction.sessionId,
       response: { approved: false, feedback: feedback.trim() || undefined },
     });
-    setDecision('rejected');
+    setDecision({ kind: 'rejected' });
   }, [sendMessage, interaction.interactionId, interaction.sessionId, feedback]);
 
+  const handleSaveAsIssue = useCallback(
+    async (title: string) => {
+      setSaving(true);
+      setSaveError(null);
+      try {
+        const projectId = useProjectStore
+          .getState()
+          .sessions.find((s) => s.id === interaction.sessionId)?.projectId;
+        if (!projectId) {
+          throw new Error('Could not resolve project for this session');
+        }
+        const issue = await createIssue(projectId, {
+          title,
+          description: interaction.plan,
+          labels: [ACTIONABLE_LABEL],
+        });
+        sendMessage({
+          type: 'interaction_response',
+          interactionId: interaction.interactionId,
+          sessionId: interaction.sessionId,
+          response: {
+            approved: false,
+            feedback: `Saved as issue #${issue.id} for later.`,
+          },
+        });
+        setDecision({ kind: 'saved', issueId: issue.id });
+        setDialogOpen(false);
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : 'Failed to save');
+      } finally {
+        setSaving(false);
+      }
+    },
+    [createIssue, sendMessage, interaction.sessionId, interaction.interactionId, interaction.plan],
+  );
+
   if (decision) {
+    const isApproved = decision.kind === 'approved';
+    const isSaved = decision.kind === 'saved';
+    const tone = isApproved
+      ? 'bg-success/10 border-success/30 text-success'
+      : isSaved
+        ? 'bg-primary/10 border-primary/30 text-primary'
+        : 'bg-destructive/10 border-destructive/30 text-destructive';
     return (
-      <div className={`flex flex-col gap-1 px-3 py-2 rounded-md border ${decision === 'approved' ? 'bg-success/10 border-success/30' : 'bg-destructive/10 border-destructive/30'}`}>
-        <div className={`flex items-center gap-2 text-xs font-medium ${decision === 'approved' ? 'text-success' : 'text-destructive'}`}>
-          {decision === 'approved' ? <ThumbsUp size={12} /> : <ThumbsDown size={12} />}
-          <span>Plan {decision === 'approved' ? 'Approved' : 'Rejected'}</span>
+      <div className={`flex flex-col gap-1 px-3 py-2 rounded-md border ${tone}`}>
+        <div className="flex items-center gap-2 text-xs font-medium">
+          {isApproved ? (
+            <ThumbsUp size={12} />
+          ) : isSaved ? (
+            <Bookmark size={12} />
+          ) : (
+            <ThumbsDown size={12} />
+          )}
+          <span>
+            {isApproved
+              ? 'Plan Approved'
+              : isSaved
+                ? `Saved as issue #${decision.issueId}`
+                : 'Plan Rejected'}
+          </span>
         </div>
       </div>
     );
@@ -421,18 +489,22 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
         </button>
       </div>
 
-      {/* Plan content */}
-      <div className={`text-xs text-foreground whitespace-pre-wrap overflow-auto rounded-md bg-muted/30 p-2 ${expanded ? 'max-h-[80vh]' : 'max-h-60'}`}>
+      <div
+        className={`text-xs text-foreground whitespace-pre-wrap overflow-auto rounded-md bg-muted/30 p-2 ${
+          expanded ? 'max-h-[80vh]' : 'max-h-60'
+        }`}
+      >
         {interaction.plan}
       </div>
 
-      {/* Allowed prompts */}
       {interaction.allowedPrompts && interaction.allowedPrompts.length > 0 && (
         <div className="flex flex-col gap-1">
           <span className="text-xs font-medium text-muted-foreground">Requested permissions:</span>
           <ul className="text-xs text-foreground list-disc list-inside space-y-0.5">
             {interaction.allowedPrompts.map((p, i) => (
-              <li key={i}><code className="text-primary">{p.tool}</code> — {p.prompt}</li>
+              <li key={i}>
+                <code className="text-primary">{p.tool}</code> — {p.prompt}
+              </li>
             ))}
           </ul>
         </div>
@@ -446,8 +518,16 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
         className="w-full px-2 py-1 text-xs rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-y"
       />
 
-      {/* Action buttons */}
+      {saveError && <div className="text-xs text-destructive">{saveError}</div>}
+
       <div className="flex items-center gap-2 self-end">
+        <button
+          onClick={() => setDialogOpen(true)}
+          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md border border-border bg-background text-foreground hover:bg-muted transition-colors"
+        >
+          <Bookmark size={10} />
+          Save as Issue
+        </button>
         <button
           onClick={handleDeny}
           className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md border border-border bg-background text-foreground hover:bg-muted transition-colors"
@@ -463,6 +543,18 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
           Approve Plan
         </button>
       </div>
+
+      {dialogOpen && (
+        <SavePlanAsIssueDialog
+          defaultTitle={extractDefaultTitleFromPlan(interaction.plan)}
+          submitting={saving}
+          onSave={handleSaveAsIssue}
+          onCancel={() => {
+            setDialogOpen(false);
+            setSaveError(null);
+          }}
+        />
+      )}
     </div>
   );
 }
