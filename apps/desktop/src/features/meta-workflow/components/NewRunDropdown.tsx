@@ -14,16 +14,17 @@ export function NewRunDropdown({ projectId, socket, onNewClassicChange }: Props)
   const [open, setOpen] = useState(false);
   const [titleInput, setTitleInput] = useState('');
   const [showMetaForm, setShowMetaForm] = useState(false);
-  const patchView = useMetaWorkflowStore((s) => s.patchView);
+  const markPendingSelect = useMetaWorkflowStore((s) => s.markPendingSelect);
 
   const submitMeta = () => {
     if (!titleInput.trim()) return;
+    markPendingSelect(projectId);
     sendCreateRun(socket, { projectId, title: titleInput.trim() });
-    patchView(projectId, { screen: 'requirements' });
     setTitleInput('');
     setShowMetaForm(false);
     setOpen(false);
-    // The WS update will arrive and upsertRun; the user can then click into it.
+    // Once the WS response upserts the new run, the store will auto-promote it
+    // into selectedRunId + switch the screen to 'requirements'.
   };
 
   return (
