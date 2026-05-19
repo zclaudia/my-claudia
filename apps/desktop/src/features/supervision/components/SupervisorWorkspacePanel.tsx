@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { AcceptanceDecision, ExecutionGateDecision, ProjectAgent, ProjectChange, ProviderConfig } from '@my-claudia/shared';
+import type { ClientMessage } from '@my-claudia/shared';
 import * as api from '../../../services/api';
+import { useConnection } from '../../../contexts/ConnectionContext';
 import { useSupervisionStore } from '../store';
 import { TaskBoard } from './TaskBoard';
 import { BaselineSetupPanel } from './BaselineSetupPanel';
@@ -8,6 +10,8 @@ import { ActiveChangeCard } from './ActiveChangeCard';
 import { RecentChangesPanel } from './RecentChangesPanel';
 import { AllChangesPanel } from './AllChangesPanel';
 import { WorkspaceDocsPanel } from './WorkspaceDocsPanel';
+import { NewRunDropdown } from '../../meta-workflow/components/NewRunDropdown.js';
+import { MetaWorkflowPanel } from '../../meta-workflow/components/MetaWorkflowPanel.js';
 import {
   type ContextDocumentPreview,
   type PreviewDocTarget,
@@ -24,6 +28,12 @@ type BaselineSetupMode = 'template' | 'scan' | 'ai_scan';
 type BaselineSetupLanguage = 'zh-CN' | 'en';
 
 export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspacePanelProps) {
+  const { sendMessage } = useConnection();
+  const socket = useMemo(
+    () => ({ send: (raw: string) => sendMessage(JSON.parse(raw) as ClientMessage) }),
+    [sendMessage],
+  );
+  const [activeTab, setActiveTab] = useState<'classic' | 'meta'>('classic');
   const activeChange = useSupervisionStore((s) => s.activeChanges[projectId] ?? null);
   const executionPlan = useSupervisionStore((s) => activeChange ? s.executionPlans[activeChange.id] : undefined);
   const tasks = useSupervisionStore((s) => s.tasks[projectId] ?? []);
@@ -358,13 +368,11 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
             >
               {baselineReady ? 'Regenerate Baseline' : 'Generate Baseline'}
             </button>
-            <button
-              onClick={() => setShowCreateChange((value) => !value)}
-              disabled={loading || Boolean(activeChange)}
-              className="px-2.5 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-            >
-              Start Change
-            </button>
+            <NewRunDropdown
+              projectId={projectId}
+              socket={socket}
+              onNewClassicChange={() => setShowCreateChange((value) => !value)}
+            />
           </div>
         </div>
 
@@ -463,48 +471,70 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
         )}
       </div>
 
-      <div className="flex-1 overflow-hidden">
-        {activeChange || docs.length > 0 ? (
-          <div className="grid h-full grid-cols-[1.2fr_1fr]">
-            <div className="min-w-0 overflow-hidden border-r border-border">
-              {activeChange ? (
-                <TaskBoard
-                  projectId={projectId}
-                  changeId={activeChange.id}
-                  title={activeChange.title}
-                  tasks={changeTasks}
-                />
-              ) : (
-                <div className="flex h-full items-center justify-center px-6 text-center text-muted-foreground">
-                  <div>
-                    <p className="text-sm">Project context is available.</p>
-                    <p className="mt-1 text-xs">Review or edit baseline docs, then start a change when you are ready.</p>
-                  </div>
+      <div className="flex flex-col flex-1 overflow-hidden">
+        <div className="flex gap-2 px-4 py-2 border-b border-border">
+          <button
+            className={`px-3 py-1 text-sm ${activeTab === 'classic' ? 'border-b-2 border-blue-600 font-medium' : 'text-muted-foreground'}`}
+            onClick={() => setActiveTab('classic')}
+          >
+            Classic Changes
+          </button>
+          <button
+            className={`px-3 py-1 text-sm ${activeTab === 'meta' ? 'border-b-2 border-blue-600 font-medium' : 'text-muted-foreground'}`}
+            onClick={() => setActiveTab('meta')}
+          >
+            Meta Workflows
+          </button>
+        </div>
+        {activeTab === 'classic' ? (
+          <div className="flex-1 overflow-hidden">
+            {activeChange || docs.length > 0 ? (
+              <div className="grid h-full grid-cols-[1.2fr_1fr]">
+                <div className="min-w-0 overflow-hidden border-r border-border">
+                  {activeChange ? (
+                    <TaskBoard
+                      projectId={projectId}
+                      changeId={activeChange.id}
+                      title={activeChange.title}
+                      tasks={changeTasks}
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center px-6 text-center text-muted-foreground">
+                      <div>
+                        <p className="text-sm">Project context is available.</p>
+                        <p className="mt-1 text-xs">Review or edit baseline docs, then start a change when you are ready.</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-            <WorkspaceDocsPanel
-              docs={docs}
-              selectedDocId={selectedDocId}
-              previewChange={previewChange}
-              activeChange={activeChange}
-              editingDocId={editingDocId}
-              draftDocContent={draftDocContent}
-              loading={loading}
-              onSelectDoc={setSelectedDocId}
-              onStartEditing={handleStartEditing}
-              onCancelEditing={handleCancelEditing}
-              onSaveDocument={handleSaveDocument}
-              onDraftContentChange={setDraftDocContent}
-              onBackToActive={() => void handlePreviewChange(activeChange!)}
-            />
+                <WorkspaceDocsPanel
+                  docs={docs}
+                  selectedDocId={selectedDocId}
+                  previewChange={previewChange}
+                  activeChange={activeChange}
+                  editingDocId={editingDocId}
+                  draftDocContent={draftDocContent}
+                  loading={loading}
+                  onSelectDoc={setSelectedDocId}
+                  onStartEditing={handleStartEditing}
+                  onCancelEditing={handleCancelEditing}
+                  onSaveDocument={handleSaveDocument}
+                  onDraftContentChange={setDraftDocContent}
+                  onBackToActive={() => void handlePreviewChange(activeChange!)}
+                />
+              </div>
+            ) : (
+              <div className="flex h-full items-center justify-center px-6 text-center text-muted-foreground">
+                <div>
+                  <p className="text-sm">No active change yet.</p>
+                  <p className="mt-1 text-xs">Set up project context, then create a change to start spec-driven execution.</p>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
-          <div className="flex h-full items-center justify-center px-6 text-center text-muted-foreground">
-            <div>
-              <p className="text-sm">No active change yet.</p>
-              <p className="mt-1 text-xs">Set up project context, then create a change to start spec-driven execution.</p>
-            </div>
+          <div className="flex-1 overflow-auto p-4">
+            <MetaWorkflowPanel projectId={projectId} socket={socket} />
           </div>
         )}
       </div>
