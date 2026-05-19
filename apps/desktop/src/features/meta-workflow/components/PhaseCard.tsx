@@ -17,62 +17,62 @@ interface Props {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: 'bg-gray-100 text-gray-700',
-  searching_reuse: 'bg-blue-100 text-blue-700',
-  generating: 'bg-blue-200 text-blue-800',
-  ready_to_run: 'bg-yellow-100 text-yellow-700',
-  running: 'bg-yellow-300 text-yellow-900',
-  verifying_gates: 'bg-orange-200 text-orange-900',
-  done: 'bg-green-100 text-green-800',
-  failed: 'bg-red-200 text-red-900',
-  stale: 'bg-purple-200 text-purple-900',
+  pending: 'bg-secondary text-muted-foreground',
+  searching_reuse: 'bg-blue-500/10 text-blue-500',
+  generating: 'bg-blue-500/15 text-blue-600',
+  ready_to_run: 'bg-yellow-500/10 text-yellow-600',
+  running: 'bg-yellow-500/15 text-yellow-600',
+  verifying_gates: 'bg-orange-500/10 text-orange-500',
+  done: 'bg-green-500/10 text-green-600',
+  failed: 'bg-red-500/10 text-red-500',
+  stale: 'bg-purple-500/10 text-purple-500',
 };
 
 export function PhaseCard({ runId, phase, socket, onClick }: Props): React.ReactElement {
-  const colorClass = STATUS_COLORS[phase.status] ?? 'bg-gray-100';
+  const colorClass = STATUS_COLORS[phase.status] ?? 'bg-secondary text-muted-foreground';
   const canRun = phase.status === 'pending';
   const canRerun = phase.status === 'done' || phase.status === 'failed' || phase.status === 'stale';
   const isStale = phase.status === 'stale';
 
   return (
-    <div className="border rounded p-4 hover:shadow cursor-pointer" onClick={onClick}>
+    <div className="border border-border rounded-lg p-4 hover:shadow-sm hover:bg-secondary/30 cursor-pointer transition-colors" onClick={onClick}>
       <div className="flex justify-between items-start mb-2">
         <div>
           <div className="font-medium">{phase.phaseId}</div>
-          <div className="text-xs text-gray-500">{phase.phaseType} · {phase.executeEntity}</div>
+          <div className="text-xs text-muted-foreground">{phase.phaseType} · {phase.executeEntity}</div>
         </div>
-        <span className={`px-2 py-1 rounded text-xs font-mono ${colorClass}`}>{phase.status}</span>
+        <span className={`px-2 py-1 rounded-md text-xs font-mono ${colorClass}`}>{phase.status}</span>
       </div>
-      <div className="text-xs text-gray-500 mb-3">
+      <div className="text-xs text-muted-foreground mb-3">
         attempt {phase.attempt}/{phase.maxRetries}
       </div>
       <div className="flex gap-1 flex-wrap" onClick={(e) => e.stopPropagation()}>
         {canRun && (
-          <button className="px-2 py-1 text-xs bg-blue-600 text-white rounded"
+          <button className="px-2.5 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
                   onClick={() => sendRunPhase(socket, { runId, phaseId: phase.phaseId })}>
             Run
           </button>
         )}
         {canRerun && (
-          <button className="px-2 py-1 text-xs bg-blue-600 text-white rounded"
+          <button className="px-2.5 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
                   onClick={() => sendRerunPhase(socket, { runId, phaseId: phase.phaseId })}>
             Re-run
           </button>
         )}
         {isStale && (
-          <button className="px-2 py-1 text-xs bg-gray-200 rounded"
+          <button className="px-2.5 py-1 text-xs rounded-md bg-secondary hover:bg-secondary/80"
                   onClick={() => sendIgnoreStale(socket, { runId, phaseId: phase.phaseId })}>
             Ignore Stale
           </button>
         )}
         {canRerun && (
-          <button className="px-2 py-1 text-xs bg-purple-200 text-purple-900 rounded"
+          <button className="px-2.5 py-1 text-xs rounded-md bg-purple-500/15 text-purple-600 hover:bg-purple-500/25"
                   onClick={() => sendEvaluateImpact(socket, { runId, phaseId: phase.phaseId })}>
             Evaluate
           </button>
         )}
         {canRerun && (
-          <button className="px-2 py-1 text-xs bg-orange-200 text-orange-900 rounded"
+          <button className="px-2.5 py-1 text-xs rounded-md bg-orange-500/15 text-orange-600 hover:bg-orange-500/25"
                   onClick={() => sendCascadeRerun(socket, { runId, phaseId: phase.phaseId })}>
             Cascade
           </button>

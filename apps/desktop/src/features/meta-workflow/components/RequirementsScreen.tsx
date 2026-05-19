@@ -24,10 +24,10 @@ export function RequirementsScreen({ projectId, run, socket }: Props): React.Rea
   return (
     <div className="space-y-4 max-w-2xl">
       <h3 className="text-lg font-semibold">Requirements — {run.title}</h3>
-      <div className="text-sm text-gray-600">Status: <span className="font-mono">{run.status}</span></div>
+      <div className="text-sm text-muted-foreground">Status: <span className="font-mono text-foreground">{run.status}</span></div>
 
       {approachingEscape && (
-        <div className="border border-yellow-400 bg-yellow-50 p-3 rounded text-sm">
+        <div className="border border-yellow-500/30 bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 p-3 rounded-md text-sm">
           ⚠ Reject count: {run.rejectCount}. After the next reject the escape hatch (direct edit) becomes available.
         </div>
       )}
@@ -36,7 +36,7 @@ export function RequirementsScreen({ projectId, run, socket }: Props): React.Rea
         <label className="block text-sm font-medium">Requirements document path</label>
         <input
           type="text"
-          className="w-full border rounded px-3 py-2 font-mono text-sm"
+          className="w-full bg-background border border-border rounded-md px-3 py-2 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-60"
           value={path}
           disabled={!isDraft}
           onChange={(e) => setPath(e.target.value)}
@@ -46,7 +46,7 @@ export function RequirementsScreen({ projectId, run, socket }: Props): React.Rea
       <div className="flex gap-2">
         {isDraft && (
           <button
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+            className="px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
             onClick={() => sendSubmitRequirements(socket, { runId: run.id, requirementsPath: path })}
           >
             Submit Requirements
@@ -55,7 +55,7 @@ export function RequirementsScreen({ projectId, run, socket }: Props): React.Rea
         {isReview && (
           <>
             <button
-              className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+              className="px-3 py-1.5 text-sm rounded-md bg-green-500/15 text-green-600 hover:bg-green-500/25"
               onClick={() => {
                 sendResolveRequirements(socket, { runId: run.id, decision: 'approve' });
                 patchView(projectId, { screen: 'phase-graph' });
@@ -64,7 +64,7 @@ export function RequirementsScreen({ projectId, run, socket }: Props): React.Rea
               Approve
             </button>
             <button
-              className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+              className="px-3 py-1.5 text-sm rounded-md bg-red-500/15 text-red-500 hover:bg-red-500/25"
               onClick={() => sendResolveRequirements(socket, { runId: run.id, decision: 'reject' })}
             >
               Reject

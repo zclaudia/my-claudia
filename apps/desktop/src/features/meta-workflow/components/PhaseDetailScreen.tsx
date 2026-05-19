@@ -29,39 +29,41 @@ export function PhaseDetailScreen({ projectId, run, phaseId, socket }: Props): R
   if (!phase) {
     return (
       <div>
-        <button className="text-sm text-blue-600 hover:underline"
+        <button className="text-sm text-primary hover:underline"
                 onClick={() => patchView(projectId, { screen: 'phase-board', selectedPhaseId: undefined })}>
           ← Back to Board
         </button>
-        <div className="text-gray-500 mt-2">Phase not found.</div>
+        <div className="text-muted-foreground mt-2">Phase not found.</div>
       </div>
     );
   }
 
+  const codeClass = 'px-1 py-0.5 rounded bg-muted font-mono text-xs';
+
   return (
     <div className="space-y-4 max-w-3xl">
-      <button className="text-sm text-blue-600 hover:underline"
+      <button className="text-sm text-primary hover:underline"
               onClick={() => patchView(projectId, { screen: 'phase-board', selectedPhaseId: undefined })}>
         ← Back to Board
       </button>
 
       <div>
         <h3 className="text-xl font-semibold">{phase.phaseId}</h3>
-        <div className="text-sm text-gray-600">
+        <div className="text-sm text-muted-foreground">
           {phase.phaseType} · {phase.executeEntity} · status:&nbsp;
-          <span className="font-mono">{phase.status}</span> · attempt {phase.attempt}/{phase.maxRetries}
+          <span className="font-mono text-foreground">{phase.status}</span> · attempt {phase.attempt}/{phase.maxRetries}
         </div>
       </div>
 
       {rec && (
-        <div className="border border-purple-300 bg-purple-50 rounded p-3 text-sm">
+        <div className="border border-purple-500/30 bg-purple-500/10 rounded-md p-3 text-sm">
           <div className="font-medium mb-1">Impact recommendation</div>
           <div>Kind: <span className="font-mono">{rec.kind}</span></div>
-          <div className="text-gray-700">{rec.reason}</div>
+          <div className="text-muted-foreground">{rec.reason}</div>
         </div>
       )}
 
-      <details className="border rounded p-3 text-sm">
+      <details className="border border-border rounded-md p-3 text-sm bg-muted/30">
         <summary className="cursor-pointer font-medium">Inputs / Outputs / Gates snapshot</summary>
         <pre className="text-xs mt-2 overflow-auto">
           {JSON.stringify({
@@ -73,38 +75,38 @@ export function PhaseDetailScreen({ projectId, run, phaseId, socket }: Props): R
       </details>
 
       <div className="space-y-1 text-sm">
-        {phase.generatedWorkflowId && <div>Generated workflow: <code>{phase.generatedWorkflowId}</code></div>}
-        {phase.generatedSubagentId && <div>Generated subagent:  <code>{phase.generatedSubagentId}</code></div>}
-        {phase.reusedFromPoolId && <div>Reused from pool item: <code>{phase.reusedFromPoolId}</code></div>}
-        {phase.currentRunId && <div>Current sub-workflow run: <code>{phase.currentRunId}</code></div>}
-        {phase.staleSourcePhaseId && <div>Stale source phase: <code>{phase.staleSourcePhaseId}</code></div>}
+        {phase.generatedWorkflowId && <div>Generated workflow: <code className={codeClass}>{phase.generatedWorkflowId}</code></div>}
+        {phase.generatedSubagentId && <div>Generated subagent:  <code className={codeClass}>{phase.generatedSubagentId}</code></div>}
+        {phase.reusedFromPoolId && <div>Reused from pool item: <code className={codeClass}>{phase.reusedFromPoolId}</code></div>}
+        {phase.currentRunId && <div>Current sub-workflow run: <code className={codeClass}>{phase.currentRunId}</code></div>}
+        {phase.staleSourcePhaseId && <div>Stale source phase: <code className={codeClass}>{phase.staleSourcePhaseId}</code></div>}
       </div>
 
       <div className="flex flex-wrap gap-2">
         {phase.status === 'pending' && (
-          <button className="px-3 py-1 text-sm bg-blue-600 text-white rounded"
+          <button className="px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
                   onClick={() => sendRunPhase(socket, { runId: run.id, phaseId: phase.phaseId })}>
             Run
           </button>
         )}
         {(phase.status === 'done' || phase.status === 'failed' || phase.status === 'stale') && (
           <>
-            <button className="px-3 py-1 text-sm bg-blue-600 text-white rounded"
+            <button className="px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
                     onClick={() => sendRerunPhase(socket, { runId: run.id, phaseId: phase.phaseId })}>
               Re-run
             </button>
-            <button className="px-3 py-1 text-sm bg-purple-200 text-purple-900 rounded"
+            <button className="px-3 py-1.5 text-sm rounded-md bg-purple-500/15 text-purple-600 hover:bg-purple-500/25"
                     onClick={() => sendEvaluateImpact(socket, { runId: run.id, phaseId: phase.phaseId })}>
               Evaluate Impact
             </button>
-            <button className="px-3 py-1 text-sm bg-orange-200 text-orange-900 rounded"
+            <button className="px-3 py-1.5 text-sm rounded-md bg-orange-500/15 text-orange-600 hover:bg-orange-500/25"
                     onClick={() => sendCascadeRerun(socket, { runId: run.id, phaseId: phase.phaseId })}>
               Cascade Re-run
             </button>
           </>
         )}
         {phase.status === 'stale' && (
-          <button className="px-3 py-1 text-sm bg-gray-200 rounded"
+          <button className="px-3 py-1.5 text-sm rounded-md bg-secondary hover:bg-secondary/80"
                   onClick={() => sendIgnoreStale(socket, { runId: run.id, phaseId: phase.phaseId })}>
             Ignore Stale
           </button>

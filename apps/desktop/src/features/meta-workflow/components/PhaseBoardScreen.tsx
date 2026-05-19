@@ -25,7 +25,7 @@ export function PhaseBoardScreen({ projectId, run, socket }: Props): React.React
   }, [run.id, setPhases]);
 
   if (phases.length === 0) {
-    return <div className="text-gray-500 text-sm">No phases yet. Set the phases.json to instantiate them.</div>;
+    return <div className="text-muted-foreground text-sm">No phases yet. Set the phases.json to instantiate them.</div>;
   }
 
   return (
@@ -33,7 +33,7 @@ export function PhaseBoardScreen({ projectId, run, socket }: Props): React.React
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-semibold">Phases — {run.title}</h3>
         <button
-          className="px-3 py-1 text-sm border rounded"
+          className="px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80"
           onClick={() => patchView(projectId, { screen: 'phase-graph' })}
         >
           View Graph

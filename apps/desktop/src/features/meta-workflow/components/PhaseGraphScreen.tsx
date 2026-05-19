@@ -91,7 +91,7 @@ export function PhaseGraphScreen({ projectId, run, socket: _socket }: Props): Re
     return (
       <div>
         <h3 className="text-lg font-semibold mb-3">Phase Graph — {run.title}</h3>
-        <div className="text-sm text-gray-500">Run has no phases.json yet. Approve requirements to enter splitting.</div>
+        <div className="text-sm text-muted-foreground">Run has no phases.json yet. Approve requirements to enter splitting.</div>
       </div>
     );
   }
@@ -100,12 +100,12 @@ export function PhaseGraphScreen({ projectId, run, socket: _socket }: Props): Re
     <div className="space-y-3">
       <div className="flex justify-between items-center">
         <h3 className="text-lg font-semibold">Phase Graph — {run.title}</h3>
-        <button className="px-3 py-1 text-sm border rounded"
+        <button className="px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80"
                 onClick={() => patchView(projectId, { screen: 'phase-board' })}>
           View Board
         </button>
       </div>
-      <div style={{ height: 500, border: '1px solid #e5e7eb', borderRadius: 6 }}>
+      <div className="h-[500px] border border-border rounded-md">
         <ReactFlow nodes={nodes} edges={edges} fitView>
           <Background />
           <Controls />

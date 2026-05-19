@@ -38,19 +38,19 @@ export function MetaWorkflowPanel({ projectId, socket }: MetaWorkflowPanelProps)
           <h2 className="text-lg font-semibold">Meta Workflow Runs</h2>
         </header>
         {runs.length === 0 ? (
-          <div className="text-gray-500 text-sm">No meta workflow runs yet. Click "New ▾ → Meta Workflow Run" above to start.</div>
+          <div className="text-muted-foreground text-sm">No meta workflow runs yet. Click "New ▾ → Meta Workflow Run" above to start.</div>
         ) : (
           <ul className="space-y-2">
             {runs.map((r) => (
               <li key={r.id}
-                  className="border rounded p-3 cursor-pointer hover:bg-gray-50"
+                  className="border border-border rounded-md p-3 cursor-pointer hover:bg-secondary"
                   onClick={() => patchView(projectId, {
                     selectedRunId: r.id,
                     screen: r.status === 'requirement_draft' || r.status === 'requirement_review'
                       ? 'requirements' : 'phase-board',
                   })}>
                 <div className="font-medium">{r.title}</div>
-                <div className="text-xs text-gray-500">Status: {r.status} · Reject count: {r.rejectCount}</div>
+                <div className="text-xs text-muted-foreground">Status: {r.status} · Reject count: {r.rejectCount}</div>
               </li>
             ))}
           </ul>
@@ -75,15 +75,15 @@ export function MetaWorkflowPanel({ projectId, socket }: MetaWorkflowPanelProps)
 function BreadcrumbBar({ projectId, runTitle, screen }: { projectId: string; runTitle: string; screen: string }): React.ReactElement {
   const patchView = useMetaWorkflowStore((s) => s.patchView);
   return (
-    <nav className="text-sm text-gray-600 mb-3 flex items-center gap-2">
-      <button className="text-blue-600 hover:underline"
+    <nav className="text-sm text-muted-foreground mb-3 flex items-center gap-2">
+      <button className="text-primary hover:underline"
               onClick={() => patchView(projectId, { screen: 'list', selectedRunId: undefined })}>
         ← All Runs
       </button>
       <span>/</span>
-      <span className="font-medium">{runTitle}</span>
+      <span className="font-medium text-foreground">{runTitle}</span>
       <span>/</span>
-      <span className="capitalize">{screen.replace('-', ' ')}</span>
+      <span className="capitalize text-foreground">{screen.replace('-', ' ')}</span>
     </nav>
   );
 }

@@ -30,41 +30,46 @@ export function NewRunDropdown({ projectId, socket, onNewClassicChange }: Props)
   return (
     <div className="relative inline-block">
       <button
-        className="px-3 py-1 text-sm border rounded bg-white hover:bg-gray-50"
+        className="px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80 inline-flex items-center gap-1"
         onClick={() => setOpen((v) => !v)}
       >
-        New ▾
+        New
+        <span className="text-[10px] opacity-60">▾</span>
       </button>
       {open && (
-        <div className="absolute right-0 mt-1 w-64 border bg-white shadow-lg rounded z-10">
+        <div className="absolute right-0 mt-1 w-64 bg-popover border border-border rounded-xl shadow-lg z-50 overflow-hidden">
           <button
-            className="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm"
+            className="w-full text-left px-3 py-2 text-sm hover:bg-secondary"
             onClick={() => { onNewClassicChange(); setOpen(false); }}
           >
             New Classic Change
           </button>
           <button
-            className="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm"
+            className="w-full text-left px-3 py-2 text-sm hover:bg-secondary"
             onClick={() => setShowMetaForm(true)}
           >
             New Meta Workflow Run
           </button>
           {showMetaForm && (
-            <div className="p-3 border-t space-y-2">
+            <div className="p-3 border-t border-border space-y-2 bg-muted/30">
               <input
-                className="w-full border rounded px-2 py-1 text-sm"
+                className="w-full px-2 py-1.5 bg-background border border-border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
                 placeholder="Title"
                 value={titleInput}
                 onChange={(e) => setTitleInput(e.target.value)}
                 autoFocus
               />
               <div className="flex gap-2">
-                <button className="px-2 py-1 text-xs bg-blue-600 text-white rounded"
-                        onClick={submitMeta}>
+                <button
+                  className="flex-1 px-2.5 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+                  onClick={submitMeta}
+                >
                   Create
                 </button>
-                <button className="px-2 py-1 text-xs border rounded"
-                        onClick={() => setShowMetaForm(false)}>
+                <button
+                  className="flex-1 px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80"
+                  onClick={() => setShowMetaForm(false)}
+                >
                   Cancel
                 </button>
               </div>

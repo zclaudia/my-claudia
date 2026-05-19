@@ -26,7 +26,7 @@ describe('NewRunDropdown', () => {
         onNewClassicChange={() => {}}
       />,
     );
-    expect(screen.getByRole('button', { name: /New ▾/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^New\s*▾$/ })).toBeInTheDocument();
   });
 
   it('clicking "New Classic Change" invokes the callback and closes', async () => {
@@ -39,7 +39,7 @@ describe('NewRunDropdown', () => {
         onNewClassicChange={onNewClassic}
       />,
     );
-    await user.click(screen.getByRole('button', { name: /New ▾/ }));
+    await user.click(screen.getByRole('button', { name: /^New\s*▾$/ }));
     await user.click(screen.getByRole('button', { name: /New Classic Change/i }));
     expect(onNewClassic).toHaveBeenCalledOnce();
     // Menu closes — "New Classic Change" no longer present.
@@ -57,7 +57,7 @@ describe('NewRunDropdown', () => {
         onNewClassicChange={() => {}}
       />,
     );
-    await user.click(screen.getByRole('button', { name: /New ▾/ }));
+    await user.click(screen.getByRole('button', { name: /^New\s*▾$/ }));
     await user.click(screen.getByRole('button', { name: /New Meta Workflow Run/i }));
     await user.type(screen.getByPlaceholderText('Title'), 'My new run');
     await user.click(screen.getByRole('button', { name: /^Create$/ }));
@@ -75,7 +75,7 @@ describe('NewRunDropdown', () => {
         onNewClassicChange={() => {}}
       />,
     );
-    await user.click(screen.getByRole('button', { name: /New ▾/ }));
+    await user.click(screen.getByRole('button', { name: /^New\s*▾$/ }));
     await user.click(screen.getByRole('button', { name: /New Meta Workflow Run/i }));
     await user.type(screen.getByPlaceholderText('Title'), '   ');
     await user.click(screen.getByRole('button', { name: /^Create$/ }));
