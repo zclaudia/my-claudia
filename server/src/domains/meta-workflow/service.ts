@@ -1,4 +1,6 @@
 // server/src/domains/meta-workflow/service.ts
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import type { Database } from 'better-sqlite3';
 import type {
   MetaWorkflowRun,
@@ -18,6 +20,32 @@ import { MetaPhaseExecutor, type RunEntity, type PhaseExecutionResult } from './
 import { validatePhasesJson } from './phases-json-validator.js';
 import { StalePropagator } from './stale-propagator.js';
 import type { AiRunPort } from './run-entities/subagent-run-entity.js';
+
+const execFileP = promisify(execFile);
+
+/**
+ * Best-effort `git log --oneline` + `git diff --stat` between two SHAs in a given cwd.
+ * Each command is wrapped in try/catch so a failure (e.g. cwd is not a git repo,
+ * or one of the SHAs is unknown) still produces a usable prompt section rather
+ * than aborting impact evaluation. Output is truncated to 2000 chars per command.
+ */
+async function collectGitContext(
+  cwd: string,
+  previousSha: string,
+  currentSha: string,
+): Promise<string> {
+  const safe = async (args: string[]): Promise<string> => {
+    try {
+      const { stdout } = await execFileP('git', args, { cwd, maxBuffer: 1024 * 1024 });
+      return stdout.slice(0, 2000);
+    } catch (e) {
+      return `(unavailable: ${e instanceof Error ? e.message : String(e)})`;
+    }
+  };
+  const log = await safe(['log', '--oneline', `${previousSha}..${currentSha}`]);
+  const stat = await safe(['diff', '--stat', `${previousSha}..${currentSha}`]);
+  return `git log:\n${log.trim() || '(empty)'}\n\ngit diff --stat:\n${stat.trim() || '(empty)'}`;
+}
 
 export interface WorktreeAllocator {
   acquire(meta: { runId: string; phaseId: string; attempt: number }): Promise<string>;
@@ -263,12 +291,28 @@ export class MetaWorkflowService {
       };
     }
 
+    // Fetch real git context from the run's persistent worktree. The allocator's
+    // run-level cache (Phase E2a Task 4) guarantees we get the same path the
+    // phase executor uses, so the SHAs are reachable. Best-effort: any failure
+    // here is folded into a `(unavailable: ...)` stub in the prompt rather than
+    // aborting evaluation.
+    let gitContext: string;
+    try {
+      const cwd = await this.opts.worktreeAllocator.acquire({ runId, phaseId, attempt: 1 });
+      gitContext = await collectGitContext(cwd, previousSha, currentSha);
+    } catch (e) {
+      gitContext = `git log:\n(unavailable: ${e instanceof Error ? e.message : String(e)})\n\ngit diff --stat:\n(unavailable: ${e instanceof Error ? e.message : String(e)})`;
+    }
+
     // Build prompt + call AI.
     const prompt = [
       `You are an impact-analysis assistant for a Meta Workflow run.`,
       `Phase ${phase.phaseId} (type ${phase.phaseType}) is currently STALE because its upstream phase ${upstreamPhase.phaseId} (type ${upstreamPhase.phaseType}) was re-run.`,
       `Upstream's previous commit: ${previousSha}`,
       `Upstream's current commit:  ${currentSha}`,
+      ``,
+      `Upstream change summary:`,
+      gitContext,
       ``,
       `Decide whether the downstream phase should be re-run, ignored, or only requires a minor fix.`,
       `Reply with a single JSON object on its own line, exactly: {"kind":"rerun"|"ignore"|"minor-fix","reason":"<short reason>"}`,

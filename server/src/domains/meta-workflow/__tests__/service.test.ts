@@ -229,4 +229,45 @@ describe('MetaWorkflowService', () => {
     expect(rec.kind).toBe('rerun');
     expect(rec.reason).toMatch(/unparseable|raw:/i);
   });
+
+  it('evaluateImpact embeds git log/diff context (SHAs + headers) in the AI prompt', async () => {
+    const promptCaptured: string[] = [];
+    const aiRunPort = {
+      startVirtualRun: vi.fn().mockImplementation(async (args: { input: string; onMessage?: (m: { kind: string; content?: string }) => void }) => {
+        promptCaptured.push(args.input);
+        args.onMessage?.({ kind: 'assistant', content: '{"kind":"minor-fix","reason":"Only logging changed."}' });
+        args.onMessage?.({ kind: 'run_completed' });
+      }),
+    };
+    // Use the suite-level fakeAllocator (real tmpdir cwd — not a git repo, so
+    // `git log` will fail and the production code falls back to "(unavailable: ...)").
+    // The test asserts on the prompt structure, not on real git output.
+    const service2 = new MetaWorkflowService({
+      db,
+      runEntityForWorkflow: vi.fn().mockResolvedValue({ exitOk: true }),
+      runEntityForSubagent: vi.fn().mockResolvedValue({ exitOk: true }),
+      worktreeAllocator: fakeAllocator,
+      aiRunPort,
+    });
+    const run = service2.createRun({ projectId: 'proj-1', title: 't' });
+    service2.submitRequirements(run.id, 'design/req.md');
+    service2.approveRequirements(run.id);
+    service2.setPhasesJson(run.id, samplePhasesJson);
+    await service2.runPhase(run.id, 'p1');
+    const phase = service2.listPhases(run.id)[0];
+    db.prepare(`UPDATE meta_workflow_phases SET status='stale', stale_source_phase_id='p1' WHERE id=?`).run(phase.id);
+    db.prepare(
+      `INSERT INTO meta_workflow_artifacts (id, phase_record_id, version, commit_sha, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run('art-extra', phase.id, 99, 'sha-cur', 'active', Date.now());
+
+    const rec = await service2.evaluateImpact(run.id, 'p1');
+    expect(rec.kind).toBe('minor-fix');
+    expect(promptCaptured).toHaveLength(1);
+    // Prompt should mention both SHAs and the "git log" header (even if its body
+    // is the `(unavailable: ...)` stub from execFile failing in a non-git tmpdir).
+    expect(promptCaptured[0]).toMatch(/sha-cur/);
+    expect(promptCaptured[0]).toMatch(/git log/i);
+    expect(promptCaptured[0]).toMatch(/git diff --stat/i);
+  });
 });
