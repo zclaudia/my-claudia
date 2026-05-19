@@ -163,7 +163,9 @@ describe('SupervisorWorkspacePanel', () => {
     expect(screen.getByText('Next Action')).toBeInTheDocument();
     expect(screen.getByText('Finish the design draft')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Regenerate Baseline' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Start Change' })).toBeInTheDocument();
+    // Phase E1 Task 12 replaced the "Start Change" button with a "New ▾" dropdown
+    // that includes both Classic Change and Meta Workflow Run options.
+    expect(screen.getByRole('button', { name: /^New/ })).toBeInTheDocument();
   });
 
   it('enables execution approval in awaiting execution review state', async () => {

@@ -50,6 +50,7 @@ const mockProviderRegistry = {
     getRunState: vi.fn(() => ({})),
   })),
   get: vi.fn(),
+  getPolicy: vi.fn(),
 };
 
 vi.mock('../../context/engine.js', () => ({
