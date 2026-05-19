@@ -10,7 +10,8 @@ export type MetaWorkflowScreen =
   | 'phase-graph'      // phasesJson visualization + edit
   | 'phase-board'      // phase cards grid
   | 'phase-detail'     // single-phase drilldown
-  | 'promotion';       // promotion dialog (modal over board)
+  | 'promotion'        // promotion dialog (modal over board)
+  | 'reuse-pool';      // reusable pool browser
 
 export interface MetaWorkflowViewState {
   screen: MetaWorkflowScreen;
@@ -18,6 +19,8 @@ export interface MetaWorkflowViewState {
   selectedPhaseId?: string;
   /** When the user opens a promotion dialog, this holds the pool item id. */
   promotingPoolItemId?: string;
+  /** Filters active on the reuse-pool screen. */
+  poolFilters?: { phaseType?: string; search?: string };
 }
 
 export const INITIAL_VIEW_STATE: MetaWorkflowViewState = {

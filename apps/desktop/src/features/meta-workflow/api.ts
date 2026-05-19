@@ -51,6 +51,20 @@ export async function promotePoolItem(
   return res.item;
 }
 
+export async function listReusePool(filters?: {
+  phaseType?: string;
+  search?: string;
+}): Promise<ReusablePoolItem[]> {
+  const params = new URLSearchParams();
+  if (filters?.phaseType) params.set('phaseType', filters.phaseType);
+  if (filters?.search) params.set('search', filters.search);
+  const qs = params.toString();
+  const res = await apiCall<{ items: ReusablePoolItem[] }>(
+    `/api/meta-workflow/reuse-pool${qs ? `?${qs}` : ''}`,
+  );
+  return res.items;
+}
+
 // ── WebSocket senders ───────────────────────────────────────────
 
 type Sendable = { send: (msg: string) => void };
