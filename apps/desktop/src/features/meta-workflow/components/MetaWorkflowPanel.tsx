@@ -8,6 +8,7 @@ import { PhaseGraphScreen } from './PhaseGraphScreen.js';
 import { PhaseBoardScreen } from './PhaseBoardScreen.js';
 import { PhaseDetailScreen } from './PhaseDetailScreen.js';
 import { PromotionDialog } from './PromotionDialog.js';
+import { ReusePoolScreen } from './ReusePoolScreen.js';
 
 interface MetaWorkflowPanelProps {
   projectId: string;
@@ -30,6 +31,14 @@ export function MetaWorkflowPanel({ projectId, socket }: MetaWorkflowPanelProps)
   }, [projectId, setRuns]);
 
   const selectedRun = view.selectedRunId ? runs.find((r) => r.id === view.selectedRunId) : undefined;
+
+  if (view.screen === 'reuse-pool') {
+    return (
+      <div className="meta-workflow-panel">
+        <ReusePoolScreen projectId={projectId} />
+      </div>
+    );
+  }
 
   if (view.screen === 'list' || !selectedRun) {
     return (

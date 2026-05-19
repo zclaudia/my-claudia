@@ -32,12 +32,20 @@ export function PhaseBoardScreen({ projectId, run, socket }: Props): React.React
     <div>
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-semibold">Phases — {run.title}</h3>
-        <button
-          className="px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80"
-          onClick={() => patchView(projectId, { screen: 'phase-graph' })}
-        >
-          View Graph
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            className="px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80"
+            onClick={() => patchView(projectId, { screen: 'phase-graph' })}
+          >
+            View Graph
+          </button>
+          <button
+            className="px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80"
+            onClick={() => patchView(projectId, { screen: 'reuse-pool', poolFilters: {} })}
+          >
+            Browse Pool
+          </button>
+        </div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {phases.map((p) => (
