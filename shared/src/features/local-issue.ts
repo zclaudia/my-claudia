@@ -38,16 +38,16 @@ export const ACTIONABLE_LABEL = 'actionable';
 
 /**
  * Derive a default title from plan markdown:
- *   1. First `# ` or `## ` heading text → use it (trimmed)
+ *   1. First Markdown ATX heading text (`#` through `######`) → use it (trimmed)
  *   2. Else first non-empty trimmed line, truncated to 80 chars
  *   3. Else `Plan from <ISO timestamp>` fallback
  */
 export function extractDefaultTitleFromPlan(planMarkdown: string): string {
   const lines = planMarkdown.split(/\r?\n/);
   for (const line of lines) {
-    const m = line.match(/^\s*#{1,2}\s+(.+?)\s*#*\s*$/);
+    const m = line.match(/^\s*#{1,6}\s+(.+?)\s*#*\s*$/);
     if (m) {
-      const text = m[1].trim();
+      const text = m[1];
       if (text) return text;
     }
   }

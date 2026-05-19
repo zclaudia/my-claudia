@@ -32,4 +32,9 @@ describe('extractDefaultTitleFromPlan', () => {
   it('strips trailing whitespace and `#` markers from headings', () => {
     expect(extractDefaultTitleFromPlan('#   Trim me   \nbody')).toBe('Trim me');
   });
+
+  it('returns the heading text for H3 through H6 headings', () => {
+    expect(extractDefaultTitleFromPlan('### Sub-section\nbody')).toBe('Sub-section');
+    expect(extractDefaultTitleFromPlan('###### Deep\nbody')).toBe('Deep');
+  });
 });
