@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import type { LocalIssue } from '@my-claudia/shared';
 
 const mockLoadIssues = vi.fn().mockResolvedValue(undefined);
@@ -78,5 +78,27 @@ describe('LocalIssuesPanel - attachment count batching', () => {
     render(<LocalIssuesPanel projectId="proj-1" selectedIssueId={null} onSelectIssue={() => {}} />);
     expect(screen.getByText('Issue a')).toBeInTheDocument();
     expect(screen.getByText('Issue b')).toBeInTheDocument();
+  });
+});
+
+describe('LocalIssuesPanel - actionable filter', () => {
+  it('renders a "可动工" filter chip', () => {
+    render(<LocalIssuesPanel projectId="proj-1" selectedIssueId={null} onSelectIssue={() => {}} />);
+    expect(screen.getByRole('button', { name: /可动工/i })).toBeInTheDocument();
+  });
+
+  it('filters to actionable issues when the chip is active', () => {
+    mockIssues = [
+      makeIssue('a', { title: 'Regular bug', labels: [] }),
+      makeIssue('b', { title: 'Saved plan', labels: ['actionable'] }),
+    ];
+    render(<LocalIssuesPanel projectId="proj-1" selectedIssueId={null} onSelectIssue={() => {}} />);
+    expect(screen.getByText('Regular bug')).toBeInTheDocument();
+    expect(screen.getByText('Saved plan')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /可动工/i }));
+
+    expect(screen.queryByText('Regular bug')).not.toBeInTheDocument();
+    expect(screen.getByText('Saved plan')).toBeInTheDocument();
   });
 });

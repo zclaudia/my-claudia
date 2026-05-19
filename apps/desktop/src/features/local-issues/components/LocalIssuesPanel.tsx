@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import type { LocalIssueStatus } from '@my-claudia/shared';
+import { ACTIONABLE_LABEL } from '@my-claudia/shared';
 import { useLocalIssueStore } from '../store';
 import { useAttachmentCounts } from '../../attachments';
 import { LocalIssueCard } from './LocalIssueCard';
@@ -35,6 +36,7 @@ export function LocalIssuesPanel({ projectId, selectedIssueId, onSelectIssue }: 
   const issues = useLocalIssueStore((s) => s.issues[projectId] ?? []);
   const loadIssues = useLocalIssueStore((s) => s.loadIssues);
   const [filter, setFilter] = useState<FilterStatus>('all');
+  const [actionableOnly, setActionableOnly] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
 
   useEffect(() => {
@@ -68,6 +70,7 @@ export function LocalIssuesPanel({ projectId, selectedIssueId, onSelectIssue }: 
 
   const filtered = issues
     .filter((issue) => filter === 'all' || issue.status === filter)
+    .filter((issue) => !actionableOnly || issue.labels.includes(ACTIONABLE_LABEL))
     .sort((a, b) => {
       // Open/in_progress first, then by priority, then by creation time
       const statusOrder = (s: string) => (s === 'closed' ? 1 : 0);
@@ -104,6 +107,18 @@ export function LocalIssuesPanel({ projectId, selectedIssueId, onSelectIssue }: 
               <span className="ml-1 opacity-60">{counts[opt.value]}</span>
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setActionableOnly((v) => !v)}
+            aria-pressed={actionableOnly}
+            className={`text-xs px-2 py-1 rounded-md border transition-colors ${
+              actionableOnly
+                ? 'bg-amber-500/10 border-amber-500/40 text-amber-500'
+                : 'border-border text-muted-foreground hover:bg-muted'
+            }`}
+          >
+            可动工
+          </button>
         </div>
         <button
           onClick={() => setShowCreate(true)}
