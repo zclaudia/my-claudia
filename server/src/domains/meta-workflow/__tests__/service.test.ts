@@ -152,15 +152,80 @@ describe('MetaWorkflowService', () => {
     expect(after.status).toBe('done');
   });
 
-  it('evaluateImpact returns a recommendation object', async () => {
+  it('evaluateImpact returns static fallback when no aiRunPort is provided', async () => {
     const run = service.createRun({ projectId: 'proj-1', title: 't' });
     service.submitRequirements(run.id, 'design/req.md');
     service.approveRequirements(run.id);
     service.setPhasesJson(run.id, samplePhasesJson);
     await service.runPhase(run.id, 'p1');
-
     const rec = await service.evaluateImpact(run.id, 'p1');
-    expect(['rerun', 'ignore', 'minor-fix']).toContain(rec.kind);
-    expect(typeof rec.reason).toBe('string');
+    expect(rec.kind).toBe('rerun');
+    expect(rec.reason).toMatch(/no aiRunPort|fallback/i);
+  });
+
+  it('evaluateImpact uses aiRunPort to produce a variable recommendation', async () => {
+    const aiRunPort = {
+      startVirtualRun: vi.fn().mockImplementation(async (args: { onMessage?: (m: { kind: string; content?: string }) => void }) => {
+        args.onMessage?.({ kind: 'assistant', content: '{"kind":"ignore","reason":"Upstream change is comment-only and does not affect downstream behavior."}' });
+        args.onMessage?.({ kind: 'run_completed' });
+      }),
+    };
+    const service2 = new MetaWorkflowService({
+      db,
+      runEntityForWorkflow: vi.fn().mockResolvedValue({ exitOk: true }),
+      runEntityForSubagent: vi.fn().mockResolvedValue({ exitOk: true }),
+      worktreeAllocator: fakeAllocator,
+      aiRunPort,
+    });
+    const run = service2.createRun({ projectId: 'proj-1', title: 't' });
+    service2.submitRequirements(run.id, 'design/req.md');
+    service2.approveRequirements(run.id);
+    service2.setPhasesJson(run.id, samplePhasesJson);
+    await service2.runPhase(run.id, 'p1');
+
+    // Force phase into stale state with a staleSourcePhaseId, and create 2 artifacts for the source.
+    // For this test we use 'p1' as its own stale source (single-phase setup); both artifacts under p1.
+    const phase = service2.listPhases(run.id)[0];
+    db.prepare(`UPDATE meta_workflow_phases SET status='stale', stale_source_phase_id='p1' WHERE id=?`).run(phase.id);
+    db.prepare(
+      `INSERT INTO meta_workflow_artifacts (id, phase_record_id, version, commit_sha, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run('art-extra', phase.id, 99, 'sha-current', 'active', Date.now());
+
+    const rec = await service2.evaluateImpact(run.id, 'p1');
+    expect(aiRunPort.startVirtualRun).toHaveBeenCalledOnce();
+    expect(rec.kind).toBe('ignore');
+    expect(rec.reason).toMatch(/comment-only/);
+  });
+
+  it('evaluateImpact falls back when AI returns unparseable output', async () => {
+    const aiRunPort = {
+      startVirtualRun: vi.fn().mockImplementation(async (args: { onMessage?: (m: { kind: string; content?: string }) => void }) => {
+        args.onMessage?.({ kind: 'assistant', content: 'I think you should rerun, definitely.' });
+        args.onMessage?.({ kind: 'run_completed' });
+      }),
+    };
+    const service2 = new MetaWorkflowService({
+      db,
+      runEntityForWorkflow: vi.fn().mockResolvedValue({ exitOk: true }),
+      runEntityForSubagent: vi.fn().mockResolvedValue({ exitOk: true }),
+      worktreeAllocator: fakeAllocator,
+      aiRunPort,
+    });
+    const run = service2.createRun({ projectId: 'proj-1', title: 't' });
+    service2.submitRequirements(run.id, 'design/req.md');
+    service2.approveRequirements(run.id);
+    service2.setPhasesJson(run.id, samplePhasesJson);
+    await service2.runPhase(run.id, 'p1');
+    const phase = service2.listPhases(run.id)[0];
+    db.prepare(`UPDATE meta_workflow_phases SET status='stale', stale_source_phase_id='p1' WHERE id=?`).run(phase.id);
+    db.prepare(
+      `INSERT INTO meta_workflow_artifacts (id, phase_record_id, version, commit_sha, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run('art-extra', phase.id, 99, 'sha-current', 'active', Date.now());
+
+    const rec = await service2.evaluateImpact(run.id, 'p1');
+    expect(rec.kind).toBe('rerun');
+    expect(rec.reason).toMatch(/unparseable|raw:/i);
   });
 });

@@ -195,14 +195,100 @@ export class MetaWorkflowService {
   }
 
   async evaluateImpact(
-    _runId: string,
-    _phaseId: string,
+    runId: string,
+    phaseId: string,
   ): Promise<{ kind: 'rerun' | 'ignore' | 'minor-fix'; reason: string }> {
-    // Phase D MVP: static recommendation. Detailed diff analysis lands in Phase E.
-    return {
-      kind: 'rerun',
-      reason: 'Upstream changed; defaulting to re-run. Detailed diff analysis lands in Phase E.',
-    };
+    const phase = this.phaseRepo.findByRunAndPhaseId(runId, phaseId);
+    if (!phase) throw new Error(`Phase not found: run=${runId} phase=${phaseId}`);
+
+    if (!this.opts.aiRunPort) {
+      return {
+        kind: 'rerun',
+        reason: 'No aiRunPort configured — defaulting to re-run (static fallback).',
+      };
+    }
+
+    // Find upstream phase + its two latest artifacts.
+    const upstreamPhaseId = phase.staleSourcePhaseId;
+    if (!upstreamPhaseId) {
+      return {
+        kind: 'rerun',
+        reason: 'No staleSourcePhaseId recorded — defaulting to re-run (static fallback).',
+      };
+    }
+    const upstreamPhase = this.phaseRepo.findByRunAndPhaseId(runId, upstreamPhaseId);
+    if (!upstreamPhase) {
+      return {
+        kind: 'rerun',
+        reason: `Upstream phase ${upstreamPhaseId} not found — defaulting to re-run (static fallback).`,
+      };
+    }
+    const upstreamArtifacts = this.artifactRepo.findByPhase(upstreamPhase.id);
+    if (upstreamArtifacts.length < 2) {
+      return {
+        kind: 'rerun',
+        reason: 'Upstream has fewer than 2 artifact versions — no prior to compare against (static fallback).',
+      };
+    }
+    const currentSha = upstreamArtifacts[0].commitSha ?? '(no commit)';
+    const previousSha = upstreamArtifacts[1].commitSha ?? '(no commit)';
+    if (currentSha === previousSha) {
+      return {
+        kind: 'ignore',
+        reason: 'Upstream re-ran but produced the same commit — no impact.',
+      };
+    }
+
+    // Build prompt + call AI.
+    const prompt = [
+      `You are an impact-analysis assistant for a Meta Workflow run.`,
+      `Phase ${phase.phaseId} (type ${phase.phaseType}) is currently STALE because its upstream phase ${upstreamPhase.phaseId} (type ${upstreamPhase.phaseType}) was re-run.`,
+      `Upstream's previous commit: ${previousSha}`,
+      `Upstream's current commit:  ${currentSha}`,
+      ``,
+      `Decide whether the downstream phase should be re-run, ignored, or only requires a minor fix.`,
+      `Reply with a single JSON object on its own line, exactly: {"kind":"rerun"|"ignore"|"minor-fix","reason":"<short reason>"}`,
+      `Do not add any other text before or after the JSON.`,
+    ].join('\n');
+
+    let collected = '';
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => resolve(), 60_000);
+      this.opts.aiRunPort!.startVirtualRun({
+        input: prompt,
+        onMessage: (m) => {
+          if (m.content) collected += m.content;
+          if (m.kind === 'run_completed' || m.kind === 'completed' || m.kind === 'final') {
+            clearTimeout(timer);
+            resolve();
+          }
+        },
+      }).catch(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+
+    // Try to extract JSON.
+    const match = collected.match(/\{[^{}]*"kind"\s*:\s*"(rerun|ignore|minor-fix)"[^{}]*\}/);
+    if (!match) {
+      return {
+        kind: 'rerun',
+        reason: `AI returned unparseable response (raw: ${collected.slice(0, 200) || '(empty)'})`,
+      };
+    }
+    try {
+      const parsed = JSON.parse(match[0]) as { kind: 'rerun' | 'ignore' | 'minor-fix'; reason: string };
+      if (typeof parsed.reason !== 'string' || parsed.reason.length === 0) {
+        throw new Error('reason missing');
+      }
+      return parsed;
+    } catch {
+      return {
+        kind: 'rerun',
+        reason: `AI returned unparseable response (raw: ${collected.slice(0, 200)})`,
+      };
+    }
   }
 
   async cascadeRerun(runId: string, phaseId: string): Promise<PhaseExecutionResult[]> {
