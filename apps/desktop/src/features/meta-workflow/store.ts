@@ -21,6 +21,8 @@ interface MetaWorkflowStore {
   viewByProject: Record<ProjectId, MetaWorkflowViewState>;
   /** Projects waiting to auto-select the next created run */
   pendingSelectByProject: Record<ProjectId, true>;
+  /** per-run, per-node position cache (in-memory, lost on reload) */
+  layouts: Record<RunId, Record<string, { x: number; y: number }>>;
 
   // Actions — HTTP/WS handlers call these directly via getState()
   setRuns: (projectId: ProjectId, runs: MetaWorkflowRun[]) => void;
@@ -28,6 +30,7 @@ interface MetaWorkflowStore {
   setPhases: (runId: RunId, phases: MetaWorkflowPhase[]) => void;
   upsertPhase: (runId: RunId, phase: MetaWorkflowPhase) => void;
   recordRecommendation: (runId: RunId, phaseId: string, rec: { kind: string; reason: string }) => void;
+  setNodePosition: (runId: RunId, nodeId: string, pos: { x: number; y: number }) => void;
   // View
   setView: (projectId: ProjectId, view: MetaWorkflowViewState) => void;
   patchView: (projectId: ProjectId, patch: Partial<MetaWorkflowViewState>) => void;
@@ -47,6 +50,7 @@ export const useMetaWorkflowStore = create<MetaWorkflowStore>((set, _get) => ({
   recommendations: {},
   viewByProject: {},
   pendingSelectByProject: {},
+  layouts: {},
 
   setRuns: (projectId, runs) => {
     set((state) => ({ runs: { ...state.runs, [projectId]: runs } }));
@@ -99,6 +103,18 @@ export const useMetaWorkflowStore = create<MetaWorkflowStore>((set, _get) => ({
         [recKey(runId, phaseId)]: { runId, phaseId, kind: rec.kind, reason: rec.reason },
       },
     }));
+  },
+
+  setNodePosition: (runId, nodeId, pos) => {
+    set((state) => {
+      const runLayout = state.layouts[runId] ?? {};
+      return {
+        layouts: {
+          ...state.layouts,
+          [runId]: { ...runLayout, [nodeId]: pos },
+        },
+      };
+    });
   },
 
   setView: (projectId, view) => {

@@ -1,6 +1,14 @@
 // apps/desktop/src/features/meta-workflow/components/PhaseGraphScreen.tsx
-import React, { useMemo } from 'react';
-import { ReactFlow, Background, Controls, type Node, type Edge } from '@xyflow/react';
+import React, { useCallback, useEffect, useMemo } from 'react';
+import {
+  ReactFlow,
+  Background,
+  Controls,
+  useNodesState,
+  type Node,
+  type Edge,
+  type OnNodeDrag,
+} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { MetaWorkflowRun, PhasesDoc, MetaWorkflowPhase } from '@my-claudia/shared/features/meta-workflow';
 import { useMetaWorkflowStore } from '../store.js';
@@ -76,6 +84,8 @@ function toFlow(doc: PhasesDoc, phases: MetaWorkflowPhase[]): { nodes: Node[]; e
 export function PhaseGraphScreen({ projectId, run, socket: _socket }: Props): React.ReactElement {
   const phases = useMetaWorkflowStore((s) => s.phases[run.id] ?? []);
   const patchView = useMetaWorkflowStore((s) => s.patchView);
+  const layouts = useMetaWorkflowStore((s) => s.layouts[run.id] ?? {});
+  const setNodePosition = useMetaWorkflowStore((s) => s.setNodePosition);
 
   const { nodes, edges } = useMemo(() => {
     if (!run.phasesJson) return { nodes: [], edges: [] };
@@ -86,6 +96,38 @@ export function PhaseGraphScreen({ projectId, run, socket: _socket }: Props): Re
       return { nodes: [], edges: [] };
     }
   }, [run.phasesJson, phases]);
+
+  // Merge stored positions on top of the computed initial layout.
+  const initialNodes = useMemo<Node[]>(
+    () =>
+      nodes.map((n) => {
+        const saved = layouts[n.id];
+        return saved ? { ...n, position: saved } : n;
+      }),
+    // Only when computed nodes change (status update etc). Saved positions reapplied below via state init.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [nodes],
+  );
+
+  const [rfNodes, setRfNodes, onNodesChange] = useNodesState(initialNodes);
+
+  // Keep rfNodes in sync when phases data changes (status badges) — preserves x/y from rfNodes.
+  useEffect(() => {
+    setRfNodes((prev) => {
+      const byId = new Map(prev.map((n) => [n.id, n]));
+      return initialNodes.map((n) => {
+        const existing = byId.get(n.id);
+        return existing ? { ...n, position: existing.position } : n;
+      });
+    });
+  }, [initialNodes, setRfNodes]);
+
+  const onNodeDragStop = useCallback<OnNodeDrag>(
+    (_event, node) => {
+      setNodePosition(run.id, node.id, { x: node.position.x, y: node.position.y });
+    },
+    [run.id, setNodePosition],
+  );
 
   if (!run.phasesJson) {
     return (
@@ -106,7 +148,13 @@ export function PhaseGraphScreen({ projectId, run, socket: _socket }: Props): Re
         </button>
       </div>
       <div className="h-[500px] border border-border rounded-md">
-        <ReactFlow nodes={nodes} edges={edges} fitView>
+        <ReactFlow
+          nodes={rfNodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onNodeDragStop={onNodeDragStop}
+          fitView
+        >
           <Background />
           <Controls />
         </ReactFlow>

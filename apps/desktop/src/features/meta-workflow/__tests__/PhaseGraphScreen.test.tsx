@@ -62,6 +62,7 @@ vi.mock('@xyflow/react', () => {
     Controls: () => <div data-testid="reactflow-controls" />,
     Handle: () => null,
     Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
+    useNodesState: (initial: unknown[]) => [initial, () => {}, () => {}],
   };
 });
 
