@@ -56,4 +56,15 @@ describe('LocalIssueCard', () => {
     render(<LocalIssueCard issue={issue} projectId="proj-1" onOpen={vi.fn()} />);
     expect(screen.queryByTitle(/attachment/)).not.toBeInTheDocument();
   });
+
+  it('shows the actionable bolt icon when the actionable label is present', () => {
+    const actionableIssue = { ...issue, labels: ['actionable'] };
+    render(<LocalIssueCard issue={actionableIssue} projectId="proj-1" onOpen={vi.fn()} />);
+    expect(screen.getByTitle(/ready to execute/i)).toBeInTheDocument();
+  });
+
+  it('does not show the bolt icon for issues without the actionable label', () => {
+    render(<LocalIssueCard issue={issue} projectId="proj-1" onOpen={vi.fn()} />);
+    expect(screen.queryByTitle(/ready to execute/i)).not.toBeInTheDocument();
+  });
 });

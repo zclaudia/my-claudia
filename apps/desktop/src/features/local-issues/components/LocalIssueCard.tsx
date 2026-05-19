@@ -1,5 +1,6 @@
 import type { LocalIssue } from '@my-claudia/shared';
-import { Paperclip, ChevronRight } from 'lucide-react';
+import { Paperclip, ChevronRight, Zap } from 'lucide-react';
+import { ACTIONABLE_LABEL } from '@my-claudia/shared';
 import { useAttachmentCount } from '../../attachments';
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -39,6 +40,16 @@ export function LocalIssueCard({ issue, onOpen }: LocalIssueCardProps) {
         <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${PRIORITY_COLORS[issue.priority] ?? ''}`}>
           {issue.priority}
         </span>
+
+        {issue.labels.includes(ACTIONABLE_LABEL) && (
+          <span
+            title="Ready to execute"
+            aria-label="Ready to execute"
+            className="shrink-0 inline-flex items-center"
+          >
+            <Zap size={12} className="text-amber-500" aria-hidden />
+          </span>
+        )}
 
         <span className="text-sm truncate flex-1">{issue.title}</span>
 
