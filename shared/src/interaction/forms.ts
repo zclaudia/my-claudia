@@ -19,7 +19,7 @@ export interface AskUserQuestionItem {
 // Unified Interaction Events
 
 /** How the interaction was detected */
-export type InteractionSource = 'provider_native' | 'tool_call' | 'text_inferred';
+export type InteractionSource = 'provider_native' | 'tool_call' | 'text_inferred' | 'client_synth';
 
 /** Base fields shared by all interaction events */
 export interface InteractionBase {
@@ -91,11 +91,20 @@ export interface ApprovalInteractionMessage extends InteractionBase {
   payload?: Record<string, unknown>;
 }
 
-/** Plan review interaction (from exit_plan_mode tool) */
+export type PlanReviewSource = 'tool_call' | 'client_synth';
+
+export interface PlanTodoItem {
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+}
+
+/** Plan review interaction (from exit_plan_mode tool, or client-synth for Cursor createPlan) */
 export interface PlanReviewInteractionMessage extends InteractionBase {
   type: 'interaction_plan_review';
   plan: string;
   allowedPrompts?: Array<{ tool: string; prompt: string }>;
+  todos?: PlanTodoItem[];
+  source: PlanReviewSource;
 }
 
 /** Client → Server: user submitted a form response */
