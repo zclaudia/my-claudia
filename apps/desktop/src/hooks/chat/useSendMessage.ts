@@ -132,7 +132,7 @@ export function useSendMessage({
   }, [clearInterruptedStatus, wsSendMessage]);
 
   // ── Send message ──
-  const handleSendMessage = useCallback(async (content: string, attachments?: Attachment[]) => {
+  const handleSendMessage = useCallback(async (content: string, attachments?: Attachment[], overrideMode?: string) => {
     if (!content.trim() && !attachments?.length) return;
 
     if (!isConnected) {
@@ -214,7 +214,7 @@ export function useSendMessage({
       clientRequestId: clientMessageId,
       sessionId,
       input: fullContent,
-      mode: mode || undefined,
+      mode: (overrideMode ?? mode) || undefined,
       model: modelOverride || undefined,
       permissionOverride: permissionOverride || undefined,
       workingDirectory: currentSession?.workingDirectory || undefined,
