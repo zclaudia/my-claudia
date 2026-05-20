@@ -292,6 +292,9 @@ pub fn create_notch_window(
         .focused(false);
 
     let notch = builder.build().map_err(|e| e.to_string())?;
+    // The window is born visually collapsed, so it must not intercept clicks
+    // before the React notch runtime finishes mounting and starts polling.
+    let _ = notch.set_ignore_cursor_events(true);
 
     #[cfg(target_os = "macos")]
     {

@@ -19,6 +19,7 @@ import { NOTCH_WINDOW_TIMINGS } from '../../config/notch';
 import { EMPTY_NOTIFICATION_UNREAD_COUNTS_BY_TAB, type NotificationItem } from '@my-claudia/shared';
 import type { Toast } from '../../stores/toastStore';
 import type { PluginNotchTab } from '../../stores/pluginStore';
+import { createPassthroughController } from './passthroughController';
 
 function NotchEmptyState({ activeTab, pluginNotchTabs }: { activeTab: NotchTab; pluginNotchTabs: PluginNotchTab[] }) {
   const pluginTab = activeTab.startsWith('plugin:')
@@ -114,6 +115,15 @@ export function NotchWindow() {
   const hoverExpandTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevSnapshotRef = useRef<NotchStateSnapshot | null>(null);
   const surfacePathRef = useRef<SVGPathElement | null>(null);
+  const passthroughControllerRef = useRef<ReturnType<typeof createPassthroughController> | null>(null);
+  if (!passthroughControllerRef.current) {
+    passthroughControllerRef.current = createPassthroughController((passthrough) => (
+      invoke('set_notch_passthrough', { passthrough })
+    ));
+  }
+  const setPassthrough = (passthrough: boolean) => (
+    passthroughControllerRef.current?.set(passthrough).catch(() => undefined) ?? Promise.resolve()
+  );
 
   // Mark the document so the shared CSS knows to make html/body/#root transparent
   // — otherwise the light-mode `--background` color paints the whole window white
@@ -204,7 +214,7 @@ export function NotchWindow() {
   // avoids leaving the window in a "passthrough disabled but isOpen=false"
   // state if the cursor leaves during the hover-expand delay.
   const startPassthroughPolling = () => {
-    invoke('set_notch_passthrough', { passthrough: true }).catch(() => undefined);
+    setPassthrough(true);
     if (hoverPollRef.current) clearInterval(hoverPollRef.current);
     hoverPollRef.current = setInterval(async () => {
       try {
@@ -217,7 +227,7 @@ export function NotchWindow() {
             const stillIn = await invoke<boolean>('check_notch_hover').catch(() => false);
             if (!stillIn) return;
             if (hoverPollRef.current) { clearInterval(hoverPollRef.current); hoverPollRef.current = null; }
-            await invoke('set_notch_passthrough', { passthrough: false }).catch(() => undefined);
+            await setPassthrough(false);
             setIsOpen(true);
           }, HOVER_EXPAND_DELAY);
         } else if (!inPill && hoverExpandTimer.current) {
@@ -247,7 +257,7 @@ export function NotchWindow() {
     if (isOpen) {
       // Expanding — stop polling, ensure pass-through is off.
       if (hoverPollRef.current) { clearInterval(hoverPollRef.current); hoverPollRef.current = null; }
-      invoke('set_notch_passthrough', { passthrough: false }).catch(() => undefined);
+      setPassthrough(false);
       // Non-macOS: resize window.
       invoke('resize_notch_window', { expanded: true }).catch(() => undefined);
     } else {
@@ -255,7 +265,7 @@ export function NotchWindow() {
       // close animation reach the content below. Polling is deferred to the
       // animation-completion branch to avoid an instant re-expand if the
       // cursor happens to be over the pill area at collapse start.
-      invoke('set_notch_passthrough', { passthrough: true }).catch(() => undefined);
+      setPassthrough(true);
     }
 
     const startTime = performance.now();
