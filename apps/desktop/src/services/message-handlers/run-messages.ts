@@ -1,4 +1,4 @@
-import type { ServerMessage } from '@my-claudia/shared';
+import type { PlanReviewInteractionMessage, ServerMessage } from '@my-claudia/shared';
 import type { MessageDispatchContext } from './types';
 import { useChatStore } from '../../stores/chatStore';
 import { useInteractionStore } from '../../stores/interactionStore';
@@ -8,6 +8,7 @@ import { usePromptRequestStore } from '../../stores/promptRequestStore';
 import { getSessionBucketKeyForBackend, useSessionsStore } from '../../stores/sessionsStore';
 import { useServerStore } from '../../stores/serverStore';
 import { eagerSyncCurrentSession, recoverCurrentSessionTail } from '../sessionSync';
+import { extractPlanPayload } from '../../features/chat/planReviewPayload';
 
 export function handleRunMessage(msg: ServerMessage, ctx: MessageDispatchContext): boolean {
   const { serverId, backendId, serverRunsRef, logTag } = ctx;
@@ -152,6 +153,9 @@ export function handleRunMessage(msg: ServerMessage, ctx: MessageDispatchContext
       if (toolSession) {
         useChatStore.getState().addToolCall(msg.runId, msg.toolUseId, msg.toolName, msg.toolInput, msg.semantic, msg.effect);
         useChatStore.getState().addToolUseBlock(msg.runId, msg.toolUseId);
+        if (msg.semantic === 'plan_proposal') {
+          maybeSynthesizeCursorPlanReview(toolSession, msg.toolUseId, msg.toolInput);
+        }
       } else if (msg.runId) {
         console.warn(`[${logTag}] tool_use for untracked run ${msg.runId}`);
       }
@@ -201,4 +205,32 @@ export function handleRunMessage(msg: ServerMessage, ctx: MessageDispatchContext
     default:
       return false;
   }
+}
+
+function maybeSynthesizeCursorPlanReview(
+  sessionId: string,
+  toolUseId: string,
+  toolInput: unknown,
+): void {
+  // Look up the session's provider type. Only synthesize for Cursor.
+  const projectState = useProjectStore.getState();
+  const session = projectState.sessions.find((s) => s.id === sessionId);
+  if (!session?.providerId) return;
+  const provider = projectState.providers.find((p) => p.id === session.providerId);
+  if (provider?.type !== 'cursor') return;
+
+  // Do not overwrite an existing interaction for this tool (idempotency).
+  if (useInteractionStore.getState().interactions[toolUseId]) return;
+
+  const { planContent, todos } = extractPlanPayload(toolInput);
+  const interaction: PlanReviewInteractionMessage = {
+    type: 'interaction_plan_review',
+    interactionId: toolUseId,
+    sessionId,
+    source: 'client_synth',
+    createdAt: Date.now(),
+    plan: planContent,
+    todos,
+  };
+  useInteractionStore.getState().upsertInteraction(interaction);
 }
