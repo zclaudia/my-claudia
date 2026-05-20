@@ -5,8 +5,10 @@ import {
   Trash2,
   X,
   Paperclip,
+  Zap,
 } from 'lucide-react';
 import type { LocalIssue } from '@my-claudia/shared';
+import { ACTIONABLE_LABEL } from '@my-claudia/shared';
 import { useLocalIssueStore } from '../store';
 import { AttachmentList, useAttachments, useAttachmentCount } from '../../attachments';
 import { CreateIssueDialog } from './CreateIssueDialog';
@@ -85,7 +87,18 @@ export function LocalIssueDetailView({ issue, projectId, onDeleted }: LocalIssue
                   </span>
                 ))}
               </div>
-              <h1 className="text-base font-semibold leading-snug break-words">{issue.title}</h1>
+              <div className="flex items-start gap-1.5">
+                {issue.labels.includes(ACTIONABLE_LABEL) && (
+                  <span
+                    title="Ready to execute"
+                    aria-label="Ready to execute"
+                    className="shrink-0 inline-flex items-center mt-0.5"
+                  >
+                    <Zap size={14} className="text-amber-500" aria-hidden />
+                  </span>
+                )}
+                <h1 className="text-base font-semibold leading-snug break-words flex-1">{issue.title}</h1>
+              </div>
             </div>
             <div className="flex items-center gap-0.5 flex-shrink-0 -mt-0.5">
               <button
