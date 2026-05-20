@@ -1,267 +1,170 @@
-# PlanDecisionCard — Unified Plan Approval UI
+# Unified Plan Review — Cursor `createPlan` Joins Existing `PlanReviewRenderer`
 
-**Date:** 2026-05-20
+**Date:** 2026-05-20 (revised after codebase investigation)
 **Status:** Draft (pending implementation)
-**Scope:** `apps/desktop/` — Cursor `createPlan` + Claude `ExitPlanMode` plan approval UX
+**Scope:** `apps/desktop/`, `shared/` — extend the existing plan-review interaction so Cursor's `createPlan` renders through the same `PlanReviewRenderer` UI already used by Claude `exit_plan_mode`.
+
+> **Spec revision note:** an earlier draft of this document proposed a brand-new `PlanDecisionCard` component. Codebase investigation showed the project already has a substantial plan-review surface (`PlanReviewRenderer` in `InteractionItem.tsx`) driven by the `interaction_plan_review` message type. Building a parallel component would fragment the UX and duplicate ~200 lines of UI. The spec was rewritten to extend the existing infrastructure instead. The user decisions captured during brainstorming (auto-send on approve, default deny message, todos rendering) are preserved verbatim — only the *implementation surface* changed.
 
 ## Problem
 
-Cursor's `createPlan` tool currently renders as an ordinary collapsible tool-call card. The plan is hidden behind a "Show full plan" toggle, and the only action surfaced is a single "Execute plan" button buried inside the expanded content. Compared to Claude's `ExitPlanMode` — which renders a prominent decision card with Allow / Deny / Deny+Comment buttons and a comment textarea — Cursor's experience is visually understated and lacks a rejection path.
+Cursor's `createPlan` tool currently renders as an ordinary collapsible tool-call card with a single "Execute plan" button buried inside an expanded content view (`PlanProposalActions` in `tool-call/PlanContent.tsx`). There is no rejection path, no feedback path, no Save-as-Issue path, and no visual treatment to mark the card as a decision point.
 
-The two flows differ structurally:
+Claude's `exit_plan_mode` (via the MCP interaction bridge) already has a rich decision UI:
+- `PlanReviewRenderer` (`InteractionItem.tsx:375`) shows plan markdown with expand/collapse, an optional feedback textarea, and three buttons: **Save as Issue / Deny / Approve Plan**.
+- After a decision, the card collapses to a coloured one-row chip (Approved / Rejected / Saved as issue #N).
+- Server side, the MCP `exit_plan_mode` tool dispatches a `PlanReviewInteractionMessage` and awaits the user's response via `interactionDispatcher.dispatchAndWait`; an approval lets the tool return, a denial throws with the user's feedback so the LLM revises.
 
-- **Claude `ExitPlanMode`**: blocks on a server-side permission gate. The client receives a `PermissionRequest`, renders `InlinePermissionRequest`, and the user's decision resolves the gate via a callback. Tool execution is genuinely paused.
-- **Cursor `createPlan`**: cannot block. cursor-agent is an external CLI process that completes the tool synchronously and emits `tool_call:completed`. From cursor's perspective the plan is "done"; cursor then waits for the next user message because the session is still in plan mode.
-
-This means a unified UX cannot be achieved through a unified backend gate — we need a shared visual component driven by two different decision-resolution paths.
+Cursor cannot use the same flow because `cursor-agent` is an external CLI process — MyClaudia cannot intercept its `createPlan` tool execution to insert a server-side gate. But cursor naturally pauses after emitting a plan (it waits for the next user message in plan mode), so a *client-side synthesised* interaction provides equivalent UX without backend involvement.
 
 ## Goal
 
-Cursor's `createPlan` and Claude's `ExitPlanMode` render through one shared `PlanDecisionCard` component, with identical visual treatment (auto-expanded plan, prominent buttons, comment textarea, compact resolved chip). The two providers reach the same component via different paths:
-
-- **Claude path** — driven by the existing server-side permission system, unchanged on the wire.
-- **Cursor path** — resolved entirely on the client, using natural conversation-level "blocking" (cursor is already waiting for the next user message after `createPlan` completes).
+Cursor's `createPlan` and Claude's `exit_plan_mode` render through one `PlanReviewRenderer` UI. The component gains optional `todos` rendering (Cursor emits structured `todos` alongside the markdown plan that the current renderer ignores), and a client-resolved decision branch so Cursor decisions become local actions (mode switch + user message via `handleSendMessage`) instead of round-tripping through `interaction_response`.
 
 ## Non-goals
 
-- No server-side blocking of cursor-agent (architecturally impossible without a wrapping proxy; not worth building).
-- No new persistence layer — client-side decision state is per-session, derived from existing data where possible.
-- No i18n in v1 (default messages are English constants, matching the existing `EXECUTE_PLAN_PREFILL`).
-- No support for AI review / risk analysis on plan decisions (Claude's plan path doesn't use this; out of scope).
-- No timeout on the Cursor path (cursor has no timeout concept here).
+- No changes to server-side `exit_plan_mode` tool, `interactionDispatcher`, or the `interaction_response` wire protocol.
+- No server-side blocking of cursor-agent.
+- No new client-side store. State sits in the existing `interactionStore` + the renderer's local `useState`.
+- No migration or removal of the `InlinePermissionRequest` plan-proposal branch (`isPlanProposalRequest` in `InlinePermissionRequest.tsx`). It is a fallback path for permission-driven plan tools that is not on Claude's or Cursor's primary route; touching it is out of scope.
+- No removal of the existing `PlanProposalActions` "Execute plan" prefill yet — phased; see Implementation order.
+- No i18n in v1; default copy is English constants.
+- No new "Save as Issue" semantics for Cursor in v1 beyond what already exists (the existing client-side save path runs irrespective of provider once the interaction is rendered).
 
 ## Architecture
 
 ```
-                         ┌──────────────────────────┐
-                         │   PlanDecisionCard       │
-                         │   (presentational only)  │
-                         │   props: planContent,    │
-                         │          state,          │
-                         │          resolution,     │
-                         │          onAllow,        │
-                         │          onDeny,         │
-                         │          onDenyWith-     │
-                         │            Comment       │
-                         └──────────┬───────────────┘
-                                    │
-                ┌───────────────────┴─────────────────┐
-                │                                     │
-   ┌────────────▼─────────────┐         ┌─────────────▼──────────────┐
-   │ Claude path              │         │ Cursor path                │
-   │ (server-driven)          │         │ (client-driven)            │
-   ├──────────────────────────┤         ├────────────────────────────┤
-   │ InlinePermissionRequest  │         │ CursorPlanDecision (thin   │
-   │   wraps PlanDecisionCard │         │ shell) inside MessageList  │
-   │   for plan-proposal      │         │   reads chatStore +        │
-   │   requests; passes       │         │   derives state            │
-   │   onDecision callbacks   │         │   handlers fire            │
-   │   to server permission   │         │   sendMessage + setMode +  │
-   │   gate                   │         │   setPlanDecision          │
-   │ State: permissionStore + │         │ State: chatStore           │
-   │   local useState         │         │   .toolCalls[id]           │
-   │                          │         │   .planDecision +          │
-   │                          │         │   derived from messages    │
-   └──────────────────────────┘         └────────────────────────────┘
+                       ┌──────────────────────────────────┐
+                       │  PlanReviewRenderer              │
+                       │  (existing, extended)            │
+                       │  - renders plan markdown         │
+                       │  - renders todos[] (NEW)         │
+                       │  - feedback textarea             │
+                       │  - Save as Issue / Deny /        │
+                       │    Approve buttons               │
+                       │  - resolved chip                 │
+                       └──────────┬───────────────────────┘
+                                  │ reads
+                       ┌──────────▼───────────────┐
+                       │  PlanReviewInteraction-  │
+                       │  Message (in interaction │
+                       │  Store)                  │
+                       │  +todos?: PlanTodoItem[] │
+                       │  +source: 'tool_call' |  │
+                       │   'client_synth'         │
+                       └──────────┬───────────────┘
+            ┌─────────────────────┴──────────────────────┐
+            │                                            │
+   ┌────────▼──────────────────┐         ┌───────────────▼──────────────┐
+   │ Claude path (unchanged)    │         │ Cursor path (new)            │
+   │ - server interaction-tools │         │ - cursor-sdk emits            │
+   │   builds PlanReviewMessage │         │   tool_call:completed for     │
+   │ - server pushes message    │         │   createPlan with             │
+   │ - PlanReviewRenderer       │         │   {plan, todos}               │
+   │   on Approve/Deny sends    │         │ - client message handler      │
+   │   interaction_response;    │         │   synthesises a Plan-         │
+   │   server resolves          │         │   ReviewInteractionMessage    │
+   │   dispatchAndWait promise  │         │   with source='client_synth'  │
+   │                            │         │   into interactionStore       │
+   │                            │         │ - PlanReviewRenderer notices  │
+   │                            │         │   source==='client_synth' and │
+   │                            │         │   instead of interaction_     │
+   │                            │         │   response, runs local        │
+   │                            │         │   setMode + handleSendMessage │
+   └────────────────────────────┘         └───────────────────────────────┘
 ```
 
 **Invariants**:
 
-- `PlanDecisionCard` is fully controlled — it does not own resolved/active state, callers pass it via `state` prop.
-- Claude's permission protocol is unchanged on the wire — server still holds `ExitPlanMode`.
-- Cursor decisions are client-only — server has no knowledge of them.
-- Routing for which path renders is driven by session provider (`cursor` → client path, `claude` / others → server permission path). See §Cursor path / Routing for the rationale and future extensibility.
+- `PlanReviewRenderer` is the single visual decision surface for plans across all providers.
+- The interaction wire protocol (`interaction_response`) is unchanged. Cursor never emits one.
+- `source: 'client_synth'` is the discriminator that routes the renderer's `Approve` / `Deny` handlers into local actions instead of `sendMessage(interaction_response, …)`.
+- The existing `ToolCallItem.tsx:84-91` lookup that finds the `interaction_plan_review` for a running `plan_proposal` tool already handles both providers transparently — once Cursor synthesises the interaction, the rest of the rendering chain works without changes.
 
-## Component: PlanDecisionCard
+## User decisions preserved from brainstorming
 
-`apps/desktop/src/features/chat/PlanDecisionCard.tsx` — new file. Presentational (no global store access), but allowed to hold UI-only `useState` for textarea text and the long-plan expand toggle.
+These are restated here as the source of truth — implementation MUST honour them:
 
-### Props
+| Q | Decision | Where this is realised |
+|---|----------|------------------------|
+| Q1 | Behaviour parity (not just visual parity) | Cursor synthesises an interaction so user must make a decision before continuing |
+| Q2 | Deny without feedback sends a default deny message | New `DEFAULT_DENY_MESSAGE` constant; sent on cursor-path Deny when feedback empty |
+| Q3 | Shared component, not duplicate | Single `PlanReviewRenderer`, extended |
+| Q4 | "Active vs resolved" derivation: clicked + later user msg + newer plan + mode change | Existing renderer already handles "clicked" via local `useState`; the other transitions are inherent (a new `createPlan` produces a new interaction; user typing a message in cursor flow naturally resolves the run; mode change is user-initiated) |
+| Q5 | Allow auto-sends `"Proceed with the plan above."` + switches mode | Cursor handler in renderer; not via prefill |
+| Q6 | Decision card hoisted near the tool-call | Existing `ToolCallItem` already replaces itself with the `InteractionItem` when a matching `interaction_plan_review` exists — visual placement identical to Claude |
+| Q7 | Resolved → compact chip | Existing renderer already does this (Approved / Rejected / Saved-as-issue) |
+| Q8 | Migrate Claude side to the shared component | Claude already uses it — no migration work, just verify nothing regresses with the new todos field and source discriminator |
+| Q (todos) | Plan markdown + structured todos shown together (option B) | New `todos` field on `PlanReviewInteractionMessage`; renderer adds a Steps section below the markdown |
+
+## Wire / store types
+
+### Extend `PlanReviewInteractionMessage`
+
+`shared/src/interaction/forms.ts`:
 
 ```ts
-type PlanDecisionState = 'active' | 'resolved' | 'superseded';
+export type PlanReviewSource = 'tool_call' | 'client_synth';
 
-interface PlanResolution {
-  decision: 'allow' | 'deny';
-  comment?: string;
-}
-
-interface PlanTodoItem {
+export interface PlanTodoItem {
   content: string;
   status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
 }
 
-interface PlanDecisionCardProps {
-  planContent: string;                                    // markdown
-  todos?: PlanTodoItem[];                                 // structured steps, optional
-  toolName?: string;                                      // header label
-  state: PlanDecisionState;
-  resolution?: PlanResolution;                            // required when state === 'resolved'
-  onAllow: () => void;
-  onDeny: () => void;
-  onDenyWithComment: (comment: string) => void;
-  origin?: 'permission' | 'client';                       // optional badge
+export interface PlanReviewInteractionMessage extends InteractionBase {
+  type: 'interaction_plan_review';
+  plan: string;
+  allowedPrompts?: Array<{ tool: string; prompt: string }>;
+  todos?: PlanTodoItem[];                                  // NEW
+  source?: PlanReviewSource;                               // NEW (default: 'tool_call')
 }
 ```
 
-`todos` is optional and only populated by providers that supply structured step lists alongside the plan markdown (currently only Cursor's `createPlan`). Claude's `ExitPlanMode` does not carry todos — the prop is omitted.
+- `todos` is optional. Server-emitted Claude interactions will not populate it (the MCP `exit_plan_mode` schema does not include todos). Cursor's client-side synthesiser populates it from `tool_call.tool_call.createPlanToolCall.args.todos`.
+- `source` defaults to `'tool_call'` (existing behaviour). Cursor synthesises with `source: 'client_synth'`.
 
-### Visual states
+### Existing `InteractionBase` already has `source: string` (`'tool_call'` etc.)
 
-1. **active** — main form. `border-l-4 border-warning`, content area laid out top-to-bottom:
-   - **Plan markdown** — `PlanContent` rendering, auto-expanded with its existing `PLAN_PREVIEW_LINES` collapse for long content.
-   - **Todos** (only when `props.todos?.length > 0`) — visually separated below the plan markdown with a thin divider and a small `Steps` label. Each todo renders the same way as the existing `update_todo_list` rendering in `ToolExpandedContent.tsx`: status icon (`CheckCircle2` for completed, spinning `Loader2` for in_progress, `Square` for pending/cancelled) + content text with strikethrough when completed.
-   - **Comment textarea** — `placeholder="Why should we revise this plan?"`.
-   - **Three buttons** in order:
-     - `[Deny]` — secondary
-     - `[Deny + Comment]` — secondary, disabled when textarea empty
-     - `[Allow]` — primary
+Look at `shared/src/interaction/forms.ts` `InteractionBase` for the existing field. If it already carries a `source` field, the new spec field is just a narrowed type for plan-review interactions — verify during implementation; do not reintroduce duplicate fields.
 
-   Long lists: the todos section also gets a soft cap (e.g., show first 8, "Show all N steps" expander) to prevent the card from becoming unreasonably tall when both the plan and the steps are long.
+## Cursor synthesis
 
-2. **resolved** — single-row chip. Decision icon (`√` or `×`) + `toolName` + `Approved` / `Denied: <comment first 60 chars…>`. Background `bg-secondary/30`, smaller font.
+### Where the synthesis happens
 
-3. **superseded** — same shape as resolved, but text `Plan superseded` with no decision icon. Used when the user moved past the plan without an explicit button click.
+`apps/desktop/src/services/message-handlers/tool-messages.ts` (or wherever Cursor's `tool_use` / `tool_result` messages are processed on the client) currently writes the completed tool call to chatStore. Add a side-effect: when the just-completed tool has `toolSemantic === 'plan_proposal'` AND `provider === 'cursor'` (look up via `useProjectStore`), synthesise an `interaction_plan_review` and insert it into `interactionStore` via the existing `interaction_plan_review` reducer in `apps/desktop/src/services/message-handlers/interaction-messages.ts`.
 
-### Internal state
+> If the existing reducer is restricted to messages received over the wire, expose a small helper (`insertSynthesizedInteraction(interaction)`) on `interactionStore` instead of round-tripping through the dispatch table. Either approach is fine — pick the one that mutates state in the same way the wire path does so all downstream selectors keep working.
 
-- Comment textarea text is held in component-local `useState` (UI-only ephemeral state). Cleared on Allow click to prevent stale comment carryover.
-- Long plan collapse state (`isFullyExpanded`) reuses the existing pattern from `tool-call/PlanContent.tsx`.
-
-### Keyboard
-
-- Active + textarea focused: `Cmd/Ctrl+Enter` triggers Deny+Comment (when non-empty).
-- Allow / Deny have no global hotkeys to avoid misfires.
-
-### Excluded features
-
-- No "Remember" checkbox (no semantics for plan).
-- No timeout progress bar.
-- No AI review / workflow progress hint.
-- No credential input.
-
-## chatStore changes
-
-`apps/desktop/src/stores/chatStore.ts`:
+### Synthesis logic
 
 ```ts
-// Extend ToolCallState
-interface ToolCallState {
-  // ...existing fields
-  planDecision?: {
-    decision: 'allow' | 'deny';
-    comment?: string;
-    resolvedAt: number;  // epoch ms
+function synthesizePlanReviewFromCursor(args: {
+  sessionId: string;
+  toolUseId: string;
+  toolInput: unknown;
+}): PlanReviewInteractionMessage {
+  const { planContent, todos } = extractPlanPayload(args.toolInput);
+  return {
+    type: 'interaction_plan_review',
+    interactionId: args.toolUseId,          // reuse tool_use_id so ToolCallItem's lookup matches
+    sessionId: args.sessionId,
+    source: 'client_synth',
+    createdAt: Date.now(),
+    plan: planContent,
+    todos,
   };
 }
-
-// New action
-setPlanDecision(
-  sessionId: string,
-  toolUseId: string,
-  decision: { decision: 'allow' | 'deny'; comment?: string; resolvedAt: number },
-): void;
 ```
 
-`planDecision` is client-only and **not** persisted to server SQLite. Session reload derives the "moved past" state from the message timeline (see below).
+Reusing `interactionId === toolUseId` is intentional: `ToolCallItem.tsx:84-91` already searches the interactionStore for `interaction_plan_review` matching the running plan-proposal tool's session, and once found, renders the interaction in place of the tool-call card. Using the toolUseId as the interactionId guarantees a unique 1:1 mapping per tool call without inventing a separate id source.
 
-## Cursor path
+### Why a new interaction in the store and not an inline prop
 
-### Routing
+Going through the interactionStore is what makes the existing `ToolCallItem` replacement logic work without modification. Any other route (e.g. rendering a `PlanReviewRenderer` directly from the tool-call card) would need a second routing path in `ToolCallItem`, which fragments the codebase. Single source of truth: the interactionStore.
 
-In `MessageList` / `ChatMessagePane` render loop, after a tool-use message:
+## Plan payload extraction helper
 
-```tsx
-const provider = useSessionProvider(sessionId);  // 'cursor' | 'claude' | 'codex' | ...
-const usesClientResolvedPlan = provider === 'cursor';
-
-{msg.type === 'tool_use'
-  && msg.toolSemantic === 'plan_proposal'
-  && msg.status === 'completed'
-  && usesClientResolvedPlan
-  && <CursorPlanDecision sessionId={sessionId} toolUseId={msg.toolUseId} />}
-```
-
-The provider check is the most reliable signal: Cursor's `createPlan` never goes through a permission gate, while Claude's `ExitPlanMode` always does. We cannot use `PermissionRequest` matching because:
-1. `PermissionRequest` does not carry `toolUseId` in the current protocol (only `requestId`, `sessionId`, `toolName`).
-2. PermissionRequests are cleared after resolution, so we can't tell historically whether a now-`completed` tool went through one.
-
-Providers that introduce a future client-resolved plan tool can be added to the `usesClientResolvedPlan` allowlist alongside `cursor`. Claude (`ExitPlanMode`) continues to render through `InlinePermissionRequest` for as long as the plan PermissionRequest is active; once resolved, neither card renders for that tool (the `tool-call` card alone remains in the message stream, showing the plan content for reference).
-
-### `CursorPlanDecision` shell
-
-Thin wrapper component that wires up the hooks:
-
-```tsx
-function CursorPlanDecision({ sessionId, toolUseId }: Props) {
-  const { state, resolution, planContent, toolName } = usePlanDecisionState(sessionId, toolUseId);
-  const handlers = usePlanDecisionHandlers(sessionId, toolUseId);
-  return (
-    <PlanDecisionCard
-      planContent={planContent}
-      toolName={toolName}
-      state={state}
-      resolution={resolution}
-      origin="client"
-      {...handlers}
-    />
-  );
-}
-```
-
-### `usePlanDecisionState`
-
-Selector hook deriving `state` from chatStore:
-
-```ts
-function usePlanDecisionState(sessionId: string, toolUseId: string): {
-  state: PlanDecisionState;
-  resolution?: PlanResolution;
-  planContent: string;
-  todos?: PlanTodoItem[];
-  toolName: string;
-} {
-  return useChatStore((s) => {
-    const tc = s.toolCalls[sessionId]?.[toolUseId];
-    const { planContent, todos } = extractPlanPayload(tc?.toolInput);
-    const toolName = tc?.toolName ?? 'createPlan';
-    const baseFields = { planContent, todos, toolName };
-
-    // 1. explicit resolution
-    if (tc?.planDecision) {
-      return {
-        state: 'resolved',
-        resolution: { decision: tc.planDecision.decision, comment: tc.planDecision.comment },
-        ...baseFields,
-      };
-    }
-
-    // 2. mode left plan
-    const mode = s.modeOverrides[sessionId] || s.runtimeModes[sessionId];
-    if (mode !== 'plan') return { state: 'superseded', ...baseFields };
-
-    // 3. later user message
-    const messages = s.messages[sessionId] ?? [];
-    const idx = messages.findIndex((m) => m.toolUseId === toolUseId);
-    if (idx === -1) return { state: 'superseded', ...baseFields };
-    const tail = messages.slice(idx + 1);
-    if (tail.some((m) => m.role === 'user')) {
-      return { state: 'superseded', ...baseFields };
-    }
-
-    // 4. newer plan_proposal
-    if (tail.some((m) => m.type === 'tool_use' && m.toolSemantic === 'plan_proposal')) {
-      return { state: 'superseded', ...baseFields };
-    }
-
-    return { state: 'active', ...baseFields };
-  }, shallow);
-}
-```
-
-### `extractPlanPayload` helper
-
-Replaces the inline plan-extraction logic currently in `ToolExpandedContent.tsx`. Lives in `apps/desktop/src/features/chat/planDecisionPayload.ts`:
+`apps/desktop/src/features/chat/planReviewPayload.ts` — new:
 
 ```ts
 function extractPlanPayload(toolInput: unknown): {
@@ -270,7 +173,6 @@ function extractPlanPayload(toolInput: unknown): {
 } {
   const input = normalizeToolInput(toolInput) as Record<string, unknown> | undefined;
 
-  // Plan markdown
   let planContent = '';
   if (typeof input?.plan === 'string') {
     planContent = input.plan;
@@ -284,10 +186,8 @@ function extractPlanPayload(toolInput: unknown): {
     planContent = '# Plan\n\nPlan ready for review.';
   }
 
-  // Todos (Cursor-specific; absent for Claude)
   const todosRaw = Array.isArray(input?.todos) ? input.todos : undefined;
   const todos = todosRaw ? todosRaw.flatMap(normalizePlanTodoItem) : undefined;
-
   return { planContent, todos: todos && todos.length > 0 ? todos : undefined };
 }
 
@@ -299,9 +199,6 @@ function normalizePlanTodoItem(raw: unknown): PlanTodoItem[] {
   return [{ content, status: normalizePlanTodoStatus(r.status) }];
 }
 
-// Cursor emits `TODO_STATUS_PENDING` / `TODO_STATUS_IN_PROGRESS` / `TODO_STATUS_COMPLETED` /
-// `TODO_STATUS_CANCELLED`. Claude / TodoWrite emit lowercase short forms. Normalize to a
-// single canonical set so the rendering can branch consistently.
 function normalizePlanTodoStatus(raw: unknown): PlanTodoItem['status'] {
   if (typeof raw !== 'string') return 'pending';
   const s = raw.toUpperCase().replace(/^TODO_STATUS_/, '');
@@ -316,211 +213,293 @@ function normalizePlanTodoStatus(raw: unknown): PlanTodoItem['status'] {
 }
 ```
 
-This helper is used both by `usePlanDecisionState` (Cursor path) and by the plan branch of `InlinePermissionRequest` (Claude path — `todos` will be undefined). The existing `normalizeTodoItems` in `toolFormatters.ts` continues to serve the standalone `TodoWrite` / `update_todo_list` tool; we do not collapse the two helpers because their input shapes (plan input with embedded todos vs. todo-only tool input) and downstream consumers differ.
+The same helper deprecates the inline plan-extraction block currently in `ToolExpandedContent.tsx` (the `isPlanProposalTool(toolName, semantic)` branch); update that branch to call `extractPlanPayload` so future Cursor-only `todos` rendering and the synthesiser share one implementation.
 
-> The exact field names (`messages`, `role`, `type`, `toolUseId`) must be reconciled with the actual chatStore shape during implementation; the structure above is illustrative.
+## `PlanReviewRenderer` extension
 
-### `usePlanDecisionHandlers`
+`apps/desktop/src/features/chat/InteractionItem.tsx`:
 
-```ts
-const ALLOW_MESSAGE = 'Proceed with the plan above.';
-const DEFAULT_DENY_MESSAGE = 'Please revise the plan.';
+### Render the todos section (new)
 
-function usePlanDecisionHandlers(sessionId: string, toolUseId: string) {
-  const setMode = useChatStore((s) => s.setMode);
-  const setPlanDecision = useChatStore((s) => s.setPlanDecision);
-  const sendMessage = useChatStore((s) => s.sendMessage);
+Below the existing plan markdown viewport and above the existing feedback textarea, add a `Steps` section that renders when `interaction.todos?.length > 0`:
 
-  return {
-    onAllow: async () => {
-      const prevMode = useChatStore.getState().modeOverrides[sessionId];
-      setMode(sessionId, 'default');
-      try {
-        await sendMessage(sessionId, ALLOW_MESSAGE);
-        setPlanDecision(sessionId, toolUseId, {
-          decision: 'allow',
-          resolvedAt: Date.now(),
-        });
-      } catch (err) {
-        setMode(sessionId, prevMode ?? 'plan');
-        // surface via toast (existing toast utility)
-        throw err;
-      }
-    },
-    onDeny: async () => {
-      await sendMessage(sessionId, DEFAULT_DENY_MESSAGE);
-      setPlanDecision(sessionId, toolUseId, {
-        decision: 'deny',
-        resolvedAt: Date.now(),
-      });
-    },
-    onDenyWithComment: async (comment: string) => {
-      await sendMessage(sessionId, comment);
-      setPlanDecision(sessionId, toolUseId, {
-        decision: 'deny',
-        comment,
-        resolvedAt: Date.now(),
-      });
-    },
-  };
+```tsx
+{interaction.todos && interaction.todos.length > 0 && (
+  <div className="flex flex-col gap-1 mt-1">
+    <span className="text-[11px] font-medium text-muted-foreground">Steps</span>
+    <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+      {(showAllTodos ? interaction.todos : interaction.todos.slice(0, 8)).map((todo, idx) => (
+        <div key={idx} className="flex items-start gap-2 text-xs">
+          <span className="flex-shrink-0 mt-0.5">
+            {todo.status === 'completed'
+              ? <CheckCircle2 size={12} className="text-success" />
+              : todo.status === 'in_progress'
+                ? <Loader2 size={12} className="animate-spin text-primary" />
+                : todo.status === 'cancelled'
+                  ? <XCircle size={12} className="text-muted-foreground/60" />
+                  : <Square size={12} className="text-muted-foreground" />}
+          </span>
+          <span className={
+            todo.status === 'completed' ? 'text-muted-foreground line-through' :
+            todo.status === 'cancelled' ? 'text-muted-foreground/70 line-through' :
+            'text-foreground'
+          }>
+            {todo.content}
+          </span>
+        </div>
+      ))}
+    </div>
+    {interaction.todos.length > 8 && (
+      <button
+        onClick={() => setShowAllTodos((v) => !v)}
+        className="text-[11px] text-muted-foreground hover:text-foreground text-left transition-colors"
+      >
+        {showAllTodos
+          ? 'Show fewer steps'
+          : `Show all ${interaction.todos.length} steps`}
+      </button>
+    )}
+  </div>
+)}
+```
+
+`showAllTodos` is a new local `useState<boolean>(false)` next to the existing `expanded` state.
+
+### Branch the Approve / Deny / Save-as-Issue handlers on `source`
+
+The existing handlers send `interaction_response` via WebSocket. Add a branch on `interaction.source === 'client_synth'` that performs local actions instead. This requires plumbing `handleSendMessage` and `setMode` into the renderer.
+
+Currently `PlanReviewRenderer` has zero awareness of `handleSendMessage`. Options:
+
+1. **Prop-drill from `ChatInterface` → `ChatMessagePane` → `MessageList` (or `InteractionItem` wherever it's rendered) → `PlanReviewRenderer`.** Clean but touches several files.
+
+2. **Read from a small context.** Create `ChatActionsContext` in `ChatInterface.tsx` exposing `{ handleSendMessage, setMode }`, consumed by `PlanReviewRenderer` only when `source === 'client_synth'`. No prop-drill; opt-in API.
+
+Pick option 2 — fewer surfaces touched, clearer intent (the context only exists for "actions a chat-embedded interaction may need to perform locally").
+
+```tsx
+// apps/desktop/src/features/chat/ChatActionsContext.tsx
+export interface ChatActionsContextValue {
+  handleSendMessage: (content: string, attachments?: Attachment[], overrideMode?: string) => Promise<void>;
+  setMode: (sessionId: string, mode: string) => void;
+}
+const ChatActionsContext = createContext<ChatActionsContextValue | null>(null);
+export const ChatActionsProvider = ChatActionsContext.Provider;
+export function useChatActions(): ChatActionsContextValue {
+  const ctx = useContext(ChatActionsContext);
+  if (!ctx) throw new Error('useChatActions called outside ChatActionsProvider');
+  return ctx;
 }
 ```
 
-Sequencing rules:
-- For `onAllow`: set mode synchronously first, then send the message, then mark the decision only on a successful send. If `sendMessage` rejects, roll back the mode and re-throw so the UI layer (caller of the hook) can surface a toast.
-- For `onDeny` / `onDenyWithComment`: send the message first, then mark the decision only on success. Mode is unchanged so there is nothing to roll back; on failure, propagate the error and leave the card `active`.
-- Caller is responsible for surfacing errors via the existing toast utility — the hook does not toast directly to keep it framework-free for testing.
+`ChatInterface.tsx` wraps its return tree with `<ChatActionsProvider value={{ handleSendMessage, setMode }}>`. `PlanReviewRenderer` only calls `useChatActions()` when needed.
 
-### Default messages
+### `handleSendMessage` mode override
 
-Centralized in `apps/desktop/src/features/chat/planDecisionCopy.ts`:
+`handleSendMessage` currently captures `mode` via React closure, so calling `setMode(default)` then `handleSendMessage(...)` in the same tick races with the stale closure. Add an explicit override parameter so the renderer can pass `'default'` directly without depending on closure timing:
 
 ```ts
-export const ALLOW_MESSAGE = 'Proceed with the plan above.';
-export const DEFAULT_DENY_MESSAGE = 'Please revise the plan.';
+// apps/desktop/src/hooks/chat/useSendMessage.ts
+const handleSendMessage = useCallback(async (
+  content: string,
+  attachments?: Attachment[],
+  overrideMode?: string,    // NEW
+) => {
+  // ...existing prelude...
+  const effectiveMode = overrideMode ?? mode;
+  const runStartMsg: RunStartMessage = {
+    type: 'run_start',
+    clientRequestId: clientMessageId,
+    sessionId,
+    input: fullContent,
+    mode: effectiveMode || undefined,
+    // ...
+  };
+  // ...
+}, [/* existing deps; do NOT add overrideMode (parameter, not closure) */]);
 ```
 
-## Claude path migration
+This is a backwards-compatible additive parameter — existing call sites unchanged.
 
-`apps/desktop/src/features/chat/InlinePermissionRequest.tsx`:
+### Handler routing
 
-- Detect plan-proposal via existing `isPlanProposalRequest` (input shape check).
-- When true, render `<PlanDecisionCard>` instead of the current detail view + buttons.
-- Maintain local `useState<PlanResolution | null>` to track client-side "just-clicked" state so the card flips to `resolved` immediately on click (before the server resolution arrives).
-- Map button clicks to existing `onDecision` callback signature:
-  - `onAllow` → `onDecision(requestId, true, false)`
-  - `onDeny` → `onDecision(requestId, false, false)`
-  - `onDenyWithComment(c)` → `onDecision(requestId, false, false, undefined, c)`
+In `PlanReviewRenderer`:
 
-### Removed in the plan branch
+```tsx
+const isClientSynth = interaction.source === 'client_synth';
+const actions = isClientSynth ? useChatActions() : null;
 
-The following features render in the non-plan permission branch only; they are not rendered when the plan branch routes to `PlanDecisionCard`:
+const ALLOW_MESSAGE = 'Proceed with the plan above.';
+const DEFAULT_DENY_MESSAGE = 'Please revise the plan.';
 
-- Timeout progress bar
-- "Remember" checkbox
-- AI review / workflow progress hint
-- Credential input
-- `feedbackDrafts` in `permissionStore` (the draft persistence across re-renders) — to be deleted if no other consumers exist. Implementation must grep for all references first.
+const handleApprove = useCallback(async () => {
+  if (isClientSynth && actions) {
+    const text = feedback.trim() ? `${ALLOW_MESSAGE}\n\n${feedback.trim()}` : ALLOW_MESSAGE;
+    setDecision({ kind: 'approved' });
+    actions.setMode(interaction.sessionId!, 'default');
+    try {
+      await actions.handleSendMessage(text, undefined, 'default');
+    } catch (err) {
+      // toast surfacing via existing useToastStore
+      setDecision(null);
+      actions.setMode(interaction.sessionId!, 'plan');
+      throw err;
+    }
+    return;
+  }
+  // existing interaction_response path
+  sendMessage({ type: 'interaction_response', /* … */ });
+  setDecision({ kind: 'approved' });
+}, [/* … */]);
 
-These were already unused or unreachable in Claude's `ExitPlanMode` flow (plan timeout is set to 0, plan doesn't go through AI review, etc.), so removing them simplifies the component without behavior change.
+const handleDeny = useCallback(async () => {
+  if (isClientSynth && actions) {
+    const text = feedback.trim() || DEFAULT_DENY_MESSAGE;
+    setDecision({ kind: 'rejected' });
+    try {
+      await actions.handleSendMessage(text);   // mode stays 'plan'
+    } catch (err) {
+      setDecision(null);
+      throw err;
+    }
+    return;
+  }
+  // existing interaction_response path
+  sendMessage({ type: 'interaction_response', /* … */ });
+  setDecision({ kind: 'rejected' });
+}, [/* … */]);
+```
 
-### Server contract: unchanged
+`handleSaveAsIssue` works the same in both branches: it always saves to `useLocalIssueStore`, then for `client_synth` sends a "Saved as issue #N for later." user message via `handleSendMessage`; for the existing path it sends `interaction_response` as before.
 
-`onDecision(requestId, allow, remember, credential, feedback)` callback signature stays the same. `remember` is always `false` for plan decisions, `credential` is always `undefined`. Server-side permission gate, timeout handling, and resolution semantics are unchanged.
+> **Reads MUST NOT depend on hook order — pull `useChatActions()` conditionally only at the top level once.** Move the `isClientSynth` check above all hook usage and store the result before invoking `useChatActions()`. Actually the cleanest pattern is to *unconditionally* call `useContext(ChatActionsContext)` (allow null) and branch on the result + `isClientSynth`. Either way: respect Rules of Hooks.
 
-## State derivation summary
+Corrected pattern:
 
-| Path | active | resolved | superseded (mode change) | superseded (newer user msg) | superseded (newer plan) |
-|------|--------|----------|---------------------------|------------------------------|--------------------------|
-| Cursor | derived from chatStore | `planDecision` field | mode !== 'plan' | message timeline | message timeline |
-| Claude | `PermissionRequest` exists, no local resolution | local `useState` after click | N/A | N/A | N/A |
+```tsx
+const chatActionsCtx = useContext(ChatActionsContext); // may be null
+const isClientSynth = interaction.source === 'client_synth';
+// later: if (isClientSynth && chatActionsCtx) { ... }
+```
+
+## "Active vs resolved" state — already handled
+
+The existing renderer keeps `decision` in `useState`. After the user clicks, the resolved chip shows and the button row disappears. Re-renders are stable because the parent (`ToolCallItem` / `InteractionItem`) keeps showing the same interaction id; the local state persists for the lifetime of that DOM tree.
+
+For history view / session reload: completed `interaction_plan_review` messages are not re-played by the server (Claude path; the dispatch resolves and the interaction is removed). For Cursor's client-synth path, the synthesised interaction lives only in the in-memory `interactionStore` and is dropped on reload. **Historical Cursor plans, after reload, will not show a decision card — only the tool-call card with the plan content.** This matches Claude's behaviour and is acceptable: the user has long since moved on.
+
+> If we later want resolved decisions to persist across reload, we'd add a `resolved` flag on the interaction message and persist it server-side. Out of scope for v1.
+
+## Removal of `PlanProposalActions`
+
+The "Execute plan" button (`tool-call/PlanContent.tsx::PlanProposalActions`) duplicates the Approve path of the new flow. Once the synthesiser is live, it becomes unreachable (the tool-call card is replaced by the `InteractionItem` once the interaction exists). To avoid dead UI we will:
+
+1. Delete `PlanProposalActions` and its export.
+2. Delete the `EXECUTE_PLAN_PREFILL` constant.
+3. Verify `setPendingPrefill` has no other plan-specific callers; if it has unrelated callers (e.g. some other feature), leave the store action intact.
+
+This is the only piece of Cursor's existing plan UI that we're actively removing.
 
 ## Edge cases
 
-| # | Scenario | Behavior |
-|---|----------|----------|
-| E1 | cursor not started with `--mode=plan`, but LLM still emits `createPlan` | `mode !== 'plan'` → `superseded` → card hidden, plan only visible in tool-call expanded view |
-| E2 | User manually switches mode via ModeSelector while card active | `superseded` chip, no auto-send (user is in control) |
-| E3 | User types a message manually instead of clicking buttons | Card → `superseded` based on later user message |
-| E4 | Multiple `createPlan` in one run | Older ones `superseded`, only newest `active` |
-| E5 | `sendMessage` fails after click | Roll back `setMode`, don't write `planDecision`, surface toast, card stays `active` |
-| E6 | Session reload / history view | All plans get `superseded` (each followed by user messages); chips render correctly |
-| E7 | Stale `planDecision` without matching user message | `planDecision` takes priority → renders `resolved` chip |
-| E8 | Plan content empty or non-string | `PlanContent` handles gracefully, buttons still functional |
-| E9 | Claude server-side timeout resolution | `InlinePermissionRequest` receives server resolution, updates local state, card flips to `resolved` |
-| E10 | Mobile / Android | Three buttons wrap to multiple rows on narrow screens; textarea full-width; no keyboard shortcuts (touch-only) |
+| # | Scenario | Behaviour |
+|---|----------|-----------|
+| E1 | cursor not started with `--mode=plan` but emits `createPlan` anyway | Synthesiser still fires (mode-check is the user's responsibility, not the synthesiser's). The "Approve" button switches to default; "Deny" keeps current mode. Edge but acceptable. |
+| E2 | User switches mode via ModeSelector while card active | The card stays — user can still click. Approve respects the override (`'default'`). |
+| E3 | User types a message in the input while card active | Existing `useSendMessage` queues or sends; the interaction stays unresolved in the store. Acceptable — the next assistant turn will likely emit a new plan or proceed; either way the stale interaction becomes visually irrelevant. |
+| E4 | Multiple `createPlan` in one run | Each emits a new synthesised interaction with a fresh `interactionId = toolUseId`. The latest tool-call card is replaced by the newest interaction; older ones stay rendered with their resolved state (or remain unresolved if the user didn't click). |
+| E5 | `handleSendMessage` fails (network down) | The handler catches, restores `decision = null` and (for Approve) rolls back mode. Existing `useToastStore` surfaces the error. |
+| E6 | Session reload / history | Synthesised interactions are not replayed → no decision card on history. Tool-call card still shows the plan. |
+| E7 | Empty `plan` / non-string plan | Helper produces a fallback markdown string; renderer still works. |
+| E8 | Mobile / Android | Existing renderer already handles narrow widths (buttons wrap, textarea full-width). Todos section adds `max-h-48 overflow-y-auto` so it doesn't blow up vertical space. |
+| E9 | Cursor's `todos` array contains dependency cycles or self-references | Out of scope — we render `content` + `status` only; dependencies are not visualised in v1. |
+| E10 | Provider lookup fails (session has no `providerId`) | Synthesiser short-circuits (no synthesis) → existing tool-call card with "Execute plan" wouldn't show either (we'd have removed it). Net effect: tool-call card shows the plan as plain markdown, no decision UI. Acceptable for sessions in this degraded state. |
 
 ## Testing strategy
 
 ### Unit tests
 
-- `PlanDecisionCard.test.tsx` — new
-  - Active state: renders plan, three buttons, textarea
-  - Active state with `todos` prop: renders steps section below plan with correct status icons
-  - Active state without `todos` prop: no steps section rendered (Claude shape)
-  - Allow / Deny click → calls callbacks
-  - Deny+Comment: disabled when textarea empty; passes comment string on click
-  - Resolved state: chip only, no buttons, no todos
-  - Superseded state: "Plan superseded" chip
-  - Long plan: collapse + "Show full plan" expand
-  - Long todos (>8): collapse + "Show all N steps" expand
-  - Keyboard: `Cmd+Enter` in textarea → Deny+Comment when non-empty
+- `planReviewPayload.test.ts` — new
+  - `extractPlanPayload`: plan string → planContent only, todos undefined
+  - `extractPlanPayload`: plan + todos → both populated
+  - `extractPlanPayload`: plan_file fallback
+  - `extractPlanPayload`: object plan → JSON.stringify
+  - `normalizePlanTodoStatus`: `TODO_STATUS_PENDING` → `pending`, `TODO_STATUS_IN_PROGRESS` → `in_progress`, `TODO_STATUS_COMPLETED` → `completed`, `TODO_STATUS_CANCELLED` → `cancelled`, lowercase `completed` → `completed`, unknown → `pending`
+  - `normalizePlanTodoItem`: skips empty `content`; defaults missing `status` to `pending`
 
-- `planDecisionPayload.test.ts` — new
-  - `extractPlanPayload`: plan string → planContent string, todos undefined
-  - `extractPlanPayload`: plan + todos array → both populated
-  - `extractPlanPayload`: plan object (non-string) → JSON.stringify fallback
-  - `extractPlanPayload`: plan_file fallback message
-  - `normalizePlanTodoStatus`: `TODO_STATUS_PENDING` → `pending`, `TODO_STATUS_IN_PROGRESS` → `in_progress`, `completed` (lowercase) → `completed`, unknown → `pending`
-  - `normalizePlanTodoItem`: skips items with empty content; defaults missing status to `pending`
+### Component tests
 
-- `usePlanDecisionState.test.ts` — new
-  - Each branch of the derivation logic against snapshot chatStore states
+- `PlanReviewRenderer.test.tsx` (extend existing):
+  - Renders todos section when `interaction.todos` populated; status icons match expected
+  - Hides todos section when `interaction.todos` empty or undefined
+  - Long todos (>8): "Show all N steps" toggle
+  - `source: 'client_synth'`: clicking Approve calls `handleSendMessage` with `'Proceed with the plan above.'` and `overrideMode: 'default'`; calls `setMode(sessionId, 'default')`
+  - `source: 'client_synth'`: clicking Deny with empty feedback sends `'Please revise the plan.'`
+  - `source: 'client_synth'`: clicking Deny with feedback sends the feedback text
+  - `source: 'client_synth'`: `handleSendMessage` throws → decision state reverts; mode rolls back on Approve
+  - `source: 'client_synth'`: clicking Save as Issue saves to local issue store + sends `'Saved as issue #N for later.'` user message
+  - `source: 'tool_call'` (default): existing tests still pass (no regression to Claude path)
 
-- `usePlanDecisionHandlers.test.ts` — new
-  - Allow: setMode + sendMessage + setPlanDecision sequence
-  - Deny / DenyWithComment: sendMessage + setPlanDecision (mode unchanged)
-  - sendMessage failure: rollback, no planDecision write
+- `ToolCallItem.test.tsx` (extend): Cursor `createPlan` with synthesised interaction → renders InteractionItem (the existing lookup logic catches it because `interactionId === toolUseId`)
 
 ### Integration tests
 
-- `ToolCallItem.test.tsx` (extended) — Cursor flow
-  - Mock chatStore with completed `createPlan` → card renders
-  - Click Allow → mode change + sendMessage observed
-  - Add newer `createPlan` to store → older card flips to `superseded`
+- New test file `apps/desktop/src/features/chat/__tests__/cursorPlanSynthesis.test.tsx`:
+  - Given: chatStore state with a completed Cursor `createPlan` tool call
+  - And: project store has session with provider type `'cursor'`
+  - When: the message handler processes the tool_result
+  - Then: interactionStore contains a new `interaction_plan_review` with `source: 'client_synth'`, `todos` matching the input
+  - And: `PlanReviewRenderer` (via `InteractionItem`) renders the decision card
 
-- `InlinePermissionRequest.test.tsx` (extended) — Claude flow
-  - Plan-proposal PermissionRequest → renders `PlanDecisionCard`, not legacy detail view
-  - Allow / Deny / Deny+Comment → `onDecision` called with correct args
-  - Negative assertions: no Remember checkbox, no timeout bar, no AI review hint, no credential input
+### Regression coverage matrix
 
-### Optional E2E
-
-If `cursor-agent` is available in the test environment, drive a real plan-mode session and verify the card appears and Allow proceeds the run. Not required for merge.
-
-## Implementation order
-
-1. **Step 1 — `PlanDecisionCard`**: pure component + unit tests. No business wiring.
-2. **Step 2 — chatStore**: add `planDecision` field, `setPlanDecision` action, unit tests.
-3. **Step 3 — Hooks**: `usePlanDecisionState`, `usePlanDecisionHandlers`, unit tests.
-4. **Step 4 — Cursor wiring**: insert `<CursorPlanDecision>` in MessageList, delete `PlanProposalActions`.
-5. **Step 5 — Claude migration**: route `InlinePermissionRequest` plan branch to `PlanDecisionCard`; delete dropped features (after grep-confirming `feedbackDrafts` has no other consumers).
-6. **Step 6 — Integration tests & manual verification**: both providers.
-7. **Step 7 — Cleanup**: remove `EXECUTE_PLAN_PREFILL`, dead `setPendingPrefill` calls if exclusive to plan, update inline docs.
-
-Steps 1-3 are independent and can land in parallel. Steps 4-5 depend on 1-3. Steps 6-7 are closing work. Each step is independently committable and revertable.
+| Path | Approve | Deny (empty) | Deny (feedback) | Save as Issue | Todos rendering |
+|------|---------|--------------|------------------|----------------|------------------|
+| Cursor (client_synth) | ✓ | ✓ default deny | ✓ | ✓ | ✓ |
+| Claude (tool_call) | ✓ (no regression) | ✓ (no regression) | ✓ (no regression) | ✓ (no regression) | N/A |
 
 ## Files touched
 
 **New**:
-- `apps/desktop/src/features/chat/PlanDecisionCard.tsx`
-- `apps/desktop/src/features/chat/PlanDecisionCard.test.tsx`
-- `apps/desktop/src/features/chat/CursorPlanDecision.tsx` (thin shell, may inline into MessageList if trivial)
-- `apps/desktop/src/features/chat/planDecisionCopy.ts`
-- `apps/desktop/src/features/chat/planDecisionPayload.ts` (`extractPlanPayload` + todo normalization)
-- `apps/desktop/src/features/chat/planDecisionPayload.test.ts`
-- `apps/desktop/src/hooks/usePlanDecisionState.ts` (or under `features/chat/`)
-- `apps/desktop/src/hooks/usePlanDecisionState.test.ts`
-- `apps/desktop/src/hooks/usePlanDecisionHandlers.ts`
-- `apps/desktop/src/hooks/usePlanDecisionHandlers.test.ts`
+- `apps/desktop/src/features/chat/planReviewPayload.ts` — `extractPlanPayload`, `normalizePlanTodoItem`, `normalizePlanTodoStatus`
+- `apps/desktop/src/features/chat/planReviewPayload.test.ts`
+- `apps/desktop/src/features/chat/ChatActionsContext.tsx` — context providing `handleSendMessage` + `setMode`
+- `apps/desktop/src/features/chat/__tests__/cursorPlanSynthesis.test.tsx`
 
 **Modified**:
-- `apps/desktop/src/stores/chatStore.ts` — `ToolCallState.planDecision`, `setPlanDecision` action
-- `apps/desktop/src/features/chat/InlinePermissionRequest.tsx` — plan branch routes to `PlanDecisionCard`, drops Remember/timeout/AI-review under plan
-- `apps/desktop/src/features/chat/tool-call/PlanContent.tsx` — remove `PlanProposalActions` + `EXECUTE_PLAN_PREFILL`; keep `PlanContent` markdown rendering for shared use
-- `apps/desktop/src/features/chat/tool-call/ToolExpandedContent.tsx` — replace inline plan-extraction block with `extractPlanPayload(toolInput)`; tool-call card no longer renders todos when a `PlanDecisionCard` is active (todos move to the decision card; the tool-call card just shows the markdown for reference)
-- `apps/desktop/src/features/chat/MessageList.tsx` (or `ChatMessagePane.tsx`) — insertion point for `<CursorPlanDecision>`
-- `apps/desktop/src/stores/permissionStore.ts` — remove `feedbackDrafts` if grep confirms no remaining consumers
+- `shared/src/interaction/forms.ts` — add `PlanTodoItem`, `PlanReviewSource`; extend `PlanReviewInteractionMessage` with `todos?` and narrow `source` typing
+- `apps/desktop/src/features/chat/InteractionItem.tsx::PlanReviewRenderer` — todos rendering; branch handlers on `interaction.source`; consume `ChatActionsContext`
+- `apps/desktop/src/features/chat/__tests__/PlanReviewRenderer.test.tsx` — extend with todos + client_synth cases
+- `apps/desktop/src/hooks/chat/useSendMessage.ts` — add `overrideMode?: string` parameter to `handleSendMessage`; thread into `runStartMsg.mode`
+- `apps/desktop/src/features/chat/ChatInterface.tsx` — wrap tree in `<ChatActionsProvider value={{ handleSendMessage, setMode }}>`
+- `apps/desktop/src/services/message-handlers/tool-messages.ts` (or wherever tool_result is processed) — on Cursor `plan_proposal` completion, synthesise interaction
+- `apps/desktop/src/services/message-handlers/interaction-messages.ts` — expose / accept a synthesised-interaction insertion path (or call existing handler with the synthesised message — pick whichever matches the existing pattern)
+- `apps/desktop/src/features/chat/tool-call/PlanContent.tsx` — delete `PlanProposalActions` + `EXECUTE_PLAN_PREFILL`; keep `PlanContent` markdown rendering for potential reuse in `PlanReviewRenderer`'s plan markdown viewport (or inline if simpler)
+- `apps/desktop/src/features/chat/tool-call/ToolExpandedContent.tsx` — replace inline plan-extraction block with `extractPlanPayload(toolInput)` call
 
-**Tests modified**:
-- `apps/desktop/src/features/chat/__tests__/ToolCallItem.test.tsx`
-- `apps/desktop/src/features/chat/__tests__/InlinePermissionRequest.test.tsx`
-- `apps/desktop/src/stores/chatStore.test.ts`
+**Not touched**:
+- `apps/desktop/src/features/chat/InlinePermissionRequest.tsx` — its plan-proposal branch is a fallback path, not on the primary flow. Out of scope.
+- `server/src/application/conversation/interactions/interaction-tools.ts` — Claude path is unchanged.
+- `server/src/infrastructure/providers/cursor-sdk.ts` — `toolSemantic: 'plan_proposal'` is already emitted; client takes it from there.
+
+## Implementation order
+
+1. **Step 1 — Shared type extensions**: `PlanTodoItem`, `PlanReviewSource`, `PlanReviewInteractionMessage.todos / .source` in `shared/`. Run shared build, ensure no consumers break.
+2. **Step 2 — Payload helper**: `planReviewPayload.ts` + tests. Pure function, no integration yet.
+3. **Step 3 — `handleSendMessage` mode override**: additive param. Existing call sites continue to work.
+4. **Step 4 — `ChatActionsContext`**: provider in `ChatInterface`, hook export. No consumers yet.
+5. **Step 5 — `PlanReviewRenderer` todos rendering**: extend component to render new `todos` field. Run existing tests — no regression. New test case for todos.
+6. **Step 6 — `PlanReviewRenderer` client_synth branch**: branch handlers on `interaction.source`. Add tests using a mock context.
+7. **Step 7 — Cursor synthesiser**: insertion point in the tool-message handler. Integration test verifying the interaction lands in the store.
+8. **Step 8 — Cleanup**: delete `PlanProposalActions`, `EXECUTE_PLAN_PREFILL`, related calls; switch `ToolExpandedContent` plan branch to `extractPlanPayload`.
+9. **Step 9 — Manual verification**: drive a Cursor plan-mode session locally; click each button; confirm Claude path still works.
+
+Steps 1-4 are independent and can land in any order or in parallel. Step 5 depends on 1. Step 6 depends on 1, 3, 4. Step 7 depends on 1, 2 and the existing interaction insertion path. Step 8 depends on 7 (don't strip the prefill until the new path is live). Step 9 is the end-to-end check.
 
 ## Open questions deferred to implementation
 
-- Exact chatStore field names (`messages`, `role`, etc.) — reconcile with current shape.
-- Whether `setPendingPrefill` has non-plan callers; if yes, keep the action and only remove the plan-specific call site.
-- Whether `CursorPlanDecision` is worth a separate file or inlining into MessageList — decided by file size and reuse.
+- Exact location of the Cursor tool-result message handler (`services/message-handlers/`). The synthesiser must hook at the point where the tool transitions from `running` to `completed` — verify whether that lives in `tool-messages.ts`, `runtime-events.ts`, or somewhere else during implementation.
+- Whether `setPendingPrefill` has consumers other than the deleted "Execute plan" button. Grep before removing the store action.
+- Whether `PlanContent` (the markdown renderer in `tool-call/PlanContent.tsx`) should be lifted to share with `PlanReviewRenderer`'s plan body; today `PlanReviewRenderer` uses `whitespace-pre-wrap` raw markdown. Consider as a small polish in step 8.
 
-None of these block the design; they are tactical implementation details.
+None of these block the design.
