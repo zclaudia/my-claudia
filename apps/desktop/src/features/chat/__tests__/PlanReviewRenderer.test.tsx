@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import type { PlanReviewInteractionMessage } from '@my-claudia/shared';
+import { ChatActionsProvider } from '../ChatActionsContext';
 
 const sendMessage = vi.fn();
 const createIssue = vi.fn();
@@ -207,8 +208,6 @@ describe('PlanReviewRenderer — todos rendering', () => {
     expect(screen.getByText('step 12')).toBeInTheDocument();
   });
 });
-
-import { ChatActionsProvider } from '../ChatActionsContext';
 
 const handleSendMessage = vi.fn();
 const setMode = vi.fn();

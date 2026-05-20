@@ -8,6 +8,9 @@ import { useProjectStore } from '../../stores/projectStore';
 import { SavePlanAsIssueDialog } from './SavePlanAsIssueDialog';
 import { useChatActionsOptional } from './ChatActionsContext';
 
+const ALLOW_MESSAGE = 'Proceed with the plan above.';
+const DEFAULT_DENY_MESSAGE = 'Please revise the plan.';
+
 interface InteractionItemProps {
   interaction: InteractionMessage;
 }
@@ -389,9 +392,6 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showAllTodos, setShowAllTodos] = useState(false);
 
-  const ALLOW_MESSAGE = 'Proceed with the plan above.';
-  const DEFAULT_DENY_MESSAGE = 'Please revise the plan.';
-
   const chatActions = useChatActionsOptional();
   const isClientSynth = interaction.source === 'client_synth';
 
@@ -444,6 +444,11 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
     async (title: string) => {
       setSaving(true);
       setSaveError(null);
+      // NOTE: createIssue runs before handleSendMessage / sendMessage. A failed
+      // message send (especially in the client_synth branch) leaves an orphaned
+      // issue in the local store. Users can re-trigger Save as Issue and a new
+      // issue will be created — acceptable for v1 since send failures are rare
+      // and local issues are cheap to clean up.
       try {
         const projectId = useProjectStore
           .getState()
