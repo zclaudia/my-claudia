@@ -41,7 +41,7 @@ export function useDataLoader() {
       const { selectedSessionId } = store;
       if (selectedSessionId && !sessions.find(s => s.id === selectedSessionId)) {
         const internalProjectIds = new Set(
-          (store.projects || []).filter(p => p.isInternal).map(p => p.id)
+          projects.filter(p => p.isInternal).map(p => p.id)
         );
         const userSessions = sessions.filter(s => !internalProjectIds.has(s.projectId) && s.type !== 'background');
         const latest = userSessions.length > 0
@@ -55,7 +55,7 @@ export function useDataLoader() {
       }
       console.error('[DataLoader] Error loading data:', err);
     }
-  }, [isActiveConnected, activeServerId, reconnectGeneration]);
+  }, [isActiveConnected, activeServerId]);
 
   // Load data when connected, server changes, or after reconnect
   useEffect(() => {
