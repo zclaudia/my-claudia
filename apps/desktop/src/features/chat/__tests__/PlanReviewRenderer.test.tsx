@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import type { PlanReviewInteractionMessage } from '@my-claudia/shared';
 import { ChatActionsProvider } from '../ChatActionsContext';
+import { useInteractionStore } from '../../../stores/interactionStore';
+import { useChatStore } from '../../../stores/chatStore';
 
 const sendMessage = vi.fn();
 const createIssue = vi.fn();
@@ -288,12 +290,30 @@ describe('PlanReviewRenderer — client_synth', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it('on Approve when handleSendMessage rejects: reverts mode and decision state', async () => {
+  it('on Approve success: resolves the interaction from the store', async () => {
+    // Seed the interaction store with the synth interaction
+    useInteractionStore.setState({
+      interactions: { [synthInteraction.interactionId]: synthInteraction },
+    } as any);
+    renderWithActions(<InteractionItem interaction={synthInteraction} />);
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+    await waitFor(() => {
+      expect(handleSendMessage).toHaveBeenCalled();
+    });
+    // After successful send, the interaction must be removed from the store
+    expect(useInteractionStore.getState().has(synthInteraction.interactionId)).toBe(false);
+    // Clean up store after test
+    useInteractionStore.setState({ interactions: {} } as any);
+  });
+
+  it('on Approve when handleSendMessage rejects: reverts to captured prior mode and decision state', async () => {
+    // Seed the chat store with the prior mode so the rollback uses the captured value
+    useChatStore.setState({ modeOverrides: { 'session-1': 'plan' } } as any);
     handleSendMessage.mockRejectedValueOnce(new Error('network down'));
     renderWithActions(<InteractionItem interaction={synthInteraction} />);
     fireEvent.click(screen.getByRole('button', { name: /approve/i }));
     await waitFor(() => {
-      // mode was switched to 'default' then back to 'plan'
+      // mode was switched to 'default' then back to the captured prior mode ('plan')
       expect(setMode).toHaveBeenNthCalledWith(1, 'session-1', 'default');
       expect(setMode).toHaveBeenNthCalledWith(2, 'session-1', 'plan');
     });

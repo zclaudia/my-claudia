@@ -1,10 +1,12 @@
 import { memo, useState, useCallback } from 'react';
-import { CheckCircle2, Loader2, Square, ListTodo, FileQuestion, Send, Check, ShieldAlert, ThumbsUp, ThumbsDown, ClipboardCheck, Maximize2, Minimize2, Bookmark } from 'lucide-react';
+import { CheckCircle2, Loader2, Square, XCircle, ListTodo, FileQuestion, Send, Check, ShieldAlert, ThumbsUp, ThumbsDown, ClipboardCheck, Maximize2, Minimize2, Bookmark } from 'lucide-react';
 import type { InteractionMessage, InteractionPromptMessage, InteractionPromptField, ApprovalInteractionMessage, PlanReviewInteractionMessage } from '@my-claudia/shared';
 import { ACTIONABLE_LABEL, extractDefaultTitleFromPlan } from '@my-claudia/shared';
 import { useConnection } from '../../contexts/ConnectionContext';
 import { useLocalIssueStore } from '../local-issues/store';
 import { useProjectStore } from '../../stores/projectStore';
+import { useChatStore } from '../../stores/chatStore';
+import { useInteractionStore } from '../../stores/interactionStore';
 import { SavePlanAsIssueDialog } from './SavePlanAsIssueDialog';
 import { useChatActionsOptional } from './ChatActionsContext';
 
@@ -399,13 +401,15 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
     if (isClientSynth && chatActions && interaction.sessionId) {
       const trimmed = feedback.trim();
       const text = trimmed ? `${ALLOW_MESSAGE}\n\n${trimmed}` : ALLOW_MESSAGE;
+      const priorMode = useChatStore.getState().getMode(interaction.sessionId);
       chatActions.setMode(interaction.sessionId, 'default');
       setDecision({ kind: 'approved' });
       try {
         await chatActions.handleSendMessage(text, undefined, 'default');
+        useInteractionStore.getState().resolveInteraction(interaction.interactionId);
       } catch (err) {
         setDecision(null);
-        chatActions.setMode(interaction.sessionId, 'plan');
+        chatActions.setMode(interaction.sessionId, priorMode);
         console.error('[PlanReviewRenderer] Approve send failed', err);
       }
       return;
@@ -425,6 +429,7 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
       setDecision({ kind: 'rejected' });
       try {
         await chatActions.handleSendMessage(text);
+        useInteractionStore.getState().resolveInteraction(interaction.interactionId);
       } catch (err) {
         setDecision(null);
         console.error('[PlanReviewRenderer] Deny send failed', err);
@@ -464,6 +469,7 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
         const savedMessage = `Saved as issue #${issue.id} for later.`;
         if (isClientSynth && chatActions) {
           await chatActions.handleSendMessage(savedMessage);
+          useInteractionStore.getState().resolveInteraction(interaction.interactionId);
         } else {
           sendMessage({
             type: 'interaction_response',
@@ -562,7 +568,7 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
                   ) : todo.status === 'in_progress' ? (
                     <Loader2 size={12} className="animate-spin text-primary" />
                   ) : todo.status === 'cancelled' ? (
-                    <Square size={12} className="text-muted-foreground/60" />
+                    <XCircle size={12} className="text-muted-foreground/60" />
                   ) : (
                     <Square size={12} className="text-muted-foreground" />
                   )}

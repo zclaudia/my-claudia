@@ -151,4 +151,63 @@ describe('Cursor plan synthesiser', () => {
 
     expect(useInteractionStore.getState().interactions['tool-edit']).toBeUndefined();
   });
+
+  it('preserves the client-synth plan review across run_completed', () => {
+    setupCursorSession();
+
+    // 1. tool_use → synthesises a client_synth interaction
+    handleRunMessage({
+      type: 'tool_use',
+      runId: 'run-1',
+      seq: 1,
+      sessionId: 'session-1',
+      toolUseId: 'tool-keep',
+      toolName: 'createPlan',
+      semantic: 'plan_proposal',
+      toolInput: { plan: '# keep me' },
+    } as any, mockCtx);
+
+    expect(useInteractionStore.getState().interactions['tool-keep']).toBeDefined();
+
+    // 2. run_completed arrives (Cursor does not block server-side on createPlan)
+    handleRunMessage({
+      type: 'run_completed',
+      runId: 'run-1',
+      seq: 2,
+      sessionId: 'session-1',
+      usage: undefined,
+    } as any, mockCtx);
+
+    // 3. client-synth interaction must survive so the user can act on it
+    expect(useInteractionStore.getState().interactions['tool-keep']).toBeDefined();
+    expect((useInteractionStore.getState().interactions['tool-keep'] as any).source).toBe('client_synth');
+  });
+
+  it('still clears non-synth same-session interactions on run_completed', () => {
+    setupClaudeSession();
+
+    // Seed a server-driven (tool_call source) plan review interaction
+    useInteractionStore.setState({
+      interactions: {
+        'srv-1': {
+          type: 'interaction_plan_review',
+          interactionId: 'srv-1',
+          sessionId: 'session-1',
+          source: 'tool_call',
+          createdAt: 0,
+          plan: 'X',
+        },
+      },
+    } as any);
+
+    handleRunMessage({
+      type: 'run_completed',
+      runId: 'run-1',
+      seq: 1,
+      sessionId: 'session-1',
+      usage: undefined,
+    } as any, mockCtx);
+
+    expect(useInteractionStore.getState().interactions['srv-1']).toBeUndefined();
+  });
 });

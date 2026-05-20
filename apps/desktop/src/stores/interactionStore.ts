@@ -40,9 +40,23 @@ export const useInteractionStore = create<InteractionState>((set, get) => ({
     set((state) => {
       const filtered: Record<string, InteractionMessage> = {};
       for (const [id, interaction] of Object.entries(state.interactions)) {
+        // Different-session interactions: always keep
         if (interaction.sessionId !== sessionId) {
           filtered[id] = interaction;
+          continue;
         }
+        // Same-session: keep unresolved client-synthesised plan reviews so the
+        // user can still act on them after the cursor run completes (cursor
+        // does not block server-side on createPlan; the user's decision is
+        // resolved client-side via handleSendMessage).
+        if (
+          interaction.type === 'interaction_plan_review' &&
+          interaction.source === 'client_synth'
+        ) {
+          filtered[id] = interaction;
+          continue;
+        }
+        // Other same-session interactions: drop (existing behaviour).
       }
       return { interactions: filtered };
     }),
