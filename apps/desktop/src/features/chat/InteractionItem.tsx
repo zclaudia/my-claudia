@@ -523,21 +523,24 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
       <div className="flex items-center gap-2 self-end">
         <button
           onClick={() => setDialogOpen(true)}
-          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md border border-border bg-background text-foreground hover:bg-muted transition-colors"
+          disabled={saving}
+          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md border border-border bg-background text-foreground hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Bookmark size={10} />
           Save as Issue
         </button>
         <button
           onClick={handleDeny}
-          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md border border-border bg-background text-foreground hover:bg-muted transition-colors"
+          disabled={saving}
+          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md border border-border bg-background text-foreground hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <ThumbsDown size={10} />
           Deny
         </button>
         <button
           onClick={handleApprove}
-          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          disabled={saving}
+          className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <ThumbsUp size={10} />
           Approve Plan

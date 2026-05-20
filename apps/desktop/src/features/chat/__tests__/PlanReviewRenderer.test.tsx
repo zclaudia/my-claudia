@@ -119,4 +119,50 @@ describe('PlanReviewRenderer — save as issue', () => {
     expect(sendMessage).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: /approve/i })).toBeInTheDocument();
   });
+
+  it('disables Approve/Deny/Save while a save is in-flight (prevents duplicate responses)', async () => {
+    let resolveCreate: (issue: unknown) => void;
+    createIssue.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCreate = resolve;
+      }),
+    );
+
+    render(<InteractionItem interaction={interaction} />);
+    fireEvent.click(screen.getByRole('button', { name: /save as issue/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+    // Mid-flight: dialog dismissed (simulate cancel), outer buttons should now be disabled.
+    fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /deny/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /save as issue/i })).toBeDisabled();
+    });
+
+    // Clicking a disabled button must not trigger sendMessage.
+    fireEvent.click(screen.getByRole('button', { name: /deny/i }));
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    // Resolving the save eventually fires the deny+savedAsIssue response exactly once.
+    resolveCreate!({
+      id: 'iss-99',
+      projectId: mockProjectId,
+      title: 'Refactor auth',
+      description: interaction.plan,
+      status: 'open',
+      priority: 'medium',
+      labels: ['actionable'],
+      createdAt: 0,
+      updatedAt: 0,
+    });
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        response: { approved: false, feedback: 'Saved as issue #iss-99 for later.' },
+      }),
+    );
+  });
 });
