@@ -20,6 +20,12 @@ vi.mock('../../../components/renderers/DiffViewer', () => ({
       {filePath && <span>{filePath}</span>}
     </div>
   ),
+  UnifiedDiffViewer: ({ diff, filePath }: any) => (
+    <div data-testid="unified-diff-viewer">
+      <span>{diff}</span>
+      {filePath && <span>{filePath}</span>}
+    </div>
+  ),
 }));
 
 vi.mock('../../../components/renderers/CodeViewer', () => ({
@@ -464,6 +470,32 @@ describe('ToolCallItem', () => {
       fireEvent.click(screen.getByRole('button'));
       expect(screen.getByTestId('diff-viewer')).toBeInTheDocument();
       expect(screen.getByTestId('tool-result').textContent).toContain('old_string not found');
+    });
+
+    it('shows unified diff from file change effect for Cursor Edit tool', () => {
+      const diff = [
+        '--- a/src/app.ts',
+        '+++ b/src/app.ts',
+        '@@ -1 +1 @@',
+        '-old',
+        '+new',
+      ].join('\n');
+      render(<ToolCallItem toolCall={createToolCall({
+        toolName: 'Edit',
+        toolInput: { path: '/repo/src/app.ts' },
+        status: 'completed',
+        result: 'Provider change summary',
+        effect: {
+          kind: 'file_change',
+          files: [{ path: '/repo/src/app.ts', changeKind: 'modify', summary: diff }],
+        },
+      })} />);
+      fireEvent.click(screen.getByRole('button'));
+      const unifiedDiff = screen.getByTestId('unified-diff-viewer');
+      expect(unifiedDiff).toBeInTheDocument();
+      expect(screen.getByText('/repo/src/app.ts')).toBeInTheDocument();
+      expect(unifiedDiff.textContent).toContain('-old');
+      expect(unifiedDiff.textContent).toContain('+new');
     });
 
     it('shows CodeViewer for Write tool when expanded', () => {
@@ -1025,54 +1057,6 @@ describe('ToolCallItem', () => {
       expect(screen.getAllByText(/Do X first/).length).toBeGreaterThanOrEqual(1);
     });
 
-    it('shows "Execute plan" action when session is still in plan mode, switches mode and prefills input on click', async () => {
-      const { useChatStore } = await import('../../../stores/chatStore');
-      mockSelectionState.selectedSessionId = 'sess-1';
-      useChatStore.getState().setMode('sess-1', 'plan');
-      useChatStore.getState().clearPendingPrefill('sess-1');
-
-      try {
-        render(<ToolCallItem toolCall={createToolCall({
-          toolName: 'createPlan',
-          toolInput: { plan: '# Plan' },
-          semantic: 'plan_proposal',
-          status: 'completed',
-        })} />);
-
-        const button = screen.getByRole('button', { name: /Execute plan/i });
-        expect(button).toBeTruthy();
-        fireEvent.click(button);
-
-        expect(useChatStore.getState().getMode('sess-1')).toBe('default');
-        const prefill = useChatStore.getState().pendingPrefills['sess-1'];
-        expect(prefill).toBeTruthy();
-        expect(prefill?.content).toMatch(/Proceed with the plan/i);
-      } finally {
-        mockSelectionState.selectedSessionId = null;
-        useChatStore.getState().setMode('sess-1', '');
-        useChatStore.getState().clearPendingPrefill('sess-1');
-      }
-    });
-
-    it('hides "Execute plan" action once the session has left plan mode', async () => {
-      const { useChatStore } = await import('../../../stores/chatStore');
-      mockSelectionState.selectedSessionId = 'sess-2';
-      useChatStore.getState().setMode('sess-2', 'default');
-
-      try {
-        render(<ToolCallItem toolCall={createToolCall({
-          toolName: 'ExitPlanMode',
-          toolInput: { plan: '# Plan' },
-          semantic: 'plan_proposal',
-          status: 'completed',
-        })} />);
-
-        expect(screen.queryByRole('button', { name: /Execute plan/i })).toBeNull();
-      } finally {
-        mockSelectionState.selectedSessionId = null;
-        useChatStore.getState().setMode('sess-2', '');
-      }
-    });
   });
 
   // ── formatToolResult ──────────────────────────────────────────────────────

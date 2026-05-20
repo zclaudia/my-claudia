@@ -1,7 +1,4 @@
 import { useState } from 'react';
-import { Play } from 'lucide-react';
-import { useChatStore, type ToolCallState } from '../../../stores/chatStore';
-import { useSelectionStore } from '../../../stores/selectionStore';
 
 // Plan content with lightweight markdown rendering
 const PLAN_PREVIEW_LINES = 20;
@@ -67,44 +64,4 @@ function PlanContent({ content }: { content: string }) {
   );
 }
 
-// Default follow-up text inserted into the chat input when the user clicks
-// "Execute plan". Kept short and editable — the input is focused so the user
-// can tweak it before sending.
-const EXECUTE_PLAN_PREFILL = 'Proceed with the plan above.';
-
-// Inline "Execute plan" action shown under a non-blocking plan proposal
-// (cursor's `createPlan`). Hidden for the Claude / MCP flows because by the
-// time the tool reaches `completed`, the runtime has already transitioned the
-// session out of plan mode — so the mode filter naturally excludes them.
-function PlanProposalActions({ status }: { status: ToolCallState['status'] }) {
-  const sessionId = useSelectionStore((s) => s.selectedSessionId);
-  const sessionMode = useChatStore((s) =>
-    sessionId ? s.modeOverrides[sessionId] || s.runtimeModes[sessionId] || '' : '',
-  );
-  const setMode = useChatStore((s) => s.setMode);
-  const setPendingPrefill = useChatStore((s) => s.setPendingPrefill);
-
-  if (!sessionId) return null;
-  if (status !== 'completed') return null;
-  if (sessionMode !== 'plan') return null;
-
-  const handleExecute = () => {
-    setMode(sessionId, 'default');
-    setPendingPrefill(sessionId, EXECUTE_PLAN_PREFILL);
-  };
-
-  return (
-    <div className="mt-2 flex items-center justify-end gap-2">
-      <button
-        type="button"
-        onClick={handleExecute}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80 transition-colors"
-      >
-        <Play size={11} strokeWidth={2.2} />
-        Execute plan
-      </button>
-    </div>
-  );
-}
-
-export { PlanContent, PlanProposalActions, PLAN_PREVIEW_LINES, EXECUTE_PLAN_PREFILL };
+export { PlanContent, PLAN_PREVIEW_LINES };

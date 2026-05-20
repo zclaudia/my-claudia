@@ -1,8 +1,8 @@
 import { CheckCircle2, Loader2, Square } from 'lucide-react';
-import type { ToolSemantic } from '@my-claudia/shared';
+import type { ToolEffect, ToolSemantic } from '@my-claudia/shared';
 import { type ToolCallState } from '../../../stores/chatStore';
 import { CodeViewer } from '../../../components/renderers/CodeViewer';
-import { DiffViewer } from '../../../components/renderers/DiffViewer';
+import { DiffViewer, UnifiedDiffViewer } from '../../../components/renderers/DiffViewer';
 import { toolRendererRegistry } from '../../../services/toolRendererRegistry';
 import {
   isTodoTool,
@@ -18,16 +18,36 @@ import {
   formatToolResult,
 } from './toolFormatters';
 import { TerminalOutput, RunInTerminalButton } from './TerminalOutput';
-import { PlanContent, PlanProposalActions } from './PlanContent';
+import { PlanContent } from './PlanContent';
+import { extractPlanPayload } from '../planReviewPayload';
+
+function looksLikeUnifiedDiff(value: string): boolean {
+  return (
+    (/^---\s/m.test(value) && /^\+\+\+\s/m.test(value))
+    || (/^@@\s/m.test(value) && /^[+-](?![+-])/m.test(value))
+    || /^diff --git\s/m.test(value)
+  );
+}
+
+function getFileChangeDiffs(effect?: ToolEffect): Array<{ path: string; diff: string }> {
+  if (effect?.kind !== 'file_change') return [];
+  return effect.files
+    .map((file) => ({
+      path: file.path,
+      diff: typeof file.summary === 'string' ? file.summary : '',
+    }))
+    .filter((file) => file.diff.trim().length > 0 && looksLikeUnifiedDiff(file.diff));
+}
 
 // Render expanded content based on tool type
-function ToolExpandedContent({ toolName, toolInput, status, result, isError, semantic }: {
+function ToolExpandedContent({ toolName, toolInput, status, result, isError, semantic, effect }: {
   toolName: string;
   toolInput: unknown;
   status: ToolCallState['status'];
   result?: unknown;
   isError?: boolean;
   semantic?: ToolSemantic;
+  effect?: ToolEffect;
 }) {
   // Check for custom plugin tool renderer
   const CustomRenderer = toolRendererRegistry.get(toolName);
@@ -46,6 +66,31 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError, sem
   }
 
   const input = normalizeToolInput(toolInput) as Record<string, unknown> | undefined;
+  const fileChangeDiffs = getFileChangeDiffs(effect);
+
+  // Provider file-change tools may only provide a unified diff summary
+  // (Cursor editToolCall, Codex fileChange, etc.).
+  if (toolName === 'Edit' && fileChangeDiffs.length > 0) {
+    return (
+      <div className="px-3 pb-3 border-t border-border/50">
+        <div className="mt-2 space-y-3">
+          {fileChangeDiffs.map((file) => (
+            <UnifiedDiffViewer key={`${file.path}:${file.diff.slice(0, 40)}`} diff={file.diff} filePath={file.path} />
+          ))}
+        </div>
+        {status !== 'running' && isError && result !== undefined && (
+          <div className="mt-2">
+            <pre
+              data-testid="tool-result"
+              className="text-xs rounded-md p-2 overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch] whitespace-pre bg-destructive/20 text-destructive"
+            >
+              {formatToolResult(result)}
+            </pre>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // Edit tool: show inline diff
   if (toolName === 'Edit' && input?.old_string && input?.new_string) {
@@ -195,35 +240,12 @@ function ToolExpandedContent({ toolName, toolInput, status, result, isError, sem
   // exit_plan_mode, Cursor's createPlan, and any future provider that tags
   // its plan tool with `plan_proposal`.
   if (isPlanProposalTool(toolName, semantic)) {
-    // Try to get plan content from various possible formats
-    let planContent = '';
-
-    if (input?.plan) {
-      // Check if plan is a string (direct content)
-      if (typeof input.plan === 'string') {
-        planContent = input.plan;
-      }
-      // Check if plan is an object (might have file path or other structure)
-      else if (typeof input.plan === 'object') {
-        planContent = JSON.stringify(input.plan, null, 2);
-      }
-    } else if (input?.plan_file && typeof input.plan_file === 'string') {
-      // If there's a plan_file field, show a message about it
-      planContent = `# Plan\n\nPlan file: ${input.plan_file}\n\nThe plan content will be displayed after approval.`;
-    } else if (Object.keys(input || {}).length > 0) {
-      // If no plan field but has other fields, display them nicely
-      planContent = `# Plan Details\n\n${JSON.stringify(input, null, 2)}`;
-    } else {
-      // Fallback message
-      planContent = '# Plan\n\nPlan ready for review.';
-    }
-
+    const { planContent } = extractPlanPayload(toolInput);
     return (
       <div className="px-3 pb-3 border-t border-border/50">
         <div className="mt-2">
           <PlanContent content={planContent} />
         </div>
-        <PlanProposalActions status={status} />
         {status !== 'running' && result !== undefined && (
           <div className="mt-2">
             <pre
