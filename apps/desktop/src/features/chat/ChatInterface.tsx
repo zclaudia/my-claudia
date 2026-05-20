@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState, useCallback, useMemo, type ReactNode } from 'react';
+import { ChatActionsProvider, type ChatActionsContextValue } from './ChatActionsContext';
 import { AlertTriangle } from 'lucide-react';
 import { ChatInputArea } from './ChatInputArea';
 import { ChatMessagePane } from './ChatMessagePane';
@@ -109,6 +110,11 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar, b
     resetSendState,
   } = send;
 
+  const chatActionsValue = useMemo<ChatActionsContextValue>(() => ({
+    handleSendMessage,
+    setMode: useChatStore.getState().setMode,
+  }), [handleSendMessage]);
+
   // UI state
   const [showSessionMenu, setShowSessionMenu] = useState(false);
   const [isRenamingSession, setIsRenamingSession] = useState(false);
@@ -160,6 +166,7 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar, b
   const poppedOutLabel = poppedOutSessions.get(sessionId);
 
   return (
+    <ChatActionsProvider value={chatActionsValue}>
     <div ref={chatRootRef} className="flex flex-col flex-1 min-w-0 h-full bg-background">
       {/* Popped-out placeholder */}
       {poppedOutLabel && (
@@ -343,5 +350,6 @@ export function ChatInterface({ sessionId, onReturnToDashboard, onOpenSidebar, b
       {/* Draft lock conflict dialog */}
       {draftShowLockPrompt && <DraftLockPrompt />}
     </div>
+    </ChatActionsProvider>
   );
 }
