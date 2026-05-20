@@ -63,6 +63,14 @@ fn debug_log(data_dir: &str, msg: &str) {
     eprintln!("[EmbeddedServer/Rust] {}", msg);
 }
 
+fn process_io_log_line(stream: &str, line: &str) -> String {
+    format!("node {}: {}", stream, line)
+}
+
+fn debug_process_io(data_dir: &str, stream: &str, line: &str) {
+    debug_log(data_dir, &process_io_log_line(stream, line));
+}
+
 fn chrono_now() -> String {
     let dur = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -456,6 +464,21 @@ pub async fn start_server(
     // Write pid file for orphan cleanup
     write_pid_file(&data_dir, pid);
 
+    // Drain stderr immediately so startup failures cannot block while stdout is
+    // still waiting for SERVER_READY.
+    if let Some(stderr) = child.stderr.take() {
+        let stderr_log_dir = data_dir.clone();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    debug_process_io(&stderr_log_dir, "stderr", &line);
+                }
+            }
+            debug_log(&stderr_log_dir, "node stderr stream closed");
+        });
+    }
+
     // Read stdout line by line looking for SERVER_READY:<port>
     let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
     let reader = BufReader::new(stdout);
@@ -466,7 +489,7 @@ pub async fn start_server(
     while let Some(line) = lines_iter.next() {
         match line {
             Ok(line) => {
-                eprintln!("[EmbeddedServer/Rust] stdout: {}", line);
+                debug_process_io(&data_dir, "stdout", &line);
                 if let Some(rest) = line.strip_prefix("SERVER_READY:") {
                     if let Ok(p) = rest.trim().parse::<u16>() {
                         port = Some(p);
@@ -483,27 +506,15 @@ pub async fn start_server(
 
     // Keep draining stdout in a background thread so the pipe doesn't break (EPIPE).
     // The server continues to write log lines to stdout after SERVER_READY.
+    let stdout_log_dir = data_dir.clone();
     std::thread::spawn(move || {
         for line in lines_iter {
             if let Ok(line) = line {
-                eprintln!("[EmbeddedServer/Rust] stdout: {}", line);
+                debug_process_io(&stdout_log_dir, "stdout", &line);
             }
         }
-        eprintln!("[EmbeddedServer/Rust] stdout stream closed");
+        debug_log(&stdout_log_dir, "node stdout stream closed");
     });
-
-    // Drain stderr in a background thread
-    if let Some(stderr) = child.stderr.take() {
-        std::thread::spawn(move || {
-            let reader = BufReader::new(stderr);
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    eprintln!("[EmbeddedServer/Rust] stderr: {}", line);
-                }
-            }
-            eprintln!("[EmbeddedServer/Rust] stderr stream closed");
-        });
-    }
 
     match port {
         Some(p) => {
@@ -677,7 +688,10 @@ pub fn stop_server_sync() {
 
 #[cfg(test)]
 mod tests {
-    use super::{decide_existing_server_action, ExistingServerAction, ServerLaunchConfig};
+    use super::{
+        decide_existing_server_action, process_io_log_line, ExistingServerAction,
+        ServerLaunchConfig,
+    };
     use std::collections::BTreeMap;
 
     fn make_config(
@@ -735,6 +749,14 @@ mod tests {
         assert_eq!(
             decide_existing_server_action(None, &requested),
             ExistingServerAction::Restart
+        );
+    }
+
+    #[test]
+    fn process_io_log_line_tags_child_output_stream() {
+        assert_eq!(
+            process_io_log_line("stderr", "Error: gateway failed"),
+            "node stderr: Error: gateway failed"
         );
     }
 }

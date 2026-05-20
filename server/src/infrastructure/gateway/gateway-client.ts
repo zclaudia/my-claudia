@@ -101,6 +101,7 @@ import type { ActiveRun } from '../../application/conversation/transport/types.j
 type ActiveRunsMap = Map<string, ActiveRun>;
 type BackendMessageHandler = (backendId: string, message: ClientMessage) => Promise<void> | void;
 type BackendClosedHandler = (backendId: string) => void;
+type GenericEventHandler = (...args: unknown[]) => void;
 
 // ============================================================================
 // Outgoing Subscription Types (facade client role)
@@ -215,6 +216,8 @@ export class GatewayClient {
   private reconnectBaseInterval = 5000;
   private reconnectMaxInterval = 60000;
   private reconnectTimeout: NodeJS.Timeout | null = null;
+  private connectTimeout: NodeJS.Timeout | null = null;
+  private connectTimeoutMs = 15000;
 
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private heartbeatIntervalMs = 10_000;
@@ -324,6 +327,7 @@ export class GatewayClient {
   connect(): void {
     this.intentionalDisconnect = false;
     if (this.reconnectTimeout) { clearTimeout(this.reconnectTimeout); this.reconnectTimeout = null; }
+    this.clearConnectTimeout();
     if (this.ws) { this.ws.removeAllListeners(); this.ws.close(); this.ws = null; }
 
     const wsUrl = this.config.gatewayUrl.replace(/^http/, 'ws');
@@ -348,6 +352,16 @@ export class GatewayClient {
     this.ws = new WebSocket(`${wsUrl}/ws`, wsOptions);
     const currentWs = this.ws;
 
+    this.connectTimeout = setTimeout(() => {
+      if (this.ws !== currentWs || this.isConnected) return;
+      console.warn(`[Gateway] Connection attempt timed out after ${this.connectTimeoutMs / 1000}s`);
+      currentWs.removeAllListeners();
+      currentWs.close();
+      if (this.ws === currentWs) this.ws = null;
+      this.cleanup();
+      this.scheduleReconnect();
+    }, this.connectTimeoutMs);
+
     this.ws.on('open', () => { if (this.ws !== currentWs) return; this.sendPeerHello(); });
     this.ws.on('message', (data: Buffer) => {
       if (this.ws !== currentWs) return;
@@ -356,16 +370,24 @@ export class GatewayClient {
     });
     this.ws.on('close', (code: number) => {
       if (this.ws !== currentWs) return;
+      this.clearConnectTimeout();
       console.log(`[Gateway] Disconnected (code: ${code})`);
       this.cleanup();
       if (code !== 4000) this.scheduleReconnect();
     });
-    this.ws.on('error', (error) => { if (this.ws !== currentWs) return; console.error('[Gateway] Connection error:', error); });
+    this.ws.on('error', (error) => {
+      if (this.ws !== currentWs) return;
+      this.clearConnectTimeout();
+      console.error('[Gateway] Connection error:', error);
+      this.cleanup();
+      this.scheduleReconnect();
+    });
   }
 
   disconnect(): void {
     this.intentionalDisconnect = true;
     if (this.reconnectTimeout) { clearTimeout(this.reconnectTimeout); this.reconnectTimeout = null; }
+    this.clearConnectTimeout();
     this.cleanup();
     if (this.ws) { this.ws.removeAllListeners(); this.ws.close(); this.ws = null; }
   }
@@ -435,14 +457,14 @@ export class GatewayClient {
     // both receive callbacks without overwriting each other.
     const prev = { ...this.outgoingEvents };
     const merged: GatewayClientOutgoingEvents = { ...prev, ...events };
+    const mergedHandlers = merged as unknown as Partial<Record<keyof GatewayClientOutgoingEvents, GenericEventHandler>>;
     for (const key of Object.keys(events) as Array<keyof GatewayClientOutgoingEvents>) {
-      const prevHandler = prev[key];
-      const nextHandler = events[key];
+      const prevHandler = prev[key] as GenericEventHandler | undefined;
+      const nextHandler = events[key] as GenericEventHandler | undefined;
       if (prevHandler && nextHandler && prevHandler !== nextHandler) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (merged as any)[key] = (...args: unknown[]) => {
-          (prevHandler as Function).apply(null, args);
-          (nextHandler as Function).apply(null, args);
+        mergedHandlers[key] = (...args: unknown[]) => {
+          prevHandler(...args);
+          nextHandler(...args);
         };
       }
     }
@@ -498,6 +520,7 @@ export class GatewayClient {
   publishBackendDataSnapshot(targetPeerSessionId?: string): void {
     if (!this.ws || !this.isConnected || !this.epoch) return;
     if (!this.db || !this.activeRuns) return;
+    const activeRuns = this.activeRuns;
     try {
       const sessions = this.db.prepare(`
         SELECT s.id, s.name, s.project_id as projectId,
@@ -516,7 +539,7 @@ export class GatewayClient {
         createdAt: s.createdAt as number,
         updatedAt: s.updatedAt as number,
         lastMessageAt: s.updatedAt as number,
-        runStatus: hasForegroundActiveRunForSession(this.activeRuns!, s.id as string) ? 'running' as const : 'idle' as const,
+        runStatus: hasForegroundActiveRunForSession(activeRuns, s.id as string) ? 'running' as const : 'idle' as const,
       }));
 
       // Query projects
@@ -675,7 +698,6 @@ export class GatewayClient {
   // Internal — Message Router
   // ==========================================================================
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Message router dispatches to typed handlers via switch; each branch casts implicitly.
   private handleMessage(message: Record<string, unknown>): void {
     const msg = message as Record<string, unknown> & { type: string };
     switch (msg.type) {
@@ -710,6 +732,7 @@ export class GatewayClient {
   }
 
   private handlePeerReady(msg: PeerReadyMessage): void {
+    this.clearConnectTimeout();
     this.isConnected = true;
     this.peerSessionId = msg.peerSessionId;
     this.recoveryToken = msg.recoveryToken;
@@ -1020,6 +1043,13 @@ export class GatewayClient {
     this.stopHeartbeat();
     this.stopBackendDataPush();
     if (wasConnected) this.outgoingEvents.onConnectionStateChanged?.(false);
+  }
+
+  private clearConnectTimeout(): void {
+    if (this.connectTimeout) {
+      clearTimeout(this.connectTimeout);
+      this.connectTimeout = null;
+    }
   }
 
   private scheduleReconnect(): void {

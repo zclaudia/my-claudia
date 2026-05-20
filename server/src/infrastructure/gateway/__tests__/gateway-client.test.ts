@@ -558,6 +558,28 @@ describe('GatewayClient', () => {
       expect((client as any).reconnectAttempts).toBe(1);
     });
 
+    it('schedules reconnect when the websocket errors without a close event', () => {
+      client.connect();
+      const mockWs = (client as any).ws;
+
+      const errorHandler = mockWs.on.mock.calls.find(
+        (call: any[]) => call[0] === 'error'
+      )?.[1];
+      errorHandler?.(new Error('proxy unavailable'));
+
+      expect((client as any).reconnectTimeout).not.toBeNull();
+      expect((client as any).reconnectAttempts).toBe(1);
+    });
+
+    it('schedules reconnect when the connection attempt never opens or closes', () => {
+      client.connect();
+
+      vi.advanceTimersByTime((client as any).connectTimeoutMs);
+
+      expect((client as any).reconnectTimeout).not.toBeNull();
+      expect((client as any).reconnectAttempts).toBe(1);
+    });
+
     it('does not reconnect after code 4000 (replaced)', () => {
       client.connect();
       const mockWs = (client as any).ws;
