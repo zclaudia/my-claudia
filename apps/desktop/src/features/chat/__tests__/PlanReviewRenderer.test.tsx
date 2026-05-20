@@ -166,3 +166,43 @@ describe('PlanReviewRenderer — save as issue', () => {
     );
   });
 });
+
+describe('PlanReviewRenderer — todos rendering', () => {
+  it('does not render the Steps section when todos is absent', () => {
+    render(<InteractionItem interaction={interaction} />);
+    expect(screen.queryByText(/Steps/i)).not.toBeInTheDocument();
+  });
+
+  it('renders a Steps section with one row per todo when present', () => {
+    const withTodos = {
+      ...interaction,
+      todos: [
+        { content: 'first step', status: 'pending' as const },
+        { content: 'second step', status: 'in_progress' as const },
+        { content: 'third step', status: 'completed' as const },
+      ],
+    };
+    render(<InteractionItem interaction={withTodos} />);
+    expect(screen.getByText(/Steps/)).toBeInTheDocument();
+    expect(screen.getByText('first step')).toBeInTheDocument();
+    expect(screen.getByText('second step')).toBeInTheDocument();
+    expect(screen.getByText('third step')).toBeInTheDocument();
+  });
+
+  it('shows a "Show all N steps" toggle when more than 8 todos are present', () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({
+      content: `step ${i + 1}`,
+      status: 'pending' as const,
+    }));
+    render(<InteractionItem interaction={{ ...interaction, todos: many }} />);
+
+    // First 8 visible, 9-12 hidden
+    expect(screen.getByText('step 1')).toBeInTheDocument();
+    expect(screen.getByText('step 8')).toBeInTheDocument();
+    expect(screen.queryByText('step 9')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText(/Show all 12 steps/i));
+
+    expect(screen.getByText('step 12')).toBeInTheDocument();
+  });
+});

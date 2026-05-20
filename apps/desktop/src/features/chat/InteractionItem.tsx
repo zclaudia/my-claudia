@@ -386,6 +386,7 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
   const [dialogOpen, setDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [showAllTodos, setShowAllTodos] = useState(false);
 
   const handleApprove = useCallback(() => {
     sendMessage({
@@ -507,6 +508,46 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {interaction.todos && interaction.todos.length > 0 && (
+        <div className="flex flex-col gap-1 mt-1">
+          <span className="text-[11px] font-medium text-muted-foreground">Steps</span>
+          <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+            {(showAllTodos ? interaction.todos : interaction.todos.slice(0, 8)).map((todo, idx) => (
+              <div key={idx} className="flex items-start gap-2 text-xs">
+                <span className="flex-shrink-0 mt-0.5">
+                  {todo.status === 'completed' ? (
+                    <CheckCircle2 size={12} className="text-success" />
+                  ) : todo.status === 'in_progress' ? (
+                    <Loader2 size={12} className="animate-spin text-primary" />
+                  ) : todo.status === 'cancelled' ? (
+                    <Square size={12} className="text-muted-foreground/60" />
+                  ) : (
+                    <Square size={12} className="text-muted-foreground" />
+                  )}
+                </span>
+                <span
+                  className={
+                    todo.status === 'completed' ? 'text-muted-foreground line-through' :
+                    todo.status === 'cancelled' ? 'text-muted-foreground/70 line-through' :
+                    'text-foreground'
+                  }
+                >
+                  {todo.content}
+                </span>
+              </div>
+            ))}
+          </div>
+          {interaction.todos.length > 8 && (
+            <button
+              onClick={() => setShowAllTodos((v) => !v)}
+              className="text-[11px] text-muted-foreground hover:text-foreground text-left transition-colors"
+            >
+              {showAllTodos ? 'Show fewer steps' : `Show all ${interaction.todos.length} steps`}
+            </button>
+          )}
         </div>
       )}
 
