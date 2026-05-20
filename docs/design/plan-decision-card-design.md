@@ -86,8 +86,14 @@ interface PlanResolution {
   comment?: string;
 }
 
+interface PlanTodoItem {
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+}
+
 interface PlanDecisionCardProps {
   planContent: string;                                    // markdown
+  todos?: PlanTodoItem[];                                 // structured steps, optional
   toolName?: string;                                      // header label
   state: PlanDecisionState;
   resolution?: PlanResolution;                            // required when state === 'resolved'
@@ -98,12 +104,20 @@ interface PlanDecisionCardProps {
 }
 ```
 
+`todos` is optional and only populated by providers that supply structured step lists alongside the plan markdown (currently only Cursor's `createPlan`). Claude's `ExitPlanMode` does not carry todos — the prop is omitted.
+
 ### Visual states
 
-1. **active** — main form. `border-l-4 border-warning`, plan content auto-expanded (reusing `PlanContent` markdown rendering and its `PLAN_PREVIEW_LINES` collapse), comment textarea (`placeholder="Why should we revise this plan?"`), and three buttons in order:
-   - `[Deny]` — secondary
-   - `[Deny + Comment]` — secondary, disabled when textarea empty
-   - `[Allow]` — primary
+1. **active** — main form. `border-l-4 border-warning`, content area laid out top-to-bottom:
+   - **Plan markdown** — `PlanContent` rendering, auto-expanded with its existing `PLAN_PREVIEW_LINES` collapse for long content.
+   - **Todos** (only when `props.todos?.length > 0`) — visually separated below the plan markdown with a thin divider and a small `Steps` label. Each todo renders the same way as the existing `update_todo_list` rendering in `ToolExpandedContent.tsx`: status icon (`CheckCircle2` for completed, spinning `Loader2` for in_progress, `Square` for pending/cancelled) + content text with strikethrough when completed.
+   - **Comment textarea** — `placeholder="Why should we revise this plan?"`.
+   - **Three buttons** in order:
+     - `[Deny]` — secondary
+     - `[Deny + Comment]` — secondary, disabled when textarea empty
+     - `[Allow]` — primary
+
+   Long lists: the todos section also gets a soft cap (e.g., show first 8, "Show all N steps" expander) to prevent the card from becoming unreasonably tall when both the plan and the steps are long.
 
 2. **resolved** — single-row chip. Decision icon (`√` or `×`) + `toolName` + `Approved` / `Denied: <comment first 60 chars…>`. Background `bg-secondary/30`, smaller font.
 
@@ -204,45 +218,105 @@ function usePlanDecisionState(sessionId: string, toolUseId: string): {
   state: PlanDecisionState;
   resolution?: PlanResolution;
   planContent: string;
+  todos?: PlanTodoItem[];
   toolName: string;
 } {
   return useChatStore((s) => {
     const tc = s.toolCalls[sessionId]?.[toolUseId];
-    const planContent = extractPlanContent(tc?.toolInput);
+    const { planContent, todos } = extractPlanPayload(tc?.toolInput);
     const toolName = tc?.toolName ?? 'createPlan';
+    const baseFields = { planContent, todos, toolName };
 
     // 1. explicit resolution
     if (tc?.planDecision) {
       return {
         state: 'resolved',
         resolution: { decision: tc.planDecision.decision, comment: tc.planDecision.comment },
-        planContent,
-        toolName,
+        ...baseFields,
       };
     }
 
     // 2. mode left plan
     const mode = s.modeOverrides[sessionId] || s.runtimeModes[sessionId];
-    if (mode !== 'plan') return { state: 'superseded', planContent, toolName };
+    if (mode !== 'plan') return { state: 'superseded', ...baseFields };
 
     // 3. later user message
     const messages = s.messages[sessionId] ?? [];
     const idx = messages.findIndex((m) => m.toolUseId === toolUseId);
-    if (idx === -1) return { state: 'superseded', planContent, toolName };
+    if (idx === -1) return { state: 'superseded', ...baseFields };
     const tail = messages.slice(idx + 1);
     if (tail.some((m) => m.role === 'user')) {
-      return { state: 'superseded', planContent, toolName };
+      return { state: 'superseded', ...baseFields };
     }
 
     // 4. newer plan_proposal
     if (tail.some((m) => m.type === 'tool_use' && m.toolSemantic === 'plan_proposal')) {
-      return { state: 'superseded', planContent, toolName };
+      return { state: 'superseded', ...baseFields };
     }
 
-    return { state: 'active', planContent, toolName };
+    return { state: 'active', ...baseFields };
   }, shallow);
 }
 ```
+
+### `extractPlanPayload` helper
+
+Replaces the inline plan-extraction logic currently in `ToolExpandedContent.tsx`. Lives in `apps/desktop/src/features/chat/planDecisionPayload.ts`:
+
+```ts
+function extractPlanPayload(toolInput: unknown): {
+  planContent: string;
+  todos?: PlanTodoItem[];
+} {
+  const input = normalizeToolInput(toolInput) as Record<string, unknown> | undefined;
+
+  // Plan markdown
+  let planContent = '';
+  if (typeof input?.plan === 'string') {
+    planContent = input.plan;
+  } else if (input?.plan && typeof input.plan === 'object') {
+    planContent = JSON.stringify(input.plan, null, 2);
+  } else if (typeof input?.plan_file === 'string') {
+    planContent = `# Plan\n\nPlan file: ${input.plan_file}\n\nThe plan content will be displayed after approval.`;
+  } else if (input && Object.keys(input).length > 0) {
+    planContent = `# Plan Details\n\n${JSON.stringify(input, null, 2)}`;
+  } else {
+    planContent = '# Plan\n\nPlan ready for review.';
+  }
+
+  // Todos (Cursor-specific; absent for Claude)
+  const todosRaw = Array.isArray(input?.todos) ? input.todos : undefined;
+  const todos = todosRaw ? todosRaw.flatMap(normalizePlanTodoItem) : undefined;
+
+  return { planContent, todos: todos && todos.length > 0 ? todos : undefined };
+}
+
+function normalizePlanTodoItem(raw: unknown): PlanTodoItem[] {
+  if (!raw || typeof raw !== 'object') return [];
+  const r = raw as Record<string, unknown>;
+  const content = typeof r.content === 'string' ? r.content : '';
+  if (!content) return [];
+  return [{ content, status: normalizePlanTodoStatus(r.status) }];
+}
+
+// Cursor emits `TODO_STATUS_PENDING` / `TODO_STATUS_IN_PROGRESS` / `TODO_STATUS_COMPLETED` /
+// `TODO_STATUS_CANCELLED`. Claude / TodoWrite emit lowercase short forms. Normalize to a
+// single canonical set so the rendering can branch consistently.
+function normalizePlanTodoStatus(raw: unknown): PlanTodoItem['status'] {
+  if (typeof raw !== 'string') return 'pending';
+  const s = raw.toUpperCase().replace(/^TODO_STATUS_/, '');
+  switch (s) {
+    case 'COMPLETED': return 'completed';
+    case 'IN_PROGRESS': return 'in_progress';
+    case 'CANCELLED':
+    case 'CANCELED': return 'cancelled';
+    case 'PENDING':
+    default: return 'pending';
+  }
+}
+```
+
+This helper is used both by `usePlanDecisionState` (Cursor path) and by the plan branch of `InlinePermissionRequest` (Claude path — `todos` will be undefined). The existing `normalizeTodoItems` in `toolFormatters.ts` continues to serve the standalone `TodoWrite` / `update_todo_list` tool; we do not collapse the two helpers because their input shapes (plan input with embedded todos vs. todo-only tool input) and downstream consumers differ.
 
 > The exact field names (`messages`, `role`, `type`, `toolUseId`) must be reconciled with the actual chatStore shape during implementation; the structure above is illustrative.
 
@@ -362,12 +436,23 @@ These were already unused or unreachable in Claude's `ExitPlanMode` flow (plan t
 
 - `PlanDecisionCard.test.tsx` — new
   - Active state: renders plan, three buttons, textarea
+  - Active state with `todos` prop: renders steps section below plan with correct status icons
+  - Active state without `todos` prop: no steps section rendered (Claude shape)
   - Allow / Deny click → calls callbacks
   - Deny+Comment: disabled when textarea empty; passes comment string on click
-  - Resolved state: chip only, no buttons
+  - Resolved state: chip only, no buttons, no todos
   - Superseded state: "Plan superseded" chip
   - Long plan: collapse + "Show full plan" expand
+  - Long todos (>8): collapse + "Show all N steps" expand
   - Keyboard: `Cmd+Enter` in textarea → Deny+Comment when non-empty
+
+- `planDecisionPayload.test.ts` — new
+  - `extractPlanPayload`: plan string → planContent string, todos undefined
+  - `extractPlanPayload`: plan + todos array → both populated
+  - `extractPlanPayload`: plan object (non-string) → JSON.stringify fallback
+  - `extractPlanPayload`: plan_file fallback message
+  - `normalizePlanTodoStatus`: `TODO_STATUS_PENDING` → `pending`, `TODO_STATUS_IN_PROGRESS` → `in_progress`, `completed` (lowercase) → `completed`, unknown → `pending`
+  - `normalizePlanTodoItem`: skips items with empty content; defaults missing status to `pending`
 
 - `usePlanDecisionState.test.ts` — new
   - Each branch of the derivation logic against snapshot chatStore states
@@ -412,6 +497,8 @@ Steps 1-3 are independent and can land in parallel. Steps 4-5 depend on 1-3. Ste
 - `apps/desktop/src/features/chat/PlanDecisionCard.test.tsx`
 - `apps/desktop/src/features/chat/CursorPlanDecision.tsx` (thin shell, may inline into MessageList if trivial)
 - `apps/desktop/src/features/chat/planDecisionCopy.ts`
+- `apps/desktop/src/features/chat/planDecisionPayload.ts` (`extractPlanPayload` + todo normalization)
+- `apps/desktop/src/features/chat/planDecisionPayload.test.ts`
 - `apps/desktop/src/hooks/usePlanDecisionState.ts` (or under `features/chat/`)
 - `apps/desktop/src/hooks/usePlanDecisionState.test.ts`
 - `apps/desktop/src/hooks/usePlanDecisionHandlers.ts`
@@ -421,6 +508,7 @@ Steps 1-3 are independent and can land in parallel. Steps 4-5 depend on 1-3. Ste
 - `apps/desktop/src/stores/chatStore.ts` — `ToolCallState.planDecision`, `setPlanDecision` action
 - `apps/desktop/src/features/chat/InlinePermissionRequest.tsx` — plan branch routes to `PlanDecisionCard`, drops Remember/timeout/AI-review under plan
 - `apps/desktop/src/features/chat/tool-call/PlanContent.tsx` — remove `PlanProposalActions` + `EXECUTE_PLAN_PREFILL`; keep `PlanContent` markdown rendering for shared use
+- `apps/desktop/src/features/chat/tool-call/ToolExpandedContent.tsx` — replace inline plan-extraction block with `extractPlanPayload(toolInput)`; tool-call card no longer renders todos when a `PlanDecisionCard` is active (todos move to the decision card; the tool-call card just shows the markdown for reference)
 - `apps/desktop/src/features/chat/MessageList.tsx` (or `ChatMessagePane.tsx`) — insertion point for `<CursorPlanDecision>`
 - `apps/desktop/src/stores/permissionStore.ts` — remove `feedbackDrafts` if grep confirms no remaining consumers
 
