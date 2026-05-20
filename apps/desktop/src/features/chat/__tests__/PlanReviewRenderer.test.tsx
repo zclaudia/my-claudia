@@ -1,3 +1,4 @@
+import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import type { PlanReviewInteractionMessage } from '@my-claudia/shared';
@@ -204,5 +205,114 @@ describe('PlanReviewRenderer — todos rendering', () => {
     fireEvent.click(screen.getByText(/Show all 12 steps/i));
 
     expect(screen.getByText('step 12')).toBeInTheDocument();
+  });
+});
+
+import { ChatActionsProvider } from '../ChatActionsContext';
+
+const handleSendMessage = vi.fn();
+const setMode = vi.fn();
+
+function renderWithActions(ui: React.ReactNode) {
+  return render(
+    <ChatActionsProvider value={{ handleSendMessage, setMode }}>
+      {ui}
+    </ChatActionsProvider>,
+  );
+}
+
+const synthInteraction: PlanReviewInteractionMessage = {
+  ...interaction,
+  source: 'client_synth',
+};
+
+beforeEach(() => {
+  handleSendMessage.mockReset();
+  handleSendMessage.mockResolvedValue(undefined);
+  setMode.mockReset();
+});
+
+describe('PlanReviewRenderer — client_synth', () => {
+  it('on Approve: sets mode to default and sends "Proceed with the plan above."', async () => {
+    renderWithActions(<InteractionItem interaction={synthInteraction} />);
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+    await waitFor(() => {
+      expect(setMode).toHaveBeenCalledWith('session-1', 'default');
+      expect(handleSendMessage).toHaveBeenCalledWith(
+        'Proceed with the plan above.',
+        undefined,
+        'default',
+      );
+    });
+    // does NOT send interaction_response
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('on Deny with empty feedback: sends the default deny message and keeps mode', async () => {
+    renderWithActions(<InteractionItem interaction={synthInteraction} />);
+    fireEvent.click(screen.getByRole('button', { name: /^deny$/i }));
+    await waitFor(() => {
+      expect(handleSendMessage).toHaveBeenCalledWith('Please revise the plan.');
+    });
+    expect(setMode).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('on Deny with feedback: sends the feedback text', async () => {
+    renderWithActions(<InteractionItem interaction={synthInteraction} />);
+    const textarea = screen.getByPlaceholderText(/comment/i);
+    fireEvent.change(textarea, { target: { value: 'add the test step please' } });
+    fireEvent.click(screen.getByRole('button', { name: /^deny$/i }));
+    await waitFor(() => {
+      expect(handleSendMessage).toHaveBeenCalledWith('add the test step please');
+    });
+  });
+
+  it('on Save as Issue: saves locally and sends "Saved as issue #N for later."', async () => {
+    createIssue.mockResolvedValue({
+      id: 'iss-7',
+      projectId: mockProjectId,
+      title: 'Refactor auth',
+      description: synthInteraction.plan,
+      status: 'open',
+      priority: 'medium',
+      labels: ['actionable'],
+      createdAt: 0,
+      updatedAt: 0,
+    });
+    renderWithActions(<InteractionItem interaction={synthInteraction} />);
+    fireEvent.click(screen.getByRole('button', { name: /save as issue/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => {
+      expect(handleSendMessage).toHaveBeenCalledWith('Saved as issue #iss-7 for later.');
+    });
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('on Approve when handleSendMessage rejects: reverts mode and decision state', async () => {
+    handleSendMessage.mockRejectedValueOnce(new Error('network down'));
+    renderWithActions(<InteractionItem interaction={synthInteraction} />);
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+    await waitFor(() => {
+      // mode was switched to 'default' then back to 'plan'
+      expect(setMode).toHaveBeenNthCalledWith(1, 'session-1', 'default');
+      expect(setMode).toHaveBeenNthCalledWith(2, 'session-1', 'plan');
+    });
+    // decision card reverts — Approve button visible again
+    expect(screen.getByRole('button', { name: /approve/i })).toBeInTheDocument();
+  });
+});
+
+describe('PlanReviewRenderer — tool_call regression', () => {
+  it('on Approve: still sends interaction_response (not handleSendMessage)', () => {
+    renderWithActions(<InteractionItem interaction={interaction} />);
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+    expect(sendMessage).toHaveBeenCalledWith({
+      type: 'interaction_response',
+      interactionId: 'i-1',
+      sessionId: 'session-1',
+      response: { approved: true, feedback: undefined },
+    });
+    expect(handleSendMessage).not.toHaveBeenCalled();
   });
 });

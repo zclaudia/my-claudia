@@ -6,6 +6,7 @@ import { useConnection } from '../../contexts/ConnectionContext';
 import { useLocalIssueStore } from '../local-issues/store';
 import { useProjectStore } from '../../stores/projectStore';
 import { SavePlanAsIssueDialog } from './SavePlanAsIssueDialog';
+import { useChatActionsOptional } from './ChatActionsContext';
 
 interface InteractionItemProps {
   interaction: InteractionMessage;
@@ -388,7 +389,27 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showAllTodos, setShowAllTodos] = useState(false);
 
-  const handleApprove = useCallback(() => {
+  const ALLOW_MESSAGE = 'Proceed with the plan above.';
+  const DEFAULT_DENY_MESSAGE = 'Please revise the plan.';
+
+  const chatActions = useChatActionsOptional();
+  const isClientSynth = interaction.source === 'client_synth';
+
+  const handleApprove = useCallback(async () => {
+    if (isClientSynth && chatActions && interaction.sessionId) {
+      const trimmed = feedback.trim();
+      const text = trimmed ? `${ALLOW_MESSAGE}\n\n${trimmed}` : ALLOW_MESSAGE;
+      chatActions.setMode(interaction.sessionId, 'default');
+      setDecision({ kind: 'approved' });
+      try {
+        await chatActions.handleSendMessage(text, undefined, 'default');
+      } catch (err) {
+        setDecision(null);
+        chatActions.setMode(interaction.sessionId, 'plan');
+        console.error('[PlanReviewRenderer] Approve send failed', err);
+      }
+      return;
+    }
     sendMessage({
       type: 'interaction_response',
       interactionId: interaction.interactionId,
@@ -396,9 +417,20 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
       response: { approved: true, feedback: feedback.trim() || undefined },
     });
     setDecision({ kind: 'approved' });
-  }, [sendMessage, interaction.interactionId, interaction.sessionId, feedback]);
+  }, [isClientSynth, chatActions, interaction, feedback, sendMessage]);
 
-  const handleDeny = useCallback(() => {
+  const handleDeny = useCallback(async () => {
+    if (isClientSynth && chatActions && interaction.sessionId) {
+      const text = feedback.trim() || DEFAULT_DENY_MESSAGE;
+      setDecision({ kind: 'rejected' });
+      try {
+        await chatActions.handleSendMessage(text);
+      } catch (err) {
+        setDecision(null);
+        console.error('[PlanReviewRenderer] Deny send failed', err);
+      }
+      return;
+    }
     sendMessage({
       type: 'interaction_response',
       interactionId: interaction.interactionId,
@@ -406,7 +438,7 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
       response: { approved: false, feedback: feedback.trim() || undefined },
     });
     setDecision({ kind: 'rejected' });
-  }, [sendMessage, interaction.interactionId, interaction.sessionId, feedback]);
+  }, [isClientSynth, chatActions, interaction, feedback, sendMessage]);
 
   const handleSaveAsIssue = useCallback(
     async (title: string) => {
@@ -424,15 +456,17 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
           description: interaction.plan,
           labels: [ACTIONABLE_LABEL],
         });
-        sendMessage({
-          type: 'interaction_response',
-          interactionId: interaction.interactionId,
-          sessionId: interaction.sessionId,
-          response: {
-            approved: false,
-            feedback: `Saved as issue #${issue.id} for later.`,
-          },
-        });
+        const savedMessage = `Saved as issue #${issue.id} for later.`;
+        if (isClientSynth && chatActions) {
+          await chatActions.handleSendMessage(savedMessage);
+        } else {
+          sendMessage({
+            type: 'interaction_response',
+            interactionId: interaction.interactionId,
+            sessionId: interaction.sessionId,
+            response: { approved: false, feedback: savedMessage },
+          });
+        }
         setDecision({ kind: 'saved', issueId: issue.id });
         setDialogOpen(false);
       } catch (err) {
@@ -441,7 +475,7 @@ function PlanReviewRenderer({ interaction }: { interaction: PlanReviewInteractio
         setSaving(false);
       }
     },
-    [createIssue, sendMessage, interaction.sessionId, interaction.interactionId, interaction.plan],
+    [isClientSynth, chatActions, createIssue, sendMessage, interaction.sessionId, interaction.interactionId, interaction.plan],
   );
 
   if (decision) {
