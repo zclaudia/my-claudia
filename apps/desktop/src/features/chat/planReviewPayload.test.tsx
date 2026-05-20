@@ -37,6 +37,11 @@ describe('normalizePlanTodoItem', () => {
     expect(normalizePlanTodoItem('foo')).toEqual([]);
   });
 
+  it('skips items with whitespace-only content', () => {
+    expect(normalizePlanTodoItem({ content: '   ', status: 'pending' })).toEqual([]);
+    expect(normalizePlanTodoItem({ content: '\n\t', status: 'pending' })).toEqual([]);
+  });
+
   it('defaults missing status to pending', () => {
     expect(normalizePlanTodoItem({ content: 'do the thing' })).toEqual([
       { content: 'do the thing', status: 'pending' },
@@ -103,5 +108,13 @@ describe('extractPlanPayload', () => {
     const out = extractPlanPayload(JSON.stringify({ plan: 'inline', todos: [{ content: 'a' }] }));
     expect(out.planContent).toBe('inline');
     expect(out.todos).toEqual([{ content: 'a', status: 'pending' }]);
+  });
+
+  it('produces a default message for non-JSON string input', () => {
+    expect(extractPlanPayload('hello world').planContent).toBe('# Plan\n\nPlan ready for review.');
+  });
+
+  it('produces a default message for array input', () => {
+    expect(extractPlanPayload(['a', 'b']).planContent).toBe('# Plan\n\nPlan ready for review.');
   });
 });

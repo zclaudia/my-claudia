@@ -1,11 +1,5 @@
 import type { PlanTodoItem } from '@my-claudia/shared';
-
-function normalizeToolInput(input: unknown): unknown {
-  if (typeof input === 'string') {
-    try { return JSON.parse(input); } catch { return input; }
-  }
-  return input;
-}
+import { normalizeToolInput } from './tool-call/toolFormatters';
 
 export function normalizePlanTodoStatus(raw: unknown): PlanTodoItem['status'] {
   if (typeof raw !== 'string') return 'pending';
@@ -24,7 +18,7 @@ export function normalizePlanTodoItem(raw: unknown): PlanTodoItem[] {
   if (!raw || typeof raw !== 'object') return [];
   const r = raw as Record<string, unknown>;
   const content = typeof r.content === 'string' ? r.content : '';
-  if (!content) return [];
+  if (!content.trim()) return [];
   return [{ content, status: normalizePlanTodoStatus(r.status) }];
 }
 
@@ -32,7 +26,10 @@ export function extractPlanPayload(toolInput: unknown): {
   planContent: string;
   todos?: PlanTodoItem[];
 } {
-  const input = normalizeToolInput(toolInput) as Record<string, unknown> | undefined;
+  const parsed = normalizeToolInput(toolInput);
+  const input = (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed))
+    ? (parsed as Record<string, unknown>)
+    : undefined;
 
   let planContent = '';
   if (typeof input?.plan === 'string') {
