@@ -70,6 +70,7 @@ import { migration as m_067_turn_summaries } from './067_turn_summaries.js';
 import { migration as m_068_local_issue_comments } from './068_local_issue_comments.js';
 import { migration as m_069_meta_workflow } from './069_meta_workflow.js';
 import { migration as m_070_openspec_foundation } from './070_openspec_foundation.js';
+import { migration as m_071_local_issues_status_expand } from './071_local_issues_status_expand.js';
 
 export type { Migration };
 
@@ -144,6 +145,7 @@ export const migrations: Migration[] = [
   m_068_local_issue_comments,
   m_069_meta_workflow,
   m_070_openspec_foundation,
+  m_071_local_issues_status_expand,
 ];
 
 /**
