@@ -41,6 +41,8 @@ import { ExecutorRegistry, ManualAdapter, ExecutorInstanceRepository } from '../
 import { ClassicAdapter } from '../../domains/executor/adapters/classic-adapter.js';
 import { MetaWorkflowAdapter } from '../../domains/executor/adapters/meta-workflow-adapter.js';
 import { SpecChangeRepository } from '../../domains/spec-change/spec-change-repository.js';
+import { SpecChangeService, ArchiveService } from '../../domains/openspec/index.js';
+import { registerIssueOrchestration, type IssueOrchestration } from '../../domains/issue-orchestration/index.js';
 
 
 interface RegisterFeatureDomainsDeps {
@@ -74,6 +76,9 @@ export interface FeatureDomainsResult {
   executorRegistry: ExecutorRegistry;
   executorInstanceRepo: ExecutorInstanceRepository;
   specChangeRepo: SpecChangeRepository;
+  specChangeService: SpecChangeService;
+  archiveService: ArchiveService;
+  issueOrchestration: IssueOrchestration;
 }
 
 function broadcastToAuthenticatedClients(
@@ -410,6 +415,37 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
   executorRegistry.register('classic', (instance) => new ClassicAdapter(db, changeLifecycle, instance));
   executorRegistry.register('meta-workflow', (instance) => new MetaWorkflowAdapter(db, metaWorkflowService, instance));
 
+  // ── G2/G3: OpenSpec SpecChange / Archive services + Issue orchestration ──
+  // Wires SpecChangeService, ArchiveService, and the full issue-orchestration
+  // bag (ExecutorService + IssueLifecycle + IssueStatusPropagator +
+  // AnonymousIssueService) and installs the propagator subscriber.
+  //
+  // NOTE: `getProjectRoot` is a placeholder that throws. G3 has no UI yet, so
+  // nothing exercises these services through the bootstrap; tests construct
+  // their own services with injected `getProjectRoot`. G5 will replace this
+  // with a real lookup against ProjectService (or whatever project-root
+  // registry exists at that point) once the UI consumes these services.
+  // TODO(G5): wire `getProjectRoot` to ProjectService.getRoot(projectId).
+  const getProjectRootPlaceholder = (projectId: string): string => {
+    throw new Error(
+      `[issue-orchestration] getProjectRoot not yet wired for project ${projectId} — to be implemented in G5`,
+    );
+  };
+  const specChangeService = new SpecChangeService({
+    db,
+    getProjectRoot: getProjectRootPlaceholder,
+  });
+  const archiveService = new ArchiveService({
+    db,
+    getProjectRoot: getProjectRootPlaceholder,
+  });
+  const issueOrchestration = registerIssueOrchestration({
+    db,
+    registry: executorRegistry,
+    specChangeService,
+    archiveService,
+  });
+
   return {
     supervisorService,
     workflowService,
@@ -423,5 +459,8 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     executorRegistry,
     executorInstanceRepo,
     specChangeRepo,
+    specChangeService,
+    archiveService,
+    issueOrchestration,
   };
 }
