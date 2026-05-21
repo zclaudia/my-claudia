@@ -594,12 +594,66 @@ CREATE TABLE project_spec_corpus_meta (
 | 7 | Bootstrap 一次性扫大项目耗时长 / 结果不准 | 分批扫描（按目录）；review dialog 必须人工确认；支持"先扫部分"增量 |
 | 8 | OpenSpec 文件格式未来变更 | 我们只采纳子集（Requirement + Scenario + delta 块），变更影响小；保持解析器版本可升级 |
 
-## 13. 待评审决策
+## 13. 细节决策（已敲定）
 
-1. **Anonymous sub-issue UI 默认折叠**——同意 X2 但 UI 上完全隐藏太极端，建议默认折叠但可一键展开
-2. **Bootstrap 重新扫描的 delta 是否走 review**——v1 强制 review；v2 可选 "auto-accept additions, only review changes/removals"
-3. **Manual executor 类型的具体形态**——用户手动声明 "我已经按 tasks.md 改完了"，无 underlying；用于不想跑 Classic / Meta 时
-4. **Feature Issue 是否允许直接挂 spec_change（不走 sub-issue）**——v1 不允许（严格分层）；v2 灵活性 vs 一致性 tradeoff
+### 13.1 Anonymous sub-issue UI：**默认折叠 + 一键展开**
+
+Issue 列表里 anonymous sub-issue 按"项目级折叠组"展示：
+
+```
+▼ ... (正常 issue)
+☐ Anonymous (12)            ← 默认折叠，点击展开看完整列表
+```
+
+理由：不打扰主流程，但用户想看"零碎改动历史"时能看到。完全隐藏会让"小改动找不到归属"老问题复发。
+
+### 13.2 Bootstrap 重新扫描：**only review changes & removals**
+
+Re-scan 产出的 delta 拆成 3 段处理：
+
+| Delta 类型 | 处理 |
+|-----------|------|
+| **ADDED**（新发现的 capability / requirement / scenario） | 自动接受，无需 review |
+| **MODIFIED** | 必须 review |
+| **REMOVED**（corpus 里有但代码里找不到的） | 必须 review |
+
+理由：
+- ADDED 通常是"项目新增了一个 feature 但还没在 spec 里记录"——是好事，自动追上
+- MODIFIED / REMOVED 涉及**否定已有 spec**，必须人工把关，否则容易把"实际是 bug 但 corpus 还没更新"的情况错误擦除
+
+Re-scan UI：
+
+```
+Bootstrap Re-Scan Result
+  ✓ 8 capabilities auto-accepted (新增)
+  ⚠ 3 capabilities require review:
+    - auth/: 2 requirements MODIFIED   [view diff]
+    - billing/: 1 requirement REMOVED  [view diff]
+  [Accept Changes]  [Cancel]
+```
+
+### 13.3 Manual executor：**支持**
+
+为不走 Classic / Meta Workflow 的场景留逃生通道：
+
+**用法**：用户在 sub-issue 详情页点 "Create Manual Executor"
+- 创建 `executor_instances(type='manual', underlying_id=null)`
+- 没有 underlying 表，状态只用 `pending / executing / completed / cancelled`
+- 用户手动按钮："Mark as Executing" / "Mark as Completed"
+- 适用场景：用户用自己的 IDE / 外部工具实现了改动，只想把"已实现"这个事实记录进 sub-issue 状态机
+
+`ManualAdapter` 是最薄的 adapter，几乎只读写 `executor_instances.statusSummary`，不调用任何执行后端。
+
+### 13.4 Feature Issue：**不允许直接挂 spec_change**
+
+严格分层：feature 永远只是组织容器，所有真实工作必须落在 sub-issue 上。
+
+理由：
+- 防止"懒得拆 sub-issue 就把全部需求堆到 feature 上"导致层级失效
+- 保持"父 issue.status = open/closed"简单
+- Feature 级别的"宏观行为契约"由 spec_corpus 自身的 capability 文档承载，不需要 feature 自己写 spec
+
+例外：如果用户只想做一件事，可以**不建 feature**，直接建独立 sub-issue（`parentIssueId=null`）。
 
 ---
 
