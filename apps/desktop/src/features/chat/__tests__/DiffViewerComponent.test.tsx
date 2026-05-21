@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { DiffViewer, computeDiff } from '../DiffViewer';
+import { DiffViewer, UnifiedDiffViewer, computeDiff, parseUnifiedDiff } from '../DiffViewer';
 
 describe('DiffViewer component', () => {
   it('renders diff lines', () => {
@@ -109,6 +109,29 @@ describe('DiffViewer component', () => {
   });
 });
 
+describe('UnifiedDiffViewer component', () => {
+  const unifiedDiff = [
+    '--- a/src/app.ts',
+    '+++ b/src/app.ts',
+    '@@ -1 +1 @@',
+    '-old',
+    '+new',
+  ].join('\n');
+
+  it('renders unified diff lines with file name', () => {
+    render(<UnifiedDiffViewer diff={unifiedDiff} filePath="src/app.ts" />);
+    expect(screen.getByText('app.ts')).toBeInTheDocument();
+    expect(screen.getByText('-old')).toBeInTheDocument();
+    expect(screen.getByText('+new')).toBeInTheDocument();
+  });
+
+  it('applies color classes to unified additions and removals', () => {
+    const { container } = render(<UnifiedDiffViewer diff={unifiedDiff} />);
+    expect(container.querySelector('[class*="bg-green"]')).toBeInTheDocument();
+    expect(container.querySelector('[class*="bg-red"]')).toBeInTheDocument();
+  });
+});
+
 describe('computeDiff (unit)', () => {
   it('returns empty array for two empty strings', () => {
     const result = computeDiff('', '');
@@ -163,5 +186,29 @@ describe('computeDiff (unit)', () => {
   it('handles single line unchanged', () => {
     const result = computeDiff('same', 'same');
     expect(result).toEqual([{ type: 'unchanged', content: 'same' }]);
+  });
+});
+
+describe('parseUnifiedDiff (unit)', () => {
+  it('classifies unified diff syntax lines', () => {
+    const result = parseUnifiedDiff([
+      'diff --git a/a.ts b/a.ts',
+      '--- a/a.ts',
+      '+++ b/a.ts',
+      '@@ -1 +1 @@',
+      '-old',
+      '+new',
+      ' context',
+    ].join('\n'));
+
+    expect(result.map((line) => line.type)).toEqual([
+      'meta',
+      'file',
+      'file',
+      'hunk',
+      'remove',
+      'add',
+      'context',
+    ]);
   });
 });

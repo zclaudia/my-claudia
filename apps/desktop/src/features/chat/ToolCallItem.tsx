@@ -46,7 +46,7 @@ export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallIte
     autoExpandedRef.current = true;
     setIsExpanded(true);
   }, [toolCall.status, toolCall.toolName, toolCall.semantic]);
-  const { toolName, toolInput, status, result, isError, activity, semantic } = toolCall;
+  const { toolName, toolInput, status, result, isError, activity, semantic, effect } = toolCall;
   const selectedSessionId = useSelectionStore((s) => s.selectedSessionId);
   const pendingPromptRequest = usePromptRequestStore((s) => {
     if (!selectedSessionId || toolName !== 'AskUserQuestion') return null;
@@ -168,6 +168,7 @@ export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallIte
           result={result}
           isError={isError}
           semantic={semantic}
+          effect={effect}
         />
       )}
     </div>
