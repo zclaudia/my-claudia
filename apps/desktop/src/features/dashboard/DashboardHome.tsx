@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Bot, ClipboardList, GitBranch, GitPullRequest, CircleDot, Workflow, ChevronRight, Zap } from 'lucide-react';
+import { Bot, ClipboardList, GitBranch, GitPullRequest, CircleDot, Workflow, ChevronRight, Zap, ExternalLink } from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSupervisionStore } from '../../features/supervision/store';
 import { useLocalPRStore } from '../../features/local-pr/store';
@@ -13,6 +13,7 @@ interface DashboardHomeProps {
   projectRootPath?: string;
   onNavigate: (view: DashboardView) => void;
   onOpenAutomations?: (opts: { tab: 'automations' | 'workflows'; projectId: string }) => void;
+  onOpenDashboardWindow?: (projectId: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,7 +82,7 @@ const PHASE_CONFIG: Record<string, { label: string; color: string }> = {
   archived: { label: 'Archived', color: 'text-gray-500' },
 };
 
-export function DashboardHome({ projectId, onNavigate, onOpenAutomations }: DashboardHomeProps) {
+export function DashboardHome({ projectId, onNavigate, onOpenAutomations, onOpenDashboardWindow }: DashboardHomeProps) {
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId));
 
   // Supervisor agent
@@ -136,12 +137,25 @@ export function DashboardHome({ projectId, onNavigate, onOpenAutomations }: Dash
     loadPRs(projectId).catch(() => {});
     loadIssues(projectId).catch(() => {});
     loadWorkflows(projectId).catch(() => {});
-  }, [projectId]);
+  }, [loadIssues, loadPRs, loadWorkflows, projectId]);
 
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-5">
       {/* Header */}
-      <h1 className="text-lg font-semibold">{project?.name ?? 'Project'} Dashboard</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-lg font-semibold">{project?.name ?? 'Project'} Dashboard</h1>
+        {onOpenDashboardWindow && (
+          <button
+            type="button"
+            title="Open dashboard in window"
+            onClick={() => onOpenDashboardWindow(projectId)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground hover:border-primary/40"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            <span>Open in Window</span>
+          </button>
+        )}
+      </div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-3">

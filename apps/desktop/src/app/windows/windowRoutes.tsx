@@ -2,6 +2,7 @@ import { lazy, type ReactNode } from 'react';
 import { WindowShell } from './WindowShell';
 
 const FileViewerWindow = lazy(() => import('../../components/fileviewer/FileViewerWindow').then(m => ({ default: m.FileViewerWindow })));
+const ProjectDashboardWindow = lazy(() => import('../../features/dashboard/ProjectDashboardWindow').then(m => ({ default: m.ProjectDashboardWindow })));
 const WorkflowEditorWindow = lazy(() => import('../../features/workflows/components/WorkflowEditorWindow').then(m => ({ default: m.WorkflowEditorWindow })));
 const AIReviewLogsWindow = lazy(() => import('../../features/permissions/AIReviewLogsWindow').then(m => ({ default: m.AIReviewLogsWindow })));
 const AutomationWindow = lazy(() => import('../../features/automation/AutomationWindow').then(m => ({ default: m.AutomationWindow })));
@@ -63,6 +64,33 @@ export const standaloneWindowRoutes: StandaloneWindowRoute[] = [
             serverId={optionalParam(params, 'serverId')}
             initialTab={(params.get('initialTab') as 'automations' | 'workflows') || undefined}
             initialProjectId={optionalParam(params, 'initialProjectId')}
+          />
+        </WindowShell>
+      );
+    },
+  },
+  {
+    id: 'project-dashboard',
+    render: (params) => {
+      const projectId = params.get('projectDashboard');
+      if (!projectId) return null;
+      return (
+        <WindowShell
+          label="ProjectDashboard"
+          connection={{
+            standaloneServerUrl: params.get('serverUrl') || '',
+            standaloneServerId: optionalParam(params, 'serverId'),
+            standaloneGatewayUrl: optionalParam(params, 'gatewayUrl'),
+            standaloneGatewaySecret: optionalParam(params, 'gatewaySecret'),
+          }}
+        >
+          <ProjectDashboardWindow
+            projectId={projectId}
+            serverUrl={params.get('serverUrl') || ''}
+            serverId={optionalParam(params, 'serverId')}
+            serverName={optionalParam(params, 'serverName')}
+            gatewayUrl={optionalParam(params, 'gatewayUrl')}
+            gatewaySecret={optionalParam(params, 'gatewaySecret')}
           />
         </WindowShell>
       );

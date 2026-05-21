@@ -13,6 +13,7 @@ describe('resolveStandaloneWindowRoute', () => {
 
   it('matches standalone window route params in priority order', () => {
     expect(routeId('automationWindow=1')).toBe('automation');
+    expect(routeId('projectDashboard=project-1')).toBe('project-dashboard');
     expect(routeId('workflowEditor=project-1')).toBe('workflow-editor');
     expect(routeId('aiReviewLogs=run-1')).toBe('ai-review-logs');
     expect(routeId('sessionWindow=session-1')).toBe('session-chat');

@@ -40,6 +40,7 @@ import { isDesktopTauri } from './utils/platform';
 import { initBuiltinPanels } from './plugins/builtinPanels';
 import { shouldShowDirectGatewaySetup } from './utils/directGatewaySetup';
 import { getMobileControlPlaneState } from './services/mobileConnectionState';
+import type { OpenAutomationWindowOptions } from './features/automation/openAutomationWindow';
 
 const FileViewerWindow = lazy(() => import('./components/fileviewer/FileViewerWindow').then(m => ({ default: m.FileViewerWindow })));
 const ProjectDashboard = lazy(() => import('./features/dashboard/ProjectDashboard').then(m => ({ default: m.ProjectDashboard })));
@@ -118,8 +119,16 @@ function AppContent() {
     return isAgentExpanded ? 0.14 : 0;
   }, [agentSwipePreview.mode, claudiaSwipePreviewProgress, isAgentExpanded]);
 
-  const openAutomationWindowFn = useCallback((opts?: import('./features/automation/openAutomationWindow').OpenAutomationWindowOptions) => {
+  const openAutomationWindowFn = useCallback((opts?: OpenAutomationWindowOptions) => {
     import('./features/automation/openAutomationWindow').then(m => m.openAutomationWindow(opts ?? {}));
+  }, []);
+
+  const openProjectDashboardWindowFn = useCallback((projectId: string) => {
+    const project = useProjectStore.getState().projects.find((item) => item.id === projectId);
+    import('./features/dashboard/openProjectDashboardWindow').then(m => m.openProjectDashboardWindow({
+      projectId,
+      projectName: project?.name,
+    }));
   }, []);
 
   // --- Extracted hooks ---
@@ -315,6 +324,7 @@ function AppContent() {
                   projectId={dashboardProject.id}
                   projectRootPath={dashboardProject.rootPath}
                   onOpenAutomations={openAutomationWindowFn}
+                  onOpenDashboardWindow={openProjectDashboardWindowFn}
                 />
               </Suspense>
             ) : selectedSessionId ? (

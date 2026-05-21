@@ -9,9 +9,11 @@ import { useWorkflowStore } from '../../../features/workflows/store';
 describe('DashboardHome', () => {
   const projectId = 'p1';
   const onNavigate = vi.fn();
+  const onOpenDashboardWindow = vi.fn();
 
   beforeEach(() => {
     onNavigate.mockReset();
+    onOpenDashboardWindow.mockReset();
     useProjectStore.setState({
       projects: [{ id: projectId, name: 'Test Project', rootPath: '/tmp/test' }],
     } as any);
@@ -25,6 +27,20 @@ describe('DashboardHome', () => {
       <DashboardHome projectId={projectId} onNavigate={onNavigate} />,
     );
     expect(container.textContent).toContain('Test Project Dashboard');
+  });
+
+  it('opens the dashboard in a standalone window', () => {
+    const { getByTitle } = render(
+      <DashboardHome
+        projectId={projectId}
+        onNavigate={onNavigate}
+        onOpenDashboardWindow={onOpenDashboardWindow}
+      />,
+    );
+
+    fireEvent.click(getByTitle('Open dashboard in window'));
+
+    expect(onOpenDashboardWindow).toHaveBeenCalledWith(projectId);
   });
 
   it('renders summary cards', () => {
@@ -72,7 +88,8 @@ describe('DashboardHome', () => {
     const supervisorBtn = Array.from(buttons).find((b) =>
       b.textContent?.includes('Supervisor'),
     );
-    fireEvent.click(supervisorBtn!);
+    expect(supervisorBtn).toBeDefined();
+    fireEvent.click(supervisorBtn as HTMLButtonElement);
     expect(onNavigate).toHaveBeenCalledWith('supervisor');
   });
 
@@ -82,7 +99,8 @@ describe('DashboardHome', () => {
     );
     const buttons = container.querySelectorAll('button');
     const tasksBtn = Array.from(buttons).find((b) => b.textContent?.includes('Tasks'));
-    fireEvent.click(tasksBtn!);
+    expect(tasksBtn).toBeDefined();
+    fireEvent.click(tasksBtn as HTMLButtonElement);
     expect(onNavigate).toHaveBeenCalledWith('tasks');
   });
 
@@ -122,7 +140,8 @@ describe('DashboardHome', () => {
     const prBtn = Array.from(buttons).find((b) =>
       b.textContent?.includes('Local Pull Requests'),
     );
-    expect(prBtn!.textContent).toContain('1');
+    expect(prBtn).toBeDefined();
+    expect(prBtn?.textContent).toContain('1');
   });
 
   it('shows PR preview section for active PRs', () => {

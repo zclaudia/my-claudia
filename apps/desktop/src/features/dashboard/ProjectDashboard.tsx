@@ -31,9 +31,10 @@ interface ProjectDashboardProps {
   projectId: string;
   projectRootPath?: string;
   onOpenAutomations?: (opts: OpenAutomationWindowOptions) => void;
+  onOpenDashboardWindow?: (projectId: string) => void;
 }
 
-export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations }: ProjectDashboardProps) {
+export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations, onOpenDashboardWindow }: ProjectDashboardProps) {
   const agent = useSupervisionStore((s) => s.agents[projectId]) ?? null;
   const tasks = useSupervisionStore((s) => s.tasks[projectId]) ?? [];
   const setAgent = useSupervisionStore((s) => s.setAgent);
@@ -132,6 +133,7 @@ export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations
           projectRootPath={projectRootPath}
           onNavigate={navigate}
           onOpenAutomations={onOpenAutomations}
+          onOpenDashboardWindow={onOpenDashboardWindow}
         />
       )}
 
