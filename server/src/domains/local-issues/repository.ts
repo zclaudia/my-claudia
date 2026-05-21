@@ -1,10 +1,27 @@
 import { BaseRepository } from '../../infrastructure/repositories/base.js';
 import type { Database } from 'better-sqlite3';
-import type { LocalIssue, LocalIssueStatus } from '@my-claudia/shared/features/local-issue';
+import type {
+  LocalIssue,
+  LocalIssueStatus,
+  LocalIssueType,
+} from '@my-claudia/shared/features/local-issue';
 import { v4 as uuidv4 } from 'uuid';
 
-type LocalIssueCreate = Omit<LocalIssue, 'id' | 'createdAt' | 'updatedAt'>;
-type LocalIssueUpdate = Partial<Omit<LocalIssue, 'id' | 'projectId' | 'createdAt'>>;
+/**
+ * Create payload. `type` and `isAnonymous` default in the repo if omitted
+ * (mirrors the SQLite schema defaults: type='implement', is_anonymous=0).
+ */
+export type LocalIssueCreate = Omit<
+  LocalIssue,
+  'id' | 'createdAt' | 'updatedAt' | 'type' | 'isAnonymous'
+> & {
+  type?: LocalIssueType;
+  isAnonymous?: boolean;
+};
+
+export type LocalIssueUpdate = Partial<
+  Omit<LocalIssue, 'id' | 'projectId' | 'createdAt'>
+>;
 
 export class LocalIssueRepository extends BaseRepository<LocalIssue, LocalIssueCreate, LocalIssueUpdate> {
   constructor(db: Database) {
@@ -21,6 +38,11 @@ export class LocalIssueRepository extends BaseRepository<LocalIssue, LocalIssueC
       status: row.status as LocalIssueStatus,
       priority: row.priority as LocalIssue['priority'],
       labels: row.labels ? JSON.parse(row.labels as string) : [],
+      // G1 additions — columns added by migration 070_openspec_foundation.
+      type: (row.type as LocalIssueType) ?? 'implement',
+      parentIssueId: (row.parent_issue_id as string) || undefined,
+      specChangeId: (row.spec_change_id as string) || undefined,
+      isAnonymous: row.is_anonymous === 1,
       createdAt: row.created_at as number,
       updatedAt: row.updated_at as number,
       closedAt: (row.closed_at as number) || undefined,
@@ -33,8 +55,9 @@ export class LocalIssueRepository extends BaseRepository<LocalIssue, LocalIssueC
     return {
       sql: `INSERT INTO local_issues (
         id, project_id, title, description, status, priority, labels,
+        type, parent_issue_id, spec_change_id, is_anonymous,
         created_at, updated_at, closed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       params: [
         id,
         data.projectId,
@@ -43,6 +66,10 @@ export class LocalIssueRepository extends BaseRepository<LocalIssue, LocalIssueC
         data.status ?? 'open',
         data.priority ?? 'medium',
         JSON.stringify(data.labels ?? []),
+        data.type ?? 'implement',
+        data.parentIssueId ?? null,
+        data.specChangeId ?? null,
+        data.isAnonymous ? 1 : 0,
         now,
         now,
         data.closedAt ?? null,
@@ -61,6 +88,11 @@ export class LocalIssueRepository extends BaseRepository<LocalIssue, LocalIssueC
     if (data.priority !== undefined) { sets.push('priority = ?'); params.push(data.priority); }
     if (data.labels !== undefined) { sets.push('labels = ?'); params.push(JSON.stringify(data.labels)); }
     if (data.closedAt !== undefined) { sets.push('closed_at = ?'); params.push(data.closedAt); }
+    // G1 additions
+    if (data.type !== undefined) { sets.push('type = ?'); params.push(data.type); }
+    if (data.parentIssueId !== undefined) { sets.push('parent_issue_id = ?'); params.push(data.parentIssueId); }
+    if (data.specChangeId !== undefined) { sets.push('spec_change_id = ?'); params.push(data.specChangeId); }
+    if (data.isAnonymous !== undefined) { sets.push('is_anonymous = ?'); params.push(data.isAnonymous ? 1 : 0); }
 
     params.push(id);
     return {

@@ -1,23 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
+import { applyMigrations } from '../../../infrastructure/storage/migrations/index.js';
 import { LocalIssueService } from '../service.js';
 
 function createTestDb() {
   const db = new Database(':memory:');
-  db.exec(`
-    CREATE TABLE local_issues (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT,
-      status TEXT NOT NULL DEFAULT 'open',
-      priority TEXT NOT NULL DEFAULT 'medium',
-      labels TEXT DEFAULT '[]',
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      closed_at INTEGER
-    );
-  `);
+  db.pragma('foreign_keys = ON');
+  applyMigrations(db);
+  // local_issues.project_id has a FK to projects(id); seed the row used by the
+  // tests below so create() doesn't trip the foreign-key constraint.
+  db.prepare(
+    `INSERT INTO projects (id, name, type, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+  ).run('proj-1', 'P', 'code', 0, 0);
   return db;
 }
 
