@@ -81,11 +81,16 @@ export function LocalIssuesPanel({ projectId, selectedIssueId, onSelectIssue }: 
       return b.createdAt - a.createdAt;
     });
 
-  const counts = {
+  const counts: Record<FilterStatus, number> = {
     all: issues.length,
     open: issues.filter((i) => i.status === 'open').length,
+    planning: issues.filter((i) => i.status === 'planning').length,
+    tasks_ready: issues.filter((i) => i.status === 'tasks_ready').length,
+    executing: issues.filter((i) => i.status === 'executing').length,
+    reviewing: issues.filter((i) => i.status === 'reviewing').length,
     in_progress: issues.filter((i) => i.status === 'in_progress').length,
     closed: issues.filter((i) => i.status === 'closed').length,
+    cancelled: issues.filter((i) => i.status === 'cancelled').length,
   };
 
   return (
