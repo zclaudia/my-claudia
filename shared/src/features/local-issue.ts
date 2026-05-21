@@ -1,6 +1,40 @@
 // Local Issue Types
 
-export type LocalIssueStatus = 'open' | 'in_progress' | 'closed';
+/**
+ * Issue type discriminator.
+ *
+ * - 'feature': parent-only organizational container. Never carries a SpecChange.
+ *   Status is restricted to 'open' | 'closed' | 'cancelled'.
+ * - 'implement' | 'bug' | 'enhancement' | 'chore': sub-issue types that may
+ *   carry a SpecChange and use the full 7-state status machine below.
+ */
+export type LocalIssueType =
+  | 'feature'
+  | 'implement'
+  | 'bug'
+  | 'enhancement'
+  | 'chore';
+
+/**
+ * Status enum covering both parent (feature) and sub-issue lifecycles.
+ *
+ * Parent (type='feature') uses: open | closed | cancelled
+ * Sub-issue uses the full set.
+ *
+ * Note: 'in_progress' (v1) is retained for backward compatibility with
+ * existing local_issues records that pre-date G1. Code reading status must
+ * treat legacy 'in_progress' as 'executing' for new-flow semantics. See
+ * Task 3 for migration backfill.
+ */
+export type LocalIssueStatus =
+  | 'open'
+  | 'planning'
+  | 'tasks_ready'
+  | 'executing'
+  | 'reviewing'
+  | 'closed'
+  | 'cancelled'
+  | 'in_progress';  // legacy
 
 export type LocalIssuePriority = 'low' | 'medium' | 'high' | 'critical';
 
@@ -12,6 +46,13 @@ export interface LocalIssue {
   status: LocalIssueStatus;
   priority: LocalIssuePriority;
   labels: string[];
+
+  // G1 additions
+  type: LocalIssueType;
+  parentIssueId?: string;
+  specChangeId?: string;
+  isAnonymous: boolean;
+
   createdAt: number;
   updatedAt: number;
   closedAt?: number;
