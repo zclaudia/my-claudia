@@ -69,6 +69,7 @@ import { migration as m_066_attachments } from './066_attachments.js';
 import { migration as m_067_turn_summaries } from './067_turn_summaries.js';
 import { migration as m_068_local_issue_comments } from './068_local_issue_comments.js';
 import { migration as m_069_meta_workflow } from './069_meta_workflow.js';
+import { migration as m_070_openspec_foundation } from './070_openspec_foundation.js';
 
 export type { Migration };
 
@@ -142,4 +143,45 @@ export const migrations: Migration[] = [
   m_067_turn_summaries,
   m_068_local_issue_comments,
   m_069_meta_workflow,
+  m_070_openspec_foundation,
 ];
+
+/**
+ * Apply all migrations to a database. Idempotent — uses the same `migrations`
+ * tracking table as production `runMigrations` in db.ts. Intended for tests
+ * that need a fully-migrated in-memory DB without going through `initDatabase`.
+ */
+export function applyMigrations(db: import('better-sqlite3').Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS migrations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      applied_at INTEGER NOT NULL
+    )
+  `);
+
+  const applied = new Set(
+    (db.prepare('SELECT name FROM migrations').all() as Array<{ name: string }>).map((r) => r.name),
+  );
+
+  const insert = db.prepare('INSERT INTO migrations (name, applied_at) VALUES (?, ?)');
+
+  for (const migration of migrations) {
+    if (applied.has(migration.name)) continue;
+    try {
+      db.exec(migration.sql);
+    } catch (error) {
+      if (migration.idempotent) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes('duplicate column name:')) {
+          // Schema already applied; record and continue.
+        } else {
+          throw error;
+        }
+      } else {
+        throw error;
+      }
+    }
+    insert.run(migration.name, Date.now());
+  }
+}
