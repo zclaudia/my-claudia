@@ -37,6 +37,10 @@ import { codexReviewAdapter } from '../../infrastructure/providers/cli-jobs/adap
 import { cursorReviewAdapter } from '../../infrastructure/providers/cli-jobs/adapters/cursor.js';
 import { kimiReviewAdapter } from '../../infrastructure/providers/cli-jobs/adapters/kimi.js';
 import { opencodeReviewAdapter } from '../../infrastructure/providers/cli-jobs/adapters/opencode.js';
+import { ExecutorRegistry, ManualAdapter, ExecutorInstanceRepository } from '../../domains/executor/index.js';
+import { ClassicAdapter } from '../../domains/executor/adapters/classic-adapter.js';
+import { MetaWorkflowAdapter } from '../../domains/executor/adapters/meta-workflow-adapter.js';
+import { SpecChangeRepository } from '../../domains/spec-change/spec-change-repository.js';
 
 
 interface RegisterFeatureDomainsDeps {
@@ -67,6 +71,9 @@ export interface FeatureDomainsResult {
   oneShotRuntime: import('../oneshot/types.js').OneShotTaskRuntime;
   permissionWorkflowResolver: PermissionWorkflowResolver;
   metaWorkflowService: import('../../domains/meta-workflow/service.js').MetaWorkflowService;
+  executorRegistry: ExecutorRegistry;
+  executorInstanceRepo: ExecutorInstanceRepository;
+  specChangeRepo: SpecChangeRepository;
 }
 
 function broadcastToAuthenticatedClients(
@@ -387,6 +394,22 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     broadcastPluginState,
   });
 
+  // ── G1: OpenSpec foundation registries (no-op for existing flows) ──
+  // Constructs an ExecutorRegistry and registers the three adapter factories
+  // (manual / classic / meta-workflow). Downstream phases (G3+) will resolve
+  // executors via this registry; for G1 the wiring is purely structural so
+  // existing flows keep working unchanged. 'superpowers' is deliberately
+  // omitted here — G6+ may add it.
+  const executorRegistry = new ExecutorRegistry();
+  const executorInstanceRepo = new ExecutorInstanceRepository(db);
+  const specChangeRepo = new SpecChangeRepository(db);
+  const changeLifecycle = supervisorService.getChangeLifecycle();
+  const metaWorkflowService = metaWorkflow.service;
+
+  executorRegistry.register('manual', (instance) => new ManualAdapter(db, instance));
+  executorRegistry.register('classic', (instance) => new ClassicAdapter(db, changeLifecycle, instance));
+  executorRegistry.register('meta-workflow', (instance) => new MetaWorkflowAdapter(db, metaWorkflowService, instance));
+
   return {
     supervisorService,
     workflowService,
@@ -396,6 +419,9 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     cancelWorkflowRun,
     oneShotRuntime,
     permissionWorkflowResolver,
-    metaWorkflowService: metaWorkflow.service,
+    metaWorkflowService,
+    executorRegistry,
+    executorInstanceRepo,
+    specChangeRepo,
   };
 }

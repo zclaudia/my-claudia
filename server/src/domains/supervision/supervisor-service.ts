@@ -491,6 +491,15 @@ export class SupervisorService {
     return this.worktreeManager.getWorktreePoolIfExists(projectId);
   }
 
+  /**
+   * Expose the internal ChangeLifecycle so external code (e.g. the executor
+   * registry / ClassicAdapter wiring) can read ProjectChange state without
+   * touching SupervisorService internals.
+   */
+  getChangeLifecycle(): ChangeLifecycle {
+    return this.changeLifecycle;
+  }
+
   // ========================================
   // Token budget
   // ========================================
