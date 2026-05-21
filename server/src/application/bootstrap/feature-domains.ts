@@ -41,7 +41,13 @@ import { ExecutorRegistry, ManualAdapter, ExecutorInstanceRepository } from '../
 import { ClassicAdapter } from '../../domains/executor/adapters/classic-adapter.js';
 import { MetaWorkflowAdapter } from '../../domains/executor/adapters/meta-workflow-adapter.js';
 import { SpecChangeRepository } from '../../domains/spec-change/spec-change-repository.js';
-import { SpecChangeService, ArchiveService } from '../../domains/openspec/index.js';
+import {
+  SpecChangeService,
+  ArchiveService,
+  AiExploreService,
+  BootstrapService,
+  BootstrapReviewService,
+} from '../../domains/openspec/index.js';
 import { registerIssueOrchestration, type IssueOrchestration } from '../../domains/issue-orchestration/index.js';
 
 
@@ -79,6 +85,9 @@ export interface FeatureDomainsResult {
   specChangeService: SpecChangeService;
   archiveService: ArchiveService;
   issueOrchestration: IssueOrchestration;
+  aiExploreService: AiExploreService;
+  bootstrapService: BootstrapService;
+  bootstrapReviewService: BootstrapReviewService;
 }
 
 function broadcastToAuthenticatedClients(
@@ -446,6 +455,22 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     archiveService,
   });
 
+  // ── G4: OpenSpec bootstrap services ──
+  // Reuses `metaWorkflowAiRunPort` (same AiRunPort shape) so the explore
+  // workflow goes through the same virtual-run plumbing as meta-workflow.
+  // `getProjectRoot` is still the G3 placeholder — G5 will wire it to a real
+  // project-root lookup once the UI consumes these services.
+  const aiExploreService = new AiExploreService({ aiRunPort: metaWorkflowAiRunPort });
+  const bootstrapService = new BootstrapService({
+    db,
+    explore: aiExploreService,
+    getProjectRoot: getProjectRootPlaceholder,
+  });
+  const bootstrapReviewService = new BootstrapReviewService({
+    db,
+    getProjectRoot: getProjectRootPlaceholder,
+  });
+
   return {
     supervisorService,
     workflowService,
@@ -462,5 +487,8 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     specChangeService,
     archiveService,
     issueOrchestration,
+    aiExploreService,
+    bootstrapService,
+    bootstrapReviewService,
   };
 }
