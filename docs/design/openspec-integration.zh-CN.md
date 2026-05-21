@@ -1,8 +1,14 @@
-# OpenSpec × Supervisor 融合设计
+# OpenSpec × Supervisor 融合设计 [SUPERSEDED]
+
+> ⚠️ **此文档已被 v2 取代**：参见 [`openspec-integration-v2.zh-CN.md`](./openspec-integration-v2.zh-CN.md)
+>
+> v1 的核心错误：把 OpenSpec 当作 "Classic Change / Meta Workflow 的存储格式替换"。
+> v2 重新定位：OpenSpec 只是**借鉴文件格式 + 概念模型**，runtime 完全自建；
+> 引入三层架构（Issue / SpecChange / ExecutorInstance）做关注点分离。
 
 ## 0. 状态
 
-- 版本：v0.1（draft / 待评审）
+- 版本：v0.1（**已废弃**，留存用于 history）
 - 日期：2026-05-21
 - 范围：Supervisor 模式（Classic Change + Meta Workflow）下，把 OpenSpec 提升为 project 级共享 spec 底座
 
