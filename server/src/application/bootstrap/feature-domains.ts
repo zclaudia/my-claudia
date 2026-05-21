@@ -429,24 +429,27 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
   // bag (ExecutorService + IssueLifecycle + IssueStatusPropagator +
   // AnonymousIssueService) and installs the propagator subscriber.
   //
-  // NOTE: `getProjectRoot` is a placeholder that throws. G3 has no UI yet, so
-  // nothing exercises these services through the bootstrap; tests construct
-  // their own services with injected `getProjectRoot`. G5 will replace this
-  // with a real lookup against ProjectService (or whatever project-root
-  // registry exists at that point) once the UI consumes these services.
-  // TODO(G5): wire `getProjectRoot` to ProjectService.getRoot(projectId).
-  const getProjectRootPlaceholder = (projectId: string): string => {
-    throw new Error(
-      `[issue-orchestration] getProjectRoot not yet wired for project ${projectId} — to be implemented in G5`,
-    );
+  // G5a: real project root lookup. Returns the projects.root_path string.
+  // Throws if project is missing or has no root_path configured.
+  const getProjectRoot = (projectId: string): string => {
+    const row = db
+      .prepare('SELECT root_path FROM projects WHERE id = ?')
+      .get(projectId) as { root_path: string | null } | undefined;
+    if (!row) {
+      throw new Error(`Project not found: ${projectId}`);
+    }
+    if (!row.root_path) {
+      throw new Error(`Project ${projectId} has no root_path configured (set via PATCH /api/projects/:id { rootPath })`);
+    }
+    return row.root_path;
   };
   const specChangeService = new SpecChangeService({
     db,
-    getProjectRoot: getProjectRootPlaceholder,
+    getProjectRoot,
   });
   const archiveService = new ArchiveService({
     db,
-    getProjectRoot: getProjectRootPlaceholder,
+    getProjectRoot,
   });
   const issueOrchestration = registerIssueOrchestration({
     db,
@@ -458,17 +461,16 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
   // ── G4: OpenSpec bootstrap services ──
   // Reuses `metaWorkflowAiRunPort` (same AiRunPort shape) so the explore
   // workflow goes through the same virtual-run plumbing as meta-workflow.
-  // `getProjectRoot` is still the G3 placeholder — G5 will wire it to a real
-  // project-root lookup once the UI consumes these services.
+  // Uses the G5a `getProjectRoot` lookup defined above.
   const aiExploreService = new AiExploreService({ aiRunPort: metaWorkflowAiRunPort });
   const bootstrapService = new BootstrapService({
     db,
     explore: aiExploreService,
-    getProjectRoot: getProjectRootPlaceholder,
+    getProjectRoot,
   });
   const bootstrapReviewService = new BootstrapReviewService({
     db,
-    getProjectRoot: getProjectRootPlaceholder,
+    getProjectRoot,
   });
 
   return {
