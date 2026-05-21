@@ -9,6 +9,7 @@ import type {
 import type { SpecChange } from '@my-claudia/shared/features/spec-change';
 import { LocalIssueRepository } from '../local-issues/repository.js';
 import { SpecChangeService } from '../openspec/spec-change-service.js';
+import type { ArchiveResult, ArchiveService } from '../openspec/archive-service.js';
 import { EventDispatcher } from '../supervision/event-dispatcher.js';
 import type { IssueDomainEvent } from './events.js';
 
@@ -16,6 +17,8 @@ export interface IssueLifecycleDeps {
   db: Database;
   specChangeService: SpecChangeService;
   dispatcher: EventDispatcher<IssueDomainEvent>;
+  /** When provided, closeSubIssueAndArchive auto-invokes archive after close. */
+  archiveService?: ArchiveService;
 }
 
 export interface CreateParentInput {
@@ -147,9 +150,24 @@ export class IssueLifecycle {
     return updated;
   }
 
-  /** Convenience: close sub-issue + emit. Archive trigger lives in Task 4. */
+  /** Convenience: close sub-issue + emit. Pure state-machine transition; no archive. */
   closeSubIssue(issueId: string): LocalIssue {
     return this.transitionStatus(issueId, 'closed');
+  }
+
+  /**
+   * Close + (if archiveService configured) archive in one call.
+   * Returns both the updated issue and the archive result.
+   * Archive failure does NOT roll back the close — it surfaces in the result.
+   */
+  async closeSubIssueAndArchive(
+    issueId: string,
+  ): Promise<{ issue: LocalIssue; archive?: ArchiveResult }> {
+    const issue = this.closeSubIssue(issueId);
+    if (!this.deps.archiveService) return { issue };
+    if (!issue.specChangeId) return { issue }; // no spec_change attached (defensive)
+    const archive = await this.deps.archiveService.archive(issue.specChangeId);
+    return { issue, archive };
   }
 
   cancelSubIssue(issueId: string): LocalIssue {
