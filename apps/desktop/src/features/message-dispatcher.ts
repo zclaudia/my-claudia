@@ -5,6 +5,7 @@ import { handleWorkflowMessage } from './workflows/handlers';
 import { handleSupervisionMessage } from './supervision/handlers';
 import { handleAttachmentMessage } from './attachments/handlers';
 import { handleMetaWorkflowMessage } from './meta-workflow/handlers.js';
+import { handleOpenSpecMessage } from './openspec/handlers';
 
 export type FeatureMessageHandler = (msg: ServerMessage) => boolean;
 
@@ -15,6 +16,7 @@ const featureMessageHandlers: FeatureMessageHandler[] = [
   handleSupervisionMessage,
   handleAttachmentMessage,
   handleMetaWorkflowMessage,
+  handleOpenSpecMessage,
 ];
 
 export function dispatchFeatureMessage(msg: ServerMessage): boolean {
