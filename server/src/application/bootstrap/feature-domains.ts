@@ -49,6 +49,11 @@ import {
   BootstrapReviewService,
 } from '../../domains/openspec/index.js';
 import { registerIssueOrchestration, type IssueOrchestration } from '../../domains/issue-orchestration/index.js';
+import { createCorpusRoutes } from '../../domains/openspec/routes/corpus-routes.js';
+import { createSpecChangeRoutes } from '../../domains/openspec/routes/spec-change-routes.js';
+import { createBootstrapRoutes } from '../../domains/openspec/routes/bootstrap-routes.js';
+import { createExecutorRoutes } from '../../domains/executor/routes.js';
+import { createIssueRoutes } from '../../domains/issue-orchestration/routes.js';
 
 
 interface RegisterFeatureDomainsDeps {
@@ -472,6 +477,15 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     db,
     getProjectRoot,
   });
+
+  // ── G5a: Mount REST routes for OpenSpec + issue orchestration ──
+  // Multiple `app.use('/api/openspec', ...)` mounts share the path prefix —
+  // Express dispatches to each router based on its own sub-paths.
+  app.use('/api/openspec', authMiddleware, createCorpusRoutes({ getProjectRoot }));
+  app.use('/api/openspec', authMiddleware, createSpecChangeRoutes({ db, specChangeService }));
+  app.use('/api/openspec', authMiddleware, createExecutorRoutes({ db, executorService: issueOrchestration.executorService }));
+  app.use('/api/openspec', authMiddleware, createBootstrapRoutes({ db, bootstrapService, reviewService: bootstrapReviewService }));
+  app.use('/api/issues', authMiddleware, createIssueRoutes({ lifecycle: issueOrchestration.lifecycle, anonymousService: issueOrchestration.anonymousService }));
 
   return {
     supervisorService,
