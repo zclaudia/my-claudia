@@ -3,6 +3,7 @@ import { ChevronRight, ChevronDown, ExternalLink, FileText } from 'lucide-react'
 import { useFileViewerStore } from '../../stores/fileViewerStore';
 import { timeAgo } from '../../utils/timeAgo';
 import { FragmentDiffBlock } from './FragmentDiffBlock';
+import { activatePanel } from '../../utils/openPanel';
 import type { ModifiedEntry } from './useSessionChanges';
 
 interface ChangeListItemProps {
@@ -27,6 +28,7 @@ export function ChangeListItem({ entry, projectRoot, expanded, onToggle }: Chang
     e.stopPropagation();
     if (!projectRoot) return;
     openFile(projectRoot, entry.path);
+    activatePanel('file-viewer');
   };
 
   return (
