@@ -45,7 +45,8 @@ describe('SpecChange routes', () => {
   it('GET /spec-changes lists by project', async () => {
     const res = await request(app).get('/api/openspec/spec-changes?projectId=proj-1');
     expect(res.status).toBe(200);
-    expect(res.body.specChanges).toHaveLength(1);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.specChanges).toHaveLength(1);
   });
 
   it('GET /spec-changes/:id returns 404 for missing', async () => {
@@ -64,7 +65,7 @@ describe('SpecChange routes', () => {
       .put(`/api/openspec/spec-changes/${specChangeId}/proposal`)
       .send({ content: '# new\n' });
     expect(res.status).toBe(200);
-    expect(res.body.specChange.status).toBe('proposing');
+    expect(res.body.data.specChange.status).toBe('proposing');
     const get = await request(app).get(`/api/openspec/spec-changes/${specChangeId}/proposal`);
     expect(get.text).toBe('# new\n');
   });
@@ -79,7 +80,7 @@ describe('SpecChange routes', () => {
       .put(`/api/openspec/spec-changes/${specChangeId}/delta/auth`)
       .send({ content: '## ADDED Requirements\n' });
     expect(res.status).toBe(200);
-    expect(res.body.specChange.deltaSpecPaths).toContain('openspec/changes/x/specs/auth/spec.md');
+    expect(res.body.data.specChange.deltaSpecPaths).toContain('openspec/changes/x/specs/auth/spec.md');
     const get = await request(app).get(`/api/openspec/spec-changes/${specChangeId}/delta/auth`);
     expect(get.status).toBe(200);
     expect(get.text).toContain('ADDED');
@@ -102,8 +103,8 @@ describe('SpecChange routes', () => {
       localApp.use('/api/openspec', createSpecChangeRoutes({ db, specChangeService: svc, draftingService: draftingService as never }));
       const res = await request(localApp).post(`/api/openspec/spec-changes/${specChangeId}/draft-proposal`).send({});
       expect(res.status).toBe(200);
-      expect(res.body.content).toContain('Drafted Proposal');
-      expect(res.body.specChange.status).toBe('proposing');
+      expect(res.body.data.content).toContain('Drafted Proposal');
+      expect(res.body.data.specChange.status).toBe('proposing');
       const read = await request(localApp).get(`/api/openspec/spec-changes/${specChangeId}/proposal`);
       expect(read.text).toContain('Drafted Proposal');
     });
@@ -119,7 +120,7 @@ describe('SpecChange routes', () => {
       localApp.use('/api/openspec', createSpecChangeRoutes({ db, specChangeService: svc, draftingService: draftingService as never }));
       const res = await request(localApp).post(`/api/openspec/spec-changes/${specChangeId}/draft-delta/auth`).send({});
       expect(res.status).toBe(200);
-      expect(res.body.specChange.deltaSpecPaths).toContain('openspec/changes/x/specs/auth/spec.md');
+      expect(res.body.data.specChange.deltaSpecPaths).toContain('openspec/changes/x/specs/auth/spec.md');
       expect(draftingService.draftDelta).toHaveBeenCalledWith(specChangeId, 'auth');
     });
 
@@ -134,7 +135,7 @@ describe('SpecChange routes', () => {
       localApp.use('/api/openspec', createSpecChangeRoutes({ db, specChangeService: svc, draftingService: draftingService as never }));
       const res = await request(localApp).post(`/api/openspec/spec-changes/${specChangeId}/draft-proposal`).send({});
       expect(res.status).toBe(400);
-      expect(res.body.error).toMatch(/boom/);
+      expect(res.body.error.message).toMatch(/boom/);
     });
   });
 });

@@ -1,9 +1,16 @@
 import { Router, type Request, type Response } from 'express';
 import express from 'express';
 import type { Database } from 'better-sqlite3';
+import type { ApiResponse } from '@my-claudia/shared/core/api';
 import { ExecutorInstanceRepository } from './executor-instance-repository.js';
 import type { ExecutorService } from '../issue-orchestration/executor-service.js';
 import type { ExecutorType } from '@my-claudia/shared/features/executor';
+
+const ok = <T>(data: T): ApiResponse<T> => ({ success: true, data });
+const err = (code: string, message: string): ApiResponse<never> => ({
+  success: false,
+  error: { code, message },
+});
 
 export interface ExecutorRoutesDeps {
   db: Database;
@@ -18,19 +25,19 @@ export function createExecutorRoutes(deps: ExecutorRoutesDeps): Router {
   router.get('/executor-instances', (req: Request, res: Response) => {
     const specChangeId = req.query.specChangeId as string | undefined;
     if (!specChangeId) {
-      res.status(400).json({ error: 'specChangeId required' });
+      res.status(400).json(err('VALIDATION', 'specChangeId required'));
       return;
     }
-    res.json({ executorInstances: repo.listBySpecChange(specChangeId) });
+    res.json(ok({ executorInstances: repo.listBySpecChange(specChangeId) }));
   });
 
   router.get('/executor-instances/:id', (req: Request, res: Response) => {
     const inst = repo.findById(req.params.id);
     if (!inst) {
-      res.status(404).json({ error: 'executor_instance not found' });
+      res.status(404).json(err('NOT_FOUND', 'executor_instance not found'));
       return;
     }
-    res.json({ executorInstance: inst });
+    res.json(ok({ executorInstance: inst }));
   });
 
   router.post('/executor-instances', (req: Request, res: Response) => {
@@ -41,7 +48,7 @@ export function createExecutorRoutes(deps: ExecutorRoutesDeps): Router {
       underlyingId?: string;
     };
     if (!body.projectId || !body.specChangeId || !body.type) {
-      res.status(400).json({ error: 'projectId, specChangeId, type required' });
+      res.status(400).json(err('VALIDATION', 'projectId, specChangeId, type required'));
       return;
     }
     try {
@@ -51,9 +58,9 @@ export function createExecutorRoutes(deps: ExecutorRoutesDeps): Router {
         type: body.type,
         underlyingId: body.underlyingId,
       });
-      res.status(201).json({ executorInstance: created });
+      res.status(201).json(ok({ executorInstance: created }));
     } catch (e) {
-      res.status(400).json({ error: (e as Error).message });
+      res.status(400).json(err('OPENSPEC_ERROR', (e as Error).message));
     }
   });
 
@@ -63,9 +70,9 @@ export function createExecutorRoutes(deps: ExecutorRoutesDeps): Router {
       try {
         await action(req.params.id);
         const inst = repo.findById(req.params.id);
-        res.json({ executorInstance: inst });
+        res.json(ok({ executorInstance: inst }));
       } catch (e) {
-        res.status(400).json({ error: (e as Error).message });
+        res.status(400).json(err('OPENSPEC_ERROR', (e as Error).message));
       }
     };
   router.post('/executor-instances/:id/start', op((id) => deps.executorService.start(id)));
@@ -81,7 +88,7 @@ export function createExecutorRoutes(deps: ExecutorRoutesDeps): Router {
   router.get('/legacy-classic-change-ids', (req: Request, res: Response) => {
     const projectId = req.query.projectId as string | undefined;
     if (!projectId) {
-      res.status(400).json({ error: 'projectId required' });
+      res.status(400).json(err('VALIDATION', 'projectId required'));
       return;
     }
     const rows = deps.db
@@ -94,13 +101,13 @@ export function createExecutorRoutes(deps: ExecutorRoutesDeps): Router {
            )`,
       )
       .all(projectId) as { id: string }[];
-    res.json({ legacyIds: rows.map((r) => r.id) });
+    res.json(ok({ legacyIds: rows.map((r) => r.id) }));
   });
 
   router.get('/legacy-meta-workflow-run-ids', (req: Request, res: Response) => {
     const projectId = req.query.projectId as string | undefined;
     if (!projectId) {
-      res.status(400).json({ error: 'projectId required' });
+      res.status(400).json(err('VALIDATION', 'projectId required'));
       return;
     }
     const rows = deps.db
@@ -113,7 +120,7 @@ export function createExecutorRoutes(deps: ExecutorRoutesDeps): Router {
            )`,
       )
       .all(projectId) as { id: string }[];
-    res.json({ legacyIds: rows.map((r) => r.id) });
+    res.json(ok({ legacyIds: rows.map((r) => r.id) }));
   });
 
   return router;

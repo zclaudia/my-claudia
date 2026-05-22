@@ -1,10 +1,17 @@
 // server/src/domains/openspec/routes/spec-change-routes.ts
 import { Router, type Request, type Response } from 'express';
 import express from 'express';
+import type { ApiResponse } from '@my-claudia/shared/core/api';
 import type { SpecChangeService } from '../spec-change-service.js';
 import type { SpecChangeDraftingService } from '../spec-change-drafting-service.js';
 import { SpecChangeRepository } from '../../spec-change/spec-change-repository.js';
 import type { Database } from 'better-sqlite3';
+
+const ok = <T>(data: T): ApiResponse<T> => ({ success: true, data });
+const err = (code: string, message: string): ApiResponse<never> => ({
+  success: false,
+  error: { code, message },
+});
 
 export interface SpecChangeRoutesDeps {
   db: Database;
@@ -19,14 +26,14 @@ export function createSpecChangeRoutes(deps: SpecChangeRoutesDeps): Router {
 
   router.get('/spec-changes', (req: Request, res: Response) => {
     const projectId = req.query.projectId as string | undefined;
-    if (!projectId) { res.status(400).json({ error: 'projectId required' }); return; }
-    res.json({ specChanges: repo.listByProject(projectId) });
+    if (!projectId) { res.status(400).json(err('VALIDATION', 'projectId required')); return; }
+    res.json(ok({ specChanges: repo.listByProject(projectId) }));
   });
 
   router.get('/spec-changes/:id', (req: Request, res: Response) => {
     const sc = repo.findById(req.params.id);
-    if (!sc) { res.status(404).json({ error: 'spec_change not found' }); return; }
-    res.json({ specChange: sc });
+    if (!sc) { res.status(404).json(err('NOT_FOUND', 'spec_change not found')); return; }
+    res.json(ok({ specChange: sc }));
   });
 
   const reader = (kind: 'proposal' | 'design' | 'tasks') => (req: Request, res: Response) => {
@@ -36,7 +43,7 @@ export function createSpecChangeRoutes(deps: SpecChangeRoutesDeps): Router {
         : deps.specChangeService.readTasks;
       res.type('text/markdown').send(fn.call(deps.specChangeService, req.params.id));
     } catch (e) {
-      res.status(404).json({ error: (e as Error).message });
+      res.status(404).json(err('NOT_FOUND', (e as Error).message));
     }
   };
   router.get('/spec-changes/:id/proposal', reader('proposal'));
@@ -47,20 +54,20 @@ export function createSpecChangeRoutes(deps: SpecChangeRoutesDeps): Router {
     try {
       res.type('text/markdown').send(deps.specChangeService.readDeltaSpec(req.params.id, req.params.capability));
     } catch (e) {
-      res.status(404).json({ error: (e as Error).message });
+      res.status(404).json(err('NOT_FOUND', (e as Error).message));
     }
   });
 
   const writer = (kind: 'proposal' | 'design' | 'tasks') => (req: Request, res: Response) => {
     const content = (req.body as { content?: unknown }).content;
-    if (typeof content !== 'string') { res.status(400).json({ error: 'content (string) required in body' }); return; }
+    if (typeof content !== 'string') { res.status(400).json(err('VALIDATION', 'content (string) required in body')); return; }
     try {
       const fn = kind === 'proposal' ? deps.specChangeService.writeProposal
         : kind === 'design' ? deps.specChangeService.writeDesign
         : deps.specChangeService.writeTasks;
-      res.json({ specChange: fn.call(deps.specChangeService, req.params.id, content) });
+      res.json(ok({ specChange: fn.call(deps.specChangeService, req.params.id, content) }));
     } catch (e) {
-      res.status(400).json({ error: (e as Error).message });
+      res.status(400).json(err('OPENSPEC_ERROR', (e as Error).message));
     }
   };
   router.put('/spec-changes/:id/proposal', writer('proposal'));
@@ -69,11 +76,11 @@ export function createSpecChangeRoutes(deps: SpecChangeRoutesDeps): Router {
 
   router.put('/spec-changes/:id/delta/:capability', (req: Request, res: Response) => {
     const content = (req.body as { content?: unknown }).content;
-    if (typeof content !== 'string') { res.status(400).json({ error: 'content (string) required in body' }); return; }
+    if (typeof content !== 'string') { res.status(400).json(err('VALIDATION', 'content (string) required in body')); return; }
     try {
-      res.json({ specChange: deps.specChangeService.writeDeltaSpec(req.params.id, req.params.capability, content) });
+      res.json(ok({ specChange: deps.specChangeService.writeDeltaSpec(req.params.id, req.params.capability, content) }));
     } catch (e) {
-      res.status(400).json({ error: (e as Error).message });
+      res.status(400).json(err('OPENSPEC_ERROR', (e as Error).message));
     }
   });
 
@@ -86,9 +93,9 @@ export function createSpecChangeRoutes(deps: SpecChangeRoutesDeps): Router {
         : kind === 'design'  ? deps.specChangeService.writeDesign
         : deps.specChangeService.writeTasks;
       const specChange = writer.call(deps.specChangeService, req.params.id, draft.content);
-      res.json({ specChange, content: draft.content });
+      res.json(ok({ specChange, content: draft.content }));
     } catch (e) {
-      res.status(400).json({ error: (e as Error).message });
+      res.status(400).json(err('OPENSPEC_ERROR', (e as Error).message));
     }
   };
   router.post('/spec-changes/:id/draft-proposal', draftHandler('proposal'));
@@ -99,9 +106,9 @@ export function createSpecChangeRoutes(deps: SpecChangeRoutesDeps): Router {
     try {
       const draft = await deps.draftingService.draftDelta(req.params.id, req.params.capability);
       const specChange = deps.specChangeService.writeDeltaSpec(req.params.id, req.params.capability, draft.content);
-      res.json({ specChange, content: draft.content });
+      res.json(ok({ specChange, content: draft.content }));
     } catch (e) {
-      res.status(400).json({ error: (e as Error).message });
+      res.status(400).json(err('OPENSPEC_ERROR', (e as Error).message));
     }
   });
 

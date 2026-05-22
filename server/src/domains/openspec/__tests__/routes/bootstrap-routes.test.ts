@@ -82,8 +82,9 @@ describe('Bootstrap routes', () => {
       .post('/api/openspec/bootstrap/scans')
       .send({ projectId: 'proj-1', mode: 'initial' });
     expect(res.status).toBe(201);
-    expect(res.body.scan.status).toBe('completed');
-    expect(res.body.scan.appliedCount).toBe(1);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.scan.status).toBe('completed');
+    expect(res.body.data.scan.appliedCount).toBe(1);
   });
 
   it('POST /bootstrap/scans rejects invalid mode', async () => {
@@ -98,7 +99,7 @@ describe('Bootstrap routes', () => {
       .post('/api/openspec/bootstrap/scans')
       .send({ projectId: 'proj-1', mode: 'initial' });
     const res = await request(app).get('/api/openspec/bootstrap/scans?projectId=proj-1');
-    expect(res.body.scans).toHaveLength(1);
+    expect(res.body.data.scans).toHaveLength(1);
   });
 
   it('GET /bootstrap/scans/:id returns 404 for unknown', async () => {
@@ -110,17 +111,17 @@ describe('Bootstrap routes', () => {
     const start = await request(app)
       .post('/api/openspec/bootstrap/scans')
       .send({ projectId: 'proj-1', mode: 'initial' });
-    const id = start.body.scan.id;
+    const id = start.body.data.scan.id;
     const res = await request(app).get(`/api/openspec/bootstrap/scans/${id}/items`);
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(Array.isArray(res.body.data.items)).toBe(true);
   });
 
   it('POST /bootstrap/scans/:id/finalize returns 409 when items pending', async () => {
     const start = await request(app)
       .post('/api/openspec/bootstrap/scans')
       .send({ projectId: 'proj-1', mode: 'initial' });
-    const id = start.body.scan.id;
+    const id = start.body.data.scan.id;
     db.prepare(`UPDATE bootstrap_scans SET status='awaiting_review' WHERE id = ?`).run(id);
     db.prepare(
       `INSERT INTO bootstrap_review_items (id, scan_id, capability, operation, payload_json, status, created_at)
@@ -139,7 +140,7 @@ describe('Bootstrap routes', () => {
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       'it',
-      start.body.scan.id,
+      start.body.data.scan.id,
       'cap',
       'modify',
       '{"name":"x","body":"MUST","scenarios":[{"name":"s","bodyLines":["- **WHEN** x"]}]}',
@@ -148,6 +149,6 @@ describe('Bootstrap routes', () => {
     );
     const res = await request(app).post('/api/openspec/bootstrap/items/it/approve').send({});
     expect(res.status).toBe(200);
-    expect(res.body.item.status).toBe('approved');
+    expect(res.body.data.item.status).toBe('approved');
   });
 });

@@ -50,7 +50,8 @@ describe('Executor routes', () => {
   it('GET /executor-instances lists by spec_change', async () => {
     const res = await request(app).get('/api/openspec/executor-instances?specChangeId=sc');
     expect(res.status).toBe(200);
-    expect(res.body.executorInstances).toHaveLength(1);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.executorInstances).toHaveLength(1);
   });
 
   it('POST /executor-instances/:id/start advances to executing', async () => {
@@ -58,7 +59,7 @@ describe('Executor routes', () => {
       .post(`/api/openspec/executor-instances/${instId}/start`)
       .send({});
     expect(res.status).toBe(200);
-    expect(res.body.executorInstance.statusSummary).toBe('executing');
+    expect(res.body.data.executorInstance.statusSummary).toBe('executing');
   });
 
   it('POST /executor-instances/:id/mark-completed -> completed', async () => {
@@ -67,7 +68,7 @@ describe('Executor routes', () => {
       .post(`/api/openspec/executor-instances/${instId}/mark-completed`)
       .send({});
     expect(res.status).toBe(200);
-    expect(res.body.executorInstance.statusSummary).toBe('completed');
+    expect(res.body.data.executorInstance.statusSummary).toBe('completed');
   });
 
   it('POST /executor-instances creates a new manual instance', async () => {
@@ -77,7 +78,7 @@ describe('Executor routes', () => {
       type: 'manual',
     });
     expect(res.status).toBe(201);
-    expect(res.body.executorInstance.type).toBe('manual');
+    expect(res.body.data.executorInstance.type).toBe('manual');
   });
 
   it('POST /executor-instances rejects missing fields', async () => {

@@ -43,14 +43,15 @@ describe('Issue routes', () => {
   it('POST /features creates a parent issue', async () => {
     const res = await request(app).post('/api/issues/features').send({ projectId: 'proj-1', title: 'Add 2FA' });
     expect(res.status).toBe(201);
-    expect(res.body.issue.type).toBe('feature');
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.issue.type).toBe('feature');
   });
 
   it('POST /sub creates a sub-issue + spec_change', async () => {
     const res = await request(app).post('/api/issues/sub').send({ projectId: 'proj-1', type: 'implement', title: 'Initial flow' });
     expect(res.status).toBe(201);
-    expect(res.body.issue.type).toBe('implement');
-    expect(res.body.specChange.slug).toBe('initial-flow');
+    expect(res.body.data.issue.type).toBe('implement');
+    expect(res.body.data.specChange.slug).toBe('initial-flow');
   });
 
   it('POST /sub rejects type=feature', async () => {
@@ -61,15 +62,15 @@ describe('Issue routes', () => {
   it('POST /anonymous creates anonymous sub-issue', async () => {
     const res = await request(app).post('/api/issues/anonymous').send({ projectId: 'proj-1', title: 'Quick fix' });
     expect(res.status).toBe(201);
-    expect(res.body.issue.isAnonymous).toBe(true);
-    expect(res.body.issue.parentIssueId).toBeUndefined();
+    expect(res.body.data.issue.isAnonymous).toBe(true);
+    expect(res.body.data.issue.parentIssueId).toBeUndefined();
   });
 
   it('GET /:id returns issue', async () => {
     const create = await request(app).post('/api/issues/features').send({ projectId: 'proj-1', title: 'F' });
-    const res = await request(app).get(`/api/issues/${create.body.issue.id}`);
+    const res = await request(app).get(`/api/issues/${create.body.data.issue.id}`);
     expect(res.status).toBe(200);
-    expect(res.body.issue.id).toBe(create.body.issue.id);
+    expect(res.body.data.issue.id).toBe(create.body.data.issue.id);
   });
 
   it('GET /:id returns 404 for missing', async () => {
@@ -79,21 +80,21 @@ describe('Issue routes', () => {
 
   it('GET /:id/sub-issues lists children', async () => {
     const f = await request(app).post('/api/issues/features').send({ projectId: 'proj-1', title: 'F' });
-    await request(app).post('/api/issues/sub').send({ projectId: 'proj-1', type: 'implement', title: 'S', parentIssueId: f.body.issue.id });
-    const res = await request(app).get(`/api/issues/${f.body.issue.id}/sub-issues`);
-    expect(res.body.subIssues).toHaveLength(1);
+    await request(app).post('/api/issues/sub').send({ projectId: 'proj-1', type: 'implement', title: 'S', parentIssueId: f.body.data.issue.id });
+    const res = await request(app).get(`/api/issues/${f.body.data.issue.id}/sub-issues`);
+    expect(res.body.data.subIssues).toHaveLength(1);
   });
 
   it('PATCH /:id/status transitions', async () => {
     const sub = await request(app).post('/api/issues/sub').send({ projectId: 'proj-1', type: 'implement', title: 'A' });
-    const res = await request(app).patch(`/api/issues/${sub.body.issue.id}/status`).send({ status: 'planning' });
+    const res = await request(app).patch(`/api/issues/${sub.body.data.issue.id}/status`).send({ status: 'planning' });
     expect(res.status).toBe(200);
-    expect(res.body.issue.status).toBe('planning');
+    expect(res.body.data.issue.status).toBe('planning');
   });
 
   it('PATCH /:id/status rejects illegal transition', async () => {
     const sub = await request(app).post('/api/issues/sub').send({ projectId: 'proj-1', type: 'implement', title: 'A' });
-    const res = await request(app).patch(`/api/issues/${sub.body.issue.id}/status`).send({ status: 'reviewing' });
+    const res = await request(app).patch(`/api/issues/${sub.body.data.issue.id}/status`).send({ status: 'reviewing' });
     expect(res.status).toBe(400);
   });
 
@@ -104,7 +105,7 @@ describe('Issue routes', () => {
     const b = await request(app).post('/api/issues/features').send({ projectId: 'proj-1', title: 'B' });
     const res = await request(app).get('/api/issues?projectId=proj-1');
     expect(res.status).toBe(200);
-    expect(res.body.issues.map((i: { id: string }) => i.id)).toEqual([b.body.issue.id, a.body.issue.id]);
+    expect(res.body.data.issues.map((i: { id: string }) => i.id)).toEqual([b.body.data.issue.id, a.body.data.issue.id]);
   });
 
   it('GET /api/issues without projectId returns 400', async () => {
@@ -114,14 +115,14 @@ describe('Issue routes', () => {
 
   it('POST /:id/close-and-archive runs through archive', async () => {
     const sub = await request(app).post('/api/issues/sub').send({ projectId: 'proj-1', type: 'implement', title: 'A' });
-    const id = sub.body.issue.id;
+    const id = sub.body.data.issue.id;
     await request(app).patch(`/api/issues/${id}/status`).send({ status: 'planning' });
     await request(app).patch(`/api/issues/${id}/status`).send({ status: 'tasks_ready' });
     await request(app).patch(`/api/issues/${id}/status`).send({ status: 'executing' });
     await request(app).patch(`/api/issues/${id}/status`).send({ status: 'reviewing' });
     const res = await request(app).post(`/api/issues/${id}/close-and-archive`).send({});
     expect(res.status).toBe(200);
-    expect(res.body.issue.status).toBe('closed');
-    expect(res.body.archive).toBeDefined();
+    expect(res.body.data.issue.status).toBe('closed');
+    expect(res.body.data.archive).toBeDefined();
   });
 });
