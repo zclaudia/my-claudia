@@ -6,7 +6,7 @@
 // (replaced with real artifact tabs in Task 4), and an executor section with
 // create/start/cancel/mark-completed controls.
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import type { ExecutorInstance } from '@my-claudia/shared/features/executor';
 import { useOpenSpecStore } from '../store.js';
 import * as api from '../api.js';
@@ -207,20 +207,24 @@ export function SubIssueDetailScreen({
         )}
       </div>
 
-      {/* Spec Change artifact tabs (body filled in Task 4) */}
+      {/* Spec Change artifact tabs */}
       {specChange && (
-        <div className="border border-border rounded-md bg-card">
+        <div className="border border-border rounded-md bg-card overflow-hidden">
           <div className="px-3 py-2 border-b border-border text-sm font-medium">
             Spec Change{' '}
             <code className="ml-1 px-1 py-0.5 rounded bg-muted font-mono text-xs">
               {specChange.slug}
-            </code>{' '}
-            · <StatusBadge status={'planning' as never} />
-            {/* showing spec_change status would need its own badge — left as-is */}
+            </code>
           </div>
-          <div className="px-3 py-3 text-sm text-muted-foreground">
-            Artifact tabs (proposal / design / tasks / delta) land in Task 4.
-          </div>
+          <SpecChangeArtifactTabs
+            projectId={projectId}
+            specChangeId={specChange.id}
+            capabilitiesInDelta={
+              ((specChange.deltaSpecPaths ?? [])
+                .map((p) => p.split('/').slice(-2, -1)[0])
+                .filter(Boolean)) as string[]
+            }
+          />
         </div>
       )}
 
@@ -283,6 +287,192 @@ export function SubIssueDetailScreen({
               </li>
             ))}
           </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface ArtifactTabsProps {
+  projectId: string;
+  specChangeId: string;
+  /** Capability names parsed from specChange.deltaSpecPaths. */
+  capabilitiesInDelta: string[];
+}
+
+function SpecChangeArtifactTabs({
+  projectId,
+  specChangeId,
+  capabilitiesInDelta,
+}: ArtifactTabsProps): React.ReactElement {
+  const activeTab = useOpenSpecStore(
+    (s) => s.viewByProject[projectId]?.activeArtifactTab ?? 'proposal',
+  );
+  const selectedCap = useOpenSpecStore(
+    (s) => s.viewByProject[projectId]?.selectedDeltaCapability,
+  );
+  const patchView = useOpenSpecStore((s) => s.patchView);
+  const setSpecChange = useOpenSpecStore((s) => s.setSpecChange);
+  const [content, setContent] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [capInput, setCapInput] = useState('');
+
+  const load = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const text =
+        activeTab === 'proposal'
+          ? await api.readProposal(specChangeId)
+          : activeTab === 'design'
+            ? await api.readDesign(specChangeId)
+            : activeTab === 'tasks'
+              ? await api.readTasks(specChangeId)
+              : selectedCap
+                ? await api.readDeltaSpec(specChangeId, selectedCap)
+                : '';
+      setContent(text);
+    } catch (e) {
+      setError((e as Error).message);
+      setContent('');
+    } finally {
+      setLoading(false);
+    }
+  }, [activeTab, selectedCap, specChangeId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const save = async (): Promise<void> => {
+    setSaving(true);
+    setError(null);
+    try {
+      const sc =
+        activeTab === 'proposal'
+          ? await api.writeProposal(specChangeId, content)
+          : activeTab === 'design'
+            ? await api.writeDesign(specChangeId, content)
+            : activeTab === 'tasks'
+              ? await api.writeTasks(specChangeId, content)
+              : selectedCap
+                ? await api.writeDeltaSpec(specChangeId, selectedCap, content)
+                : null;
+      if (sc) setSpecChange(sc);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addNewCapability = async (): Promise<void> => {
+    const name = capInput.trim();
+    if (!name) return;
+    try {
+      const sc = await api.writeDeltaSpec(
+        specChangeId,
+        name,
+        '## ADDED Requirements\n',
+      );
+      setSpecChange(sc);
+      patchView(projectId, {
+        activeArtifactTab: 'delta',
+        selectedDeltaCapability: name,
+      });
+      setCapInput('');
+    } catch (e) {
+      alert(`Add capability failed: ${(e as Error).message}`);
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center gap-1 border-b border-border bg-muted/30 px-3">
+        {(['proposal', 'design', 'tasks', 'delta'] as const).map((t) => (
+          <button
+            key={t}
+            className={`px-2.5 py-1.5 text-xs ${
+              activeTab === t
+                ? 'border-b-2 border-primary font-medium'
+                : 'text-muted-foreground'
+            }`}
+            onClick={() => patchView(projectId, { activeArtifactTab: t })}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'delta' && (
+        <div className="px-3 py-2 border-b border-border flex items-center gap-2 flex-wrap">
+          {capabilitiesInDelta.length === 0 && (
+            <span className="text-xs text-muted-foreground">
+              No delta files yet.
+            </span>
+          )}
+          {capabilitiesInDelta.map((c) => (
+            <button
+              key={c}
+              className={`px-2 py-0.5 text-xs rounded-md ${
+                selectedCap === c
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-secondary hover:bg-secondary/80'
+              }`}
+              onClick={() => patchView(projectId, { selectedDeltaCapability: c })}
+            >
+              {c}
+            </button>
+          ))}
+          <div className="flex items-center gap-1 ml-auto">
+            <input
+              className="px-2 py-1 text-xs bg-background border border-border rounded-md"
+              placeholder="new capability"
+              value={capInput}
+              onChange={(e) => setCapInput(e.target.value)}
+            />
+            <button
+              className="px-2 py-1 text-xs rounded-md bg-secondary hover:bg-secondary/80"
+              onClick={() => void addNewCapability()}
+            >
+              + Add
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="p-3 space-y-2">
+        {loading ? (
+          <div className="text-sm text-muted-foreground">Loading…</div>
+        ) : (
+          <>
+            <textarea
+              className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm font-mono min-h-[240px] focus:outline-none focus:ring-1 focus:ring-primary/50"
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              spellCheck={false}
+            />
+            <div className="flex items-center gap-2">
+              <button
+                className="px-2.5 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                disabled={saving || (activeTab === 'delta' && !selectedCap)}
+                onClick={() => void save()}
+              >
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                className="px-2.5 py-1 text-xs rounded-md bg-secondary hover:bg-secondary/80"
+                onClick={() => void load()}
+              >
+                Reload
+              </button>
+              {error && (
+                <span className="text-xs text-red-500">Error: {error}</span>
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>

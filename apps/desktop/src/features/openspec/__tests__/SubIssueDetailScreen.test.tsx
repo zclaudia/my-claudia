@@ -93,4 +93,86 @@ describe('SubIssueDetailScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: /\+ Manual Executor/ }));
     await waitFor(() => expect(spy).toHaveBeenCalled());
   });
+
+  describe('SpecChange artifact tabs', () => {
+    beforeEach(() => {
+      const sc = {
+        id: 'sc1',
+        slug: 'x',
+        status: 'drafting',
+        deltaSpecPaths: [
+          'openspec/changes/x/specs/auth/spec.md',
+          'openspec/changes/x/specs/billing/spec.md',
+        ],
+      };
+      useOpenSpecStore.setState({
+        issuesByProject: { p1: [mkIssue({ id: 's', title: 'S' })] },
+        specChangesById: { sc1: sc as never },
+      } as never);
+      // Override the outer beforeEach mock so the post-mount refetch keeps
+      // deltaSpecPaths populated.
+      vi.spyOn(api, 'getSpecChange').mockResolvedValue(sc as never);
+      vi.spyOn(api, 'readProposal').mockResolvedValue('PROPOSAL_TEXT');
+      vi.spyOn(api, 'readDesign').mockResolvedValue('DESIGN_TEXT');
+      vi.spyOn(api, 'readTasks').mockResolvedValue('TASKS_TEXT');
+      vi.spyOn(api, 'readDeltaSpec').mockResolvedValue('DELTA_TEXT');
+    });
+
+    it('switches between artifact tabs', async () => {
+      render(<SubIssueDetailScreen projectId="p1" subIssueId="s" />);
+      // Proposal is the default — wait until the textarea shows its content.
+      await waitFor(() => {
+        const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+        expect(ta.value).toBe('PROPOSAL_TEXT');
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'design' }));
+      await waitFor(() => {
+        const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+        expect(ta.value).toBe('DESIGN_TEXT');
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'tasks' }));
+      await waitFor(() => {
+        const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+        expect(ta.value).toBe('TASKS_TEXT');
+      });
+    });
+
+    it('Save calls writeProposal when on proposal tab', async () => {
+      const spy = vi.spyOn(api, 'writeProposal').mockResolvedValue({
+        id: 'sc1',
+        slug: 'x',
+        status: 'drafting',
+        deltaSpecPaths: [],
+      } as never);
+      render(<SubIssueDetailScreen projectId="p1" subIssueId="s" />);
+      const textarea = await waitFor(() => {
+        const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+        expect(ta.value).toBe('PROPOSAL_TEXT');
+        return ta;
+      });
+      fireEvent.change(textarea, { target: { value: 'EDITED' } });
+      fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+      await waitFor(() => {
+        expect(spy).toHaveBeenCalledWith('sc1', 'EDITED');
+      });
+    });
+
+    it('delta tab shows existing capabilities + Add input', async () => {
+      render(<SubIssueDetailScreen projectId="p1" subIssueId="s" />);
+      // Wait for initial load to finish so we don't race.
+      await waitFor(() => {
+        const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+        expect(ta.value).toBe('PROPOSAL_TEXT');
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'delta' }));
+      // Capability chips parsed from deltaSpecPaths.
+      expect(screen.getByRole('button', { name: 'auth' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'billing' })).toBeInTheDocument();
+      // + Add input present.
+      expect(screen.getByPlaceholderText('new capability')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /\+ Add/ })).toBeInTheDocument();
+    });
+  });
 });
