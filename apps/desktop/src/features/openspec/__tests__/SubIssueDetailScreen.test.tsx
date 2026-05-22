@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { SubIssueDetailScreen } from '../components/SubIssueDetailScreen.js';
 import { useOpenSpecStore } from '../store.js';
+import { INITIAL_VIEW_STATE } from '../view-state.js';
 import * as api from '../api.js';
 
 function mkIssue(over: Record<string, unknown>) {
@@ -173,6 +174,26 @@ describe('SubIssueDetailScreen', () => {
       // + Add input present.
       expect(screen.getByPlaceholderText('new capability')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /\+ Add/ })).toBeInTheDocument();
+    });
+
+    it('toggle between edit / split / preview modes', async () => {
+      useOpenSpecStore.setState({
+        viewByProject: { p1: { ...INITIAL_VIEW_STATE, previewMode: 'edit' } },
+      } as never);
+      render(<SubIssueDetailScreen projectId="p1" subIssueId="s" />);
+      // Wait for content load so the toggle row is visible.
+      await waitFor(() => {
+        const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+        expect(ta.value).toBe('PROPOSAL_TEXT');
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'split' }));
+      expect(useOpenSpecStore.getState().viewByProject.p1.previewMode).toBe('split');
+
+      fireEvent.click(screen.getByRole('button', { name: 'preview' }));
+      expect(useOpenSpecStore.getState().viewByProject.p1.previewMode).toBe('preview');
+      // In preview mode the editor textarea should not render.
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     });
   });
 });

@@ -40,6 +40,8 @@ export interface OpenSpecViewState {
   showNewIssue: boolean;
   /** Show archive confirm dialog (for current sub-issue). */
   showArchiveConfirm: boolean;
+  /** Editor/preview mode for artifact tabs. */
+  previewMode: 'edit' | 'preview' | 'split';
 }
 
 export const INITIAL_VIEW_STATE: OpenSpecViewState = {
@@ -49,4 +51,5 @@ export const INITIAL_VIEW_STATE: OpenSpecViewState = {
   showInitializeSpecs: false,
   showNewIssue: false,
   showArchiveConfirm: false,
+  previewMode: 'edit',
 };

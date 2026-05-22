@@ -11,6 +11,7 @@ import type { ExecutorInstance } from '@my-claudia/shared/features/executor';
 import { useOpenSpecStore } from '../store.js';
 import * as api from '../api.js';
 import { StatusBadge } from './StatusBadge.js';
+import { MarkdownPreview } from './MarkdownPreview.js';
 
 interface Props {
   projectId: string;
@@ -311,6 +312,9 @@ function SpecChangeArtifactTabs({
   const selectedCap = useOpenSpecStore(
     (s) => s.viewByProject[projectId]?.selectedDeltaCapability,
   );
+  const previewMode = useOpenSpecStore(
+    (s) => s.viewByProject[projectId]?.previewMode ?? 'edit',
+  );
   const patchView = useOpenSpecStore((s) => s.patchView);
   const setSpecChange = useOpenSpecStore((s) => s.setSpecChange);
   const [content, setContent] = useState<string>('');
@@ -443,17 +447,46 @@ function SpecChangeArtifactTabs({
         </div>
       )}
 
+      <div className="px-3 py-2 border-b border-border flex items-center gap-1">
+        {(['edit', 'split', 'preview'] as const).map((m) => (
+          <button
+            key={m}
+            className={`px-2 py-0.5 text-xs rounded-md ${
+              previewMode === m
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-secondary hover:bg-secondary/80'
+            }`}
+            onClick={() => patchView(projectId, { previewMode: m })}
+          >
+            {m}
+          </button>
+        ))}
+      </div>
+
       <div className="p-3 space-y-2">
         {loading ? (
           <div className="text-sm text-muted-foreground">Loading…</div>
         ) : (
           <>
-            <textarea
-              className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm font-mono min-h-[240px] focus:outline-none focus:ring-1 focus:ring-primary/50"
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              spellCheck={false}
-            />
+            <div
+              className={`grid gap-3 ${
+                previewMode === 'split' ? 'grid-cols-2' : 'grid-cols-1'
+              }`}
+            >
+              {previewMode !== 'preview' && (
+                <textarea
+                  className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm font-mono min-h-[240px] focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  spellCheck={false}
+                />
+              )}
+              {previewMode !== 'edit' && (
+                <div className="border border-border rounded-md px-3 py-2 min-h-[240px] overflow-auto bg-muted/30">
+                  <MarkdownPreview content={content || '_empty_'} />
+                </div>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <button
                 className="px-2.5 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
