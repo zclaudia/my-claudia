@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { emit, listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import {
@@ -48,6 +48,8 @@ const AUTO_COLLAPSE_MS = NOTCH_WINDOW_TIMINGS.autoCollapseCheckMs;
 const HOVER_EXPAND_DELAY = NOTCH_WINDOW_TIMINGS.hoverExpandDelayMs;
 const OPEN_ANIM_DURATION_MS = NOTCH_WINDOW_TIMINGS.openAnimationDurationMs;
 const CLOSE_ANIM_DURATION_MS = NOTCH_WINDOW_TIMINGS.closeAnimationDurationMs;
+const PASSTHROUGH_RETRY_DELAY_MS = NOTCH_WINDOW_TIMINGS.passthroughRetryDelayMs;
+const PASSTHROUGH_WATCHDOG_MS = NOTCH_WINDOW_TIMINGS.passthroughWatchdogMs;
 
 const SHAPE_CLOSED_W = 220;
 const SHAPE_CLOSED_H = 32;
@@ -109,21 +111,46 @@ export function NotchWindow() {
     activeTab: 'sessions',
     pluginNotchTabs: [],
   });
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpenState] = useState(false);
+  const isOpenRef = useRef(false);
+  const setIsOpen = useCallback((next: boolean | ((previous: boolean) => boolean)) => {
+    const value = typeof next === 'function' ? next(isOpenRef.current) : next;
+    isOpenRef.current = value;
+    setIsOpenState(value);
+  }, []);
   const [activeTab, setActiveTab] = useState<NotchTab>('sessions');
   const autoCollapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverExpandTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevSnapshotRef = useRef<NotchStateSnapshot | null>(null);
   const surfacePathRef = useRef<SVGPathElement | null>(null);
+  const passthroughErrorWarnCountRef = useRef(0);
   const passthroughControllerRef = useRef<ReturnType<typeof createPassthroughController> | null>(null);
   if (!passthroughControllerRef.current) {
     passthroughControllerRef.current = createPassthroughController((passthrough) => (
       invoke('set_notch_passthrough', { passthrough })
-    ));
+    ), {
+      retryDelayMs: PASSTHROUGH_RETRY_DELAY_MS,
+      onError: (error, requested) => {
+        passthroughErrorWarnCountRef.current += 1;
+        if (passthroughErrorWarnCountRef.current === 1 || passthroughErrorWarnCountRef.current % 5 === 0) {
+          console.warn('[NotchWindow] set_notch_passthrough failed; will retry', {
+            requested,
+            error,
+          });
+        }
+      },
+    });
   }
   const setPassthrough = (passthrough: boolean) => (
     passthroughControllerRef.current?.set(passthrough).catch(() => undefined) ?? Promise.resolve()
   );
+  const ensurePassthrough = (passthrough: boolean) => (
+    passthroughControllerRef.current?.ensure(passthrough).catch(() => undefined) ?? Promise.resolve()
+  );
+
+  useEffect(() => () => {
+    passthroughControllerRef.current?.dispose();
+  }, []);
 
   // Mark the document so the shared CSS knows to make html/body/#root transparent
   // — otherwise the light-mode `--background` color paints the whole window white
@@ -245,6 +272,26 @@ export function NotchWindow() {
     startPassthroughPolling();
     return () => { if (hoverPollRef.current) clearInterval(hoverPollRef.current); };
   }, []);
+
+  // Keep the native OS-window mouse policy aligned with React state. This is a
+  // fallback for transient Tauri/macOS failures during open/close transitions.
+  useEffect(() => {
+    ensurePassthrough(!isOpen);
+  }, [isOpen]);
+
+  // Closed notch is visually tiny but the macOS window remains full-size, so a
+  // stale native passthrough=false state blocks clicks below it. Native does not
+  // provide a passthrough readback, so force re-apply the closed policy at a low
+  // cadence while collapsed.
+  useEffect(() => {
+    if (isOpen) return;
+    const timer = setInterval(() => {
+      if (!isOpenRef.current) {
+        ensurePassthrough(true);
+      }
+    }, PASSTHROUGH_WATCHDOG_MS);
+    return () => clearInterval(timer);
+  }, [isOpen]);
 
   // Shape animation.
   useEffect(() => {

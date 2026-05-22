@@ -338,14 +338,16 @@ pub fn resize_notch_window(app: tauri::AppHandle, expanded: bool) -> Result<(), 
         if let Ok(Some(monitor)) = window.current_monitor() {
             let scale = monitor.scale_factor().max(1e-3);
             let screen_w = monitor.size().width as f64 / scale;
-            let x = (screen_w - w) / 2.0;
+            let mon_x = monitor.position().x as f64 / scale;
+            let mon_y = monitor.position().y as f64 / scale;
+            let x = mon_x + (screen_w - w) / 2.0;
             window
                 .set_size(tauri::Size::Logical(tauri::LogicalSize {
                     width: w,
                     height: h,
                 }))
                 .map_err(|e| e.to_string())?;
-            let _ = window.set_position(Position::Logical(LogicalPosition::new(x.max(0.0), 0.0)));
+            let _ = window.set_position(Position::Logical(LogicalPosition::new(x, mon_y)));
         } else {
             window
                 .set_size(tauri::Size::Logical(tauri::LogicalSize {
