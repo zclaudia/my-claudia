@@ -362,6 +362,43 @@ function buildSummaryFragment(
   };
 }
 
+interface ProviderFileChange {
+  path: string;
+  changeKind: 'add' | 'modify' | 'delete' | 'rename' | 'unknown';
+  summary?: string;
+}
+
+function changeKindFromProviderValue(value: unknown): ProviderFileChange['changeKind'] {
+  const raw = typeof value === 'string' ? value.toLowerCase() : '';
+  if (raw === 'add' || raw === 'create' || raw === 'new') return 'add';
+  if (raw === 'delete' || raw === 'remove' || raw === 'deleted') return 'delete';
+  if (raw === 'rename' || raw === 'move') return 'rename';
+  if (raw === 'modify' || raw === 'modified' || raw === 'update' || raw === 'updated') return 'modify';
+  return 'unknown';
+}
+
+function getCodexInputFileChanges(toolName: string, toolInput: unknown): ProviderFileChange[] {
+  if (normalizeToolName(toolName) !== 'edit') return [];
+  const input = asRecord(toolInput);
+  const changes = input?.changes;
+  if (!Array.isArray(changes)) return [];
+
+  const files: ProviderFileChange[] = [];
+  for (const change of changes) {
+    const record = asRecord(change);
+    if (!record) continue;
+    const path = cleanDiffPath(readStringField(record, ['path', 'file_path', 'filePath', 'file']));
+    if (!path) continue;
+    const rawKind = readStringField(record, ['kind', 'type', 'status']);
+    files.push({
+      path,
+      changeKind: changeKindFromProviderValue(rawKind),
+      summary: rawKind ? `(${rawKind})` : undefined,
+    });
+  }
+  return files;
+}
+
 function buildFragments(
   toolCall: ToolCallState,
   messageId: string,
@@ -588,6 +625,33 @@ export function aggregateSessionChanges({
 
       if (tc.effect?.kind === 'file_change') {
         for (const file of tc.effect.files) {
+          const absolutePath = cleanDiffPath(file.path);
+          if (!absolutePath) continue;
+          const fragments = [buildSummaryFragment(
+            tc,
+            message.id,
+            message.createdAt,
+            file.summary ?? file.changeKind ?? 'file changed',
+          )];
+          turn.files.add(absolutePath);
+          if (file.changeKind === 'add') turn.stats.writeCount += 1;
+          else turn.stats.editCount += 1;
+          pushModifiedEntry({
+            modifiedMap,
+            currentGroup,
+            projectRoot,
+            absolutePath,
+            toolName: tc.toolName,
+            messageCreatedAt: message.createdAt,
+            fragments,
+          });
+        }
+        continue;
+      }
+
+      const codexInputFileChanges = getCodexInputFileChanges(tc.toolName, tc.toolInput);
+      if (codexInputFileChanges.length > 0) {
+        for (const file of codexInputFileChanges) {
           const absolutePath = cleanDiffPath(file.path);
           if (!absolutePath) continue;
           const fragments = [buildSummaryFragment(

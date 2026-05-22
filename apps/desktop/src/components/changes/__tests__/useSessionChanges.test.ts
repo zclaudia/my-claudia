@@ -135,6 +135,31 @@ describe('aggregateSessionChanges', () => {
     expect(r.turns[0].stats).toMatchObject({ fileCount: 2, editCount: 2 });
   });
 
+  it('collects Codex SDK file_change changes arrays when normalized effect is missing', () => {
+    const messages: MessageWithToolCalls[] = [
+      userMsg('u1', 'codex sdk change', 100),
+      assistantMsg('a1', [
+        tool('t1', 'Edit', {
+          changes: [
+            { path: 'src/a.ts', kind: 'update' },
+            { path: 'src/new.ts', kind: 'add' },
+          ],
+        }),
+      ], 110),
+    ];
+    const r = aggregateSessionChanges({
+      messages,
+      sinceMessageId: null,
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(r.modified.map((m) => m.path)).toEqual(['src/a.ts', 'src/new.ts']);
+    expect(r.modified[0].groups[0].fragments[0]).toMatchObject({
+      kind: 'summary',
+      summary: '(update)',
+    });
+    expect(r.turns[0].stats).toMatchObject({ fileCount: 2, editCount: 1, writeCount: 1 });
+  });
+
   it('ignores provider-native fileChanges maps without normalized effect', () => {
     const messages: MessageWithToolCalls[] = [
       userMsg('u1', 'app server change', 100),

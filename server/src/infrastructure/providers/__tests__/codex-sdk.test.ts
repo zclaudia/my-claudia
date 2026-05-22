@@ -614,6 +614,39 @@ describe('codex-sdk', () => {
       });
     });
 
+    it('映射 item.started file_change changes 数组', async () => {
+      const { runCodex } = await import('../codex-sdk');
+      const mockEvents = {
+        [Symbol.asyncIterator]: async function* () {
+          yield {
+            type: 'item.started',
+            item: {
+              id: 'fc-1',
+              type: 'file_change',
+              changes: [
+                { path: 'src/a.ts', kind: 'update' },
+                { path: 'src/new.ts', kind: 'add' },
+              ],
+            },
+          };
+        },
+      };
+      mockRunStreamed.mockResolvedValue({ events: mockEvents });
+      const gen = runCodex('test', { cwd: '/test' }, vi.fn());
+      const result = await gen.next();
+      expect(result.value).toMatchObject({
+        type: 'tool_use',
+        toolName: 'Edit',
+        toolEffect: {
+          kind: 'file_change',
+          files: [
+            expect.objectContaining({ path: 'src/a.ts', changeKind: 'modify' }),
+            expect.objectContaining({ path: 'src/new.ts', changeKind: 'add' }),
+          ],
+        },
+      });
+    });
+
     it('映射 item.started mcp_tool_call', async () => {
       const { runCodex } = await import('../codex-sdk');
       const mockEvents = {
@@ -677,6 +710,43 @@ describe('codex-sdk', () => {
       const gen = runCodex('test', { cwd: '/test' }, vi.fn());
       const result = await gen.next();
       expect(result.value).toMatchObject({ type: 'tool_result', toolName: 'Edit', toolResult: 'Applied', isToolError: false });
+    });
+
+    it('item.completed file_change 在没有 started 时补发 tool_use 并带 file effect', async () => {
+      const { runCodex } = await import('../codex-sdk');
+      const mockEvents = {
+        [Symbol.asyncIterator]: async function* () {
+          yield {
+            type: 'item.completed',
+            item: {
+              id: 'fc-1',
+              type: 'file_change',
+              status: 'completed',
+              changes: [{ path: 'src/a.ts', kind: 'update' }],
+            },
+          };
+        },
+      };
+      mockRunStreamed.mockResolvedValue({ events: mockEvents });
+      const gen = runCodex('test', { cwd: '/test' }, vi.fn());
+      const first = await gen.next();
+      const second = await gen.next();
+      expect(first.value).toMatchObject({
+        type: 'tool_use',
+        toolName: 'Edit',
+        toolEffect: {
+          kind: 'file_change',
+          files: [expect.objectContaining({ path: 'src/a.ts', changeKind: 'modify' })],
+        },
+      });
+      expect(second.value).toMatchObject({
+        type: 'tool_result',
+        toolName: 'Edit',
+        toolEffect: {
+          kind: 'file_change',
+          files: [expect.objectContaining({ path: 'src/a.ts', changeKind: 'modify' })],
+        },
+      });
     });
 
     it('映射 item.completed file_change failed', async () => {

@@ -18,7 +18,11 @@ import { parseMessageInput, prependNonImageNotes } from './provider-input.js';
 import { sanitizeInheritedProviderEnv } from '../../utils/startup-env.js';
 import { buildMcpBridgeEntry } from '../../utils/mcp-bridge-launch.js';
 import { loadMcpServersFromDb } from '../../utils/mcp-config.js';
-import { fileChangeEffectFromSummaryText, makeShellEffect } from './tool-effects.js';
+import {
+  fileChangeEffectFromArray,
+  fileChangeEffectFromSummaryText,
+  makeShellEffect,
+} from './tool-effects.js';
 
 
 // ── Types ─────────────────────────────────────────────────────
@@ -190,6 +194,12 @@ function deriveCodexModeTransition(
 
 // ── ThreadItem → ClaudeMessage mapping ───────────────────────
 
+function fileChangeEffectFromCodexChanges(changes: unknown) {
+  return typeof changes === 'string'
+    ? fileChangeEffectFromSummaryText(changes)
+    : fileChangeEffectFromArray(changes);
+}
+
 function mapItemStarted(item: ThreadItem): ClaudeMessage | null {
   const toolUseId = (item as { id?: string }).id;
   switch (item.type) {
@@ -207,13 +217,13 @@ function mapItemStarted(item: ThreadItem): ClaudeMessage | null {
       };
     case 'file_change':
       {
-        const changes = typeof item.changes === 'string' ? item.changes : undefined;
+        const changes = (item as { changes?: unknown }).changes;
         return {
           type: 'tool_use',
           toolUseId,
           toolName: 'Edit',
-          toolInput: { changes: item.changes },
-          toolEffect: fileChangeEffectFromSummaryText(changes),
+          toolInput: { changes },
+          toolEffect: fileChangeEffectFromCodexChanges(changes),
         };
       }
     case 'mcp_tool_call': {
@@ -262,13 +272,17 @@ function mapItemCompleted(item: ThreadItem): ClaudeMessage | null {
         isToolError: item.status === 'failed',
       };
     case 'file_change':
-      return {
-        type: 'tool_result',
-        toolUseId,
-        toolName: 'Edit',
-        toolResult: item.status === 'completed' ? 'Applied' : 'Failed',
-        isToolError: item.status === 'failed',
-      };
+      {
+        const changes = (item as { changes?: unknown }).changes;
+        return {
+          type: 'tool_result',
+          toolUseId,
+          toolName: 'Edit',
+          toolResult: item.status === 'completed' ? 'Applied' : 'Failed',
+          isToolError: item.status === 'failed',
+          toolEffect: fileChangeEffectFromCodexChanges(changes),
+        };
+      }
     case 'mcp_tool_call': {
       const resultText = item.result
         ? JSON.stringify(item.result.content)
@@ -389,6 +403,7 @@ export async function* runCodex(
   // Clear text tracking state at the start of each run to prevent stale state
   // from previous runs (especially when resuming threads)
   itemEmittedText.clear();
+  itemStartedToolUseIds.clear();
 
   const codex = getCodexInstance(options);
   const policies = mapModeToPolicies(options.mode);
@@ -540,6 +555,7 @@ export async function* runCodex(
 // whether the new text starts with what we've already emitted (accumulated) or not
 // (incremental delta).
 const itemEmittedText = new Map<string, string>();
+const itemStartedToolUseIds = new Set<string>();
 
 function getItemId(item: ThreadItem): string {
   return (item as { id?: string }).id || `__anon_${item.type}`;
@@ -603,7 +619,10 @@ function mapThreadEvent(event: ThreadEvent, sessionId?: string, initSystemInfo?:
         itemEmittedText.set(itemId, event.item.text || '');
       }
       const msg = mapItemStarted(event.item);
-      if (msg) messages.push(msg);
+      if (msg) {
+        if (msg.type === 'tool_use') itemStartedToolUseIds.add(itemId);
+        messages.push(msg);
+      }
       break;
     }
 
@@ -641,6 +660,16 @@ function mapThreadEvent(event: ThreadEvent, sessionId?: string, initSystemInfo?:
         }
         itemEmittedText.delete(itemId);
       } else {
+        const shouldBackfillFileChangeStart = event.item.type === 'file_change'
+          && !itemStartedToolUseIds.has(itemId)
+          && fileChangeEffectFromCodexChanges((event.item as { changes?: unknown }).changes);
+        if (shouldBackfillFileChangeStart) {
+          const started = mapItemStarted(event.item);
+          if (started) {
+            if (started.type === 'tool_use') itemStartedToolUseIds.add(itemId);
+            messages.push(started);
+          }
+        }
         const msg = mapItemCompleted(event.item);
         if (msg) messages.push(msg);
 
@@ -662,6 +691,7 @@ function mapThreadEvent(event: ThreadEvent, sessionId?: string, initSystemInfo?:
     case 'turn.completed': {
       // Clean up all tracking state for this turn
       itemEmittedText.clear();
+      itemStartedToolUseIds.clear();
       const usage = event.usage;
       messages.push({
         type: 'result',
@@ -676,11 +706,13 @@ function mapThreadEvent(event: ThreadEvent, sessionId?: string, initSystemInfo?:
 
     case 'turn.failed':
       itemEmittedText.clear();
+      itemStartedToolUseIds.clear();
       messages.push({ type: 'error', error: `Turn failed: ${event.error.message}` });
       break;
 
     case 'error':
       itemEmittedText.clear();
+      itemStartedToolUseIds.clear();
       messages.push({ type: 'error', error: event.message });
       break;
   }

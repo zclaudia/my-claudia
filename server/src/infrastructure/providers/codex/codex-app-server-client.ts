@@ -803,6 +803,7 @@ export class CodexAppServerClient {
           toolName: 'Edit',
           toolResult: resultText,
           isToolError: item.status === 'failed',
+          toolEffect: fileChangeEffectFromMap(fileChanges),
         }];
       }
 
