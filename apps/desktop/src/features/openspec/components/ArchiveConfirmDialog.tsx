@@ -9,6 +9,7 @@
 import React, { useState } from 'react';
 import { useOpenSpecStore } from '../store.js';
 import * as api from '../api.js';
+import type { ArchiveOutcome } from '../api.js';
 
 interface Props {
   projectId: string;
@@ -30,7 +31,8 @@ export function ArchiveConfirmDialog({
   const upsertIssue = useOpenSpecStore((s) => s.upsertIssue);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<unknown | null>(null);
+  const [result, setResult] = useState<ArchiveOutcome | null>(null);
+  const [errors, setErrors] = useState<{ capability: string; issues: string[] }[]>([]);
 
   const deltaCaps = (specChange?.deltaSpecPaths ?? [])
     .map((p) => p.split('/').slice(-2, -1)[0])
@@ -42,7 +44,20 @@ export function ArchiveConfirmDialog({
     try {
       const res = await api.closeAndArchive(subIssueId);
       upsertIssue(res.issue);
-      setResult(res.archive ?? { ok: true });
+      if (
+        res.archive &&
+        res.archive.ok === false &&
+        res.archive.validationErrors &&
+        res.archive.validationErrors.length > 0
+      ) {
+        // Validation failed — surface per-capability issues and keep the dialog
+        // open so the user can fix the deltas and retry.
+        setErrors(res.archive.validationErrors);
+        setResult(null);
+      } else {
+        setErrors([]);
+        setResult(res.archive ?? { ok: true });
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -92,6 +107,23 @@ export function ArchiveConfirmDialog({
                 </li>
               </ul>
               {error && <div className="text-xs text-red-500">Error: {error}</div>}
+              {errors.length > 0 && (
+                <div className="border border-red-500/30 bg-red-500/10 rounded-md p-3 text-sm">
+                  <div className="font-medium text-red-600 mb-2">
+                    Validation failed — fix these before archiving:
+                  </div>
+                  {errors.map((capErr) => (
+                    <div key={capErr.capability} className="mb-2 last:mb-0">
+                      <div className="text-xs font-mono">{capErr.capability}</div>
+                      <ul className="list-disc pl-5 mt-1 space-y-0.5 text-xs text-muted-foreground">
+                        {capErr.issues.map((iss, idx) => (
+                          <li key={idx}>{iss}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
               {result !== null && (
                 <div className="text-xs text-green-600">Archive complete.</div>
               )}

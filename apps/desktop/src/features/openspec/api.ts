@@ -272,10 +272,17 @@ export async function transitionStatus(id: string, status: LocalIssueStatus): Pr
   return body.issue;
 }
 
+export interface ArchiveOutcome {
+  ok: boolean;
+  capabilities?: { capability: string; added: string[]; modified: string[]; removed: string[] }[];
+  validationErrors?: { capability: string; issues: string[] }[];
+  archivedDir?: string;
+}
+
 export async function closeAndArchive(
   id: string,
-): Promise<{ issue: LocalIssue; archive?: unknown }> {
-  return apiCall<{ issue: LocalIssue; archive?: unknown }>(
+): Promise<{ issue: LocalIssue; archive?: ArchiveOutcome }> {
+  return apiCall<{ issue: LocalIssue; archive?: ArchiveOutcome }>(
     `/api/issues/${id}/close-and-archive`,
     { method: 'POST', body: JSON.stringify({}) },
   );
