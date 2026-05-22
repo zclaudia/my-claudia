@@ -463,6 +463,7 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     registry: executorRegistry,
     specChangeService,
     archiveService,
+    broadcast: (_projectId, msg) => broadcastToAuthenticatedClients(clients, msg),
   });
 
   // ── G4: OpenSpec bootstrap services ──
