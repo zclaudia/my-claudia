@@ -12,6 +12,7 @@ export * from './workflow.js';
 export * from './notification-feed.js';
 export * from './plugins.js';
 export * from './meta-workflow.js';
+export * from './openspec.js';
 
 // Re-import interaction types needed for the ServerMessage union
 import type { InteractionPromptMessage, TodoUpdateInteractionMessage, ApprovalInteractionMessage, PlanReviewInteractionMessage, InteractionResolvedMessage, InteractionResponseMessage } from '../../interaction/forms.js';
@@ -198,6 +199,11 @@ import type {
   PluginNotchTabRegisteredMessage, PluginNotchTabUnregisteredMessage,
   FilePushNotificationMessage,
 } from './plugins.js';
+import type {
+  OpenSpecExecutorStatusChangedMessage,
+  OpenSpecSubIssueStatusChangedMessage,
+  OpenSpecSpecChangeStatusChangedMessage,
+} from './openspec.js';
 
 export type ServerMessage =
   | AuthResultMessage
@@ -269,6 +275,9 @@ export type ServerMessage =
   | LocalPRDeletedMessage
   | LocalIssueUpdateMessage
   | LocalIssueDeletedMessage
+  | OpenSpecExecutorStatusChangedMessage
+  | OpenSpecSubIssueStatusChangedMessage
+  | OpenSpecSpecChangeStatusChangedMessage
   | LocalIssueCommentUpdateMessage
   | LocalIssueCommentDeletedMessage
   | AttachmentAddedMessage
