@@ -14,6 +14,7 @@ import { SpecCorpusScreen } from './SpecCorpusScreen.js';
 import { InitializeSpecsDialog } from './InitializeSpecsDialog.js';
 import { NewIssueDialog } from './NewIssueDialog.js';
 import { ArchiveConfirmDialog } from './ArchiveConfirmDialog.js';
+import { AnonymousManagementPanel } from './AnonymousManagementPanel.js';
 
 interface Props {
   projectId: string;
@@ -61,6 +62,14 @@ export function OpenSpecPanel({ projectId }: Props): React.ReactElement {
     return (
       <>
         <SubIssueDetailScreen projectId={projectId} subIssueId={view.selectedSubIssueId} />
+        {dialogs}
+      </>
+    );
+  }
+  if (view.screen === 'anonymous-management') {
+    return (
+      <>
+        <AnonymousManagementPanel projectId={projectId} />
         {dialogs}
       </>
     );

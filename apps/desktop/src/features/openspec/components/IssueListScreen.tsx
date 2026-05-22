@@ -164,20 +164,32 @@ export function IssueListScreen({ projectId }: Props): React.ReactElement {
             <span className="text-xs opacity-60">{view?.anonymousExpanded ? '▾' : '▸'}</span>
           </button>
           {view?.anonymousExpanded && (
-            <ul className="border-t border-border divide-y divide-border">
-              {anonymous.map((i) => (
-                <li
-                  key={i.id}
-                  className="px-3 py-2 cursor-pointer hover:bg-secondary/30"
-                  onClick={() => void openIssue(i.id)}
+            <>
+              <ul className="border-t border-border divide-y divide-border">
+                {anonymous.map((i) => (
+                  <li
+                    key={i.id}
+                    className="px-3 py-2 cursor-pointer hover:bg-secondary/30"
+                    onClick={() => void openIssue(i.id)}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-sm">{i.title}</div>
+                      <StatusBadge status={i.status} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <div className="px-3 py-1.5 text-right border-t border-border">
+                <button
+                  className="text-xs text-primary hover:underline"
+                  onClick={() =>
+                    patchView(projectId, { screen: 'anonymous-management' })
+                  }
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-sm">{i.title}</div>
-                    <StatusBadge status={i.status} />
-                  </div>
-                </li>
-              ))}
-            </ul>
+                  Manage Anonymous Issues →
+                </button>
+              </div>
+            </>
           )}
         </div>
       )}

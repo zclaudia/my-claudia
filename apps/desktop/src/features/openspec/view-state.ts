@@ -8,7 +8,8 @@ export type OpenSpecScreen =
   | 'issues'
   | 'feature-detail'
   | 'sub-issue-detail'
-  | 'corpus';
+  | 'corpus'
+  | 'anonymous-management';
 
 export type OpenSpecTypeFilter =
   | 'feature'
