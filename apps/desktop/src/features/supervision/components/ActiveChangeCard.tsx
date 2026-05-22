@@ -1,4 +1,5 @@
 import type { AcceptanceDecision, ChangeExecutionPlan, ExecutionGateDecision, ProjectChange, SupervisionTask } from '@my-claudia/shared';
+import { LegacyBadge } from '../../openspec/components/LegacyBadge.js';
 import { changeStatusLabel, getNextAction } from './supervisor-utils';
 
 interface ActiveChangeCardProps {
@@ -7,6 +8,7 @@ interface ActiveChangeCardProps {
   changeTasks: SupervisionTask[];
   actionNotes: string;
   loading: boolean;
+  isLegacy?: boolean;
   onActionNotesChange: (notes: string) => void;
   onRequestDesign: () => void;
   onResolveDesign: (decision: 'approve_design' | 'revise_design' | 'revise_change') => void;
@@ -24,6 +26,7 @@ export function ActiveChangeCard({
   changeTasks,
   actionNotes,
   loading,
+  isLegacy,
   onActionNotesChange,
   onRequestDesign,
   onResolveDesign,
@@ -57,7 +60,10 @@ export function ActiveChangeCard({
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-xs uppercase tracking-wide text-muted-foreground">Active Change</div>
-          <div className="mt-1 text-sm font-semibold">{activeChange.title}</div>
+          <div className="mt-1 text-sm font-semibold">
+            {activeChange.title}
+            {isLegacy && <LegacyBadge />}
+          </div>
           <div className="mt-1 text-xs text-muted-foreground">{activeChange.summary}</div>
         </div>
         <span className="rounded-full bg-secondary px-2 py-1 text-[10px] font-medium text-muted-foreground">

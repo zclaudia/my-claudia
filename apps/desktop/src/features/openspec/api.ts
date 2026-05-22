@@ -192,6 +192,20 @@ async function executorAction(id: string, action: string): Promise<ExecutorInsta
   return body.executorInstance;
 }
 
+export async function listLegacyClassicChangeIds(projectId: string): Promise<string[]> {
+  const body = await apiCall<{ legacyIds: string[] }>(
+    `/api/openspec/legacy-classic-change-ids?projectId=${encodeURIComponent(projectId)}`,
+  );
+  return body.legacyIds;
+}
+
+export async function listLegacyMetaWorkflowRunIds(projectId: string): Promise<string[]> {
+  const body = await apiCall<{ legacyIds: string[] }>(
+    `/api/openspec/legacy-meta-workflow-run-ids?projectId=${encodeURIComponent(projectId)}`,
+  );
+  return body.legacyIds;
+}
+
 export const startExecutor = (id: string): Promise<ExecutorInstance> => executorAction(id, 'start');
 export const pauseExecutor = (id: string): Promise<ExecutorInstance> => executorAction(id, 'pause');
 export const resumeExecutor = (id: string): Promise<ExecutorInstance> => executorAction(id, 'resume');

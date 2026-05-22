@@ -78,5 +78,43 @@ export function createExecutorRoutes(deps: ExecutorRoutesDeps): Router {
   );
   router.post('/executor-instances/:id/refresh', op((id) => deps.executorService.refresh(id)));
 
+  router.get('/legacy-classic-change-ids', (req: Request, res: Response) => {
+    const projectId = req.query.projectId as string | undefined;
+    if (!projectId) {
+      res.status(400).json({ error: 'projectId required' });
+      return;
+    }
+    const rows = deps.db
+      .prepare(
+        `SELECT pc.id FROM project_changes pc
+         WHERE pc.project_id = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM executor_instances ei
+             WHERE ei.underlying_id = pc.id AND ei.type = 'classic'
+           )`,
+      )
+      .all(projectId) as { id: string }[];
+    res.json({ legacyIds: rows.map((r) => r.id) });
+  });
+
+  router.get('/legacy-meta-workflow-run-ids', (req: Request, res: Response) => {
+    const projectId = req.query.projectId as string | undefined;
+    if (!projectId) {
+      res.status(400).json({ error: 'projectId required' });
+      return;
+    }
+    const rows = deps.db
+      .prepare(
+        `SELECT mr.id FROM meta_workflow_runs mr
+         WHERE mr.project_id = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM executor_instances ei
+             WHERE ei.underlying_id = mr.id AND ei.type = 'meta-workflow'
+           )`,
+      )
+      .all(projectId) as { id: string }[];
+    res.json({ legacyIds: rows.map((r) => r.id) });
+  });
+
   return router;
 }

@@ -13,6 +13,7 @@ import { WorkspaceDocsPanel } from './WorkspaceDocsPanel';
 import { NewRunDropdown } from '../../meta-workflow/components/NewRunDropdown.js';
 import { MetaWorkflowPanel } from '../../meta-workflow/components/MetaWorkflowPanel.js';
 import { OpenSpecPanel } from '../../openspec/components/OpenSpecPanel.js';
+import { listLegacyClassicChangeIds } from '../../openspec/api.js';
 import {
   type ContextDocumentPreview,
   type PreviewDocTarget,
@@ -63,6 +64,15 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
   const [baselineLanguage, setBaselineLanguage] = useState<BaselineSetupLanguage>('zh-CN');
   const [baselineProviderId, setBaselineProviderId] = useState<string>('');
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
+  const [legacyClassicChangeIds, setLegacyClassicChangeIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+    listLegacyClassicChangeIds(projectId)
+      .then((ids) => { if (!cancelled) setLegacyClassicChangeIds(new Set(ids)); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [projectId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -439,6 +449,7 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
             changeTasks={changeTasks}
             actionNotes={actionNotes}
             loading={loading}
+            isLegacy={legacyClassicChangeIds.has(activeChange.id)}
             onActionNotesChange={setActionNotes}
             onRequestDesign={handleRequestDesign}
             onResolveDesign={handleResolveDesign}

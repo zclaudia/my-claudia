@@ -1,8 +1,10 @@
 // apps/desktop/src/features/meta-workflow/components/MetaWorkflowPanel.tsx
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useMetaWorkflowStore } from '../store.js';
 import { INITIAL_VIEW_STATE } from '../view-state.js';
 import * as api from '../api.js';
+import { listLegacyMetaWorkflowRunIds } from '../../openspec/api.js';
+import { LegacyBadge } from '../../openspec/components/LegacyBadge.js';
 import { RequirementsScreen } from './RequirementsScreen.js';
 import { PhaseGraphScreen } from './PhaseGraphScreen.js';
 import { PhaseBoardScreen } from './PhaseBoardScreen.js';
@@ -20,6 +22,7 @@ export function MetaWorkflowPanel({ projectId, socket }: MetaWorkflowPanelProps)
   const view = useMetaWorkflowStore((s) => s.viewByProject[projectId] ?? INITIAL_VIEW_STATE);
   const setRuns = useMetaWorkflowStore((s) => s.setRuns);
   const patchView = useMetaWorkflowStore((s) => s.patchView);
+  const [legacyRunIds, setLegacyRunIds] = useState<Set<string>>(new Set());
 
   // Load runs on mount + project change.
   useEffect(() => {
@@ -29,6 +32,15 @@ export function MetaWorkflowPanel({ projectId, socket }: MetaWorkflowPanelProps)
     }).catch((e) => console.error('[meta-workflow] listRuns failed', e));
     return () => { cancelled = true; };
   }, [projectId, setRuns]);
+
+  // Load legacy run IDs (runs not driven by OpenSpec).
+  useEffect(() => {
+    let cancelled = false;
+    listLegacyMetaWorkflowRunIds(projectId)
+      .then((ids) => { if (!cancelled) setLegacyRunIds(new Set(ids)); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [projectId]);
 
   const selectedRun = view.selectedRunId ? runs.find((r) => r.id === view.selectedRunId) : undefined;
 
@@ -58,7 +70,10 @@ export function MetaWorkflowPanel({ projectId, socket }: MetaWorkflowPanelProps)
                     screen: r.status === 'requirement_draft' || r.status === 'requirement_review'
                       ? 'requirements' : 'phase-board',
                   })}>
-                <div className="font-medium">{r.title}</div>
+                <div className="font-medium">
+                  {r.title}
+                  {legacyRunIds.has(r.id) && <LegacyBadge />}
+                </div>
                 <div className="text-xs text-muted-foreground">Status: {r.status} · Reject count: {r.rejectCount}</div>
               </li>
             ))}
