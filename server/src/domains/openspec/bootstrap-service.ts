@@ -128,6 +128,25 @@ export class BootstrapService {
 
     return { scan: updated, exploreResult, appliedSummary, pendingSummary };
   }
+
+  /**
+   * Cancel a scan by id. Idempotent: cancelling a scan already in a terminal
+   * state (completed / cancelled / failed) returns the existing row unchanged.
+   * Used by the desktop UI to break out of a stuck scan so the user can start
+   * fresh after an interrupted bootstrap.
+   */
+  cancelScan(scanId: string): BootstrapScan {
+    const scan = this.scanRepo.findById(scanId);
+    if (!scan) throw new Error(`Scan not found: ${scanId}`);
+    if (
+      scan.status === 'completed' ||
+      scan.status === 'cancelled' ||
+      scan.status === 'failed'
+    ) {
+      return scan; // already terminal — idempotent
+    }
+    return this.scanRepo.update(scanId, { status: 'cancelled', finishedAt: Date.now() });
+  }
 }
 
 function summarizeCorpus(projectRoot: string): string {

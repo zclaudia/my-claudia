@@ -178,6 +178,33 @@ describe('BootstrapService', () => {
     expect(result.scan.status).toBe('completed');
   });
 
+  it('cancelScan transitions a running scan to cancelled and stamps finishedAt', async () => {
+    const explore = new AiExploreService({ aiRunPort: mkPort({ perCapability: {} }) });
+    const svc = new BootstrapService({ db, explore, getProjectRoot: () => projectRoot });
+    // Start a scan and manually rewind it to 'running' to simulate an
+    // interrupted bootstrap that never finished.
+    const completed = await svc.start({ projectId: 'proj-1', mode: 'initial' });
+    db.prepare(
+      `UPDATE bootstrap_scans SET status='running', finished_at=NULL WHERE id = ?`,
+    ).run(completed.scan.id);
+
+    const cancelled = svc.cancelScan(completed.scan.id);
+    expect(cancelled.status).toBe('cancelled');
+    expect(cancelled.finishedAt).toBeGreaterThan(0);
+  });
+
+  it('cancelScan is idempotent on a terminal scan', async () => {
+    const explore = new AiExploreService({ aiRunPort: mkPort({ perCapability: {} }) });
+    const svc = new BootstrapService({ db, explore, getProjectRoot: () => projectRoot });
+    const completed = await svc.start({ projectId: 'proj-1', mode: 'initial' });
+    expect(completed.scan.status).toBe('completed');
+    const finishedAtBefore = completed.scan.finishedAt;
+
+    const result = svc.cancelScan(completed.scan.id);
+    expect(result.status).toBe('completed'); // unchanged
+    expect(result.finishedAt).toBe(finishedAtBefore);
+  });
+
   it('empty perCapability → scan completed with 0 applied, no corpus meta bump', async () => {
     const explore = new AiExploreService({ aiRunPort: mkPort({ perCapability: {} }) });
     const svc = new BootstrapService({ db, explore, getProjectRoot: () => projectRoot });

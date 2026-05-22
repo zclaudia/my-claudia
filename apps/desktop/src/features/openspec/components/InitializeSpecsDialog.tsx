@@ -34,17 +34,36 @@ export function InitializeSpecsDialog({
 
   useEffect(() => {
     let cancelled = false;
-    setBusy('start');
+    setBusy('detect');
     setError(null);
     api
-      .startBootstrap(projectId, mode)
-      .then(async (res) => {
-        if (cancelled) return;
-        setScan(res.scan);
-        setAppliedSummary(res.appliedSummary);
-        if (res.scan.status === 'awaiting_review') {
-          const pending = await api.listBootstrapItems(res.scan.id, 'pending');
-          if (!cancelled) setItems(pending);
+      .listBootstrapScans(projectId)
+      .then(async (scans) => {
+        const active = scans.find(
+          (s) => s.status === 'running' || s.status === 'awaiting_review',
+        );
+        if (active) {
+          // Resume existing scan instead of starting a new one — avoids the
+          // "scan already active" dead-end when a previous attempt was
+          // interrupted or left awaiting review.
+          if (cancelled) return;
+          setScan(active);
+          if (active.status === 'awaiting_review') {
+            const pending = await api.listBootstrapItems(active.id, 'pending');
+            if (!cancelled) setItems(pending);
+          }
+          // For 'running' scans the AI was presumably interrupted; the user
+          // can cancel from the footer button before starting fresh.
+        } else {
+          // No active scan — kick off a new one.
+          const res = await api.startBootstrap(projectId, mode);
+          if (cancelled) return;
+          setScan(res.scan);
+          setAppliedSummary(res.appliedSummary);
+          if (res.scan.status === 'awaiting_review') {
+            const pending = await api.listBootstrapItems(res.scan.id, 'pending');
+            if (!cancelled) setItems(pending);
+          }
         }
       })
       .catch((e) => {
@@ -57,6 +76,20 @@ export function InitializeSpecsDialog({
       cancelled = true;
     };
   }, [projectId, mode]);
+
+  const onCancelScan = async (): Promise<void> => {
+    if (!scan) return;
+    setBusy('cancel');
+    setError(null);
+    try {
+      await api.cancelBootstrapScan(scan.id);
+      onClose();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const onApprove = async (id: string): Promise<void> => {
     setBusy(`approve:${id}`);
@@ -118,9 +151,20 @@ export function InitializeSpecsDialog({
         <div className="flex-1 overflow-auto px-4 py-3 space-y-3">
           {error && <div className="text-sm text-red-500">Error: {error}</div>}
 
-          {!scan && busy === 'start' && (
+          {!scan && (busy === 'detect' || busy === 'start') && (
             <div className="text-sm text-muted-foreground">
               Scanning project… AI is analyzing the codebase.
+            </div>
+          )}
+
+          {scan && scan.status === 'awaiting_review' && (
+            <div className="text-xs text-muted-foreground">
+              Resuming previous scan in 'awaiting_review' state.
+            </div>
+          )}
+          {scan && scan.status === 'running' && (
+            <div className="text-xs text-yellow-600">
+              A scan is currently running. If it's stuck, cancel it to start fresh.
             </div>
           )}
 
@@ -209,6 +253,15 @@ export function InitializeSpecsDialog({
         </div>
 
         <div className="px-4 py-3 border-t border-border flex items-center justify-end gap-2">
+          {scan && scan.status === 'running' && (
+            <button
+              className="px-3 py-1.5 text-sm rounded-md bg-red-500/15 text-red-500 hover:bg-red-500/25 disabled:opacity-50"
+              disabled={busy !== null}
+              onClick={() => void onCancelScan()}
+            >
+              Cancel Scan
+            </button>
+          )}
           {scan && scan.status === 'awaiting_review' && (
             <button
               className="px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"

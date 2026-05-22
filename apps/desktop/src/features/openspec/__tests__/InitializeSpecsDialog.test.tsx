@@ -18,6 +18,7 @@ describe('InitializeSpecsDialog', () => {
   });
 
   it('starts the scan on mount and shows the auto-applied summary', async () => {
+    vi.spyOn(api, 'listBootstrapScans').mockResolvedValue([]);
     vi.spyOn(api, 'startBootstrap').mockResolvedValue({
       scan: { id: 's1', status: 'completed', appliedCount: 2, pendingCount: 0 } as never,
       appliedSummary: { auth: 1, billing: 1 },
@@ -31,6 +32,7 @@ describe('InitializeSpecsDialog', () => {
   });
 
   it('shows pending items when scan returns awaiting_review and allows approve', async () => {
+    vi.spyOn(api, 'listBootstrapScans').mockResolvedValue([]);
     vi.spyOn(api, 'startBootstrap').mockResolvedValue({
       scan: { id: 's1', status: 'awaiting_review', appliedCount: 1, pendingCount: 2 } as never,
       appliedSummary: { auth: 1 },
@@ -67,6 +69,7 @@ describe('InitializeSpecsDialog', () => {
   });
 
   it('Finalize is disabled while pending items remain', async () => {
+    vi.spyOn(api, 'listBootstrapScans').mockResolvedValue([]);
     vi.spyOn(api, 'startBootstrap').mockResolvedValue({
       scan: { id: 's1', status: 'awaiting_review', appliedCount: 0, pendingCount: 1 } as never,
       appliedSummary: {},
@@ -82,6 +85,7 @@ describe('InitializeSpecsDialog', () => {
   });
 
   it('Finalize calls api.finalizeBootstrap when all items resolved and refreshes corpus', async () => {
+    vi.spyOn(api, 'listBootstrapScans').mockResolvedValue([]);
     vi.spyOn(api, 'startBootstrap').mockResolvedValue({
       scan: { id: 's1', status: 'awaiting_review', appliedCount: 0, pendingCount: 0 } as never,
       appliedSummary: {},
@@ -99,6 +103,62 @@ describe('InitializeSpecsDialog', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Finalize' }));
     await waitFor(() => expect(finalizeSpy).toHaveBeenCalled());
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it('resumes existing awaiting_review scan instead of starting new', async () => {
+    vi.spyOn(api, 'listBootstrapScans').mockResolvedValue([
+      {
+        id: 'existing-1',
+        projectId: 'p1',
+        status: 'awaiting_review',
+        startedAt: 0,
+        appliedCount: 3,
+        pendingCount: 2,
+      },
+    ] as never);
+    const startSpy = vi.spyOn(api, 'startBootstrap');
+    const listItemsSpy = vi.spyOn(api, 'listBootstrapItems').mockResolvedValue([
+      {
+        id: 'it1',
+        capability: 'auth',
+        operation: 'modify',
+        payloadJson: '{"name":"Login"}',
+        status: 'pending',
+      },
+    ] as never);
+    render(<InitializeSpecsDialog projectId="p1" mode="initial" onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByText(/Pending review/)).toBeInTheDocument());
+    expect(startSpy).not.toHaveBeenCalled();
+    expect(listItemsSpy).toHaveBeenCalledWith('existing-1', 'pending');
+    expect(
+      screen.getByText(/Resuming previous scan in 'awaiting_review' state/),
+    ).toBeInTheDocument();
+  });
+
+  it('shows Cancel button for running scan and calls cancelBootstrapScan', async () => {
+    vi.spyOn(api, 'listBootstrapScans').mockResolvedValue([
+      {
+        id: 'stuck-1',
+        projectId: 'p1',
+        status: 'running',
+        startedAt: 0,
+        appliedCount: 0,
+        pendingCount: 0,
+      },
+    ] as never);
+    const startSpy = vi.spyOn(api, 'startBootstrap');
+    const cancelSpy = vi
+      .spyOn(api, 'cancelBootstrapScan')
+      .mockResolvedValue({ id: 'stuck-1', status: 'cancelled' } as never);
+    const onClose = vi.fn();
+    render(<InitializeSpecsDialog projectId="p1" mode="initial" onClose={onClose} />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Cancel Scan' })).toBeInTheDocument(),
+    );
+    expect(startSpy).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel Scan' }));
+    await waitFor(() => expect(cancelSpy).toHaveBeenCalledWith('stuck-1'));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 });

@@ -88,6 +88,19 @@ export function createBootstrapRoutes(deps: BootstrapRoutesDeps): Router {
     }
   });
 
+  router.post('/bootstrap/scans/:id/cancel', (req: Request, res: Response) => {
+    try {
+      const scan = deps.bootstrapService.cancelScan(req.params.id);
+      res.json(ok({ scan }));
+    } catch (e) {
+      const message = (e as Error).message;
+      const status = message.includes('not found') ? 404 : 400;
+      res
+        .status(status)
+        .json(err(status === 404 ? 'NOT_FOUND' : 'OPENSPEC_ERROR', message));
+    }
+  });
+
   router.post('/bootstrap/scans/:id/finalize', async (req: Request, res: Response) => {
     try {
       const result = await deps.reviewService.finalize(req.params.id);

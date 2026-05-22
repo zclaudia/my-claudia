@@ -131,6 +131,31 @@ describe('Bootstrap routes', () => {
     expect(res.status).toBe(409);
   });
 
+  it('POST /bootstrap/scans/:id/cancel cancels a running scan', async () => {
+    const start = await request(app)
+      .post('/api/openspec/bootstrap/scans')
+      .send({ projectId: 'proj-1', mode: 'initial' });
+    const id = start.body.data.scan.id;
+    // Rewind to 'running' to simulate a stuck scan.
+    db.prepare(`UPDATE bootstrap_scans SET status='running', finished_at=NULL WHERE id = ?`).run(
+      id,
+    );
+    const res = await request(app).post(`/api/openspec/bootstrap/scans/${id}/cancel`).send({});
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.scan.status).toBe('cancelled');
+    expect(res.body.data.scan.finishedAt).toBeGreaterThan(0);
+  });
+
+  it('POST /bootstrap/scans/:id/cancel returns 404 for unknown scan', async () => {
+    const res = await request(app)
+      .post('/api/openspec/bootstrap/scans/does-not-exist/cancel')
+      .send({});
+    expect(res.status).toBe(404);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.code).toBe('NOT_FOUND');
+  });
+
   it('POST /bootstrap/items/:itemId/approve marks approved', async () => {
     const start = await request(app)
       .post('/api/openspec/bootstrap/scans')

@@ -358,6 +358,14 @@ export async function rejectBootstrapItem(itemId: string): Promise<BootstrapRevi
   return body.item;
 }
 
+export async function cancelBootstrapScan(scanId: string): Promise<BootstrapScan> {
+  const body = await apiCall<{ scan: BootstrapScan }>(
+    `/api/openspec/bootstrap/scans/${scanId}/cancel`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+  return body.scan;
+}
+
 export interface FinalizeBootstrapResult {
   scan: BootstrapScan;
   mergedSummary: Record<string, { modified: number; removed: number }>;
