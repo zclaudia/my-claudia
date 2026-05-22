@@ -52,7 +52,7 @@ export function SupervisorGroupItem({
 
           <div className="flex-1 min-w-0 flex items-center gap-1.5">
             <span className="text-xs font-semibold tracking-wide">
-              Supervisor
+              Project Workspace
             </span>
             {isActive && (
               <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shrink-0" />

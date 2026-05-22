@@ -323,12 +323,12 @@ describe('ProjectSettings', () => {
 
   it('shows supervisor section', async () => {
     await renderProjectSettings();
-    expect(screen.getByText('Supervisor Agent')).toBeTruthy();
+    expect(screen.getByText('Project Workspace')).toBeTruthy();
   });
 
   it('shows supervisor disabled message when supervisor not active', async () => {
     await renderProjectSettings();
-    expect(screen.getByText('Supervisor is not enabled for this project')).toBeTruthy();
+    expect(screen.getByText('Project Workspace is not enabled for this project')).toBeTruthy();
   });
 
   it('shows active status when agent is active', async () => {

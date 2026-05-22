@@ -13,7 +13,7 @@ describe('SupervisorGroupItem', () => {
       />
     );
 
-    expect(screen.getByText('Supervisor')).toBeInTheDocument();
+    expect(screen.getByText('Project Workspace')).toBeInTheDocument();
   });
 
   it('shows active indicator when active', () => {

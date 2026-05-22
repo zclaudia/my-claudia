@@ -486,15 +486,15 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
             )}
           </div>
 
-          {/* Supervisor Agent */}
+          {/* Project Workspace */}
           <div className="border-t border-border pt-4">
             <div className="flex items-center justify-between mb-2">
               <div>
                 <label className="block text-sm font-medium text-muted-foreground">
-                  Supervisor Agent
+                  Project Workspace
                 </label>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Enable a supervisor to manage tasks and sub-sessions
+                  Enable the Project Workspace entry for managing tasks and sub-sessions
                 </p>
               </div>
               <button
@@ -514,7 +514,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
 
             {!isSupervisorEnabled && (
               <p className="text-xs text-muted-foreground/70 italic">
-                Supervisor is not enabled for this project
+                Project Workspace is not enabled for this project
               </p>
             )}
 
