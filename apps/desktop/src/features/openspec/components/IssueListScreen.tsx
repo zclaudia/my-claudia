@@ -81,6 +81,12 @@ export function IssueListScreen({ projectId }: Props): React.ReactElement {
         <div className="flex items-center gap-2">
           <button
             className="px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80"
+            onClick={() => patchView(projectId, { screen: 'corpus' })}
+          >
+            📚 Spec Corpus
+          </button>
+          <button
+            className="px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80"
             onClick={() => patchView(projectId, { showNewIssue: true })}
           >
             + New Issue

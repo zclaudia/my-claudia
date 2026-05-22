@@ -1,9 +1,8 @@
 // apps/desktop/src/features/openspec/components/OpenSpecPanel.tsx
 //
 // Top-level router for the OpenSpec tab. Reads the per-project view state and
-// renders the appropriate screen. Task 3 wires the feature-detail and
-// sub-issue-detail routes to the real screens. Corpus (Task 5) is still
-// stubbed.
+// renders the appropriate screen. Task 5 wires the corpus screen + bootstrap
+// dialog.
 
 import React, { useEffect } from 'react';
 import { useOpenSpecStore } from '../store.js';
@@ -11,6 +10,8 @@ import { INITIAL_VIEW_STATE } from '../view-state.js';
 import { IssueListScreen } from './IssueListScreen.js';
 import { FeatureIssueDetailScreen } from './FeatureIssueDetailScreen.js';
 import { SubIssueDetailScreen } from './SubIssueDetailScreen.js';
+import { SpecCorpusScreen } from './SpecCorpusScreen.js';
+import { InitializeSpecsDialog } from './InitializeSpecsDialog.js';
 
 interface Props {
   projectId: string;
@@ -18,6 +19,8 @@ interface Props {
 
 export function OpenSpecPanel({ projectId }: Props): React.ReactElement {
   const view = useOpenSpecStore((s) => s.viewByProject[projectId] ?? INITIAL_VIEW_STATE);
+  const corpus = useOpenSpecStore((s) => s.corpusByProject[projectId] ?? []);
+  const patchView = useOpenSpecStore((s) => s.patchView);
 
   useEffect(() => {
     // Initial issue load handled inside IssueListScreen (Task 7 wires this).
@@ -34,8 +37,18 @@ export function OpenSpecPanel({ projectId }: Props): React.ReactElement {
     );
   }
   if (view.screen === 'corpus') {
+    const mode: 'initial' | 'rescan' = corpus.length === 0 ? 'initial' : 'rescan';
     return (
-      <div className="p-4 text-sm text-muted-foreground">Spec Corpus (Task 5 stub).</div>
+      <>
+        <SpecCorpusScreen projectId={projectId} />
+        {view.showInitializeSpecs && (
+          <InitializeSpecsDialog
+            projectId={projectId}
+            mode={mode}
+            onClose={() => patchView(projectId, { showInitializeSpecs: false })}
+          />
+        )}
+      </>
     );
   }
   return <IssueListScreen projectId={projectId} />;
