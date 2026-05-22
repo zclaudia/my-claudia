@@ -12,6 +12,7 @@ import { AllChangesPanel } from './AllChangesPanel';
 import { WorkspaceDocsPanel } from './WorkspaceDocsPanel';
 import { NewRunDropdown } from '../../meta-workflow/components/NewRunDropdown.js';
 import { MetaWorkflowPanel } from '../../meta-workflow/components/MetaWorkflowPanel.js';
+import { OpenSpecPanel } from '../../openspec/components/OpenSpecPanel.js';
 import {
   type ContextDocumentPreview,
   type PreviewDocTarget,
@@ -33,7 +34,7 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
     () => ({ send: (raw: string) => sendMessage(JSON.parse(raw) as ClientMessage) }),
     [sendMessage],
   );
-  const [activeTab, setActiveTab] = useState<'classic' | 'meta'>('classic');
+  const [activeTab, setActiveTab] = useState<'classic' | 'meta' | 'openspec'>('classic');
   const activeChange = useSupervisionStore((s) => s.activeChanges[projectId] ?? null);
   const executionPlan = useSupervisionStore((s) => activeChange ? s.executionPlans[activeChange.id] : undefined);
   const tasks = useSupervisionStore((s) => s.tasks[projectId] ?? []);
@@ -485,6 +486,12 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
           >
             Meta Workflows
           </button>
+          <button
+            className={`px-3 py-1 text-sm ${activeTab === 'openspec' ? 'border-b-2 border-blue-600 font-medium' : 'text-muted-foreground'}`}
+            onClick={() => setActiveTab('openspec')}
+          >
+            OpenSpec
+          </button>
         </div>
         {activeTab === 'classic' ? (
           <div className="flex-1 overflow-hidden">
@@ -532,9 +539,13 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
               </div>
             )}
           </div>
-        ) : (
+        ) : activeTab === 'meta' ? (
           <div className="flex-1 overflow-auto p-4">
             <MetaWorkflowPanel projectId={projectId} socket={socket} />
+          </div>
+        ) : (
+          <div className="flex-1 overflow-auto p-4">
+            <OpenSpecPanel projectId={projectId} />
           </div>
         )}
       </div>
