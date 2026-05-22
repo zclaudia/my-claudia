@@ -2,7 +2,7 @@ import { createPortal } from 'react-dom';
 import { isDesktopTauri } from '../../utils/platform';
 import { SessionItem } from './SessionItem';
 import { WorktreeGroupItem } from './WorktreeGroupItem';
-import { SupervisorGroupItem } from './SupervisorGroupItem';
+import { ProjectWorkspaceItem } from './ProjectWorkspaceItem';
 import { groupSessionsByWorktree } from './worktreeGrouping';
 import { SortableList, SortableItem } from '../../components/SortableList';
 import { Select } from '../../components/ui/Select';
@@ -252,7 +252,7 @@ export function ProjectListItem({
       {isExpanded && (
         <div className="ml-1 mt-0.5" data-testid="session-list">
           {hasSupervisor && (
-            <SupervisorGroupItem
+            <ProjectWorkspaceItem
               key={supervisorSessionId ?? `${project.id}:supervisor`}
               onSelect={() => {
                 if (onOpenDashboard) onOpenDashboard(project.id);

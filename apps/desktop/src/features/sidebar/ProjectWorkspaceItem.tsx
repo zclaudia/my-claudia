@@ -1,6 +1,6 @@
 import { Bot } from 'lucide-react';
 
-interface SupervisorGroupItemProps {
+interface ProjectWorkspaceItemProps {
   onSelect: () => void;
   isSelected: boolean;
   isActive?: boolean;
@@ -18,18 +18,18 @@ const phaseConfig: Record<string, { label: string; color: string }> = {
 };
 
 /**
- * Card-style supervisor dashboard entry.
- * Clicking opens the project dashboard.
- * Task sessions are listed directly below.
+ * Card-style Project Workspace entry. Clicking opens the project workspace
+ * (project-level operations: tasks, issues, worktrees, git, etc.). Task
+ * sessions are listed directly below.
  */
-export function SupervisorGroupItem({
+export function ProjectWorkspaceItem({
   onSelect,
   isSelected,
   isActive,
   phase,
   taskCount,
   taskChildren,
-}: SupervisorGroupItemProps) {
+}: ProjectWorkspaceItemProps) {
   const cfg = phase ? phaseConfig[phase] : undefined;
 
   return (

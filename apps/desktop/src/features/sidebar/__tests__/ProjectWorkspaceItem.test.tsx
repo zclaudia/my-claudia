@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { SupervisorGroupItem } from '../SupervisorGroupItem';
+import { ProjectWorkspaceItem } from '../ProjectWorkspaceItem';
 
-describe('SupervisorGroupItem', () => {
-  it('renders Supervisor label', () => {
+describe('ProjectWorkspaceItem', () => {
+  it('renders Project Workspace label', () => {
     render(
-      <SupervisorGroupItem
+      <ProjectWorkspaceItem
         onSelect={() => {}}
         isSelected={false}
         taskCount={0}
@@ -18,7 +18,7 @@ describe('SupervisorGroupItem', () => {
 
   it('shows active indicator when active', () => {
     render(
-      <SupervisorGroupItem
+      <ProjectWorkspaceItem
         onSelect={() => {}}
         isSelected={false}
         isActive={true}
@@ -34,7 +34,7 @@ describe('SupervisorGroupItem', () => {
 
   it('does not show active indicator when not active', () => {
     render(
-      <SupervisorGroupItem
+      <ProjectWorkspaceItem
         onSelect={() => {}}
         isSelected={false}
         isActive={false}
@@ -49,7 +49,7 @@ describe('SupervisorGroupItem', () => {
 
   it('shows task count when greater than 0', () => {
     render(
-      <SupervisorGroupItem
+      <ProjectWorkspaceItem
         onSelect={() => {}}
         isSelected={false}
         taskCount={3}
@@ -62,7 +62,7 @@ describe('SupervisorGroupItem', () => {
 
   it('shows singular "task" for count of 1', () => {
     render(
-      <SupervisorGroupItem
+      <ProjectWorkspaceItem
         onSelect={() => {}}
         isSelected={false}
         taskCount={1}
@@ -75,7 +75,7 @@ describe('SupervisorGroupItem', () => {
 
   it('does not show task count when 0', () => {
     render(
-      <SupervisorGroupItem
+      <ProjectWorkspaceItem
         onSelect={() => {}}
         isSelected={false}
         taskCount={0}
@@ -89,7 +89,7 @@ describe('SupervisorGroupItem', () => {
   it('calls onSelect on click', () => {
     const handleSelect = vi.fn();
     render(
-      <SupervisorGroupItem
+      <ProjectWorkspaceItem
         onSelect={handleSelect}
         isSelected={false}
         taskCount={0}
@@ -104,7 +104,7 @@ describe('SupervisorGroupItem', () => {
 
   it('shows selected state with different styling', () => {
     render(
-      <SupervisorGroupItem
+      <ProjectWorkspaceItem
         onSelect={() => {}}
         isSelected={true}
         taskCount={0}
@@ -118,7 +118,7 @@ describe('SupervisorGroupItem', () => {
 
   it('renders task children', () => {
     render(
-      <SupervisorGroupItem
+      <ProjectWorkspaceItem
         onSelect={() => {}}
         isSelected={false}
         taskCount={1}
@@ -131,7 +131,7 @@ describe('SupervisorGroupItem', () => {
 
   it('does not render task children list when taskCount is 0', () => {
     render(
-      <SupervisorGroupItem
+      <ProjectWorkspaceItem
         onSelect={() => {}}
         isSelected={false}
         taskCount={0}
@@ -144,7 +144,7 @@ describe('SupervisorGroupItem', () => {
 
   it('has correct data-testid', () => {
     render(
-      <SupervisorGroupItem
+      <ProjectWorkspaceItem
         onSelect={() => {}}
         isSelected={false}
         taskCount={0}

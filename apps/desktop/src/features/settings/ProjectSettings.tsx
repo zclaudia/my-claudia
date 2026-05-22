@@ -55,7 +55,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
   const supervisorAgent = useSupervisionStore((s) => project ? s.agents[project.id] : undefined);
   const setAgent = useSupervisionStore((s) => s.setAgent);
   const removeAgent = useSupervisionStore((s) => s.removeAgent);
-  const [supervisorLoading, setSupervisorLoading] = useState(false);
+  const [projectWorkspaceLoading, setProjectWorkspaceLoading] = useState(false);
 
   const scopedProviders = useProviderMetaStore((s) => s.getProviders(activeServerId));
   const storeProviders = scopedProviders.length > 0 ? scopedProviders : legacyProviders;
@@ -78,7 +78,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
   const [permOverride, setPermOverride] = useState<Partial<UnifiedPermissionPolicy>>({});
 
   const effectiveAgent = supervisorAgent ?? project?.agent;
-  const isSupervisorEnabled = Boolean(effectiveAgent && effectiveAgent.phase !== 'archived');
+  const isProjectWorkspaceEnabled = Boolean(effectiveAgent && effectiveAgent.phase !== 'archived');
 
   // Keep local providers in sync with global store
   useEffect(() => {
@@ -236,11 +236,11 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
     }
   };
 
-  const handleToggleSupervisor = async () => {
+  const handleToggleProjectWorkspace = async () => {
     if (!project || !isConnected) return;
-    setSupervisorLoading(true);
+    setProjectWorkspaceLoading(true);
     try {
-      if (!isSupervisorEnabled) {
+      if (!isProjectWorkspaceEnabled) {
         const result = await api.initSupervisionAgent(
           project.id,
           { maxConcurrentTasks: 2, trustLevel: 'medium' },
@@ -257,7 +257,7 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
     } catch (err) {
       console.error('Failed to toggle supervisor:', err);
     } finally {
-      setSupervisorLoading(false);
+      setProjectWorkspaceLoading(false);
     }
   };
 
@@ -498,27 +498,27 @@ export function ProjectSettings({ project, isOpen, onClose }: ProjectSettingsPro
                 </p>
               </div>
               <button
-                onClick={handleToggleSupervisor}
-                disabled={supervisorLoading || !isConnected}
+                onClick={handleToggleProjectWorkspace}
+                disabled={projectWorkspaceLoading || !isConnected}
                 className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 disabled:opacity-50 ${
-                  isSupervisorEnabled ? 'bg-primary' : 'bg-muted'
+                  isProjectWorkspaceEnabled ? 'bg-primary' : 'bg-muted'
                 }`}
               >
                 <span
                   className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
-                    isSupervisorEnabled ? 'translate-x-5' : 'translate-x-0'
+                    isProjectWorkspaceEnabled ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
               </button>
             </div>
 
-            {!isSupervisorEnabled && (
+            {!isProjectWorkspaceEnabled && (
               <p className="text-xs text-muted-foreground/70 italic">
                 Project Workspace is not enabled for this project
               </p>
             )}
 
-            {effectiveAgent && isSupervisorEnabled && (
+            {effectiveAgent && isProjectWorkspaceEnabled && (
               <div className="space-y-2 mt-3 pl-3 border-l-2 border-primary/30">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-medium text-muted-foreground">Status:</span>
