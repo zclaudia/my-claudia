@@ -2,12 +2,14 @@
 import { Router, type Request, type Response } from 'express';
 import express from 'express';
 import type { SpecChangeService } from '../spec-change-service.js';
+import type { SpecChangeDraftingService } from '../spec-change-drafting-service.js';
 import { SpecChangeRepository } from '../../spec-change/spec-change-repository.js';
 import type { Database } from 'better-sqlite3';
 
 export interface SpecChangeRoutesDeps {
   db: Database;
   specChangeService: SpecChangeService;
+  draftingService: SpecChangeDraftingService;
 }
 
 export function createSpecChangeRoutes(deps: SpecChangeRoutesDeps): Router {
@@ -70,6 +72,34 @@ export function createSpecChangeRoutes(deps: SpecChangeRoutesDeps): Router {
     if (typeof content !== 'string') { res.status(400).json({ error: 'content (string) required in body' }); return; }
     try {
       res.json({ specChange: deps.specChangeService.writeDeltaSpec(req.params.id, req.params.capability, content) });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  const draftHandler = (kind: 'proposal' | 'design' | 'tasks') => async (req: Request, res: Response) => {
+    try {
+      const draft = kind === 'proposal' ? await deps.draftingService.draftProposal(req.params.id)
+        : kind === 'design'  ? await deps.draftingService.draftDesign(req.params.id)
+        : await deps.draftingService.draftTasks(req.params.id);
+      const writer = kind === 'proposal' ? deps.specChangeService.writeProposal
+        : kind === 'design'  ? deps.specChangeService.writeDesign
+        : deps.specChangeService.writeTasks;
+      const specChange = writer.call(deps.specChangeService, req.params.id, draft.content);
+      res.json({ specChange, content: draft.content });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  };
+  router.post('/spec-changes/:id/draft-proposal', draftHandler('proposal'));
+  router.post('/spec-changes/:id/draft-design', draftHandler('design'));
+  router.post('/spec-changes/:id/draft-tasks', draftHandler('tasks'));
+
+  router.post('/spec-changes/:id/draft-delta/:capability', async (req: Request, res: Response) => {
+    try {
+      const draft = await deps.draftingService.draftDelta(req.params.id, req.params.capability);
+      const specChange = deps.specChangeService.writeDeltaSpec(req.params.id, req.params.capability, draft.content);
+      res.json({ specChange, content: draft.content });
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
     }

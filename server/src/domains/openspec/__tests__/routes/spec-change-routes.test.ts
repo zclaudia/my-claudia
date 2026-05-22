@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +8,13 @@ import request from 'supertest';
 import { applyMigrations } from '../../../../infrastructure/storage/migrations/index.js';
 import { SpecChangeService } from '../../spec-change-service.js';
 import { createSpecChangeRoutes } from '../../routes/spec-change-routes.js';
+
+const noopDrafting = {
+  draftProposal: vi.fn(),
+  draftDesign: vi.fn(),
+  draftTasks: vi.fn(),
+  draftDelta: vi.fn(),
+} as never;
 
 describe('SpecChange routes', () => {
   let db: Database.Database;
@@ -27,7 +34,7 @@ describe('SpecChange routes', () => {
     svc = new SpecChangeService({ db, getProjectRoot: () => projectRoot });
     specChangeId = svc.createSpecChange({ projectId: 'proj-1', subIssueId: 'i', slug: 'x', title: 'X' }).id;
     app = express();
-    app.use('/api/openspec', createSpecChangeRoutes({ db, specChangeService: svc }));
+    app.use('/api/openspec', createSpecChangeRoutes({ db, specChangeService: svc, draftingService: noopDrafting }));
   });
 
   afterEach(() => {
@@ -81,5 +88,53 @@ describe('SpecChange routes', () => {
   it('GET /spec-changes/:id/delta/:capability returns 404 when not written', async () => {
     const res = await request(app).get(`/api/openspec/spec-changes/${specChangeId}/delta/missing`);
     expect(res.status).toBe(404);
+  });
+
+  describe('SpecChange draft routes', () => {
+    it('POST /draft-proposal returns drafted content + saves to disk', async () => {
+      const draftingService = {
+        draftProposal: vi.fn().mockResolvedValue({ content: '# Drafted Proposal\n', rawResponse: '' }),
+        draftDesign: vi.fn(),
+        draftTasks: vi.fn(),
+        draftDelta: vi.fn(),
+      };
+      const localApp = express();
+      localApp.use('/api/openspec', createSpecChangeRoutes({ db, specChangeService: svc, draftingService: draftingService as never }));
+      const res = await request(localApp).post(`/api/openspec/spec-changes/${specChangeId}/draft-proposal`).send({});
+      expect(res.status).toBe(200);
+      expect(res.body.content).toContain('Drafted Proposal');
+      expect(res.body.specChange.status).toBe('proposing');
+      const read = await request(localApp).get(`/api/openspec/spec-changes/${specChangeId}/proposal`);
+      expect(read.text).toContain('Drafted Proposal');
+    });
+
+    it('POST /draft-delta/:capability writes the delta + tracks path', async () => {
+      const draftingService = {
+        draftProposal: vi.fn(),
+        draftDesign: vi.fn(),
+        draftTasks: vi.fn(),
+        draftDelta: vi.fn().mockResolvedValue({ content: '## ADDED Requirements\n', rawResponse: '' }),
+      };
+      const localApp = express();
+      localApp.use('/api/openspec', createSpecChangeRoutes({ db, specChangeService: svc, draftingService: draftingService as never }));
+      const res = await request(localApp).post(`/api/openspec/spec-changes/${specChangeId}/draft-delta/auth`).send({});
+      expect(res.status).toBe(200);
+      expect(res.body.specChange.deltaSpecPaths).toContain('openspec/changes/x/specs/auth/spec.md');
+      expect(draftingService.draftDelta).toHaveBeenCalledWith(specChangeId, 'auth');
+    });
+
+    it('POST /draft-* returns 400 when drafting service throws', async () => {
+      const draftingService = {
+        draftProposal: vi.fn().mockRejectedValue(new Error('boom')),
+        draftDesign: vi.fn(),
+        draftTasks: vi.fn(),
+        draftDelta: vi.fn(),
+      };
+      const localApp = express();
+      localApp.use('/api/openspec', createSpecChangeRoutes({ db, specChangeService: svc, draftingService: draftingService as never }));
+      const res = await request(localApp).post(`/api/openspec/spec-changes/${specChangeId}/draft-proposal`).send({});
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/boom/);
+    });
   });
 });

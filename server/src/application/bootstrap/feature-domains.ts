@@ -482,7 +482,7 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
   // Multiple `app.use('/api/openspec', ...)` mounts share the path prefix —
   // Express dispatches to each router based on its own sub-paths.
   app.use('/api/openspec', authMiddleware, createCorpusRoutes({ getProjectRoot }));
-  app.use('/api/openspec', authMiddleware, createSpecChangeRoutes({ db, specChangeService }));
+  app.use('/api/openspec', authMiddleware, createSpecChangeRoutes({ db, specChangeService, draftingService: undefined as never }));
   app.use('/api/openspec', authMiddleware, createExecutorRoutes({ db, executorService: issueOrchestration.executorService }));
   app.use('/api/openspec', authMiddleware, createBootstrapRoutes({ db, bootstrapService, reviewService: bootstrapReviewService }));
   app.use('/api/issues', authMiddleware, createIssueRoutes({ lifecycle: issueOrchestration.lifecycle, anonymousService: issueOrchestration.anonymousService }));
