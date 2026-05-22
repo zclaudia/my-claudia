@@ -185,6 +185,14 @@ export class IssueLifecycle {
     // mapRow is a public method on LocalIssueRepository (BaseRepository abstract).
     return rows.map((r) => this.issueRepo.mapRow(r));
   }
+
+  /** List all issues (features + sub-issues, anonymous included) for a project, newest first. */
+  listByProject(projectId: string): LocalIssue[] {
+    const rows = this.deps.db.prepare(
+      `SELECT * FROM local_issues WHERE project_id = ? ORDER BY updated_at DESC, created_at DESC`,
+    ).all(projectId);
+    return rows.map((r) => this.issueRepo.mapRow(r));
+  }
 }
 
 /** Convert a title to a kebab-case slug. Strips non-alphanumeric except hyphens. */

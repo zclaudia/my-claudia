@@ -97,6 +97,21 @@ describe('Issue routes', () => {
     expect(res.status).toBe(400);
   });
 
+  it('GET /api/issues lists all issues for a project, newest first', async () => {
+    const a = await request(app).post('/api/issues/features').send({ projectId: 'proj-1', title: 'A' });
+    // small delay to ensure created_at ordering is distinct
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const b = await request(app).post('/api/issues/features').send({ projectId: 'proj-1', title: 'B' });
+    const res = await request(app).get('/api/issues?projectId=proj-1');
+    expect(res.status).toBe(200);
+    expect(res.body.issues.map((i: { id: string }) => i.id)).toEqual([b.body.issue.id, a.body.issue.id]);
+  });
+
+  it('GET /api/issues without projectId returns 400', async () => {
+    const res = await request(app).get('/api/issues');
+    expect(res.status).toBe(400);
+  });
+
   it('POST /:id/close-and-archive runs through archive', async () => {
     const sub = await request(app).post('/api/issues/sub').send({ projectId: 'proj-1', type: 'implement', title: 'A' });
     const id = sub.body.issue.id;

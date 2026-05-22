@@ -11,7 +11,7 @@
 import React, { useEffect, useMemo } from 'react';
 import type { LocalIssue, LocalIssueType } from '@my-claudia/shared/features/local-issue';
 import { useOpenSpecStore } from '../store.js';
-import { listSubIssues, getIssue } from '../api.js';
+import { listIssues, getIssue } from '../api.js';
 import { StatusBadge } from './StatusBadge.js';
 
 interface Props {
@@ -31,6 +31,7 @@ export function IssueListScreen({ projectId }: Props): React.ReactElement {
   const issues = useOpenSpecStore((s) => s.issuesByProject[projectId] ?? []);
   const view = useOpenSpecStore((s) => s.viewByProject[projectId]);
   const patchView = useOpenSpecStore((s) => s.patchView);
+  const setIssues = useOpenSpecStore((s) => s.setIssues);
 
   // Group: top-level (parent features OR sub-issues with no parent) + anonymous fold
   const { topLevel, anonymous } = useMemo(() => {
@@ -68,11 +69,14 @@ export function IssueListScreen({ projectId }: Props): React.ReactElement {
     }
   };
 
-  // For G5b, anonymous chip count + drill-in already shows; this hook re-fetches
-  // when expanded. `listSubIssues` is consumed by detail screens in Task 3.
+  // Autoload all project issues on mount so the list isn't empty on first visit.
   useEffect(() => {
-    void listSubIssues; // suppress unused-import lint
-  }, []);
+    let cancelled = false;
+    listIssues(projectId)
+      .then((rows) => { if (!cancelled) setIssues(projectId, rows); })
+      .catch((e) => console.error('[openspec] listIssues failed', e));
+    return () => { cancelled = true; };
+  }, [projectId, setIssues]);
 
   return (
     <div className="flex flex-col gap-4">

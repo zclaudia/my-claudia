@@ -147,4 +147,13 @@ describe('IssueListScreen', () => {
     fireEvent.click(screen.getByText('+ New Issue'));
     expect(useOpenSpecStore.getState().viewByProject.p1.showNewIssue).toBe(true);
   });
+
+  it('calls listIssues on mount and populates store', async () => {
+    const spy = vi.spyOn(api, 'listIssues').mockResolvedValue([
+      mkIssue({ id: 'autoload-1', title: 'Loaded From Server' }),
+    ] as never);
+    render(<IssueListScreen projectId="p1" />);
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('p1'));
+    await waitFor(() => expect(screen.getByText('Loaded From Server')).toBeInTheDocument());
+  });
 });

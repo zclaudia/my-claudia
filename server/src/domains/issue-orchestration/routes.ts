@@ -62,6 +62,12 @@ export function createIssueRoutes(deps: IssueRoutesDeps): Router {
     } catch (e) { res.status(400).json({ error: (e as Error).message }); }
   });
 
+  router.get('/', (req: Request, res: Response) => {
+    const projectId = req.query.projectId as string | undefined;
+    if (!projectId) { res.status(400).json({ error: 'projectId required' }); return; }
+    res.json({ issues: deps.lifecycle.listByProject(projectId) });
+  });
+
   router.get('/:id', (req: Request, res: Response) => {
     const issue = deps.lifecycle.getIssue(req.params.id);
     if (!issue) { res.status(404).json({ error: 'issue not found' }); return; }

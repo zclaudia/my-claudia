@@ -252,6 +252,13 @@ export async function getIssue(id: string): Promise<LocalIssue> {
   return body.issue;
 }
 
+export async function listIssues(projectId: string): Promise<LocalIssue[]> {
+  const body = await apiCall<{ issues: LocalIssue[] }>(
+    `/api/issues?projectId=${encodeURIComponent(projectId)}`,
+  );
+  return body.issues;
+}
+
 export async function listSubIssues(parentId: string): Promise<LocalIssue[]> {
   const body = await apiCall<{ subIssues: LocalIssue[] }>(`/api/issues/${parentId}/sub-issues`);
   return body.subIssues;
