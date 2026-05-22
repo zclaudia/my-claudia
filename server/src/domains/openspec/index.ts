@@ -25,6 +25,10 @@ export { BootstrapReviewService } from './bootstrap-review-service.js';
 export type { ExploreInput, ExploreResult } from './ai-explore-service.js';
 export type { BootstrapStartInput, BootstrapStartResult } from './bootstrap-service.js';
 export type { ReviewFinalizeResult } from './bootstrap-review-service.js';
+
+// G7: AI drafting service
+export { SpecChangeDraftingService } from './spec-change-drafting-service.js';
+export type { DraftResult } from './spec-change-drafting-service.js';
 export { BootstrapScanRepository } from './repositories/bootstrap-scan-repository.js';
 export { BootstrapReviewItemRepository } from './repositories/bootstrap-review-item-repository.js';
 export type { BootstrapScan, BootstrapScanStatus } from './repositories/bootstrap-scan-repository.js';

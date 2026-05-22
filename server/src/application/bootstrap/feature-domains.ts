@@ -47,6 +47,7 @@ import {
   AiExploreService,
   BootstrapService,
   BootstrapReviewService,
+  SpecChangeDraftingService,
 } from '../../domains/openspec/index.js';
 import { registerIssueOrchestration, type IssueOrchestration } from '../../domains/issue-orchestration/index.js';
 import { createCorpusRoutes } from '../../domains/openspec/routes/corpus-routes.js';
@@ -93,6 +94,7 @@ export interface FeatureDomainsResult {
   aiExploreService: AiExploreService;
   bootstrapService: BootstrapService;
   bootstrapReviewService: BootstrapReviewService;
+  specChangeDraftingService: SpecChangeDraftingService;
 }
 
 function broadcastToAuthenticatedClients(
@@ -478,11 +480,21 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     getProjectRoot,
   });
 
+  // ── G7: SpecChange AI drafting service ──
+  // Reuses `metaWorkflowAiRunPort` (same AiRunPort shape used by G4 explore).
+  // Each draft method reads sub-issue + existing artifacts as context, calls
+  // the AI, and returns the drafted markdown. Routes (Task 2) auto-save to disk.
+  const specChangeDraftingService = new SpecChangeDraftingService({
+    db,
+    aiRunPort: metaWorkflowAiRunPort,
+    getProjectRoot,
+  });
+
   // ── G5a: Mount REST routes for OpenSpec + issue orchestration ──
   // Multiple `app.use('/api/openspec', ...)` mounts share the path prefix —
   // Express dispatches to each router based on its own sub-paths.
   app.use('/api/openspec', authMiddleware, createCorpusRoutes({ getProjectRoot }));
-  app.use('/api/openspec', authMiddleware, createSpecChangeRoutes({ db, specChangeService, draftingService: undefined as never }));
+  app.use('/api/openspec', authMiddleware, createSpecChangeRoutes({ db, specChangeService, draftingService: specChangeDraftingService }));
   app.use('/api/openspec', authMiddleware, createExecutorRoutes({ db, executorService: issueOrchestration.executorService }));
   app.use('/api/openspec', authMiddleware, createBootstrapRoutes({ db, bootstrapService, reviewService: bootstrapReviewService }));
   app.use('/api/issues', authMiddleware, createIssueRoutes({ lifecycle: issueOrchestration.lifecycle, anonymousService: issueOrchestration.anonymousService }));
@@ -506,5 +518,6 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     aiExploreService,
     bootstrapService,
     bootstrapReviewService,
+    specChangeDraftingService,
   };
 }
