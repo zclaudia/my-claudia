@@ -369,3 +369,38 @@ export async function finalizeBootstrap(scanId: string): Promise<FinalizeBootstr
     { method: 'POST', body: JSON.stringify({}) },
   );
 }
+
+// ---------- AI Drafting (G7) ----------
+
+export interface DraftResponse {
+  specChange: SpecChange;
+  content: string;
+}
+
+export async function draftProposal(specChangeId: string): Promise<DraftResponse> {
+  return apiCall<DraftResponse>(
+    `/api/openspec/spec-changes/${specChangeId}/draft-proposal`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+}
+
+export async function draftDesign(specChangeId: string): Promise<DraftResponse> {
+  return apiCall<DraftResponse>(
+    `/api/openspec/spec-changes/${specChangeId}/draft-design`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+}
+
+export async function draftTasks(specChangeId: string): Promise<DraftResponse> {
+  return apiCall<DraftResponse>(
+    `/api/openspec/spec-changes/${specChangeId}/draft-tasks`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+}
+
+export async function draftDelta(specChangeId: string, capability: string): Promise<DraftResponse> {
+  return apiCall<DraftResponse>(
+    `/api/openspec/spec-changes/${specChangeId}/draft-delta/${encodeURIComponent(capability)}`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+}

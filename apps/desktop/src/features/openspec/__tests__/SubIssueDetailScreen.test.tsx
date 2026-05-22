@@ -195,5 +195,44 @@ describe('SubIssueDetailScreen', () => {
       // In preview mode the editor textarea should not render.
       expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     });
+
+    it('clicking "Draft with AI" calls draftProposal and replaces content', async () => {
+      const draftSpy = vi.spyOn(api, 'draftProposal').mockResolvedValue({
+        specChange: { id: 'sc1', slug: 'x', status: 'proposing', deltaSpecPaths: [] } as never,
+        content: '# AI-Drafted Proposal\n\n## Why\nGenerated\n',
+      });
+      render(<SubIssueDetailScreen projectId="p1" subIssueId="s" />);
+      await waitFor(() => {
+        const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+        expect(ta.value).toBe('PROPOSAL_TEXT');
+      });
+      fireEvent.click(screen.getByRole('button', { name: /Draft with AI/ }));
+      await waitFor(() => expect(draftSpy).toHaveBeenCalledWith('sc1'));
+      await waitFor(() => {
+        const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+        expect(ta.value).toContain('AI-Drafted');
+      });
+    });
+
+    it('Draft button is disabled while drafting', async () => {
+      let resolveDraft: (v: { specChange: never; content: string }) => void = () => undefined;
+      vi.spyOn(api, 'draftProposal').mockImplementation(
+        () => new Promise((resolve) => { resolveDraft = resolve; }),
+      );
+      render(<SubIssueDetailScreen projectId="p1" subIssueId="s" />);
+      await waitFor(() => {
+        const ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+        expect(ta.value).toBe('PROPOSAL_TEXT');
+      });
+      fireEvent.click(screen.getByRole('button', { name: /Draft with AI/ }));
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Drafting…/ })).toBeDisabled();
+      });
+      // unblock
+      resolveDraft({ specChange: { id: 'sc1' } as never, content: 'x' });
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Draft with AI/ })).toBeInTheDocument();
+      });
+    });
   });
 });

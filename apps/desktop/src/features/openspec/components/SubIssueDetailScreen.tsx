@@ -320,6 +320,7 @@ function SpecChangeArtifactTabs({
   const [content, setContent] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [drafting, setDrafting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [capInput, setCapInput] = useState('');
 
@@ -389,6 +390,31 @@ function SpecChangeArtifactTabs({
       setCapInput('');
     } catch (e) {
       alert(`Add capability failed: ${(e as Error).message}`);
+    }
+  };
+
+  const doDraft = async (): Promise<void> => {
+    setDrafting(true);
+    setError(null);
+    try {
+      const result =
+        activeTab === 'proposal'
+          ? await api.draftProposal(specChangeId)
+          : activeTab === 'design'
+            ? await api.draftDesign(specChangeId)
+            : activeTab === 'tasks'
+              ? await api.draftTasks(specChangeId)
+              : selectedCap
+                ? await api.draftDelta(specChangeId, selectedCap)
+                : null;
+      if (result) {
+        setContent(result.content);
+        setSpecChange(result.specChange);
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setDrafting(false);
     }
   };
 
@@ -500,6 +526,14 @@ function SpecChangeArtifactTabs({
                 onClick={() => void load()}
               >
                 Reload
+              </button>
+              <button
+                className="px-2.5 py-1 text-xs rounded-md bg-purple-500/15 text-purple-600 hover:bg-purple-500/25 disabled:opacity-50"
+                disabled={drafting || saving || (activeTab === 'delta' && !selectedCap)}
+                onClick={() => void doDraft()}
+                title={`Have AI draft this ${activeTab} from sub-issue context`}
+              >
+                {drafting ? 'Drafting…' : '✨ Draft with AI'}
               </button>
               {error && (
                 <span className="text-xs text-red-500">Error: {error}</span>
