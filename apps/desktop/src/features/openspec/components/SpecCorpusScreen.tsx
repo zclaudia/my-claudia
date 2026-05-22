@@ -5,7 +5,7 @@
 // corpus is empty, or "Re-scan" when it already has content; both open the
 // `InitializeSpecsDialog` via the view-state flag.
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useOpenSpecStore } from '../store.js';
 import * as api from '../api.js';
 
@@ -20,7 +20,7 @@ export function SpecCorpusScreen({ projectId }: Props): React.ReactElement {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const refresh = useCallback((): void => {
     setLoading(true);
     setError(null);
     api
@@ -30,18 +30,31 @@ export function SpecCorpusScreen({ projectId }: Props): React.ReactElement {
       .finally(() => setLoading(false));
   }, [projectId, setCorpus]);
 
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
   const isEmpty = corpus.length === 0 && !loading && !error;
 
   return (
     <div className="space-y-4 max-w-4xl">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">📚 Spec Corpus</h3>
-        <button
-          className="px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80"
-          onClick={() => patchView(projectId, { showInitializeSpecs: true })}
-        >
-          {isEmpty ? 'Initialize Specs' : 'Re-scan'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            className="px-2 py-1 text-xs rounded-md bg-secondary hover:bg-secondary/80"
+            onClick={refresh}
+            title="Refresh"
+          >
+            ↻
+          </button>
+          <button
+            className="px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80"
+            onClick={() => patchView(projectId, { showInitializeSpecs: true })}
+          >
+            {isEmpty ? 'Initialize Specs' : 'Re-scan'}
+          </button>
+        </div>
       </div>
 
       {loading && <div className="text-sm text-muted-foreground">Loading…</div>}

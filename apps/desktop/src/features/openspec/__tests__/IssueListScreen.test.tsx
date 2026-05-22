@@ -156,4 +156,12 @@ describe('IssueListScreen', () => {
     await waitFor(() => expect(spy).toHaveBeenCalledWith('p1'));
     await waitFor(() => expect(screen.getByText('Loaded From Server')).toBeInTheDocument());
   });
+
+  it('↻ button triggers another listIssues call', async () => {
+    const spy = vi.spyOn(api, 'listIssues').mockResolvedValue([] as never);
+    render(<IssueListScreen projectId="p1" />);
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: '↻' }));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+  });
 });

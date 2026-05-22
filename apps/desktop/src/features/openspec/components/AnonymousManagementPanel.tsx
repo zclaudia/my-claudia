@@ -5,7 +5,7 @@
 // in IssueListScreen ("Manage Anonymous Issues →"). Provides a breadcrumb
 // back to the issue list.
 
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useOpenSpecStore } from '../store.js';
 import * as api from '../api.js';
 import { StatusBadge } from './StatusBadge.js';
@@ -19,10 +19,22 @@ export function AnonymousManagementPanel({ projectId }: Props): React.ReactEleme
     (s.issuesByProject[projectId] ?? []).filter((i) => i.isAnonymous),
   );
   const upsertIssue = useOpenSpecStore((s) => s.upsertIssue);
+  const setIssues = useOpenSpecStore((s) => s.setIssues);
   const patchView = useOpenSpecStore((s) => s.patchView);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback((): void => {
+    api
+      .listIssues(projectId)
+      .then((rows) => setIssues(projectId, rows))
+      .catch((e) => console.error('[openspec] listIssues failed', e));
+  }, [projectId, setIssues]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
   const toggle = (id: string): void => {
     setSelected((prev) => {
@@ -85,6 +97,13 @@ export function AnonymousManagementPanel({ projectId }: Props): React.ReactEleme
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            className="px-2 py-1 text-xs rounded-md bg-secondary hover:bg-secondary/80"
+            onClick={refresh}
+            title="Refresh"
+          >
+            ↻
+          </button>
           <button
             className="px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80"
             onClick={selectAllOpen}

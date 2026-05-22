@@ -8,7 +8,7 @@
 // - "+ New Issue" button (dialog wired in Task 6)
 // - Click row → drill into FeatureIssueDetailScreen or SubIssueDetailScreen (Task 3)
 
-import React, { useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import type { LocalIssue, LocalIssueType } from '@my-claudia/shared/features/local-issue';
 import { useOpenSpecStore } from '../store.js';
 import { listIssues, getIssue } from '../api.js';
@@ -70,13 +70,15 @@ export function IssueListScreen({ projectId }: Props): React.ReactElement {
   };
 
   // Autoload all project issues on mount so the list isn't empty on first visit.
-  useEffect(() => {
-    let cancelled = false;
+  const refresh = useCallback((): void => {
     listIssues(projectId)
-      .then((rows) => { if (!cancelled) setIssues(projectId, rows); })
+      .then((rows) => setIssues(projectId, rows))
       .catch((e) => console.error('[openspec] listIssues failed', e));
-    return () => { cancelled = true; };
   }, [projectId, setIssues]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -88,6 +90,13 @@ export function IssueListScreen({ projectId }: Props): React.ReactElement {
             onClick={() => patchView(projectId, { screen: 'corpus' })}
           >
             📚 Spec Corpus
+          </button>
+          <button
+            className="px-2 py-1 text-xs rounded-md bg-secondary hover:bg-secondary/80"
+            onClick={refresh}
+            title="Refresh"
+          >
+            ↻
           </button>
           <button
             className="px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80"

@@ -40,7 +40,7 @@ export function SubIssueDetailScreen({
 
   const specChangeId = issue?.specChangeId;
 
-  useEffect(() => {
+  const refresh = useCallback((): void => {
     if (!specChangeId) return;
     void api.getSpecChange(specChangeId).then(setSpecChange).catch(() => undefined);
     void api
@@ -48,6 +48,10 @@ export function SubIssueDetailScreen({
       .then((list) => setExecutors(specChangeId, list))
       .catch(() => undefined);
   }, [specChangeId, setSpecChange, setExecutors]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
   if (!issue) {
     return (
@@ -156,7 +160,16 @@ export function SubIssueDetailScreen({
             {issue.isAnonymous ? ' · anonymous' : ''}
           </div>
         </div>
-        <StatusBadge status={issue.status} />
+        <div className="flex items-center gap-2">
+          <button
+            className="px-2 py-1 text-xs rounded-md bg-secondary hover:bg-secondary/80"
+            onClick={refresh}
+            title="Refresh"
+          >
+            ↻
+          </button>
+          <StatusBadge status={issue.status} />
+        </div>
       </div>
 
       {/* Status transition controls */}
