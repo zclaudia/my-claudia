@@ -1,14 +1,16 @@
 // apps/desktop/src/features/openspec/components/OpenSpecPanel.tsx
 //
 // Top-level router for the OpenSpec tab. Reads the per-project view state and
-// renders the appropriate screen. For Task 2 only IssueListScreen is fully
-// implemented; FeatureDetail / SubIssueDetail (Task 3) and Corpus (Task 5)
-// are stubbed.
+// renders the appropriate screen. Task 3 wires the feature-detail and
+// sub-issue-detail routes to the real screens. Corpus (Task 5) is still
+// stubbed.
 
 import React, { useEffect } from 'react';
 import { useOpenSpecStore } from '../store.js';
 import { INITIAL_VIEW_STATE } from '../view-state.js';
 import { IssueListScreen } from './IssueListScreen.js';
+import { FeatureIssueDetailScreen } from './FeatureIssueDetailScreen.js';
+import { SubIssueDetailScreen } from './SubIssueDetailScreen.js';
 
 interface Props {
   projectId: string;
@@ -21,14 +23,14 @@ export function OpenSpecPanel({ projectId }: Props): React.ReactElement {
     // Initial issue load handled inside IssueListScreen (Task 7 wires this).
   }, [projectId]);
 
-  // Detail screens come in Task 3; for now route only the list + corpus.
-  // We add stubs for routes that don't have components yet so we don't blow up.
-  if (view.screen === 'feature-detail' || view.screen === 'sub-issue-detail') {
+  if (view.screen === 'feature-detail' && view.selectedFeatureId) {
     return (
-      <div className="p-4 text-sm text-muted-foreground">
-        Detail screen (Task 3 stub). selectedFeatureId={String(view.selectedFeatureId)}{' '}
-        selectedSubIssueId={String(view.selectedSubIssueId)}
-      </div>
+      <FeatureIssueDetailScreen projectId={projectId} featureId={view.selectedFeatureId} />
+    );
+  }
+  if (view.screen === 'sub-issue-detail' && view.selectedSubIssueId) {
+    return (
+      <SubIssueDetailScreen projectId={projectId} subIssueId={view.selectedSubIssueId} />
     );
   }
   if (view.screen === 'corpus') {
