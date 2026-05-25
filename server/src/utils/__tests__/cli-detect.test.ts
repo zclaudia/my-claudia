@@ -81,6 +81,24 @@ describe('cli-detect', () => {
       });
     });
 
+    it('detects openclaude when which openclaude returns a path', async () => {
+      mockExecSync.mockImplementation((cmd: string) => {
+        if (cmd.includes('openclaude')) return '/usr/local/bin/openclaude\n';
+        throw new Error('not found');
+      });
+      mockSpawn.mockImplementation(() => createMockProcess('openclaude 1.0.0'));
+
+      const result = await detectCliProviders();
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({
+        type: 'openclaude',
+        name: 'OpenClaude',
+        cliPath: '/usr/local/bin/openclaude',
+        version: 'openclaude 1.0.0',
+      });
+    });
+
     it('detects both if both are available', async () => {
       mockExecSync.mockImplementation((cmd: string) => {
         if (cmd.includes('claude')) return '/usr/local/bin/claude\n';
@@ -198,6 +216,23 @@ describe('cli-detect', () => {
         type: 'opencode',
         name: 'OpenCode',
         cliPath: '/usr/bin/opencode',
+        version: undefined,
+      });
+    });
+
+    it('detects openclaude sync (no version)', () => {
+      mockExecSync.mockImplementation((cmd: string) => {
+        if (cmd.includes('openclaude')) return '/usr/local/bin/openclaude\n';
+        throw new Error('not found');
+      });
+
+      const result = detectCliProvidersSync();
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({
+        type: 'openclaude',
+        name: 'OpenClaude',
+        cliPath: '/usr/local/bin/openclaude',
         version: undefined,
       });
     });

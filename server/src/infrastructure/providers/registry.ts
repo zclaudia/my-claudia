@@ -3,6 +3,7 @@ import type { ProviderPolicy } from '@my-claudia/shared/core/provider-policy';
 import type { ProviderDefinition } from './definitions.js';
 import type { ProviderAdapter } from './types.js';
 import { ClaudeAdapter } from './claude-adapter.js';
+import { OpenClaudeAdapter } from './openclaude-adapter.js';
 import { OpenCodeAdapter } from './opencode-adapter.js';
 import { CodexAppServerAdapter } from './codex-app-server-adapter.js';
 import { CursorAdapter } from './cursor-adapter.js';
@@ -23,6 +24,7 @@ class ProviderRegistry implements ProviderRegistryPort {
 
   constructor() {
     this.register(new ClaudeAdapter());
+    this.register(new OpenClaudeAdapter());
     this.register(new OpenCodeAdapter());
     this.register(new CodexAppServerAdapter());
     this.register(new CursorAdapter());

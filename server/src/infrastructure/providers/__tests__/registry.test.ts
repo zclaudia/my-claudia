@@ -26,6 +26,13 @@ describe('ProviderRegistry', () => {
       expect(adapter!.type).toBe('opencode');
     });
 
+    it('has an openclaude adapter registered by default', () => {
+      const adapter = providerRegistry.get('openclaude');
+      expect(adapter).toBeDefined();
+      expect(adapter!.type).toBe('openclaude');
+      expect(adapter!.manifest?.providerType).toBe('openclaude');
+    });
+
     it('has a kimi adapter registered by default', () => {
       const adapter = providerRegistry.get('kimi');
       expect(adapter).toBeDefined();

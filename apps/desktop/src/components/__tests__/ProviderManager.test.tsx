@@ -618,6 +618,7 @@ describe('ProviderManager', () => {
 
       // Dropdown should show all options
       expect(screen.getByText('OpenCode')).toBeInTheDocument();
+      expect(screen.getByText('OpenClaude')).toBeInTheDocument();
       expect(screen.getByText('Codex')).toBeInTheDocument();
       expect(screen.getByText('Cursor Agent')).toBeInTheDocument();
       expect(screen.getByText('Kimi Code')).toBeInTheDocument();
@@ -627,6 +628,21 @@ describe('ProviderManager', () => {
 
       // CLI path placeholder should change to opencode-specific
       expect(screen.getByPlaceholderText('/path/to/opencode')).toBeInTheDocument();
+    });
+
+    it('selects OpenClaude and shows OpenClaude-specific hints', async () => {
+      await renderProviderManager({ onClose: mockOnClose });
+
+      await waitFor(() => {
+        expect(screen.getByText('Claude Default')).toBeInTheDocument();
+      });
+
+      await clickAsync(screen.getByText('Add Provider'));
+      await clickAsync(screen.getByText('Claude'));
+      await clickAsync(screen.getByText('OpenClaude'));
+
+      expect(screen.getByPlaceholderText('/path/to/openclaude')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/CLAUDE_CODE_USE_OPENAI/)).toBeInTheDocument();
     });
   });
 

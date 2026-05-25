@@ -264,6 +264,15 @@ const CODEX_FALLBACK_MODELS: ModelOption[] = [
   { id: 'gpt-5.1-codex-mini', label: 'gpt-5.1-codex-mini' },
 ];
 
+const OPENCLAUDE_FALLBACK_MODELS: ModelOption[] = [
+  { id: '', label: 'Default' },
+  { id: 'gpt-4o', label: 'gpt-4o' },
+  { id: 'deepseek-chat', label: 'deepseek-chat' },
+  { id: 'llama3.1:8b', label: 'llama3.1:8b' },
+  { id: 'qwen2.5-coder:7b', label: 'qwen2.5-coder:7b' },
+  { id: 'google/gemini-2.0-flash-001', label: 'google/gemini-2.0-flash-001' },
+];
+
 const CURSOR_FALLBACK_MODELS: ModelOption[] = [
   { id: '', label: 'Default' },
   { id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
@@ -462,6 +471,25 @@ async function getCodexCapabilities(
   };
 }
 
+async function getOpenClaudeCapabilities(env?: Record<string, string>): Promise<ProviderCapabilities> {
+  const configuredModel = env?.OPENAI_MODEL || env?.ANTHROPIC_MODEL;
+  const models = configuredModel && !OPENCLAUDE_FALLBACK_MODELS.some(model => model.id === configuredModel)
+    ? [{ id: '', label: 'Default' }, { id: configuredModel, label: configuredModel }, ...OPENCLAUDE_FALLBACK_MODELS.slice(1)]
+    : OPENCLAUDE_FALLBACK_MODELS;
+
+  return {
+    modeLabel: 'Mode',
+    defaultModeId: 'default',
+    modes: [
+      { id: 'default', label: 'Default', description: 'Standard mode - requires confirmation for tool calls' },
+      { id: 'plan', label: 'Plan', description: 'Planning mode - creates a plan before executing' },
+      { id: 'acceptEdits', label: 'Auto-Edit', description: 'Auto-approve file edits only' },
+      { id: 'bypassPermissions', label: 'Bypass', description: 'Skip all permission checks (use with caution)' },
+    ],
+    models,
+  };
+}
+
 async function getCursorCapabilities(
   cliPath?: string,
   env?: Record<string, string>
@@ -499,6 +527,9 @@ async function getProviderCapabilities(
 ): Promise<ProviderCapabilities> {
   let capabilities: ProviderCapabilities;
   switch (providerType) {
+    case 'openclaude':
+      capabilities = await getOpenClaudeCapabilities(env);
+      break;
     case 'opencode':
       capabilities = await getOpenCodeCapabilities(cliPath, env);
       break;

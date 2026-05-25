@@ -1,8 +1,9 @@
 import { spawn, execSync } from 'child_process';
 import { existsSync, statSync } from 'fs';
+import path from 'path';
 
 export interface DetectedCli {
-  type: 'claude' | 'opencode' | 'codex' | 'kimi';
+  type: 'claude' | 'openclaude' | 'opencode' | 'codex' | 'kimi';
   name: string;
   cliPath: string;
   version?: string;
@@ -10,6 +11,7 @@ export interface DetectedCli {
 
 const CLI_COMMANDS = {
   claude: ['claude', 'claude-code'],
+  openclaude: ['openclaude'],
   opencode: ['opencode', 'opencode-cli'],
   codex: ['codex'],
   kimi: ['kimi'],
@@ -26,7 +28,12 @@ function findInPath(command: string): string | null {
     ).trim();
 
     if (result && result.length > 0) {
-      return result.split('\n')[0].trim();
+      const firstMatch = result.split('\n')[0].trim();
+      const basename = path.basename(firstMatch).toLowerCase();
+      const expected = command.toLowerCase();
+      if (basename === expected || basename === `${expected}.exe`) {
+        return firstMatch;
+      }
     }
   } catch {}
 
@@ -96,7 +103,7 @@ export async function detectCliProviders(): Promise<DetectedCli[]> {
 
       if (cliPath) {
         const version = await getCliVersion(cliPath);
-        const nameMap: Record<string, string> = { claude: 'Claude Code', opencode: 'OpenCode', codex: 'Codex', kimi: 'Kimi Code' };
+        const nameMap: Record<string, string> = { claude: 'Claude Code', openclaude: 'OpenClaude', opencode: 'OpenCode', codex: 'Codex', kimi: 'Kimi Code' };
         detected.push({
           type: type as DetectedCli['type'],
           name: nameMap[type] || type,
@@ -123,7 +130,7 @@ export function detectCliProvidersSync(): DetectedCli[] {
       }
 
       if (cliPath) {
-        const nameMap: Record<string, string> = { claude: 'Claude Code', opencode: 'OpenCode', codex: 'Codex', kimi: 'Kimi Code' };
+        const nameMap: Record<string, string> = { claude: 'Claude Code', openclaude: 'OpenClaude', opencode: 'OpenCode', codex: 'Codex', kimi: 'Kimi Code' };
         detected.push({
           type: type as DetectedCli['type'],
           name: nameMap[type] || type,

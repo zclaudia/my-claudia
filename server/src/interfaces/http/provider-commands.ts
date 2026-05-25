@@ -157,6 +157,11 @@ async function getProviderCommands(
   switch (providerType) {
     case 'opencode':
       return getOpenCodeCommands(cliPath, env);
+    case 'openclaude':
+      return getClaudeCommands(cliPath || 'openclaude', {
+        ...(env || {}),
+        CLAUDE_CODE_USE_OPENAI: env?.CLAUDE_CODE_USE_OPENAI || '1',
+      });
     case 'claude':
       return getClaudeCommands(cliPath, env);
     case 'codex':

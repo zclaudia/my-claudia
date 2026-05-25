@@ -55,6 +55,47 @@ export const CLAUDE_POLICY: ProviderPolicy = {
 
 export const CLAUDE_MANIFEST = CLAUDE_CAPABILITY_MANIFEST;
 
+export const OPENCLAUDE_CAPABILITY_MANIFEST: PCPProviderManifest = {
+  id: 'openclaude',
+  name: 'OpenClaude',
+  version: '1.0.0',
+  apiVersion: 'pcp/v1',
+  providerType: 'openclaude',
+  runtime: 'cli',
+  capabilities: [
+    { id: 'chat.generate', supported: false, notes: 'Not implemented yet, planned for plugin API' },
+    { id: 'chat.stream', supported: true, mode: 'native', reliability: 'strict' },
+    { id: 'tool.call', supported: true, mode: 'native', reliability: 'best_effort',
+      notes: 'Depends on the selected OpenAI-compatible model tool-calling quality' },
+    { id: 'tool.inject', supported: true, mode: 'native', reliability: 'best_effort' },
+    { id: 'interaction.form', supported: true, mode: 'bridged', reliability: 'best_effort' },
+    { id: 'interaction.approval', supported: true, mode: 'bridged', reliability: 'best_effort' },
+    { id: 'interaction.todo', supported: true, mode: 'bridged', reliability: 'best_effort' },
+    { id: 'input.image', supported: true, mode: 'native', reliability: 'best_effort',
+      notes: 'Vision support depends on the selected OpenAI-compatible backend',
+      limits: { attachmentModes: 'temp_file,file_path' } },
+    { id: 'input.text_file', supported: true, mode: 'native', reliability: 'strict' },
+    { id: 'input.binary_file', supported: true, mode: 'native', reliability: 'strict' },
+    { id: 'permission.mode', supported: true, mode: 'native', reliability: 'best_effort' },
+    { id: 'session.abort', supported: true, mode: 'native', reliability: 'strict' },
+    { id: 'session.background_task', supported: true, mode: 'native', reliability: 'best_effort',
+      notes: 'Background task support depends on OpenClaude and model behavior' },
+  ],
+  permissionModeMap: {
+    supervised: 'default',
+    auto_edit: 'acceptEdits',
+    autonomous: 'bypassPermissions',
+    plan_only: 'plan',
+  },
+};
+
+export const OPENCLAUDE_POLICY: ProviderPolicy = {
+  nativeInteractionTools: ['update_todo_list', 'ask_user_form', 'request_approval', 'enter_plan_mode', 'exit_plan_mode'],
+  escalateAlwaysTools: ['ExitPlanMode'],
+};
+
+export const OPENCLAUDE_MANIFEST = OPENCLAUDE_CAPABILITY_MANIFEST;
+
 export const OPENCODE_CAPABILITY_MANIFEST: PCPProviderManifest = {
   id: 'opencode',
   name: 'OpenCode',

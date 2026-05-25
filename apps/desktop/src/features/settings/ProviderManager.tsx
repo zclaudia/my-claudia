@@ -18,6 +18,7 @@ interface CapabilitySummary {
 }
 const PROVIDER_CAPABILITIES: Record<string, CapabilitySummary> = {
   claude:   { stream: 'strict', tools: 'strict', interactions: 'strict', backgroundTask: 'best_effort' },
+  openclaude: { stream: 'strict', tools: 'best_effort', interactions: 'best_effort', backgroundTask: 'best_effort' },
   opencode: { stream: 'strict', tools: 'strict', interactions: 'best_effort', backgroundTask: 'none' },
   codex:    { stream: 'strict', tools: 'strict', interactions: 'best_effort', backgroundTask: 'none' },
   cursor:   { stream: 'best_effort', tools: 'best_effort', interactions: 'best_effort', backgroundTask: 'none' },
@@ -78,7 +79,7 @@ export function ProviderManager({ isOpen, onClose, inline = false, readOnly = fa
   const [editingProvider, setEditingProvider] = useState<ProviderConfig | null>(null);
 
   // Form state
-  type ProviderType = 'claude' | 'opencode' | 'codex' | 'cursor' | 'kimi';
+  type ProviderType = 'claude' | 'openclaude' | 'opencode' | 'codex' | 'cursor' | 'kimi';
   const [formName, setFormName] = useState('');
   const [formType, setFormType] = useState<ProviderType>('claude');
   const [formCliPath, setFormCliPath] = useState('');
@@ -275,10 +276,10 @@ export function ProviderManager({ isOpen, onClose, inline = false, readOnly = fa
           type="text"
           value={formCliPath}
           onChange={(e) => setFormCliPath(e.target.value)}
-          placeholder={formType === 'opencode' ? '/path/to/opencode' : formType === 'codex' ? '/path/to/codex' : formType === 'cursor' ? '/path/to/cursor-agent' : formType === 'kimi' ? '/path/to/kimi' : '/path/to/claude'}
+          placeholder={formType === 'openclaude' ? '/path/to/openclaude' : formType === 'opencode' ? '/path/to/opencode' : formType === 'codex' ? '/path/to/codex' : formType === 'cursor' ? '/path/to/cursor-agent' : formType === 'kimi' ? '/path/to/kimi' : '/path/to/claude'}
           className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:border-primary font-mono"
         />
-        <p className="text-xs text-muted-foreground mt-1">Custom path to {formType === 'opencode' ? 'OpenCode' : formType === 'codex' ? 'Codex' : formType === 'cursor' ? 'cursor-agent' : formType === 'kimi' ? 'Kimi' : 'Claude'} CLI binary</p>
+        <p className="text-xs text-muted-foreground mt-1">Custom path to {formType === 'openclaude' ? 'OpenClaude' : formType === 'opencode' ? 'OpenCode' : formType === 'codex' ? 'Codex' : formType === 'cursor' ? 'cursor-agent' : formType === 'kimi' ? 'Kimi' : 'Claude'} CLI binary</p>
       </div>
 
       <div>
@@ -286,7 +287,14 @@ export function ProviderManager({ isOpen, onClose, inline = false, readOnly = fa
         <textarea
           value={formEnv}
           onChange={(e) => setFormEnv(e.target.value)}
-          placeholder={formType === 'opencode'
+          placeholder={formType === 'openclaude'
+? `{
+"CLAUDE_CODE_USE_OPENAI": "1",
+"OPENAI_API_KEY": "your-key",
+"OPENAI_MODEL": "gpt-4o",
+"OPENAI_BASE_URL": "https://api.openai.com/v1"
+}`
+: formType === 'opencode'
 ? `{
 "OPENCODE_SERVER_PASSWORD": "your-password"
 }`
@@ -470,15 +478,16 @@ export function ProviderManager({ isOpen, onClose, inline = false, readOnly = fa
   );
 }
 
-const TYPE_OPTIONS: { value: 'claude' | 'opencode' | 'codex' | 'cursor' | 'kimi'; label: string }[] = [
+const TYPE_OPTIONS: { value: 'claude' | 'openclaude' | 'opencode' | 'codex' | 'cursor' | 'kimi'; label: string }[] = [
   { value: 'claude', label: 'Claude' },
+  { value: 'openclaude', label: 'OpenClaude' },
   { value: 'opencode', label: 'OpenCode' },
   { value: 'codex', label: 'Codex' },
   { value: 'cursor', label: 'Cursor Agent' },
   { value: 'kimi', label: 'Kimi Code' },
 ];
 
-function TypeSelector({ value, onChange }: { value: string; onChange: (v: 'claude' | 'opencode' | 'codex' | 'cursor' | 'kimi') => void }) {
+function TypeSelector({ value, onChange }: { value: string; onChange: (v: 'claude' | 'openclaude' | 'opencode' | 'codex' | 'cursor' | 'kimi') => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 

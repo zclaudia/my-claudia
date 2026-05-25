@@ -1,6 +1,6 @@
 // Provider Types
 
-export const PROVIDER_TYPES = ['claude', 'opencode', 'codex', 'cursor', 'kimi'] as const;
+export const PROVIDER_TYPES = ['claude', 'openclaude', 'opencode', 'codex', 'cursor', 'kimi'] as const;
 export type ProviderType = typeof PROVIDER_TYPES[number];
 
 export interface ProviderConfig {

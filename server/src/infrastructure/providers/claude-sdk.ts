@@ -39,6 +39,7 @@ export interface ClaudeRunOptions {
   serverPort?: number;  // Main server port for MCP bridge
   claudiaSessionId?: string;  // My-Claudia session ID (for interaction tool context)
   db?: import('better-sqlite3').Database;  // Database for Claudia-managed MCP servers
+  mcpProviderType?: string;  // Provider scope used for Claudia-managed MCP servers
   abortController?: AbortController;  // External abort controller for cancellation
   queryHandle?: ClaudeQueryHandle;  // Mutable handle — runClaude populates stopTask when query starts
   onSessionId?: (sessionId: string) => void;  // Called when SDK reports the active session ID
@@ -298,7 +299,7 @@ export async function* runClaude(
 
   // Load MCP servers: Claudia DB (primary) + ~/.claude/mcp.json (fallback)
   const nativeMcpServers = loadMcpServers();
-  const claudiaMcpServers = options.db ? loadMcpServersFromDb(options.db, 'claude') : {};
+  const claudiaMcpServers = options.db ? loadMcpServersFromDb(options.db, options.mcpProviderType || 'claude') : {};
   const userMcpServers = { ...nativeMcpServers, ...claudiaMcpServers };
   if (Object.keys(userMcpServers).length > 0) {
     sdkOptions.mcpServers = userMcpServers;

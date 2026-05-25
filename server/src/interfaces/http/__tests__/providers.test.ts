@@ -274,6 +274,24 @@ describe('providers routes', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data.type).toBe('kimi');
     });
+
+    it('accepts openclaude as provider type', async () => {
+      const res = await request(app)
+        .post('/api/providers')
+        .send({
+          name: 'OpenClaude Provider',
+          type: 'openclaude',
+          env: {
+            CLAUDE_CODE_USE_OPENAI: '1',
+            OPENAI_MODEL: 'gpt-4o',
+          },
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.type).toBe('openclaude');
+      expect(res.body.data.env.OPENAI_MODEL).toBe('gpt-4o');
+    });
   });
 
   describe('PUT /api/providers/:id', () => {
@@ -574,6 +592,16 @@ describe('providers routes', () => {
       expect(res.body.data.modeLabel).toBe('Mode');
       expect(res.body.data.modes.some((m: any) => m.id === 'default')).toBe(true);
     });
+
+    it('returns openclaude capabilities with OpenAI-compatible model defaults', async () => {
+      const res = await request(app).get('/api/providers/type/openclaude/capabilities');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.modeLabel).toBe('Mode');
+      expect(res.body.data.defaultModeId).toBe('default');
+      expect(res.body.data.models.some((m: any) => m.id === 'gpt-4o')).toBe(true);
+      expect(res.body.data.supportsAIReview).toBe(false);
+    });
   });
 
   describe('POST /api/providers with cliPath', () => {
@@ -830,7 +858,7 @@ describe('providers routes', () => {
 
   describe('POST /api/providers - additional validation', () => {
     it('creates provider with all supported types', async () => {
-      for (const type of ['claude', 'opencode', 'codex', 'cursor', 'kimi']) {
+      for (const type of ['claude', 'openclaude', 'opencode', 'codex', 'cursor', 'kimi']) {
         const res = await request(app)
           .post('/api/providers')
           .send({ name: `Provider ${type}`, type });
@@ -1086,7 +1114,7 @@ describe('providers routes', () => {
   describe('GET /api/providers - providers with various field combinations', () => {
     it('returns providers with different types in listing', async () => {
       const now = Date.now();
-      const types = ['claude', 'opencode', 'codex', 'cursor', 'kimi'];
+      const types = ['claude', 'openclaude', 'opencode', 'codex', 'cursor', 'kimi'];
       for (let i = 0; i < types.length; i++) {
         db.prepare(`
           INSERT INTO providers (id, name, type, created_at, updated_at)
@@ -1096,7 +1124,7 @@ describe('providers routes', () => {
 
       const res = await request(app).get('/api/providers');
       expect(res.status).toBe(200);
-      expect(res.body.data).toHaveLength(5);
+      expect(res.body.data).toHaveLength(6);
 
       const returnedTypes = res.body.data.map((p: any) => p.type);
       for (const t of types) {

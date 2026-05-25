@@ -3,7 +3,7 @@ import type { PCPCapabilityId, PCPProviderManifest } from '@my-claudia/shared/co
 import type { ProviderDefinition } from '../definitions.js';
 import { providerRegistry } from '../registry.js';
 
-const BUILT_IN_PROVIDERS = ['claude', 'opencode', 'codex', 'cursor', 'kimi', 'acp'] as const;
+const BUILT_IN_PROVIDERS = ['claude', 'openclaude', 'opencode', 'codex', 'cursor', 'kimi', 'acp'] as const;
 
 const REQUIRED_CAPABILITIES: PCPCapabilityId[] = [
   'chat.generate',
