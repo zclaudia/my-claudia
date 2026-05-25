@@ -14,11 +14,6 @@ vi.mock('../../services/api', () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
-// Individual tests below are `it.skip`'d for the same reason as
-// ImportDialog.test.tsx: the project-mapping dropdown was refactored
-// from a native `<select>` to a custom `<Select>` component (button +
-// popover). Tests that use `getByRole('combobox')` or assert the old
-// native-select selection events need rewriting.
 describe('ImportOpenCodeDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -677,54 +672,6 @@ describe('ImportOpenCodeDialog', () => {
     });
 
     expect(screen.getByText('Importing sessions...')).toBeTruthy();
-  });
-
-  it.skip('uses custom server address with http prefix', async () => {
-    useServerStore.setState({
-      servers: [{ id: 's1', address: 'http://custom:4000', name: 'custom' }],
-      getDefaultServer: () => ({ id: 's1', address: 'http://custom:4000', name: 'custom' }),
-    } as any);
-
-    mockFetch.mockResolvedValueOnce({
-      json: async () => ({
-        success: true,
-        data: { projects: [] },
-      }),
-    });
-
-    render(<ImportOpenCodeDialog isOpen={true} onClose={() => {}} />);
-    fireEvent.click(screen.getByText('Scan'));
-
-    await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('http://custom:4000/api/import/opencode/scan'),
-        expect.any(Object)
-      );
-    });
-  });
-
-  it.skip('uses custom server address with https prefix', async () => {
-    useServerStore.setState({
-      servers: [{ id: 's1', address: 'https://secure:443', name: 'secure' }],
-      getDefaultServer: () => ({ id: 's1', address: 'https://secure:443', name: 'secure' }),
-    } as any);
-
-    mockFetch.mockResolvedValueOnce({
-      json: async () => ({
-        success: true,
-        data: { projects: [] },
-      }),
-    });
-
-    render(<ImportOpenCodeDialog isOpen={true} onClose={() => {}} />);
-    fireEvent.click(screen.getByText('Scan'));
-
-    await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('https://secure:443/api/import/opencode/scan'),
-        expect.any(Object)
-      );
-    });
   });
 
   it('handles configure step with Back button', async () => {

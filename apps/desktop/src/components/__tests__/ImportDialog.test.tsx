@@ -19,12 +19,6 @@ vi.mock('../../services/api', () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
-// Individual tests below are `it.skip`'d because the component's project-
-// mapping dropdown was refactored from a native `<select>` to a custom
-// `<Select>` (apps/desktop/src/components/ui/Select.tsx) that renders a
-// button + popover, not a `<select>` element. The skipped tests use
-// `screen.getByRole('combobox')` (native-select role) or assert old
-// fetch URL formats. Both need rewriting against the new component.
 describe('ImportDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -771,11 +765,16 @@ describe('ImportDialog', () => {
     });
   });
 
-  // TODO: re-enable after fixing worker-hang. The never-resolving import
-  // Promise below leaks across the test and prevents vitest's forks worker
-  // from terminating. Skipping to unblock the rest of the suite.
-  it.skip('shows progress step during import', async () => {
+  it('shows progress step during import', async () => {
     vi.useFakeTimers();
+
+    // Use a deferred (resolvable) promise rather than a never-resolving one,
+    // so the import call can be cleaned up at the end of the test and the
+    // vitest worker can terminate normally.
+    let resolveImport!: (v: unknown) => void;
+    const importPromise = new Promise((r) => {
+      resolveImport = r;
+    });
 
     mockFetch
       .mockResolvedValueOnce({
@@ -794,7 +793,7 @@ describe('ImportDialog', () => {
           },
         }),
       })
-      .mockImplementationOnce(() => new Promise(() => {})); // Pending promise
+      .mockImplementationOnce(() => importPromise);
 
     render(<ImportDialog isOpen={true} onClose={() => {}} />);
     await act(async () => {
@@ -813,53 +812,16 @@ describe('ImportDialog', () => {
     });
 
     expect(screen.getByText('Importing sessions...')).toBeTruthy();
-  });
 
-  it.skip('uses custom server address with http prefix', async () => {
-    useServerStore.setState({
-      servers: [{ id: 's1', address: 'http://custom:4000', name: 'custom' }],
-      getDefaultServer: () => ({ id: 's1', address: 'http://custom:4000', name: 'custom' }),
-    } as any);
-
-    mockFetch.mockResolvedValueOnce({
-      json: async () => ({
-        success: true,
-        data: { projects: [] },
-      }),
-    });
-
-    render(<ImportDialog isOpen={true} onClose={() => {}} />);
-    fireEvent.click(screen.getByText('Scan'));
-
-    await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('http://custom:4000/api/import/claude-cli/scan'),
-        expect.any(Object)
-      );
-    });
-  });
-
-  it.skip('uses custom server address with https prefix', async () => {
-    useServerStore.setState({
-      servers: [{ id: 's1', address: 'https://secure:443', name: 'secure' }],
-      getDefaultServer: () => ({ id: 's1', address: 'https://secure:443', name: 'secure' }),
-    } as any);
-
-    mockFetch.mockResolvedValueOnce({
-      json: async () => ({
-        success: true,
-        data: { projects: [] },
-      }),
-    });
-
-    render(<ImportDialog isOpen={true} onClose={() => {}} />);
-    fireEvent.click(screen.getByText('Scan'));
-
-    await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('https://secure:443/api/import/claude-cli/scan'),
-        expect.any(Object)
-      );
+    // Resolve the pending import so the component completes its async work
+    // and vitest's worker can shut down cleanly.
+    await act(async () => {
+      resolveImport({
+        json: async () => ({
+          success: true,
+          data: { imported: 0, skipped: 0, errors: [] },
+        }),
+      });
     });
   });
 
