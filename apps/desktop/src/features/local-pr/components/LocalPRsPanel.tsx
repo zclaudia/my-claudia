@@ -57,19 +57,32 @@ export function LocalPRsPanel({ projectId, projectRootPath }: LocalPRsPanelProps
   const [createErrorByPath, setCreateErrorByPath] = useState<Record<string, string>>({});
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     Promise.all([
       loadPRs(projectId),
-      getProjectWorktrees(projectId).then(setWorktrees).catch(() => {}),
-      getWorktreeConfigs(projectId).then((configs) => {
-        const map: Record<string, WorktreeConfig> = {};
-        for (const c of configs) map[c.worktreePath] = c;
-        setWtConfigs(map);
-      }).catch(() => {}),
-    ]).finally(() => setLoading(false));
+      getProjectWorktrees(projectId)
+        .then((wt) => { if (!cancelled) setWorktrees(wt); })
+        .catch(() => {}),
+      getWorktreeConfigs(projectId)
+        .then((configs) => {
+          if (cancelled) return;
+          const map: Record<string, WorktreeConfig> = {};
+          for (const c of configs) map[c.worktreePath] = c;
+          setWtConfigs(map);
+        })
+        .catch(() => {}),
+    ]).finally(() => { if (!cancelled) setLoading(false); });
+    return () => {
+      cancelled = true;
+    };
   }, [projectId, loadPRs]);
 
-  const projectPRs = prs[projectId] ?? [];
+  // Stabilize the ref so downstream useMemos / useEffects don't re-fire on
+  // every render when `prs[projectId]` is undefined (the `?? []` fallback
+  // would otherwise create a new array each render → activePRPaths memo busts
+  // → eligibility useEffect re-runs forever).
+  const projectPRs = useMemo(() => prs[projectId] ?? [], [prs, projectId]);
 
   // Worktrees that don't have an active PR
   const activePRPaths = useMemo(

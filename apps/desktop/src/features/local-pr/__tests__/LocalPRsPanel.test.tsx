@@ -205,11 +205,7 @@ describe('LocalPRsPanel', () => {
     });
   });
 
-  // TODO: re-enable after fixing worker-hang. This test (and the two below)
-  // mock getProjectWorktrees → triggers the panel's eligibility-precheck
-  // useEffect → state updates settle after unmount → vitest fork worker
-  // can't terminate cleanly. Skipping to unblock the rest of the suite.
-  it.skip('shows worktrees section when worktrees exist', async () => {
+  it('shows worktrees section when worktrees exist', async () => {
     const api = await import('../../../services/api');
     (api.getProjectWorktrees as any).mockResolvedValueOnce([
       { path: '/wt/feat', branch: 'feat/a', isMain: false },
@@ -220,7 +216,7 @@ describe('LocalPRsPanel', () => {
     });
   });
 
-  it.skip('calls createPR when quick create is clicked', async () => {
+  it('calls createPR when quick create is clicked', async () => {
     const api = await import('../../../services/api');
     const localApi = await import('../api');
     (api.getProjectWorktrees as any).mockResolvedValueOnce([
@@ -265,12 +261,7 @@ describe('LocalPRsPanel', () => {
     });
   });
 
-  // TODO: re-enable after investigating worker-hang. Vitest's forks pool
-  // fails to terminate the worker after this test, even with testTimeout=10s
-  // and explicit unmount. Likely interaction between the panel's two cascading
-  // useEffects (worktree load → eligibility precheck) and RTL's auto-cleanup.
-  // Skipped for now so it doesn't block the rest of the suite.
-  it.skip('handles worktree config toggle', async () => {
+  it('handles worktree config toggle', async () => {
     const api = await import('../../../services/api');
     const localApi = await import('../api');
     (api.getProjectWorktrees as any).mockResolvedValueOnce([

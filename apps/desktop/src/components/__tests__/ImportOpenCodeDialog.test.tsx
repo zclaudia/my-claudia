@@ -14,12 +14,12 @@ vi.mock('../../services/api', () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
-// TODO: re-enable. Pre-existing hang in vitest forks pool — same pattern as
-// ImportDialog.test.tsx: cascading fake-timer + Promise mocks in a complex
-// multi-step component leak across tests and prevent worker termination.
-// Last touched in commit 5cd4ae98. Skipping the whole describe to unblock
-// the rest of the suite.
-describe.skip('ImportOpenCodeDialog', () => {
+// Individual tests below are `it.skip`'d for the same reason as
+// ImportDialog.test.tsx: the project-mapping dropdown was refactored
+// from a native `<select>` to a custom `<Select>` component (button +
+// popover). Tests that use `getByRole('combobox')` or assert the old
+// native-select selection events need rewriting.
+describe('ImportOpenCodeDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockFetch.mockReset();
@@ -330,7 +330,7 @@ describe.skip('ImportOpenCodeDialog', () => {
     expect(screen.getByText('Start Import')).toBeTruthy();
   });
 
-  it('auto-matches projects by workspace path', async () => {
+  it.skip('auto-matches projects by workspace path', async () => {
     vi.useFakeTimers();
 
     mockFetch.mockResolvedValueOnce({
@@ -408,7 +408,7 @@ describe.skip('ImportOpenCodeDialog', () => {
     expect(screen.getByText(/Load 5 more projects/)).toBeTruthy();
   });
 
-  it('loads more projects when load more button is clicked', async () => {
+  it.skip('loads more projects when load more button is clicked', async () => {
     vi.useFakeTimers();
 
     const projects = Array.from({ length: 15 }, (_, i) => ({
@@ -438,7 +438,7 @@ describe.skip('ImportOpenCodeDialog', () => {
     expect(screen.getByText(/Load 0 more projects/)).toBeTruthy();
   });
 
-  it('handles successful import with project creation', async () => {
+  it.skip('handles successful import with project creation', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -491,7 +491,7 @@ describe.skip('ImportOpenCodeDialog', () => {
     });
   });
 
-  it('handles import failure', async () => {
+  it.skip('handles import failure', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -539,7 +539,7 @@ describe.skip('ImportOpenCodeDialog', () => {
     });
   });
 
-  it('handles import network error', async () => {
+  it.skip('handles import network error', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -582,7 +582,7 @@ describe.skip('ImportOpenCodeDialog', () => {
     });
   });
 
-  it('shows complete step with results', async () => {
+  it.skip('shows complete step with results', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -677,7 +677,7 @@ describe.skip('ImportOpenCodeDialog', () => {
     expect(screen.getByText('Importing sessions...')).toBeTruthy();
   });
 
-  it('uses custom server address with http prefix', async () => {
+  it.skip('uses custom server address with http prefix', async () => {
     useServerStore.setState({
       servers: [{ id: 's1', address: 'http://custom:4000', name: 'custom' }],
       getDefaultServer: () => ({ id: 's1', address: 'http://custom:4000', name: 'custom' }),
@@ -701,7 +701,7 @@ describe.skip('ImportOpenCodeDialog', () => {
     });
   });
 
-  it('uses custom server address with https prefix', async () => {
+  it.skip('uses custom server address with https prefix', async () => {
     useServerStore.setState({
       servers: [{ id: 's1', address: 'https://secure:443', name: 'secure' }],
       getDefaultServer: () => ({ id: 's1', address: 'https://secure:443', name: 'secure' }),
@@ -760,7 +760,7 @@ describe.skip('ImportOpenCodeDialog', () => {
     expect(screen.getByText('Select All')).toBeTruthy();
   });
 
-  it('disables Start Import when not all projects are mapped', async () => {
+  it.skip('disables Start Import when not all projects are mapped', async () => {
     vi.useFakeTimers();
 
     mockFetch.mockResolvedValueOnce({
@@ -828,7 +828,7 @@ describe.skip('ImportOpenCodeDialog', () => {
     expect(screen.getByText(/5 messages/)).toBeTruthy();
   });
 
-  it('refreshes sessions and projects after successful import', async () => {
+  it.skip('refreshes sessions and projects after successful import', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -935,7 +935,7 @@ describe.skip('ImportOpenCodeDialog', () => {
     expect(screen.getByText(/0 sessions across 1 projects/)).toBeTruthy();
   });
 
-  it('shows errors in complete step', async () => {
+  it.skip('shows errors in complete step', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -1028,7 +1028,7 @@ describe.skip('ImportOpenCodeDialog', () => {
     expect(screen.getByText('Next (0 selected)')).toBeTruthy();
   });
 
-  it('handles multiple source projects mapping', async () => {
+  it.skip('handles multiple source projects mapping', async () => {
     vi.useFakeTimers();
 
     mockFetch.mockResolvedValueOnce({
@@ -1071,7 +1071,7 @@ describe.skip('ImportOpenCodeDialog', () => {
     expect(selects.length).toBe(2);
   });
 
-  it('handles project mapping selection change', async () => {
+  it.skip('handles project mapping selection change', async () => {
     vi.useFakeTimers();
 
     useProjectStore.setState({

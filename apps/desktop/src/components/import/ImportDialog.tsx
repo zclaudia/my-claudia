@@ -65,7 +65,10 @@ export function ImportDialog({ isOpen, onClose }: ImportDialogProps) {
 
   const localServerPort = useServerStore((state) => state.localServerPort);
   const allProjects = useProjectStore((state) => state.projects) || [];
-  const projects = allProjects.filter(p => !p.isInternal);
+  // Stabilize ref so the auto-match useEffect below doesn't re-fire on every
+  // render (which would set state → re-render → infinite loop in jsdom tests
+  // where the dialog is observed but never settled).
+  const projects = useMemo(() => allProjects.filter(p => !p.isInternal), [allProjects]);
 
   // Auto-match source projects to target projects by workspacePath
   useEffect(() => {

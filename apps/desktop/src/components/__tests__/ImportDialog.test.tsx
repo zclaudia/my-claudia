@@ -19,12 +19,13 @@ vi.mock('../../services/api', () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
-// TODO: re-enable. Pre-existing hang in vitest forks pool — multiple tests
-// in this file combine `vi.useFakeTimers()`, never-resolving Promises, and
-// cascading useEffects in ImportDialog, leaving worker unable to terminate
-// even with explicit testTimeout. Last touched in commit 5cd4ae98 (component
-// reorg). Skipping the whole describe to unblock the rest of the suite.
-describe.skip('ImportDialog', () => {
+// Individual tests below are `it.skip`'d because the component's project-
+// mapping dropdown was refactored from a native `<select>` to a custom
+// `<Select>` (apps/desktop/src/components/ui/Select.tsx) that renders a
+// button + popover, not a `<select>` element. The skipped tests use
+// `screen.getByRole('combobox')` (native-select role) or assert old
+// fetch URL formats. Both need rewriting against the new component.
+describe('ImportDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockFetch.mockReset();
@@ -471,7 +472,7 @@ describe.skip('ImportDialog', () => {
     delete (window as any).electron;
   });
 
-  it('auto-matches projects by workspace path', async () => {
+  it.skip('auto-matches projects by workspace path', async () => {
     vi.useFakeTimers();
 
     mockFetch.mockResolvedValueOnce({
@@ -536,7 +537,7 @@ describe.skip('ImportDialog', () => {
     expect(screen.getByText(/Load 5 more projects/)).toBeTruthy();
   });
 
-  it('loads more projects when load more button is clicked', async () => {
+  it.skip('loads more projects when load more button is clicked', async () => {
     vi.useFakeTimers();
 
     const projects = Array.from({ length: 15 }, (_, i) => ({
@@ -566,7 +567,7 @@ describe.skip('ImportDialog', () => {
     expect(screen.getByText(/Load 0 more projects/)).toBeTruthy();
   });
 
-  it('handles successful import with project creation', async () => {
+  it.skip('handles successful import with project creation', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -619,7 +620,7 @@ describe.skip('ImportDialog', () => {
     });
   });
 
-  it('handles import failure', async () => {
+  it.skip('handles import failure', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -667,7 +668,7 @@ describe.skip('ImportDialog', () => {
     });
   });
 
-  it('handles import network error', async () => {
+  it.skip('handles import network error', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -710,7 +711,7 @@ describe.skip('ImportDialog', () => {
     });
   });
 
-  it('shows complete step with results', async () => {
+  it.skip('shows complete step with results', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -808,7 +809,7 @@ describe.skip('ImportDialog', () => {
     expect(screen.getByText('Importing sessions...')).toBeTruthy();
   });
 
-  it('uses custom server address with http prefix', async () => {
+  it.skip('uses custom server address with http prefix', async () => {
     useServerStore.setState({
       servers: [{ id: 's1', address: 'http://custom:4000', name: 'custom' }],
       getDefaultServer: () => ({ id: 's1', address: 'http://custom:4000', name: 'custom' }),
@@ -832,7 +833,7 @@ describe.skip('ImportDialog', () => {
     });
   });
 
-  it('uses custom server address with https prefix', async () => {
+  it.skip('uses custom server address with https prefix', async () => {
     useServerStore.setState({
       servers: [{ id: 's1', address: 'https://secure:443', name: 'secure' }],
       getDefaultServer: () => ({ id: 's1', address: 'https://secure:443', name: 'secure' }),
@@ -891,7 +892,7 @@ describe.skip('ImportDialog', () => {
     expect(screen.getByText('Select All')).toBeTruthy();
   });
 
-  it('disables Start Import when not all projects are mapped', async () => {
+  it.skip('disables Start Import when not all projects are mapped', async () => {
     vi.useFakeTimers();
 
     mockFetch.mockResolvedValueOnce({
@@ -968,7 +969,7 @@ describe.skip('ImportDialog', () => {
     expect(screen.getByText('Import from Claude CLI')).toBeTruthy();
   });
 
-  it('refreshes sessions and projects after successful import', async () => {
+  it.skip('refreshes sessions and projects after successful import', async () => {
     vi.useFakeTimers();
 
     mockFetch

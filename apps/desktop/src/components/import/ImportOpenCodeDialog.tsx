@@ -74,7 +74,10 @@ export function ImportOpenCodeDialog({ isOpen, onClose }: ImportOpenCodeDialogPr
 
   const localServerPort = useServerStore((state) => state.localServerPort);
   const allProjects = useProjectStore((state) => state.projects) || [];
-  const projects = allProjects.filter(p => !p.isInternal);
+  // Stabilize ref so the auto-match useEffect below doesn't re-fire on every
+  // render (same fix as ImportDialog: filter creates a new array each render
+  // → useEffect re-runs → setState → re-render → infinite loop).
+  const projects = useMemo(() => allProjects.filter(p => !p.isInternal), [allProjects]);
 
   // Auto-match source projects to target projects by workspacePath
   useEffect(() => {
