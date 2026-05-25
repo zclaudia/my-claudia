@@ -57,14 +57,14 @@ describe('registerIssueOrchestration broadcast wiring', () => {
     });
 
     // Setup: sub-issue + spec_change + executor; advance the sub-issue to
-    // tasks_ready so the propagator allows executor.start without complaint.
-    const { issue, specChange } = io.lifecycle.createSubIssue({
+    // The propagator allows executor.start regardless of issue state; just
+    // create the issue + executor.
+    const { issue: _issue, specChange } = io.lifecycle.createSubIssue({
       projectId: 'proj-1',
       type: 'implement',
       title: 'A',
     });
-    io.lifecycle.transitionStatus(issue.id, 'planning');
-    io.lifecycle.transitionStatus(issue.id, 'tasks_ready');
+    void _issue;
     const repo = new ExecutorInstanceRepository(db);
     const inst = repo.create({
       projectId: 'proj-1',
@@ -108,7 +108,7 @@ describe('registerIssueOrchestration broadcast wiring', () => {
       title: 'A',
     });
     broadcast.mockClear();
-    io.lifecycle.transitionStatus(issue.id, 'planning');
+    io.lifecycle.transitionStatus(issue.id, 'tracked');
 
     const calls = broadcast.mock.calls as [string, ServerMessage][];
     const subEvents = calls.filter(([, m]) => m.type === 'openspec_sub_issue_status_changed');
@@ -119,7 +119,7 @@ describe('registerIssueOrchestration broadcast wiring', () => {
       expect(msg.projectId).toBe('proj-1');
       expect(msg.subIssueId).toBe(issue.id);
       expect(msg.prev).toBe('open');
-      expect(msg.next).toBe('planning');
+      expect(msg.next).toBe('tracked');
     }
 
     io.dispose();
@@ -143,7 +143,7 @@ describe('registerIssueOrchestration broadcast wiring', () => {
     });
     io.dispose();
     broadcast.mockClear();
-    io.lifecycle.transitionStatus(issue.id, 'planning');
+    io.lifecycle.transitionStatus(issue.id, 'tracked');
 
     const subEvents = broadcast.mock.calls.filter(
       ([, m]) => (m as ServerMessage).type === 'openspec_sub_issue_status_changed',
@@ -165,7 +165,7 @@ describe('registerIssueOrchestration broadcast wiring', () => {
       type: 'implement',
       title: 'A',
     });
-    expect(() => io.lifecycle.transitionStatus(issue.id, 'planning')).not.toThrow();
+    expect(() => io.lifecycle.transitionStatus(issue.id, 'tracked')).not.toThrow();
     io.dispose();
   });
 });

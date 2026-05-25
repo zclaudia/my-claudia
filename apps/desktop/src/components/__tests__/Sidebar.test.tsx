@@ -28,8 +28,8 @@ vi.mock('../../features/sidebar/SessionItem', () => ({
   )
 }));
 vi.mock('../../features/sidebar/WorktreeGroupItem', () => ({ WorktreeGroupItem: ({ children }: any) => <div data-testid="worktree-group">{children}</div> }));
-vi.mock('../../features/sidebar/SupervisorGroupItem', () => ({
-  SupervisorGroupItem: ({ onSelect, taskChildren, taskCount, phase }: any) => (
+vi.mock('../../features/sidebar/ProjectWorkspaceItem', () => ({
+  ProjectWorkspaceItem: ({ onSelect, taskChildren, taskCount, phase }: any) => (
     <div data-testid="supervisor-group" data-phase={phase} data-task-count={taskCount}>
       <button onClick={onSelect}>select-supervisor</button>
       {taskChildren}
@@ -76,6 +76,7 @@ import { useSupervisionStore } from '../../stores/supervisionStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useInteractionStore } from '../../stores/interactionStore';
 import { useChatStore } from '../../stores/chatStore';
+import { useSessionRunStateStore } from '../../stores/sessionRunStateStore';
 import { useUIStore } from '../../stores/uiStore';
 import * as api from '../../services/api';
 import { groupSessionsByWorktree } from '../../features/sidebar/worktreeGrouping';
@@ -151,6 +152,7 @@ function setupStores(overrides: Record<string, any> = {}) {
   usePermissionStore.setState({ pendingRequests: [], ...overrides.permissionStore } as any);
   useInteractionStore.setState({ interactions: {}, ...overrides.interactionStore } as any);
   useChatStore.setState({ activeRuns: {}, ...overrides.chatStore } as any);
+  useSessionRunStateStore.setState({ records: {}, ...overrides.sessionRunStateStore } as any);
   useUIStore.setState({
     poppedOutSessions: new Map(),
     requestForceScrollToBottom: vi.fn(),
@@ -422,7 +424,18 @@ describe('Sidebar', () => {
 
   it('marks sessions with active runs', () => {
     setupStores({
-      chatStore: { activeRuns: { run1: 'sess-1' } },
+      sessionRunStateStore: {
+        records: {
+          'sess-1': {
+            backendId: LOCAL_BACKEND_ID,
+            sessionId: 'sess-1',
+            phase: 'running',
+            foregroundRunIds: ['run1'],
+            updatedAt: Date.now(),
+            source: 'run_event',
+          },
+        },
+      },
     });
 
     const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} />);

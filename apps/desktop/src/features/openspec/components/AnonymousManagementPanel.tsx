@@ -8,7 +8,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useOpenSpecStore } from '../store.js';
 import * as api from '../api.js';
-import { StatusBadge } from './StatusBadge.js';
+import { IssueStatusBadge } from './StatusBadge.js';
 
 interface Props {
   projectId: string;
@@ -145,7 +145,7 @@ export function AnonymousManagementPanel({ projectId }: Props): React.ReactEleme
                   {new Date(i.createdAt).toLocaleDateString()}
                 </div>
               </div>
-              <StatusBadge status={i.status} />
+              <IssueStatusBadge issue={i} />
             </li>
           ))}
         </ul>

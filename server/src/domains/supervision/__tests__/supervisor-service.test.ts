@@ -20,8 +20,8 @@ vi.mock('../context-manager.js', () => {
   class MockContextManager {
     isInitialized = vi.fn().mockReturnValue(false);
     scaffold = vi.fn();
-    scaffoldBaseline = vi.fn();
     scaffoldChangeWorkspace = vi.fn();
+    ensureRootScaffold = vi.fn();
     updateDocument = vi.fn();
     updateStructuredDocument = vi.fn();
     loadAll = mockContextManagerLoadAll;
@@ -96,6 +96,7 @@ vi.mock('../worktree-pool.js', () => {
 
 import { SupervisorService } from '../supervisor-service.js';
 import { SupervisionTaskRepository } from '../repositories/supervision-task.js';
+import { ProjectChangeRepository } from '../repositories/project-change.js';
 import { ProjectRepository } from '../../../infrastructure/repositories/project.js';
 import { SessionRepository } from '../../sessions/repository.js';
 import type { ProjectAgent, SupervisorConfig } from '@my-claudia/shared/features/supervision';
@@ -333,6 +334,7 @@ describe('SupervisorService', () => {
   let taskRepo: SupervisionTaskRepository;
   let projectRepo: ProjectRepository;
   let sessionRepo: SessionRepository;
+  let changeRepo: ProjectChangeRepository;
   let service: SupervisorService;
   let broadcastFn: ReturnType<typeof vi.fn>;
 
@@ -341,6 +343,7 @@ describe('SupervisorService', () => {
     taskRepo = new SupervisionTaskRepository(db);
     projectRepo = new ProjectRepository(db);
     sessionRepo = new SessionRepository(db);
+    changeRepo = new ProjectChangeRepository(db);
     broadcastFn = vi.fn();
     service = new SupervisorService(db, taskRepo, projectRepo, sessionRepo, mockSessionModel, broadcastFn, mockSupervisionAiRunPort as any);
   });
@@ -355,6 +358,7 @@ describe('SupervisorService', () => {
     db.exec('DELETE FROM supervision_tasks');
     db.exec('DELETE FROM change_gate_reviews');
     db.exec('DELETE FROM change_sync_runs');
+    db.exec('DELETE FROM project_changes');
     db.exec('DELETE FROM messages');
     db.exec('DELETE FROM sessions');
     db.exec('DELETE FROM projects');
@@ -510,6 +514,7 @@ describe('SupervisorService', () => {
       // Create a pending task
       taskRepo.create({
         projectId,
+        changeId: 'test-change',
         title: 'A task',
         description: 'd',
         source: 'user',
@@ -727,6 +732,31 @@ describe('SupervisorService', () => {
         description: 'Should fail',
       })).toThrow(`Change ${otherChange.id} does not belong to project ${projectId}`);
     });
+
+    it('C3: falls back to per-project Ad-hoc Change when no active change exists', () => {
+      const projectId = seedProject(db, { agent: makeAgent() });
+      // No createChange call — project has no active Change at all.
+
+      const task1 = service.createTask(projectId, {
+        title: 'First loose task',
+        description: 'No change attached',
+      });
+      const task2 = service.createTask(projectId, {
+        title: 'Second loose task',
+        description: 'Should reuse Ad-hoc bucket',
+      });
+
+      // Both tasks must point at a real ProjectChange id (not legacy placeholder).
+      expect(task1.changeId).toBeTruthy();
+      expect(task1.changeId).not.toBe('legacy-default');
+      // Reuses the same Ad-hoc bucket per project.
+      expect(task2.changeId).toBe(task1.changeId);
+
+      const adHocChange = changeRepo.findBySlug(projectId, 'ad-hoc-tasks');
+      expect(adHocChange).toBeDefined();
+      expect(adHocChange!.active).toBe(false);
+      expect(adHocChange!.id).toBe(task1.changeId);
+    });
   });
 
   describe('approveTask()', () => {
@@ -812,6 +842,7 @@ describe('SupervisorService', () => {
 
       const task = taskRepo.create({
         projectId,
+        changeId: 'test-change',
         title: 'Review me',
         description: 'd',
         source: 'user',
@@ -832,6 +863,7 @@ describe('SupervisorService', () => {
 
       const task = taskRepo.create({
         projectId,
+        changeId: 'test-change',
         title: 'Not reviewing',
         description: 'd',
         source: 'user',
@@ -857,6 +889,7 @@ describe('SupervisorService', () => {
 
       const task = taskRepo.create({
         projectId,
+        changeId: 'test-change',
         title: 'Worktree task',
         description: 'd',
         source: 'user',
@@ -1388,21 +1421,6 @@ describe('SupervisorService', () => {
       expect(updated.executionApprovedAt).toBeUndefined();
     });
 
-    it('updates baseline document content', () => {
-      const projectId = seedProject(db, { agent: makeAgent() });
-
-      const result = service.updateBaselineDocument(projectId, 'project', '# Updated Project Baseline');
-
-      expect(result.projectId).toBe(projectId);
-      expect(result.docId).toBe('baseline/project.md');
-
-      const manager = (service as any).contextService.contextManagers.get(projectId);
-      expect(manager.updateDocument).toHaveBeenCalledWith(
-        'baseline/project.md',
-        '# Updated Project Baseline',
-        expect.objectContaining({ category: 'baseline', source: 'user' }),
-      );
-    });
   });
 
   describe('updateTask()', () => {

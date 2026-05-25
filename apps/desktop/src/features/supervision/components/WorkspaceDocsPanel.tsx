@@ -41,19 +41,13 @@ export function WorkspaceDocsPanel({
 }: WorkspaceDocsPanelProps) {
   const selectedDoc = docs.find((doc) => doc.id === selectedDocId) ?? null;
   const selectedDocType = selectedDoc ? getEditableDocType(selectedDoc.id) : null;
-  const isBaselineDoc = Boolean(selectedDoc?.id.startsWith('baseline/'));
   const canEditSelectedDoc = Boolean(
     selectedDocType
-      && (
-        isBaselineDoc
-        || (
-          selectedDoc
-          && previewChange
-          && activeChange
-          && previewChange.id === activeChange.id
-          && ['design', 'execution'].includes(selectedDocType)
-        )
-      ),
+      && selectedDoc
+      && previewChange
+      && activeChange
+      && previewChange.id === activeChange.id
+      && ['design', 'execution'].includes(selectedDocType),
   );
   const previewAcceptanceDoc = previewChange
     ? docs.find((doc) => doc.id === `changes/${previewChange.id}/acceptance.md`) ?? null
@@ -68,13 +62,11 @@ export function WorkspaceDocsPanel({
         <div>
           <h3 className="text-xs font-semibold uppercase text-muted-foreground">Workspace Docs</h3>
           <p className="text-[11px] text-muted-foreground">
-            {selectedDoc?.id.startsWith('baseline/')
-              ? <>Viewing `.supervision/baseline/`</>
-              : previewChange
-                ? <>Viewing `.supervision/changes/{previewChange.id}`</>
-                : activeChange
-                  ? <>Live view from `.supervision/changes/{activeChange.id}`</>
-                  : <>Viewing project baseline and workspace docs</>}
+            {previewChange
+              ? <>Viewing `.supervision/changes/{previewChange.id}`</>
+              : activeChange
+                ? <>Live view from `.supervision/changes/{activeChange.id}`</>
+                : <>Select a change to view its workspace docs</>}
           </p>
         </div>
         {previewChange && activeChange && previewChange.id !== activeChange.id && (
@@ -87,7 +79,7 @@ export function WorkspaceDocsPanel({
             Back To Active
           </button>
         )}
-        {((selectedDoc?.id.startsWith('baseline/')) || (previewChange && previewChange.id === activeChange?.id)) && selectedDoc && (
+        {previewChange && previewChange.id === activeChange?.id && selectedDoc && (
           <div className="flex items-center gap-2">
             {canEditSelectedDoc && editingDocId !== selectedDoc.id && (
               <button
@@ -213,7 +205,7 @@ export function WorkspaceDocsPanel({
           <div className="flex h-full items-center justify-center text-center text-muted-foreground">
             <div>
               <p className="text-sm">No workspace documents loaded.</p>
-              <p className="mt-1 text-xs">Set up context or select a change to view baseline, design, execution, and task docs.</p>
+              <p className="mt-1 text-xs">Select a change to view its design, execution, and task docs.</p>
             </div>
           </div>
         )}

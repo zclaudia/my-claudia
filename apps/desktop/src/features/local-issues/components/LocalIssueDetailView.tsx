@@ -32,22 +32,24 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 const STATUS_COLORS: Record<string, string> = {
   open: 'bg-green-500/10 text-green-600 dark:text-green-400',
-  in_progress: 'bg-blue-500/10 text-blue-500',
+  tracked: 'bg-blue-500/10 text-blue-500',
   closed: 'bg-gray-500/10 text-gray-500 dark:text-gray-400',
+  cancelled: 'bg-red-500/10 text-red-500',
 };
 
 export function LocalIssueDetailView({ issue, projectId, onDeleted }: LocalIssueDetailViewProps) {
-  const { closeIssue, reopenIssue, deleteIssue, updateIssue } = useLocalIssueStore();
+  const { closeIssue, reopenIssue, deleteIssue } = useLocalIssueStore();
   const [editing, setEditing] = useState(false);
 
   const attachmentCount = useAttachmentCount('local_issue', issue.id);
   const attachments = useAttachments('local_issue', issue.id);
 
+  // C2: this simple LocalIssue detail view only supports the open ↔ closed
+  // toggle. Transitioning to `tracked` requires a SpecChange, which lives in
+  // the Spec / openspec workflow and is reached via that surface.
   const handleStatusToggle = async () => {
     if (issue.status === 'closed') {
       await reopenIssue(issue.id, projectId);
-    } else if (issue.status === 'open') {
-      await updateIssue(issue.id, projectId, { status: 'in_progress' });
     } else {
       await closeIssue(issue.id, projectId);
     }

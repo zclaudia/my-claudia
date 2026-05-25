@@ -75,25 +75,6 @@ export function createSupervisionRoutes(service: SupervisorService): Router {
     }
   });
 
-  // POST /projects/:projectId/baseline/init — Initialize baseline files
-  router.post('/projects/:projectId/baseline/init', async (req: Request, res: Response) => {
-    try {
-      const data = await service.initBaseline(req.params.projectId, {
-        mode: req.body?.mode,
-        providerId: req.body?.providerId,
-        language: req.body?.language,
-        force: req.body?.force,
-      });
-      res.json({ success: true, data } as ApiResponse<{ initialized: boolean }>);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to initialize baseline';
-      res.status(400).json({
-        success: false,
-        error: { code: 'INIT_ERROR', message },
-      } as ApiResponse<never>);
-    }
-  });
-
   // GET /projects/:projectId/changes — List project changes
   router.get('/projects/:projectId/changes', (req: Request, res: Response) => {
     try {
@@ -603,40 +584,6 @@ export function createSupervisionRoutes(service: SupervisorService): Router {
       res.status(500).json({
         success: false,
         error: { code: 'INTERNAL_ERROR', message: 'Failed to get context documents' },
-      } as ApiResponse<never>);
-    }
-  });
-
-  router.put('/projects/:projectId/baseline/:docType', (req: Request, res: Response) => {
-    try {
-      const docType = req.params.docType;
-      const { content } = req.body as { content?: string };
-      if (!['project', 'architecture'].includes(docType)) {
-        res.status(400).json({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: 'docType must be one of: project, architecture' },
-        } as ApiResponse<never>);
-        return;
-      }
-      if (typeof content !== 'string') {
-        res.status(400).json({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: 'content is required' },
-        } as ApiResponse<never>);
-        return;
-      }
-      const result = service.updateBaselineDocument(
-        req.params.projectId,
-        docType as 'project' | 'architecture',
-        content,
-      );
-      res.json({ success: true, data: result } as ApiResponse<{ projectId: string; docId: string }>);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to update baseline document';
-      const status = message.includes('not found') ? 404 : 400;
-      res.status(status).json({
-        success: false,
-        error: { code: status === 404 ? 'NOT_FOUND' : 'UPDATE_ERROR', message },
       } as ApiResponse<never>);
     }
   });

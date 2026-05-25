@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Bot, ClipboardList, GitBranch, GitPullRequest, CircleDot, Workflow, ChevronRight, Zap, ExternalLink } from 'lucide-react';
+import { Bot, ClipboardList, GitBranch, GitPullRequest, CircleDot, Workflow, ChevronRight, Zap, ExternalLink, FileText } from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSupervisionStore } from '../../features/supervision/store';
 import { useLocalPRStore } from '../../features/local-pr/store';
@@ -113,7 +113,7 @@ export function DashboardHome({ projectId, onNavigate, onOpenAutomations, onOpen
   const allIssues = useLocalIssueStore((s) => s.issues[projectId] ?? []);
   const loadIssues = useLocalIssueStore((s) => s.loadIssues);
   const openIssues = allIssues.filter((i) => i.status === 'open');
-  const inProgressIssues = allIssues.filter((i) => i.status === 'in_progress');
+  const inProgressIssues = allIssues.filter((i) => i.status === 'tracked');
 
   // Git worktrees
   const worktrees = useGitStore((s) => s.worktrees[projectId] ?? []);
@@ -187,6 +187,23 @@ export function DashboardHome({ projectId, onNavigate, onOpenAutomations, onOpen
             ) : (
               <div className="text-xs text-muted-foreground">Not configured</div>
             )}
+          </div>
+        </button>
+
+        {/* Spec Card */}
+        <button
+          onClick={() => onNavigate('spec')}
+          className="text-left bg-card border border-border rounded-lg p-4 hover:border-primary/40 transition-colors group"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Spec</span>
+            </div>
+            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+          </div>
+          <div className="space-y-1">
+            <div className="text-xs text-muted-foreground">Project knowledge &amp; specifications</div>
           </div>
         </button>
 

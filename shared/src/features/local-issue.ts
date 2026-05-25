@@ -1,40 +1,42 @@
 // Local Issue Types
 
 /**
- * Issue type discriminator.
- *
- * - 'feature': parent-only organizational container. Never carries a SpecChange.
- *   Status is restricted to 'open' | 'closed' | 'cancelled'.
- * - 'implement' | 'bug' | 'enhancement' | 'chore': sub-issue types that may
- *   carry a SpecChange and use the full 7-state status machine below.
+ * Issue type discriminator. All LocalIssues are now sub-issue-like (may carry
+ * a SpecChange and use the 4-state lifecycle). Container grouping was
+ * extracted into the `Epic` entity in C5 (see `./epic.ts`); LocalIssues
+ * reference their grouping container via `epicId?`.
  */
 export type LocalIssueType =
-  | 'feature'
   | 'implement'
   | 'bug'
   | 'enhancement'
   | 'chore';
 
 /**
- * Status enum covering both parent (feature) and sub-issue lifecycles.
+ * LocalIssue lifecycle status (4 states).
  *
- * Parent (type='feature') uses: open | closed | cancelled
- * Sub-issue uses the full set.
+ * - `open`    — fresh, awaiting triage / decision
+ * - `tracked` — in progress; for sub-issues with a `specChangeId`, the real
+ *               workflow state lives on the SpecChange and the UI projects
+ *               it. Issue itself just marks "we're working on this."
+ * - `closed`  — resolved / done
+ * - `cancelled` — abandoned, not pursued
  *
- * Note: 'in_progress' (v1) is retained for backward compatibility with
- * existing local_issues records that pre-date G1. Code reading status must
- * treat legacy 'in_progress' as 'executing' for new-flow semantics. See
- * Task 3 for migration backfill.
+ * Allowed transitions:
+ *   open → tracked | closed | cancelled
+ *   tracked → closed | cancelled
+ *   closed / cancelled → terminal
+ *
+ * Note on history: prior to C1 this enum had 7 states and a separate
+ * `feature` parent-container type. The intermediate workflow states were
+ * collapsed into `tracked` (C1); `feature` was extracted into the standalone
+ * `Epic` entity (C5).
  */
 export type LocalIssueStatus =
   | 'open'
-  | 'planning'
-  | 'tasks_ready'
-  | 'executing'
-  | 'reviewing'
+  | 'tracked'
   | 'closed'
-  | 'cancelled'
-  | 'in_progress';  // legacy
+  | 'cancelled';
 
 export type LocalIssuePriority = 'low' | 'medium' | 'high' | 'critical';
 
@@ -47,9 +49,9 @@ export interface LocalIssue {
   priority: LocalIssuePriority;
   labels: string[];
 
-  // G1 additions
   type: LocalIssueType;
-  parentIssueId?: string;
+  /** Optional Epic this issue rolls up into (C5). */
+  epicId?: string;
   specChangeId?: string;
   isAnonymous: boolean;
 

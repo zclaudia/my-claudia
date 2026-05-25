@@ -65,7 +65,7 @@ describe('AnonymousIssueService + close→archive integration', () => {
     });
     expect(issue.type).toBe('implement');
     expect(issue.isAnonymous).toBe(true);
-    expect(issue.parentIssueId).toBeUndefined();
+    expect(issue.epicId).toBeUndefined();
     expect(specChange.slug).toBe('rename-foo-to-bar');
   });
 
@@ -76,10 +76,7 @@ describe('AnonymousIssueService + close→archive integration', () => {
       title: 'Quick fix',
     });
     scService.writeDeltaSpec(specChange.id, 'core', SAMPLE_DELTA);
-    lifecycle.transitionStatus(issue.id, 'planning');
-    lifecycle.transitionStatus(issue.id, 'tasks_ready');
-    lifecycle.transitionStatus(issue.id, 'executing');
-    lifecycle.transitionStatus(issue.id, 'reviewing');
+    lifecycle.transitionStatus(issue.id, 'tracked');
 
     const result = await lifecycle.closeSubIssueAndArchive(issue.id);
     expect(result.issue.status).toBe('closed');
@@ -102,10 +99,7 @@ describe('AnonymousIssueService + close→archive integration', () => {
       type: 'implement',
       title: 'A',
     });
-    lc2.transitionStatus(issue.id, 'planning');
-    lc2.transitionStatus(issue.id, 'tasks_ready');
-    lc2.transitionStatus(issue.id, 'executing');
-    lc2.transitionStatus(issue.id, 'reviewing');
+    lc2.transitionStatus(issue.id, 'tracked');
     const result = await lc2.closeSubIssueAndArchive(issue.id);
     expect(result.issue.status).toBe('closed');
     expect(result.archive).toBeUndefined();

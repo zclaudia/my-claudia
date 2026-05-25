@@ -72,6 +72,9 @@ import { migration as m_069_meta_workflow } from './069_meta_workflow.js';
 import { migration as m_070_openspec_foundation } from './070_openspec_foundation.js';
 import { migration as m_071_local_issues_status_expand } from './071_local_issues_status_expand.js';
 import { migration as m_072_bootstrap_scans } from './072_bootstrap_scans.js';
+import { migration as m_073_local_issues_status_collapse } from './073_local_issues_status_collapse.js';
+import { migration as m_074_supervision_tasks_backfill_change_id } from './074_supervision_tasks_backfill_change_id.js';
+import { migration as m_075_epics_extraction } from './075_epics_extraction.js';
 
 export type { Migration };
 
@@ -148,6 +151,9 @@ export const migrations: Migration[] = [
   m_070_openspec_foundation,
   m_071_local_issues_status_expand,
   m_072_bootstrap_scans,
+  m_073_local_issues_status_collapse,
+  m_074_supervision_tasks_backfill_change_id,
+  m_075_epics_extraction,
 ];
 
 /**

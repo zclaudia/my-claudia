@@ -13,6 +13,7 @@ export type ProjectDashboardView =
   | 'tasks'
   | 'local-prs'
   | 'issues'
+  | 'spec'
   | 'supervisor'
   | 'git';
 

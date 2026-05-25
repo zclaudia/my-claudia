@@ -83,4 +83,13 @@ describe('LocalIssueService', () => {
     expect(onDelete).not.toHaveBeenCalled();
     expect(broadcast).not.toHaveBeenCalled();
   });
+
+  it('C2 invariant: updateIssue rejects status=tracked without a SpecChange', () => {
+    const service = new LocalIssueService(db, broadcast);
+    const issue = service.createIssue('proj-1', { title: 'Bug' });
+    expect(() => service.updateIssue(issue.id, { status: 'tracked' }))
+      .toThrow(/without a SpecChange/);
+    // open → closed remains allowed.
+    expect(() => service.updateIssue(issue.id, { status: 'closed' })).not.toThrow();
+  });
 });

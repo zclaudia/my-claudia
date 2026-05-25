@@ -52,17 +52,17 @@ describe('SubIssueDetailScreen', () => {
     expect(screen.getByRole('heading', { name: 'My Change' })).toBeInTheDocument();
   });
 
-  it('shows "→ planning" button for open issue', () => {
+  it('shows "→ tracked" button for open issue', () => {
     useOpenSpecStore.setState({
       issuesByProject: { p1: [mkIssue({ id: 's', status: 'open' })] },
     } as never);
     render(<SubIssueDetailScreen projectId="p1" subIssueId="s" />);
-    expect(screen.getByRole('button', { name: /→ planning/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /→ tracked/ })).toBeInTheDocument();
   });
 
-  it('shows Close & Archive when status=reviewing', () => {
+  it('shows Close & Archive when status=tracked', () => {
     useOpenSpecStore.setState({
-      issuesByProject: { p1: [mkIssue({ id: 's', status: 'reviewing' })] },
+      issuesByProject: { p1: [mkIssue({ id: 's', status: 'tracked' })] },
     } as never);
     render(<SubIssueDetailScreen projectId="p1" subIssueId="s" />);
     expect(screen.getByRole('button', { name: /Close & Archive/ })).toBeInTheDocument();
@@ -70,7 +70,7 @@ describe('SubIssueDetailScreen', () => {
 
   it('clicking Close & Archive opens the confirm dialog', () => {
     useOpenSpecStore.setState({
-      issuesByProject: { p1: [mkIssue({ id: 's', status: 'reviewing' })] },
+      issuesByProject: { p1: [mkIssue({ id: 's', status: 'tracked' })] },
     } as never);
     render(<SubIssueDetailScreen projectId="p1" subIssueId="s" />);
     fireEvent.click(screen.getByRole('button', { name: /Close & Archive/ }));

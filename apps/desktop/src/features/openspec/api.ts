@@ -13,6 +13,7 @@ import type {
 } from '@my-claudia/shared/features/local-issue';
 import type { SpecChange } from '@my-claudia/shared/features/spec-change';
 import type { ExecutorInstance, ExecutorType } from '@my-claudia/shared/features/executor';
+import type { Epic } from '@my-claudia/shared/features/epic';
 import { apiCall } from '../../services/api/unwrap';
 
 // ---------- Bootstrap types (inlined) ----------
@@ -215,31 +216,56 @@ export const refreshExecutor = (id: string): Promise<ExecutorInstance> => execut
 
 // ---------- Issues ----------
 
-export interface CreateFeatureInput {
-  projectId: string;
-  title: string;
-  description?: string;
-  priority?: LocalIssuePriority;
-  labels?: string[];
-}
-
 export interface CreateSubIssueInput {
   projectId: string;
-  type: Exclude<LocalIssueType, 'feature'>;
+  type: LocalIssueType;
   title: string;
-  parentIssueId?: string;
+  /** Optional Epic this issue rolls up into (C5). */
+  epicId?: string;
   description?: string;
   priority?: LocalIssuePriority;
   labels?: string[];
   slug?: string;
 }
 
-export async function createFeature(input: CreateFeatureInput): Promise<LocalIssue> {
-  const body = await apiCall<{ issue: LocalIssue }>('/api/issues/features', {
+export interface CreateEpicInput {
+  projectId: string;
+  title: string;
+  description?: string;
+  labels?: string[];
+}
+
+export async function createEpic(input: CreateEpicInput): Promise<Epic> {
+  const body = await apiCall<{ epic: Epic }>('/api/epics', {
     method: 'POST',
     body: JSON.stringify(input),
   });
-  return body.issue;
+  return body.epic;
+}
+
+export async function listEpics(projectId: string): Promise<Epic[]> {
+  const body = await apiCall<{ epics: Epic[] }>(
+    `/api/epics?projectId=${encodeURIComponent(projectId)}`,
+  );
+  return body.epics;
+}
+
+export async function getEpic(id: string): Promise<Epic> {
+  const body = await apiCall<{ epic: Epic }>(`/api/epics/${id}`);
+  return body.epic;
+}
+
+export async function updateEpicStatus(id: string, status: Epic['status']): Promise<Epic> {
+  const body = await apiCall<{ epic: Epic }>(`/api/epics/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+  return body.epic;
+}
+
+export async function listIssuesByEpic(epicId: string): Promise<LocalIssue[]> {
+  const body = await apiCall<{ subIssues: LocalIssue[] }>(`/api/issues/${epicId}/sub-issues`);
+  return body.subIssues;
 }
 
 export async function createSubIssue(
@@ -271,11 +297,6 @@ export async function listIssues(projectId: string): Promise<LocalIssue[]> {
     `/api/issues?projectId=${encodeURIComponent(projectId)}`,
   );
   return body.issues;
-}
-
-export async function listSubIssues(parentId: string): Promise<LocalIssue[]> {
-  const body = await apiCall<{ subIssues: LocalIssue[] }>(`/api/issues/${parentId}/sub-issues`);
-  return body.subIssues;
 }
 
 export async function transitionStatus(id: string, status: LocalIssueStatus): Promise<LocalIssue> {

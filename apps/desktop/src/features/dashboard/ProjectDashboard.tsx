@@ -12,17 +12,19 @@ import { LocalPRsPanel } from '../../features/local-pr/components/LocalPRsPanel'
 import { LocalIssuesPanel } from '../../features/local-issues/components/LocalIssuesPanel';
 import { useLocalIssueStore } from '../../features/local-issues/store';
 import { GitPanel } from '../../features/git/components/GitPanel';
+import { OpenSpecPanel } from '../../features/openspec/components/OpenSpecPanel';
 import { DashboardHome } from './DashboardHome';
 import { useSelectionStore } from '../../stores/selectionStore';
 import type { OpenAutomationWindowOptions } from '../automation/openAutomationWindow';
 
-export type DashboardView = 'home' | 'tasks' | 'local-prs' | 'issues' | 'supervisor' | 'git';
+export type DashboardView = 'home' | 'tasks' | 'local-prs' | 'issues' | 'spec' | 'supervisor' | 'git';
 
 const VIEW_LABELS: Record<DashboardView, string> = {
   home: 'Dashboard',
   tasks: 'Tasks',
   'local-prs': 'Local Pull Requests',
   issues: 'Issues',
+  spec: 'Spec',
   supervisor: 'Supervisor Workspace',
   git: 'Git',
 };
@@ -172,6 +174,12 @@ export function ProjectDashboard({ projectId, projectRootPath, onOpenAutomations
       {view === 'git' && (
         <div className="flex-1 overflow-hidden">
           <GitPanel projectId={projectId} projectRootPath={projectRootPath} />
+        </div>
+      )}
+
+      {view === 'spec' && (
+        <div className="flex-1 overflow-hidden">
+          <OpenSpecPanel projectId={projectId} />
         </div>
       )}
 

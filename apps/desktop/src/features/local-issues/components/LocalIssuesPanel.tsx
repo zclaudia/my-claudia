@@ -21,8 +21,9 @@ type FilterStatus = 'all' | LocalIssueStatus;
 const FILTER_OPTIONS: { value: FilterStatus; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'open', label: 'Open' },
-  { value: 'in_progress', label: 'In Progress' },
+  { value: 'tracked', label: 'Tracked' },
   { value: 'closed', label: 'Closed' },
+  { value: 'cancelled', label: 'Cancelled' },
 ];
 
 const PRIORITY_ORDER: Record<string, number> = {
@@ -84,11 +85,7 @@ export function LocalIssuesPanel({ projectId, selectedIssueId, onSelectIssue }: 
   const counts: Record<FilterStatus, number> = {
     all: issues.length,
     open: issues.filter((i) => i.status === 'open').length,
-    planning: issues.filter((i) => i.status === 'planning').length,
-    tasks_ready: issues.filter((i) => i.status === 'tasks_ready').length,
-    executing: issues.filter((i) => i.status === 'executing').length,
-    reviewing: issues.filter((i) => i.status === 'reviewing').length,
-    in_progress: issues.filter((i) => i.status === 'in_progress').length,
+    tracked: issues.filter((i) => i.status === 'tracked').length,
     closed: issues.filter((i) => i.status === 'closed').length,
     cancelled: issues.filter((i) => i.status === 'cancelled').length,
   };

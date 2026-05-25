@@ -7,7 +7,7 @@ export interface ContextDocumentPreview {
 }
 
 export type PreviewDocTarget = 'design' | 'execution' | 'tasks';
-export type EditableDocType = 'project' | 'architecture' | 'design' | 'execution' | 'tasks';
+export type EditableDocType = 'design' | 'execution' | 'tasks';
 
 export const changeStatusLabel: Record<string, string> = {
   draft: 'Draft',
@@ -24,18 +24,13 @@ export const changeStatusLabel: Record<string, string> = {
 };
 
 export function extractWorkspaceDocs(changeId: string | undefined, docs: Array<{ id: string; version?: number; content?: string }>): ContextDocumentPreview[] {
+  if (!changeId) return [];
   const targetIds = [
-    'baseline/project.md',
-    'baseline/architecture.md',
-    ...(changeId
-      ? [
-          `changes/${changeId}/design.md`,
-          `changes/${changeId}/execution.md`,
-          `changes/${changeId}/tasks.md`,
-          `changes/${changeId}/acceptance.md`,
-          `changes/${changeId}/sync-log.md`,
-        ]
-      : []),
+    `changes/${changeId}/design.md`,
+    `changes/${changeId}/execution.md`,
+    `changes/${changeId}/tasks.md`,
+    `changes/${changeId}/acceptance.md`,
+    `changes/${changeId}/sync-log.md`,
   ];
   return targetIds
     .map((id) => docs.find((doc) => doc.id === id))
@@ -49,8 +44,6 @@ export function extractWorkspaceDocs(changeId: string | undefined, docs: Array<{
 
 export function formatDocLabel(docId: string): string {
   const fileName = docId.split('/').pop()?.replace('.md', '') ?? docId;
-  if (docId === 'baseline/project.md') return 'Project';
-  if (docId === 'baseline/architecture.md') return 'Architecture';
   if (fileName === 'design') return 'Design';
   if (fileName === 'execution') return 'Execution';
   if (fileName === 'tasks') return 'Tasks';
@@ -68,7 +61,7 @@ export function formatTimestamp(timestamp?: number): string {
 
 export function getEditableDocType(docId: string): EditableDocType | null {
   const fileName = docId.split('/').pop()?.replace('.md', '') ?? '';
-  if (fileName === 'project' || fileName === 'architecture' || fileName === 'design' || fileName === 'execution' || fileName === 'tasks') {
+  if (fileName === 'design' || fileName === 'execution' || fileName === 'tasks') {
     return fileName;
   }
   return null;
@@ -80,10 +73,6 @@ export function extractDocSummary(content: string, fallback: string): string {
     .map((line) => line.trim())
     .filter((line) => line.length > 0 && !line.startsWith('#'));
   return lines[0] ?? fallback;
-}
-
-export function hasBaselineDocs(docs: Array<{ id: string }>): boolean {
-  return docs.some((doc) => doc.id === 'baseline/project.md' || doc.id === 'baseline/architecture.md');
 }
 
 export function getNextAction(status: ProjectChange['status']): { title: string; description: string } {

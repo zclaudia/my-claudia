@@ -12,7 +12,7 @@ function mkIssue(
     type: string;
     status: string;
     isAnonymous: boolean;
-    parentIssueId?: string;
+    epicId?: string;
   }>,
 ) {
   return {
@@ -24,7 +24,19 @@ function mkIssue(
     labels: [],
     type: over.type ?? 'implement',
     isAnonymous: over.isAnonymous ?? false,
-    parentIssueId: over.parentIssueId,
+    epicId: over.epicId,
+    createdAt: 0,
+    updatedAt: 0,
+  } as never;
+}
+
+function mkEpic(over: Partial<{ id: string; title: string; status: string }>) {
+  return {
+    id: over.id ?? 'e',
+    projectId: 'p1',
+    title: over.title ?? 'E',
+    status: over.status ?? 'open',
+    labels: [],
     createdAt: 0,
     updatedAt: 0,
   } as never;
@@ -40,6 +52,9 @@ describe('IssueListScreen', () => {
       viewByProject: {},
     });
     vi.restoreAllMocks();
+    // Default: epics fetch returns empty; individual tests can override.
+    // listIssues is NOT mocked here so pre-set store state survives mount.
+    vi.spyOn(api, 'listEpics').mockResolvedValue([]);
   });
 
   it('renders empty state when no issues', () => {
@@ -47,24 +62,24 @@ describe('IssueListScreen', () => {
     expect(screen.getByText(/No issues yet/i)).toBeInTheDocument();
   });
 
-  it('renders a parent feature with sub-issue count', () => {
+  it('renders an Epic with issue count', async () => {
+    vi.spyOn(api, 'listEpics').mockResolvedValue([mkEpic({ id: 'e1', title: 'Add 2FA' })]);
     useOpenSpecStore.setState({
       issuesByProject: {
         p1: [
-          mkIssue({ id: 'f1', title: 'Add 2FA', type: 'feature' }),
-          mkIssue({ id: 's1', title: 'Initial flow', type: 'implement', parentIssueId: 'f1' }),
-          mkIssue({ id: 's2', title: 'Bug fix', type: 'bug', parentIssueId: 'f1' }),
+          mkIssue({ id: 's1', title: 'Initial flow', type: 'implement', epicId: 'e1' }),
+          mkIssue({ id: 's2', title: 'Bug fix', type: 'bug', epicId: 'e1' }),
         ],
       },
     } as never);
     render(<IssueListScreen projectId="p1" />);
-    expect(screen.getByText('Add 2FA')).toBeInTheDocument();
-    expect(screen.getByText(/2 sub-issues/)).toBeInTheDocument();
-    // Sub-issues with parent are hidden from top list
+    await waitFor(() => expect(screen.getByText('Add 2FA')).toBeInTheDocument());
+    expect(screen.getByText(/2 issues/)).toBeInTheDocument();
+    // Sub-issues with an Epic are hidden from top list
     expect(screen.queryByText('Initial flow')).not.toBeInTheDocument();
   });
 
-  it('renders free-standing sub-issue (no parent, not anonymous)', () => {
+  it('renders free-standing sub-issue (no epic, not anonymous)', () => {
     useOpenSpecStore.setState({
       issuesByProject: { p1: [mkIssue({ id: 's1', title: 'Quick refactor', type: 'implement' })] },
     } as never);
@@ -110,20 +125,14 @@ describe('IssueListScreen', () => {
     expect(screen.queryByText('Impl A')).not.toBeInTheDocument();
   });
 
-  it('clicking a feature row opens feature-detail', async () => {
-    useOpenSpecStore.setState({
-      issuesByProject: { p1: [mkIssue({ id: 'f1', title: 'F', type: 'feature' })] },
-    } as never);
-    vi.spyOn(api, 'getIssue').mockResolvedValue(
-      mkIssue({ id: 'f1', title: 'F', type: 'feature' }) as never,
-    );
+  it('clicking an Epic row opens epic-detail', async () => {
+    vi.spyOn(api, 'listEpics').mockResolvedValue([mkEpic({ id: 'e1', title: 'Epic A' })]);
     render(<IssueListScreen projectId="p1" />);
-    fireEvent.click(screen.getByText('F'));
-    await waitFor(() => {
-      const v = useOpenSpecStore.getState().viewByProject.p1;
-      expect(v.screen).toBe('feature-detail');
-      expect(v.selectedFeatureId).toBe('f1');
-    });
+    await waitFor(() => expect(screen.getByText('Epic A')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Epic A'));
+    const v = useOpenSpecStore.getState().viewByProject.p1;
+    expect(v.screen).toBe('epic-detail');
+    expect(v.selectedEpicId).toBe('e1');
   });
 
   it('clicking a sub-issue row opens sub-issue-detail', async () => {

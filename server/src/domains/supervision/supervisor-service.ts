@@ -36,8 +36,7 @@ import { SupervisorAgentManager } from './supervisor-agent.js';
 import { SupervisorContextService } from './supervisor-context.js';
 import { buildTaskPrompt as buildSupervisedTaskPrompt } from './task-prompt.js';
 import type { SupervisionAiRunPort, SupervisionSchedulingPort } from './ports.js';
-import type { BaselineInitOptions, BaselineInitResult } from './baseline-generator.js';
-import { ChangeLifecycle } from './change-lifecycle.js';
+import { ChangeLifecycle, AD_HOC_CHANGE_SLUG } from './change-lifecycle.js';
 import { BaselineService } from './baseline-service.js';
 
 export class SupervisorService {
@@ -318,19 +317,26 @@ export class SupervisorService {
       retryDelayMs?: number;
     },
   ): SupervisionTask {
-    const activeChange = this.changeLifecycle.findChangeForTask(projectId, data.changeId);
+    let resolvedChange = this.changeLifecycle.findChangeForTask(projectId, data.changeId);
     if (data.changeId) {
-      if (!activeChange) throw new Error(`Change not found: ${data.changeId}`);
-      if (activeChange.projectId !== projectId) {
+      if (!resolvedChange) throw new Error(`Change not found: ${data.changeId}`);
+      if (resolvedChange.projectId !== projectId) {
         throw new Error(`Change ${data.changeId} does not belong to project ${projectId}`);
       }
+    } else if (!resolvedChange) {
+      // C3: every task must belong to a Change. When the caller doesn't
+      // specify one and there's no active Change to inherit from, attach
+      // to the per-project Ad-hoc Change bucket.
+      resolvedChange = this.changeLifecycle.getOrCreateAdHocChange(projectId);
     }
     const task = this.taskAdmin.createTask(projectId, {
       ...data,
-      changeId: activeChange?.id ?? 'legacy-default',
+      changeId: resolvedChange.id,
     });
-    if (activeChange) {
-      this.changeLifecycle.syncArtifacts(activeChange.id);
+    // Ad-hoc Changes are a bookkeeping bucket only — skip artifact sync
+    // (they have no scaffolding to refresh).
+    if (resolvedChange.slug !== AD_HOC_CHANGE_SLUG) {
+      this.changeLifecycle.syncArtifacts(resolvedChange.id);
     }
     return task;
   }
@@ -456,12 +462,8 @@ export class SupervisorService {
   }
 
   // ========================================
-  // Baseline & Context (delegates to baselineService)
+  // Context document access (Change docs only — Baseline removed in C4)
   // ========================================
-
-  async initBaseline(projectId: string, options?: BaselineInitOptions): Promise<BaselineInitResult> {
-    return this.baselineService.initBaseline(projectId, options);
-  }
 
   getContextDocuments(projectId: string): ContextDocument[] {
     return this.baselineService.getContextDocuments(projectId);
@@ -469,10 +471,6 @@ export class SupervisorService {
 
   updateChangeDocument(changeId: string, docType: 'design' | 'execution' | 'tasks', content: string): ProjectChange {
     return this.baselineService.updateChangeDocument(changeId, docType, content);
-  }
-
-  updateBaselineDocument(projectId: string, docType: 'project' | 'architecture', content: string): { projectId: string; docId: string } {
-    return this.baselineService.updateBaselineDocument(projectId, docType, content);
   }
 
   reloadContext(projectId: string): void {

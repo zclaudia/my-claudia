@@ -8,6 +8,7 @@ import type {
 } from '@my-claudia/shared/features/local-issue';
 import type { SpecChange } from '@my-claudia/shared/features/spec-change';
 import { LocalIssueRepository } from '../local-issues/repository.js';
+import { EpicRepository } from '../epics/repository.js';
 import { SpecChangeService } from '../openspec/spec-change-service.js';
 import type { ArchiveResult, ArchiveService } from '../openspec/archive-service.js';
 import { EventDispatcher } from '../supervision/event-dispatcher.js';
@@ -21,19 +22,12 @@ export interface IssueLifecycleDeps {
   archiveService?: ArchiveService;
 }
 
-export interface CreateParentInput {
-  projectId: string;
-  title: string;
-  description?: string;
-  priority?: LocalIssuePriority;
-  labels?: string[];
-}
-
 export interface CreateSubIssueInput {
   projectId: string;
-  type: Exclude<LocalIssueType, 'feature'>;
+  type: LocalIssueType;
   title: string;
-  parentIssueId?: string;
+  /** Optional Epic this issue rolls up into (C5). */
+  epicId?: string;
   description?: string;
   priority?: LocalIssuePriority;
   labels?: string[];
@@ -42,56 +36,30 @@ export interface CreateSubIssueInput {
   isAnonymous?: boolean;
 }
 
-/** Allowed sub-issue status transitions. Parent (feature) only does open ↔ closed/cancelled. */
+/** Allowed sub-issue status transitions (C1 — collapsed 4-state machine). */
 const SUB_ISSUE_TRANSITIONS: Record<LocalIssueStatus, LocalIssueStatus[]> = {
-  open: ['planning', 'cancelled'],
-  planning: ['tasks_ready', 'cancelled'],
-  tasks_ready: ['executing', 'cancelled'],
-  executing: ['reviewing', 'cancelled'],
-  reviewing: ['executing', 'closed', 'cancelled'],  // reviewing → executing allows revert if review surfaces issues
+  open: ['tracked', 'closed', 'cancelled'],
+  tracked: ['closed', 'cancelled'],
   closed: [],
   cancelled: [],
-  in_progress: ['executing', 'closed', 'cancelled'],  // legacy fallback
-};
-
-const PARENT_TRANSITIONS: Record<LocalIssueStatus, LocalIssueStatus[]> = {
-  open: ['closed', 'cancelled'],
-  closed: ['open'],
-  cancelled: [],
-  // unused for parent:
-  planning: [], tasks_ready: [], executing: [], reviewing: [], in_progress: [],
 };
 
 export class IssueLifecycle {
   private issueRepo: LocalIssueRepository;
+  private epicRepo: EpicRepository;
 
   constructor(private deps: IssueLifecycleDeps) {
     this.issueRepo = new LocalIssueRepository(deps.db);
-  }
-
-  createParent(input: CreateParentInput): LocalIssue {
-    return this.issueRepo.create({
-      projectId: input.projectId,
-      title: input.title,
-      description: input.description,
-      priority: input.priority ?? 'medium',
-      labels: input.labels ?? [],
-      status: 'open',
-      type: 'feature',
-      isAnonymous: false,
-    });
+    this.epicRepo = new EpicRepository(deps.db);
   }
 
   createSubIssue(input: CreateSubIssueInput): { issue: LocalIssue; specChange: SpecChange } {
-    // Validate parent if provided
-    if (input.parentIssueId) {
-      const parent = this.issueRepo.findById(input.parentIssueId);
-      if (!parent) throw new Error(`Parent issue not found: ${input.parentIssueId}`);
-      if (parent.type !== 'feature') {
-        throw new Error(`Parent issue must be of type 'feature', got '${parent.type}'`);
-      }
-      if (parent.projectId !== input.projectId) {
-        throw new Error(`Parent issue belongs to a different project`);
+    // Validate Epic if provided
+    if (input.epicId) {
+      const epic = this.epicRepo.findById(input.epicId);
+      if (!epic) throw new Error(`Epic not found: ${input.epicId}`);
+      if (epic.projectId !== input.projectId) {
+        throw new Error(`Epic belongs to a different project`);
       }
     }
 
@@ -104,7 +72,7 @@ export class IssueLifecycle {
       labels: input.labels ?? [],
       status: 'open',
       type: input.type,
-      parentIssueId: input.parentIssueId,
+      epicId: input.epicId,
       isAnonymous: input.isAnonymous ?? false,
     });
 
@@ -130,10 +98,18 @@ export class IssueLifecycle {
     const current = this.issueRepo.findById(issueId);
     if (!current) throw new Error(`Issue not found: ${issueId}`);
     if (current.status === next) return current;
-    const table = current.type === 'feature' ? PARENT_TRANSITIONS : SUB_ISSUE_TRANSITIONS;
-    const allowed = table[current.status] ?? [];
+    const allowed = SUB_ISSUE_TRANSITIONS[current.status] ?? [];
     if (!allowed.includes(next)) {
       throw new Error(`Illegal status transition for ${current.type} issue: ${current.status} → ${next}`);
+    }
+    // C2 invariant: a sub-issue can only enter `tracked` if it has a
+    // SpecChange backing it. Lifecycle progress beyond triage must always
+    // be anchored to a Change for audit/traceability.
+    if (next === 'tracked' && !current.specChangeId) {
+      throw new Error(
+        `Issue ${issueId} cannot transition to 'tracked' without a SpecChange. ` +
+        `Upgrade it via the spec workflow first.`,
+      );
     }
     const updated = this.issueRepo.update(issueId, {
       status: next,
@@ -178,15 +154,15 @@ export class IssueLifecycle {
     return this.issueRepo.findById(issueId);
   }
 
-  listSubIssues(parentIssueId: string): LocalIssue[] {
+  /** List LocalIssues grouped under an Epic. */
+  listIssuesByEpic(epicId: string): LocalIssue[] {
     const rows = this.deps.db.prepare(
-      `SELECT * FROM local_issues WHERE parent_issue_id = ? ORDER BY created_at ASC`,
-    ).all(parentIssueId);
-    // mapRow is a public method on LocalIssueRepository (BaseRepository abstract).
+      `SELECT * FROM local_issues WHERE epic_id = ? ORDER BY created_at ASC`,
+    ).all(epicId);
     return rows.map((r) => this.issueRepo.mapRow(r));
   }
 
-  /** List all issues (features + sub-issues, anonymous included) for a project, newest first. */
+  /** List all LocalIssues (anonymous included) for a project, newest first. */
   listByProject(projectId: string): LocalIssue[] {
     const rows = this.deps.db.prepare(
       `SELECT * FROM local_issues WHERE project_id = ? ORDER BY updated_at DESC, created_at DESC`,

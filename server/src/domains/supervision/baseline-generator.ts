@@ -1,6 +1,12 @@
 /**
  * Baseline document generator — scans project structure and optionally
  * uses AI to produce project.md + architecture.md baseline documents.
+ *
+ * **Parked (C4):** baseline as a Supervisor concept was removed in C4.
+ * This module is no longer wired into any service, but the multi-provider
+ * AI-enrichment + project-scan logic is preserved here for future reuse
+ * inside the Spec corpus initialization flow (openspec bootstrap). Safe to
+ * delete once that integration lands or once it's clear we won't reuse it.
  */
 import fs from 'fs';
 import path from 'path';

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { LocalIssue } from '@my-claudia/shared';
+import type { LocalIssue, LocalIssueStatus } from '@my-claudia/shared';
 import {
   listLocalIssues,
   createLocalIssue,
@@ -19,7 +19,7 @@ interface LocalIssueState {
   updateIssue: (
     issueId: string,
     projectId: string,
-    data: { title?: string; description?: string; priority?: string; labels?: string[]; status?: string },
+    data: { title?: string; description?: string; priority?: string; labels?: string[]; status?: LocalIssueStatus },
   ) => Promise<void>;
   closeIssue: (issueId: string, projectId: string) => Promise<void>;
   reopenIssue: (issueId: string, projectId: string) => Promise<void>;

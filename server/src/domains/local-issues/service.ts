@@ -50,6 +50,21 @@ export class LocalIssueService {
     labels?: string[];
     status?: string;
   }): LocalIssue {
+    // C2 invariant: status changes go through IssueLifecycle for state-machine
+    // validation; the simple update path here can only touch non-status fields.
+    // Callers that need status changes must use the lifecycle endpoint.
+    if (data.status !== undefined) {
+      const existing = this.repo.findById(issueId);
+      if (!existing) throw new Error(`Issue not found: ${issueId}`);
+      // C5: feature was extracted to Epic; all LocalIssues now require a
+      // SpecChange before entering `tracked`.
+      if (data.status === 'tracked' && !existing.specChangeId) {
+        throw new Error(
+          `Issue ${issueId} cannot enter 'tracked' without a SpecChange. ` +
+          `Upgrade it via the spec workflow first.`,
+        );
+      }
+    }
     const issue = this.repo.update(issueId, {
       title: data.title,
       description: data.description,

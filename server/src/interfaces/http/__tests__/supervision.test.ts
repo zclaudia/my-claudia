@@ -60,7 +60,6 @@ describe('Supervision V2 Routes', () => {
       initAgent: vi.fn(),
       updateAgentPhase: vi.fn(),
       getAgent: vi.fn(),
-      initBaseline: vi.fn(),
       getChanges: vi.fn(),
       getActiveChange: vi.fn(),
       createChange: vi.fn(),
@@ -85,7 +84,6 @@ describe('Supervision V2 Routes', () => {
       resolveConflict: vi.fn(),
       reloadContext: vi.fn(),
       getContextDocuments: vi.fn(),
-      updateBaselineDocument: vi.fn(),
       getTokenUsage: vi.fn(),
       getLogs: vi.fn(),
       retryTask: vi.fn(),
@@ -238,20 +236,6 @@ describe('Supervision V2 Routes', () => {
 
       expect(res.body.success).toBe(false);
       expect(res.body.error.code).toBe('NOT_FOUND');
-    });
-  });
-
-  describe('POST /projects/:projectId/baseline/init', () => {
-    it('initializes baseline and returns 200', async () => {
-      mockService.initBaseline.mockReturnValue({ initialized: true });
-
-      const res = await request(app)
-        .post('/api/projects/proj-1/baseline/init')
-        .expect(200);
-
-      expect(res.body.success).toBe(true);
-      expect(res.body.data.initialized).toBe(true);
-      expect(mockService.initBaseline).toHaveBeenCalledWith('proj-1', expect.anything());
     });
   });
 
@@ -877,27 +861,6 @@ describe('Supervision V2 Routes', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveLength(1);
       expect(res.body.data[0].id).toBe('goal.md');
-    });
-  });
-
-  describe('PUT /projects/:projectId/baseline/:docType', () => {
-    it('updates editable baseline document', async () => {
-      mockService.updateBaselineDocument.mockReturnValue({
-        projectId: 'proj-1',
-        docId: 'baseline/project.md',
-      });
-
-      const res = await request(app)
-        .put('/api/projects/proj-1/baseline/project')
-        .send({ content: '# Updated project baseline' })
-        .expect(200);
-
-      expect(res.body.success).toBe(true);
-      expect(mockService.updateBaselineDocument).toHaveBeenCalledWith(
-        'proj-1',
-        'project',
-        '# Updated project baseline',
-      );
     });
   });
 

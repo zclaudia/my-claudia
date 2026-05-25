@@ -8,7 +8,7 @@ import React, { useEffect } from 'react';
 import { useOpenSpecStore } from '../store.js';
 import { INITIAL_VIEW_STATE } from '../view-state.js';
 import { IssueListScreen } from './IssueListScreen.js';
-import { FeatureIssueDetailScreen } from './FeatureIssueDetailScreen.js';
+import { EpicDetailScreen } from './EpicDetailScreen.js';
 import { SubIssueDetailScreen } from './SubIssueDetailScreen.js';
 import { SpecCorpusScreen } from './SpecCorpusScreen.js';
 import { InitializeSpecsDialog } from './InitializeSpecsDialog.js';
@@ -34,9 +34,9 @@ export function OpenSpecPanel({ projectId }: Props): React.ReactElement {
       {view.showNewIssue && (
         <NewIssueDialog
           projectId={projectId}
-          parentFeatureId={view.selectedFeatureId}
+          parentEpicId={view.selectedEpicId}
           onClose={() =>
-            patchView(projectId, { showNewIssue: false, selectedFeatureId: undefined })
+            patchView(projectId, { showNewIssue: false, selectedEpicId: undefined })
           }
         />
       )}
@@ -50,10 +50,10 @@ export function OpenSpecPanel({ projectId }: Props): React.ReactElement {
     </>
   );
 
-  if (view.screen === 'feature-detail' && view.selectedFeatureId) {
+  if (view.screen === 'epic-detail' && view.selectedEpicId) {
     return (
       <>
-        <FeatureIssueDetailScreen projectId={projectId} featureId={view.selectedFeatureId} />
+        <EpicDetailScreen projectId={projectId} epicId={view.selectedEpicId} />
         {dialogs}
       </>
     );

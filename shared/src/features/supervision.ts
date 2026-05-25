@@ -153,7 +153,12 @@ export interface TaskResult {
 export interface SupervisionTask {
   id: string;
   projectId: string;
-  changeId?: string;
+  /**
+   * C3 invariant: every Task belongs to a Change for audit/traceability.
+   * Callers that don't pick a Change explicitly get attached to the
+   * per-project Ad-hoc Change (slug `ad-hoc-tasks`) by `SupervisorService`.
+   */
+  changeId: string;
   title: string;
   description: string;
   source: 'user' | 'agent_discovered';

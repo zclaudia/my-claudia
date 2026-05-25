@@ -37,7 +37,6 @@ const WORKFLOW_FILE = 'workflow.yaml';
 const PROJECT_SUMMARY_FILE = 'project-summary.md';
 const GOAL_FILE = 'goal.md';
 const RESULTS_DIR = 'results';
-const BASELINE_DIR = 'baseline';
 const CHANGES_DIR = 'changes';
 
 const DEFAULT_WORKFLOW: WorkflowConfig = {
@@ -128,33 +127,6 @@ export class ContextManager {
   ensureRootScaffold(projectName: string): void {
     if (!this.isInitialized()) {
       this.scaffold(projectName);
-    }
-  }
-
-  scaffoldBaseline(projectName: string): void {
-    this.ensureRootScaffold(projectName);
-    const baselineDir = path.join(this.supervisionPath, BASELINE_DIR);
-    const featuresDir = path.join(baselineDir, 'features');
-    fs.mkdirSync(featuresDir, { recursive: true });
-
-    const projectPath = path.join(baselineDir, 'project.md');
-    if (!fs.existsSync(projectPath)) {
-      this.writeStructuredDoc(projectPath, {
-        kind: 'baseline',
-        section: 'project',
-        status: 'draft',
-        updatedAt: new Date().toISOString(),
-      }, `# 项目概览\n\n## 背景\n\n## 当前目标\n\n## 关键约束\n\n## 已知风险\n\n## 待用户确认\n`);
-    }
-
-    const architecturePath = path.join(baselineDir, 'architecture.md');
-    if (!fs.existsSync(architecturePath)) {
-      this.writeStructuredDoc(architecturePath, {
-        kind: 'baseline',
-        section: 'architecture',
-        status: 'draft',
-        updatedAt: new Date().toISOString(),
-      }, `# 架构概览\n\n## 关键模块\n\n## 数据流\n\n## 外部依赖\n\n## 推断内容\n`);
     }
   }
 

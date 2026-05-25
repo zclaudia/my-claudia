@@ -65,7 +65,14 @@ export class IssueStatusPropagator {
   }
 }
 
-/** Pure helper exposed for testing. */
+/**
+ * Pure helper exposed for testing.
+ *
+ * Maps the aggregate executor state to a sub-issue lifecycle status. Under
+ * the collapsed 4-state model (C1), all non-terminal "active" work maps to
+ * `tracked`; the rich progress signals live on the SpecChange and the
+ * executor instances themselves.
+ */
 export function deriveSubIssueStatus(
   executors: ExecutorInstance[],
   _currentSubIssueStatus: LocalIssueStatus,
@@ -73,18 +80,16 @@ export function deriveSubIssueStatus(
   if (executors.length === 0) return null;
 
   const states = executors.map((e) => e.statusSummary);
-  const has = (s: ExecutorStatus): boolean => states.includes(s);
   const all = (s: ExecutorStatus): boolean => states.every((x) => x === s);
 
   // Strict terminal-only cases first.
   if (all('cancelled')) return 'cancelled';
-  const terminalSet: ExecutorStatus[] = ['completed', 'failed', 'cancelled'];
-  if (states.every((s) => terminalSet.includes(s))) return 'reviewing';
 
-  if (has('executing') || has('paused')) return 'executing';
-  // All pending — no transition.
+  // All pending — no transition (sub-issue stays `open` until work starts).
   if (all('pending')) return null;
 
-  // Mixed pending + others — treat as executing once any executor has been touched.
-  return 'executing';
+  // Any other mix (active, mixed terminal, mixed pending+touched, all-terminal
+  // but not all-cancelled) → `tracked`. We do not auto-close on completion;
+  // a human reviewer transitions `tracked → closed` explicitly.
+  return 'tracked';
 }

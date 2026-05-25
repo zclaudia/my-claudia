@@ -21,35 +21,20 @@ export function createIssueRoutes(deps: IssueRoutesDeps): Router {
   const router = Router();
   router.use(express.json());
 
-  router.post('/features', (req: Request, res: Response) => {
-    const body = req.body as { projectId?: string; title?: string; description?: string; priority?: string; labels?: string[] };
-    if (!body.projectId || !body.title) { res.status(400).json(err('VALIDATION', 'projectId + title required')); return; }
-    try {
-      const issue = deps.lifecycle.createParent({
-        projectId: body.projectId, title: body.title,
-        description: body.description,
-        priority: body.priority as never,
-        labels: body.labels,
-      });
-      res.status(201).json(ok({ issue }));
-    } catch (e) { res.status(400).json(err('OPENSPEC_ERROR', (e as Error).message)); }
-  });
-
   router.post('/sub', (req: Request, res: Response) => {
     const body = req.body as {
-      projectId?: string; parentIssueId?: string; type?: LocalIssueType; title?: string;
+      projectId?: string; epicId?: string; type?: LocalIssueType; title?: string;
       slug?: string; description?: string; priority?: string; labels?: string[]; isAnonymous?: boolean;
     };
     if (!body.projectId || !body.type || !body.title) {
       res.status(400).json(err('VALIDATION', 'projectId + type + title required')); return;
     }
-    if (body.type === 'feature') { res.status(400).json(err('VALIDATION', 'sub-issue cannot be type=feature')); return; }
     try {
       const out = deps.lifecycle.createSubIssue({
         projectId: body.projectId,
-        type: body.type as Exclude<LocalIssueType, 'feature'>,
+        type: body.type,
         title: body.title,
-        parentIssueId: body.parentIssueId,
+        epicId: body.epicId,
         slug: body.slug,
         description: body.description,
         priority: body.priority as never,
@@ -82,7 +67,7 @@ export function createIssueRoutes(deps: IssueRoutesDeps): Router {
   });
 
   router.get('/:id/sub-issues', (req: Request, res: Response) => {
-    res.json(ok({ subIssues: deps.lifecycle.listSubIssues(req.params.id) }));
+    res.json(ok({ subIssues: deps.lifecycle.listIssuesByEpic(req.params.id) }));
   });
 
   router.patch('/:id/status', (req: Request, res: Response) => {

@@ -28,31 +28,31 @@ function mkInst(status: ExecutorStatus): ExecutorInstance {
 
 describe('deriveSubIssueStatus (pure)', () => {
   it('all pending → null (no transition)', () => {
-    expect(deriveSubIssueStatus([mkInst('pending'), mkInst('pending')], 'tasks_ready')).toBeNull();
+    expect(deriveSubIssueStatus([mkInst('pending'), mkInst('pending')], 'open')).toBeNull();
   });
 
-  it('any executing → executing', () => {
-    expect(deriveSubIssueStatus([mkInst('pending'), mkInst('executing')], 'tasks_ready')).toBe('executing');
+  it('any executing → tracked', () => {
+    expect(deriveSubIssueStatus([mkInst('pending'), mkInst('executing')], 'open')).toBe('tracked');
   });
 
-  it('any paused → executing', () => {
-    expect(deriveSubIssueStatus([mkInst('paused')], 'executing')).toBe('executing');
+  it('any paused → tracked', () => {
+    expect(deriveSubIssueStatus([mkInst('paused')], 'tracked')).toBe('tracked');
   });
 
-  it('all terminal mixed (completed + failed) → reviewing', () => {
-    expect(deriveSubIssueStatus([mkInst('completed'), mkInst('failed')], 'executing')).toBe('reviewing');
+  it('all terminal mixed (completed + failed) → tracked (awaits human close)', () => {
+    expect(deriveSubIssueStatus([mkInst('completed'), mkInst('failed')], 'tracked')).toBe('tracked');
   });
 
   it('all cancelled → cancelled', () => {
-    expect(deriveSubIssueStatus([mkInst('cancelled'), mkInst('cancelled')], 'executing')).toBe('cancelled');
+    expect(deriveSubIssueStatus([mkInst('cancelled'), mkInst('cancelled')], 'tracked')).toBe('cancelled');
   });
 
-  it('all completed → reviewing', () => {
-    expect(deriveSubIssueStatus([mkInst('completed')], 'executing')).toBe('reviewing');
+  it('all completed → tracked (awaits human close)', () => {
+    expect(deriveSubIssueStatus([mkInst('completed')], 'tracked')).toBe('tracked');
   });
 
-  it('mixed pending + completed → executing (touched but not done)', () => {
-    expect(deriveSubIssueStatus([mkInst('pending'), mkInst('completed')], 'tasks_ready')).toBe('executing');
+  it('mixed pending + completed → tracked (touched but not done)', () => {
+    expect(deriveSubIssueStatus([mkInst('pending'), mkInst('completed')], 'open')).toBe('tracked');
   });
 
   it('empty list → null', () => {
@@ -78,13 +78,11 @@ describe('IssueStatusPropagator (integration)', () => {
     try { rmSync(projectRoot, { recursive: true, force: true }); } catch { /* */ }
   });
 
-  it('executor start triggers sub_issue → executing via propagator', async () => {
+  it('executor start triggers sub_issue → tracked via propagator', async () => {
     const specChangeService = new SpecChangeService({ db, getProjectRoot: () => projectRoot });
     const dispatcher = new EventDispatcher<IssueDomainEvent>();
     const lifecycle = new IssueLifecycle({ db, specChangeService, dispatcher });
     const { issue, specChange } = lifecycle.createSubIssue({ projectId: 'proj-1', type: 'implement', title: 'A' });
-    lifecycle.transitionStatus(issue.id, 'planning');
-    lifecycle.transitionStatus(issue.id, 'tasks_ready');
 
     const registry = new ExecutorRegistry();
     registry.register('manual', (inst) => new ManualAdapter(db, inst));
@@ -96,16 +94,14 @@ describe('IssueStatusPropagator (integration)', () => {
     propagator.install();
 
     await execService.start(inst.id);
-    expect(lifecycle.getIssue(issue.id)!.status).toBe('executing');
+    expect(lifecycle.getIssue(issue.id)!.status).toBe('tracked');
   });
 
-  it('manual markCompleted (single executor) triggers sub_issue → reviewing', async () => {
+  it('manual markCompleted (single executor) keeps sub_issue at tracked (awaits human close)', async () => {
     const specChangeService = new SpecChangeService({ db, getProjectRoot: () => projectRoot });
     const dispatcher = new EventDispatcher<IssueDomainEvent>();
     const lifecycle = new IssueLifecycle({ db, specChangeService, dispatcher });
     const { issue, specChange } = lifecycle.createSubIssue({ projectId: 'proj-1', type: 'implement', title: 'A' });
-    lifecycle.transitionStatus(issue.id, 'planning');
-    lifecycle.transitionStatus(issue.id, 'tasks_ready');
 
     const registry = new ExecutorRegistry();
     registry.register('manual', (inst) => new ManualAdapter(db, inst));
@@ -117,6 +113,6 @@ describe('IssueStatusPropagator (integration)', () => {
 
     await execService.start(inst.id);
     await execService.markCompleted(inst.id);
-    expect(lifecycle.getIssue(issue.id)!.status).toBe('reviewing');
+    expect(lifecycle.getIssue(issue.id)!.status).toBe('tracked');
   });
 });

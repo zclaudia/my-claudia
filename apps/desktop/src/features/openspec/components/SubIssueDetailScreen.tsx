@@ -1,16 +1,16 @@
 // apps/desktop/src/features/openspec/components/SubIssueDetailScreen.tsx
 //
 // Sub-issue detail view. Shows breadcrumb (Issues / parent feature / current),
-// title + status, status transition buttons (open → planning → tasks_ready →
-// executing → reviewing → Close & Archive), a spec_change card placeholder
-// (replaced with real artifact tabs in Task 4), and an executor section with
-// create/start/cancel/mark-completed controls.
+// title + status, lifecycle transition buttons (open → tracked → closed /
+// cancelled, or direct open → closed/cancelled), the spec_change artifact
+// tabs, and an executor section with create/start/cancel/mark-completed
+// controls.
 
 import React, { useCallback, useEffect, useState } from 'react';
 import type { ExecutorInstance } from '@my-claudia/shared/features/executor';
 import { useOpenSpecStore } from '../store.js';
 import * as api from '../api.js';
-import { StatusBadge } from './StatusBadge.js';
+import { StatusBadge, IssueStatusBadge } from './StatusBadge.js';
 import { MarkdownPreview } from './MarkdownPreview.js';
 
 interface Props {
@@ -70,7 +70,7 @@ export function SubIssueDetailScreen({
   }
 
   const onTransition = async (
-    status: 'planning' | 'tasks_ready' | 'executing' | 'reviewing',
+    status: 'tracked' | 'closed' | 'cancelled',
   ): Promise<void> => {
     setBusy(`status:${status}`);
     try {
@@ -131,20 +131,20 @@ export function SubIssueDetailScreen({
         >
           ← Issues
         </button>
-        {issue.parentIssueId && (
+        {issue.epicId && (
           <>
             <span>/</span>
             <button
               className="text-primary hover:underline"
               onClick={() =>
                 patchView(projectId, {
-                  screen: 'feature-detail',
-                  selectedFeatureId: issue.parentIssueId,
+                  screen: 'epic-detail',
+                  selectedEpicId: issue.epicId,
                   selectedSubIssueId: undefined,
                 })
               }
             >
-              {issue.parentIssueId.slice(0, 8)}
+              {issue.epicId.slice(0, 8)}
             </button>
           </>
         )}
@@ -168,56 +168,54 @@ export function SubIssueDetailScreen({
           >
             ↻
           </button>
-          <StatusBadge status={issue.status} />
+          <IssueStatusBadge issue={issue} />
         </div>
       </div>
 
-      {/* Status transition controls */}
+      {/* Lifecycle controls (collapsed 4-state machine) */}
       <div className="flex flex-wrap gap-2">
         {issue.status === 'open' && (
-          <button
-            className="px-2.5 py-1 text-xs rounded-md bg-secondary hover:bg-secondary/80"
-            disabled={busy !== null}
-            onClick={() => void onTransition('planning')}
-          >
-            → planning
-          </button>
+          <>
+            <button
+              className="px-2.5 py-1 text-xs rounded-md bg-secondary hover:bg-secondary/80"
+              disabled={busy !== null}
+              onClick={() => void onTransition('tracked')}
+            >
+              → tracked
+            </button>
+            <button
+              className="px-2.5 py-1 text-xs rounded-md bg-secondary hover:bg-secondary/80"
+              disabled={busy !== null}
+              onClick={() => void onTransition('closed')}
+            >
+              Close
+            </button>
+            <button
+              className="px-2.5 py-1 text-xs rounded-md bg-secondary hover:bg-secondary/80"
+              disabled={busy !== null}
+              onClick={() => void onTransition('cancelled')}
+            >
+              Cancel
+            </button>
+          </>
         )}
-        {issue.status === 'planning' && (
-          <button
-            className="px-2.5 py-1 text-xs rounded-md bg-secondary hover:bg-secondary/80"
-            disabled={busy !== null}
-            onClick={() => void onTransition('tasks_ready')}
-          >
-            → tasks_ready
-          </button>
-        )}
-        {issue.status === 'tasks_ready' && (
-          <button
-            className="px-2.5 py-1 text-xs rounded-md bg-secondary hover:bg-secondary/80"
-            disabled={busy !== null}
-            onClick={() => void onTransition('executing')}
-          >
-            → executing
-          </button>
-        )}
-        {issue.status === 'executing' && (
-          <button
-            className="px-2.5 py-1 text-xs rounded-md bg-secondary hover:bg-secondary/80"
-            disabled={busy !== null}
-            onClick={() => void onTransition('reviewing')}
-          >
-            → reviewing
-          </button>
-        )}
-        {issue.status === 'reviewing' && (
-          <button
-            className="px-2.5 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
-            disabled={busy !== null}
-            onClick={onCloseAndArchive}
-          >
-            Close & Archive
-          </button>
+        {issue.status === 'tracked' && (
+          <>
+            <button
+              className="px-2.5 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+              disabled={busy !== null}
+              onClick={onCloseAndArchive}
+            >
+              Close &amp; Archive
+            </button>
+            <button
+              className="px-2.5 py-1 text-xs rounded-md bg-secondary hover:bg-secondary/80"
+              disabled={busy !== null}
+              onClick={() => void onTransition('cancelled')}
+            >
+              Cancel
+            </button>
+          </>
         )}
       </div>
 

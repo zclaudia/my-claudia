@@ -55,6 +55,8 @@ import { createSpecChangeRoutes } from '../../domains/openspec/routes/spec-chang
 import { createBootstrapRoutes } from '../../domains/openspec/routes/bootstrap-routes.js';
 import { createExecutorRoutes } from '../../domains/executor/routes.js';
 import { createIssueRoutes } from '../../domains/issue-orchestration/routes.js';
+import { createEpicRoutes } from '../../domains/epics/routes.js';
+import { EpicService } from '../../domains/epics/service.js';
 
 
 interface RegisterFeatureDomainsDeps {
@@ -499,6 +501,7 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
   app.use('/api/openspec', authMiddleware, createExecutorRoutes({ db, executorService: issueOrchestration.executorService }));
   app.use('/api/openspec', authMiddleware, createBootstrapRoutes({ db, bootstrapService, reviewService: bootstrapReviewService }));
   app.use('/api/issues', authMiddleware, createIssueRoutes({ lifecycle: issueOrchestration.lifecycle, anonymousService: issueOrchestration.anonymousService }));
+  app.use('/api/epics', authMiddleware, createEpicRoutes({ service: new EpicService(db) }));
 
   return {
     supervisorService,

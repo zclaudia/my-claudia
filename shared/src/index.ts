@@ -33,6 +33,7 @@ export * from './features/commands.js';
 export * from './features/supervision.js';
 export * from './features/local-pr.js';
 export * from './features/local-issue.js';
+export * from './features/epic.js';
 export * from './features/attachment.js';
 export * from './features/turn-summary.js';
 export * from './features/system-tasks.js';

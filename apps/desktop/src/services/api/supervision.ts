@@ -52,21 +52,6 @@ export async function getSupervisionTasks(
   return apiCall<SupervisionTask[]>(`/api/projects/${projectId}/tasks${params}`);
 }
 
-export async function initSupervisorBaseline(
-  projectId: string,
-  options?: {
-    mode?: 'template' | 'scan' | 'ai_scan';
-    providerId?: string;
-    language?: 'zh-CN' | 'en';
-    force?: boolean;
-  },
-): Promise<{ initialized: boolean; mode?: string; language?: string; usedAi?: boolean; regenerated?: boolean }> {
-  return apiCall<{ initialized: boolean }>(`/api/projects/${projectId}/baseline/init`, {
-    method: 'POST',
-    body: JSON.stringify(options ?? {}),
-  });
-}
-
 export async function getProjectChanges(projectId: string): Promise<ProjectChange[]> {
   return apiCall<ProjectChange[]>(`/api/projects/${projectId}/changes`);
 }
@@ -190,17 +175,6 @@ export async function updateChangeDocument(
   content: string,
 ): Promise<ProjectChange> {
   return apiCall<ProjectChange>(`/api/changes/${changeId}/docs/${docType}`, {
-    method: 'PUT',
-    body: JSON.stringify({ content }),
-  });
-}
-
-export async function updateBaselineDocument(
-  projectId: string,
-  docType: 'project' | 'architecture',
-  content: string,
-): Promise<{ projectId: string; docId: string }> {
-  return apiCall<{ projectId: string; docId: string }>(`/api/projects/${projectId}/baseline/${docType}`, {
     method: 'PUT',
     body: JSON.stringify({ content }),
   });

@@ -6,13 +6,12 @@
 
 export type OpenSpecScreen =
   | 'issues'
-  | 'feature-detail'
+  | 'epic-detail'
   | 'sub-issue-detail'
   | 'corpus'
   | 'anonymous-management';
 
 export type OpenSpecTypeFilter =
-  | 'feature'
   | 'implement'
   | 'bug'
   | 'enhancement'
@@ -23,8 +22,8 @@ export type OpenSpecArtifactTab = 'proposal' | 'design' | 'tasks' | 'delta';
 
 export interface OpenSpecViewState {
   screen: OpenSpecScreen;
-  /** Currently selected feature (parent) issue. */
-  selectedFeatureId?: string;
+  /** Currently selected Epic (container). */
+  selectedEpicId?: string;
   /** Currently selected sub-issue. */
   selectedSubIssueId?: string;
   /** Whether the anonymous sub-issues are expanded in the list (default false). */

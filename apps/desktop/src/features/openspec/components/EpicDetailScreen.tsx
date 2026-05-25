@@ -1,53 +1,58 @@
-// apps/desktop/src/features/openspec/components/FeatureIssueDetailScreen.tsx
+// apps/desktop/src/features/openspec/components/EpicDetailScreen.tsx
 //
-// Parent feature detail view. Shows the feature title + status, a list of
-// sub-issues with their statuses, an "Add Sub-Issue" button (opens dialog via
-// view state), and a "Close Feature" button which is enabled only when every
-// sub-issue is closed/cancelled. Renders inside OpenSpecPanel when
-// view.screen === 'feature-detail'.
+// Epic (C5: extracted from feature-issue) detail view. Shows Epic title +
+// status, a list of LocalIssues that roll up into it, an "Add Sub-Issue"
+// button, and a "Close Epic" button enabled only when every child issue is
+// closed/cancelled.
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import type { Epic } from '@my-claudia/shared/features/epic';
 import { useOpenSpecStore } from '../store.js';
 import * as api from '../api.js';
-import { StatusBadge } from './StatusBadge.js';
+import { IssueStatusBadge, StatusBadge } from './StatusBadge.js';
 
 interface Props {
   projectId: string;
-  featureId: string;
+  epicId: string;
 }
 
-export function FeatureIssueDetailScreen({
+export function EpicDetailScreen({
   projectId,
-  featureId,
+  epicId,
 }: Props): React.ReactElement {
-  const feature = useOpenSpecStore((s) =>
-    (s.issuesByProject[projectId] ?? []).find((i) => i.id === featureId),
-  );
+  const [epic, setEpic] = useState<Epic | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const subIssues = useOpenSpecStore((s) =>
-    (s.issuesByProject[projectId] ?? []).filter((i) => i.parentIssueId === featureId),
+    (s.issuesByProject[projectId] ?? []).filter((i) => i.epicId === epicId),
   );
   const patchView = useOpenSpecStore((s) => s.patchView);
   const upsertIssue = useOpenSpecStore((s) => s.upsertIssue);
 
   useEffect(() => {
-    void api
-      .listSubIssues(featureId)
+    let cancelled = false;
+    api.getEpic(epicId)
+      .then((value) => { if (!cancelled) setEpic(value); })
+      .catch((e) => { if (!cancelled) setLoadError((e as Error).message); });
+    api.listIssuesByEpic(epicId)
       .then((list) => list.forEach(upsertIssue))
       .catch(() => undefined);
-  }, [featureId, upsertIssue]);
+    return () => { cancelled = true; };
+  }, [epicId, upsertIssue]);
 
-  if (!feature) {
+  if (!epic) {
     return (
       <div className="p-4">
         <button
           className="text-sm text-primary hover:underline"
           onClick={() =>
-            patchView(projectId, { screen: 'issues', selectedFeatureId: undefined })
+            patchView(projectId, { screen: 'issues', selectedEpicId: undefined })
           }
         >
           ← Back to Issues
         </button>
-        <div className="mt-2 text-sm text-muted-foreground">Feature not found.</div>
+        <div className="mt-2 text-sm text-muted-foreground">
+          {loadError ? `Epic load failed: ${loadError}` : 'Epic not found.'}
+        </div>
       </div>
     );
   }
@@ -58,8 +63,8 @@ export function FeatureIssueDetailScreen({
 
   const onClose = async (): Promise<void> => {
     try {
-      const issue = await api.transitionStatus(feature.id, 'closed');
-      upsertIssue(issue);
+      const updated = await api.updateEpicStatus(epic.id, 'closed');
+      setEpic(updated);
     } catch (e) {
       alert(`Close failed: ${(e as Error).message}`);
     }
@@ -71,43 +76,43 @@ export function FeatureIssueDetailScreen({
         <button
           className="text-primary hover:underline"
           onClick={() =>
-            patchView(projectId, { screen: 'issues', selectedFeatureId: undefined })
+            patchView(projectId, { screen: 'issues', selectedEpicId: undefined })
           }
         >
           ← Issues
         </button>
         <span>/</span>
-        <span className="font-medium text-foreground">{feature.title}</span>
+        <span className="font-medium text-foreground">{epic.title}</span>
       </nav>
 
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-xl font-semibold">{feature.title}</h3>
+          <h3 className="text-xl font-semibold">{epic.title}</h3>
           <div className="text-sm text-muted-foreground">
-            feature · {subIssues.length} sub-issue{subIssues.length === 1 ? '' : 's'}
+            epic · {subIssues.length} issue{subIssues.length === 1 ? '' : 's'}
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <StatusBadge status={feature.status} />
-          {feature.status === 'open' && (
+          <StatusBadge status={epic.status} />
+          {epic.status === 'open' && (
             <button
               className="px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80 disabled:opacity-50"
               disabled={!allClosed}
-              title={allClosed ? 'Close this feature' : 'All sub-issues must be closed first'}
+              title={allClosed ? 'Close this epic' : 'All issues must be closed first'}
               onClick={() => void onClose()}
             >
-              Close Feature
+              Close Epic
             </button>
           )}
         </div>
       </div>
 
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-semibold">Sub-Issues</h4>
+        <h4 className="text-sm font-semibold">Issues</h4>
         <button
           className="px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80"
           onClick={() =>
-            patchView(projectId, { showNewIssue: true, selectedFeatureId: feature.id })
+            patchView(projectId, { showNewIssue: true, selectedEpicId: epic.id })
           }
         >
           + Add Sub-Issue
@@ -116,7 +121,7 @@ export function FeatureIssueDetailScreen({
 
       {subIssues.length === 0 ? (
         <div className="text-sm text-muted-foreground">
-          No sub-issues yet. Click &quot;+ Add Sub-Issue&quot; to add one.
+          No issues yet. Click &quot;+ Add Sub-Issue&quot; to add one.
         </div>
       ) : (
         <ul className="space-y-2">
@@ -136,7 +141,7 @@ export function FeatureIssueDetailScreen({
                   <div className="font-medium text-sm">{s.title}</div>
                   <div className="text-xs text-muted-foreground">{s.type}</div>
                 </div>
-                <StatusBadge status={s.status} />
+                <IssueStatusBadge issue={s} />
               </div>
             </li>
           ))}

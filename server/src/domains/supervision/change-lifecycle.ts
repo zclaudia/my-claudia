@@ -5,7 +5,6 @@ import type {
   DesignGateDecision,
   ExecutionGateDecision,
   ProjectChange,
-  SupervisionTask,
   SupervisionLogEvent,
 } from '@my-claudia/shared/features/supervision';
 import { ProjectChangeRepository } from './repositories/project-change.js';
@@ -31,6 +30,9 @@ export interface ChangeLifecycleDeps {
   getContextManager: (projectId: string, rootPath: string) => ContextManager;
   log: (projectId: string, event: SupervisionLogEvent, detail?: Record<string, unknown>, taskId?: string) => void;
 }
+
+/** Reserved slug for the per-project Ad-hoc Change (C3 fallback bucket). */
+export const AD_HOC_CHANGE_SLUG = 'ad-hoc-tasks';
 
 /**
  * Manages the full lifecycle of a ProjectChange:
@@ -73,7 +75,9 @@ export class ChangeLifecycle {
       throw new Error(`Project ${projectId} has no rootPath`);
     }
     const manager = this.getContextManager(projectId, project.rootPath);
-    manager.scaffoldBaseline(project.name);
+    // C4: no baseline scaffolding — project knowledge lives in Spec corpus.
+    // Ensure the root .supervision/ tree exists for change workspace files.
+    manager.ensureRootScaffold(project.name);
     const change = this.changeRepo.create({ projectId, ...data });
     manager.scaffoldChangeWorkspace({
       id: change.id,
@@ -101,6 +105,24 @@ export class ChangeLifecycle {
     return changeId
       ? this.changeRepo.findById(changeId)
       : this.changeRepo.findActiveByProjectId(projectId);
+  }
+
+  /**
+   * C3 fallback bucket — every project gets a single "Ad-hoc Tasks" Change
+   * (slug = `AD_HOC_CHANGE_SLUG`, `active: false`) that holds tasks created
+   * without an explicit Change. Lazily created on first use. The Ad-hoc
+   * Change is a bookkeeping bucket, not a real workflow — we skip the
+   * baseline/workspace scaffolding that real Changes go through.
+   */
+  getOrCreateAdHocChange(projectId: string): ProjectChange {
+    const existing = this.changeRepo.findBySlug(projectId, AD_HOC_CHANGE_SLUG);
+    if (existing) return existing;
+    return this.changeRepo.create({
+      projectId,
+      title: 'Ad-hoc Tasks',
+      summary: 'Auto-created holder for tasks not attached to an explicit Change.',
+      active: false,
+    });
   }
 
   // --- Execution plan ---

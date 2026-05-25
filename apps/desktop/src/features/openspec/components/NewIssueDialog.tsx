@@ -1,14 +1,13 @@
 // apps/desktop/src/features/openspec/components/NewIssueDialog.tsx
 //
-// Modal for creating a new issue. Two flavors driven by `parentFeatureId`:
-//   - No parent → user picks between `feature` (organizational container) or
-//     a standalone non-feature type (creates an anonymous-style sub-issue).
-//   - Parent set → type is constrained to non-feature kinds; the resulting
-//     sub-issue is linked to the parent feature.
+// Modal for creating a new LocalIssue. Two flavors driven by `parentEpicId`:
+//   - No parent → user creates either a new Epic (organizational container)
+//     or a standalone sub-issue.
+//   - Parent set → only sub-issue types; resulting issue is linked to the
+//     parent Epic via `epicId`.
 //
-// On submit, the dialog routes to `createFeature` or `createSubIssue`,
-// upserts the returned issue (and spec_change, where applicable) into the
-// store, then closes.
+// On submit, the dialog routes to `createEpic` or `createSubIssue`, upserts
+// the returned record into the store, then closes.
 
 import React, { useState } from 'react';
 import type { LocalIssueType } from '@my-claudia/shared/features/local-issue';
@@ -17,12 +16,16 @@ import * as api from '../api.js';
 
 interface Props {
   projectId: string;
-  /** Pre-fills parentIssueId — if set, the type is forced to non-feature. */
-  parentFeatureId?: string;
+  /** If set, the new issue is linked to this Epic; type is constrained
+   *  to sub-issue kinds. If unset, the user can also choose to create
+   *  a new Epic container instead. */
+  parentEpicId?: string;
   onClose: () => void;
 }
 
-const SUB_TYPES: { value: Exclude<LocalIssueType, 'feature'>; label: string }[] = [
+type DialogMode = 'epic' | LocalIssueType;
+
+const SUB_TYPES: { value: LocalIssueType; label: string }[] = [
   { value: 'implement', label: 'Implement' },
   { value: 'bug', label: 'Bug' },
   { value: 'enhancement', label: 'Enhancement' },
@@ -31,12 +34,12 @@ const SUB_TYPES: { value: Exclude<LocalIssueType, 'feature'>; label: string }[] 
 
 export function NewIssueDialog({
   projectId,
-  parentFeatureId,
+  parentEpicId,
   onClose,
 }: Props): React.ReactElement {
   const upsertIssue = useOpenSpecStore((s) => s.upsertIssue);
   const setSpecChange = useOpenSpecStore((s) => s.setSpecChange);
-  const [type, setType] = useState<LocalIssueType>(parentFeatureId ? 'implement' : 'feature');
+  const [mode, setMode] = useState<DialogMode>(parentEpicId ? 'implement' : 'epic');
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,15 +49,16 @@ export function NewIssueDialog({
     setBusy(true);
     setError(null);
     try {
-      if (type === 'feature') {
-        const issue = await api.createFeature({ projectId, title: title.trim() });
-        upsertIssue(issue);
+      if (mode === 'epic') {
+        // No store slice for epics yet — created Epic is reachable via
+        // listEpics() on next refresh. The dialog just closes successfully.
+        await api.createEpic({ projectId, title: title.trim() });
       } else {
         const { issue, specChange } = await api.createSubIssue({
           projectId,
-          type,
+          type: mode,
           title: title.trim(),
-          parentIssueId: parentFeatureId,
+          epicId: parentEpicId,
         });
         upsertIssue(issue);
         setSpecChange(specChange);
@@ -76,11 +80,11 @@ export function NewIssueDialog({
         <div className="px-4 py-3 space-y-3">
           <div>
             <label className="block text-xs text-muted-foreground mb-1">Type</label>
-            {parentFeatureId ? (
+            {parentEpicId ? (
               <select
                 className="w-full bg-background border border-border rounded-md px-2 py-1 text-sm"
-                value={type as string}
-                onChange={(e) => setType(e.target.value as LocalIssueType)}
+                value={mode as string}
+                onChange={(e) => setMode(e.target.value as DialogMode)}
               >
                 {SUB_TYPES.map((s) => (
                   <option key={s.value} value={s.value}>
@@ -91,10 +95,10 @@ export function NewIssueDialog({
             ) : (
               <select
                 className="w-full bg-background border border-border rounded-md px-2 py-1 text-sm"
-                value={type as string}
-                onChange={(e) => setType(e.target.value as LocalIssueType)}
+                value={mode as string}
+                onChange={(e) => setMode(e.target.value as DialogMode)}
               >
-                <option value="feature">Feature (organizational container)</option>
+                <option value="epic">Epic (organizational container)</option>
                 {SUB_TYPES.map((s) => (
                   <option key={s.value} value={s.value}>
                     {s.label} (standalone)
@@ -110,7 +114,7 @@ export function NewIssueDialog({
               className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder={type === 'feature' ? 'Feature title' : 'Change title'}
+              placeholder={mode === 'epic' ? 'Epic title' : 'Issue title'}
               autoFocus
             />
           </div>

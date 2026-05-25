@@ -1,24 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { AcceptanceDecision, ExecutionGateDecision, ProjectAgent, ProjectChange, ProviderConfig } from '@my-claudia/shared';
+import type { AcceptanceDecision, ExecutionGateDecision, ProjectAgent, ProjectChange } from '@my-claudia/shared';
 import type { ClientMessage } from '@my-claudia/shared';
 import * as api from '../../../services/api';
 import { useConnection } from '../../../contexts/ConnectionContext';
 import { useSupervisionStore } from '../store';
 import { TaskBoard } from './TaskBoard';
-import { BaselineSetupPanel } from './BaselineSetupPanel';
 import { ActiveChangeCard } from './ActiveChangeCard';
 import { RecentChangesPanel } from './RecentChangesPanel';
 import { AllChangesPanel } from './AllChangesPanel';
 import { WorkspaceDocsPanel } from './WorkspaceDocsPanel';
 import { NewRunDropdown } from '../../meta-workflow/components/NewRunDropdown.js';
 import { MetaWorkflowPanel } from '../../meta-workflow/components/MetaWorkflowPanel.js';
-import { OpenSpecPanel } from '../../openspec/components/OpenSpecPanel.js';
 import { listLegacyClassicChangeIds } from '../../openspec/api.js';
 import {
   type ContextDocumentPreview,
   type PreviewDocTarget,
   extractWorkspaceDocs,
-  hasBaselineDocs,
 } from './supervisor-utils';
 
 interface SupervisorWorkspacePanelProps {
@@ -26,16 +23,13 @@ interface SupervisorWorkspacePanelProps {
   agent: ProjectAgent | null;
 }
 
-type BaselineSetupMode = 'template' | 'scan' | 'ai_scan';
-type BaselineSetupLanguage = 'zh-CN' | 'en';
-
 export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspacePanelProps) {
   const { sendMessage } = useConnection();
   const socket = useMemo(
     () => ({ send: (raw: string) => sendMessage(JSON.parse(raw) as ClientMessage) }),
     [sendMessage],
   );
-  const [activeTab, setActiveTab] = useState<'classic' | 'meta' | 'openspec'>('classic');
+  const [activeTab, setActiveTab] = useState<'classic' | 'meta'>('classic');
   const activeChange = useSupervisionStore((s) => s.activeChanges[projectId] ?? null);
   const executionPlan = useSupervisionStore((s) => activeChange ? s.executionPlans[activeChange.id] : undefined);
   const tasks = useSupervisionStore((s) => s.tasks[projectId] ?? []);
@@ -57,13 +51,6 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
   const [changesFilter, setChangesFilter] = useState<'all' | 'active' | 'completed' | 'cancelled'>('all');
   const [editingDocId, setEditingDocId] = useState<string | null>(null);
   const [draftDocContent, setDraftDocContent] = useState('');
-  const [baselineReady, setBaselineReady] = useState(false);
-  const [baselineNotice, setBaselineNotice] = useState<string | null>(null);
-  const [showBaselineSetup, setShowBaselineSetup] = useState(false);
-  const [baselineMode, setBaselineMode] = useState<BaselineSetupMode>('scan');
-  const [baselineLanguage, setBaselineLanguage] = useState<BaselineSetupLanguage>('zh-CN');
-  const [baselineProviderId, setBaselineProviderId] = useState<string>('');
-  const [providers, setProviders] = useState<ProviderConfig[]>([]);
   const [legacyClassicChangeIds, setLegacyClassicChangeIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -78,14 +65,8 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
     let cancelled = false;
     async function hydrate() {
       try {
-        const [change, providerList] = await Promise.all([
-          api.getActiveProjectChange(projectId),
-          api.getProviders().catch(() => [] as ProviderConfig[]),
-        ]);
+        const change = await api.getActiveProjectChange(projectId);
         if (cancelled) return;
-        setProviders(providerList);
-        const defaultProvider = providerList.find((provider) => provider.isDefault) ?? providerList[0] ?? null;
-        setBaselineProviderId((prev) => prev || defaultProvider?.id || '');
         setActiveChange(projectId, change);
         setPreviewChangeId(change?.id ?? null);
         const changes = await api.getProjectChanges(projectId);
@@ -94,7 +75,6 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
         setChangeHistory(changes.filter((item) => !item.active));
         const contextDocs = await api.getSupervisionContext(projectId);
         if (cancelled) return;
-        setBaselineReady(hasBaselineDocs(contextDocs));
         if (change) {
           const [plan, filteredTasks] = await Promise.all([
             api.getChangeExecutionPlan(change.id),
@@ -161,40 +141,6 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
       setNewSummary('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create change');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleInitBaseline = async () => {
-    setLoading(true);
-    setError(null);
-    setBaselineNotice(null);
-    try {
-      const result = await api.initSupervisorBaseline(projectId, {
-        mode: baselineMode,
-        providerId: baselineMode === 'ai_scan' ? baselineProviderId || undefined : undefined,
-        language: baselineLanguage,
-        force: baselineReady,
-      });
-      const contextDocs = await api.getSupervisionContext(projectId);
-      const ready = hasBaselineDocs(contextDocs);
-      setBaselineReady(ready);
-      setBaselineNotice(
-        ready
-          ? (result.usedAi
-            ? `Baseline regenerated with AI in ${baselineLanguage === 'zh-CN' ? '中文' : 'English'} and saved to \`.supervision/baseline/\`.`
-            : baselineMode === 'scan'
-              ? `Baseline ${baselineReady ? 'regenerated' : 'generated'} from project scan and saved to \`.supervision/baseline/\`.`
-              : `Baseline files are ready in \`.supervision/baseline/\`.`)
-          : 'Baseline initialization finished, but no baseline docs were detected yet.',
-      );
-      const nextDocs = extractWorkspaceDocs(activeChange?.id, contextDocs);
-      setDocs(nextDocs);
-      setSelectedDocId((prev) => prev && nextDocs.some((doc) => doc.id === prev) ? prev : nextDocs[0]?.id ?? null);
-      setShowBaselineSetup(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to initialize baseline');
     } finally {
       setLoading(false);
     }
@@ -308,10 +254,6 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
       : recentHistory.find((change) => change.id === previewChangeId) ?? null),
     [activeChange, previewChangeId, recentHistory],
   );
-  const aiCapableProviders = useMemo(
-    () => providers.filter((provider) => ['claude', 'codex', 'cursor', 'kimi', 'opencode'].includes(provider.type)),
-    [providers],
-  );
 
   const handleStartEditing = () => {
     if (!selectedDoc) return;
@@ -326,23 +268,13 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
 
   const handleSaveDocument = async () => {
     const docType = selectedDoc ? (selectedDoc.id.split('/').pop()?.replace('.md', '') ?? '') : '';
-    const isEditableDocType = ['project', 'architecture', 'design', 'execution', 'tasks'].includes(docType);
-    if (!selectedDoc || !isEditableDocType) return;
+    const isEditableDocType = ['design', 'execution', 'tasks'].includes(docType);
+    if (!selectedDoc || !isEditableDocType || !activeChange) return;
     setLoading(true);
     setError(null);
     try {
-      if (selectedDoc.id.startsWith('baseline/')) {
-        await api.updateBaselineDocument(projectId, docType as 'project' | 'architecture', draftDocContent);
-        const contextDocs = await api.getSupervisionContext(projectId);
-        setBaselineReady(hasBaselineDocs(contextDocs));
-        const nextDocs = extractWorkspaceDocs(activeChange?.id, contextDocs);
-        setDocs(nextDocs);
-        setSelectedDocId(selectedDoc.id);
-      } else {
-        if (!activeChange) return;
-        const updated = await api.updateChangeDocument(activeChange.id, docType as 'design' | 'execution' | 'tasks', draftDocContent);
-        await refreshActiveChange(updated);
-      }
+      const updated = await api.updateChangeDocument(activeChange.id, docType as 'design' | 'execution' | 'tasks', draftDocContent);
+      await refreshActiveChange(updated);
       setEditingDocId(null);
       setDraftDocContent('');
     } catch (err) {
@@ -372,13 +304,6 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
             <p className="text-xs text-muted-foreground">Spec-driven execution for the active change.</p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowBaselineSetup((value) => !value)}
-              disabled={loading}
-              className="px-2.5 py-1.5 text-xs rounded-md bg-secondary hover:bg-secondary/80 disabled:opacity-50"
-            >
-              {baselineReady ? 'Regenerate Baseline' : 'Generate Baseline'}
-            </button>
             <NewRunDropdown
               projectId={projectId}
               socket={socket}
@@ -386,22 +311,6 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
             />
           </div>
         </div>
-
-        {showBaselineSetup && (
-          <BaselineSetupPanel
-            loading={loading}
-            baselineReady={baselineReady}
-            baselineMode={baselineMode}
-            baselineLanguage={baselineLanguage}
-            baselineProviderId={baselineProviderId}
-            aiCapableProviders={aiCapableProviders}
-            onModeChange={setBaselineMode}
-            onLanguageChange={setBaselineLanguage}
-            onProviderChange={setBaselineProviderId}
-            onCancel={() => setShowBaselineSetup(false)}
-            onSubmit={handleInitBaseline}
-          />
-        )}
 
         {showCreateChange && !activeChange && (
           <div className="grid gap-2 rounded-lg border border-border bg-secondary/30 p-3">
@@ -433,12 +342,6 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
         {error && (
           <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
             {error}
-          </div>
-        )}
-
-        {baselineNotice && !error && (
-          <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700">
-            {baselineNotice}
           </div>
         )}
 
@@ -497,12 +400,6 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
           >
             Meta Workflows
           </button>
-          <button
-            className={`px-3 py-1 text-sm ${activeTab === 'openspec' ? 'border-b-2 border-blue-600 font-medium' : 'text-muted-foreground'}`}
-            onClick={() => setActiveTab('openspec')}
-          >
-            OpenSpec
-          </button>
         </div>
         {activeTab === 'classic' ? (
           <div className="flex-1 overflow-hidden">
@@ -550,13 +447,9 @@ export function SupervisorWorkspacePanel({ projectId, agent }: SupervisorWorkspa
               </div>
             )}
           </div>
-        ) : activeTab === 'meta' ? (
-          <div className="flex-1 overflow-auto p-4">
-            <MetaWorkflowPanel projectId={projectId} socket={socket} />
-          </div>
         ) : (
           <div className="flex-1 overflow-auto p-4">
-            <OpenSpecPanel projectId={projectId} />
+            <MetaWorkflowPanel projectId={projectId} socket={socket} />
           </div>
         )}
       </div>

@@ -2,20 +2,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/react';
 import { SupervisorWorkspacePanel } from '../SupervisorWorkspacePanel';
 import { useSupervisionStore } from '../../store';
-import type { ChangeExecutionPlan, ProjectAgent, ProjectChange, ProviderConfig, SupervisionTask } from '@my-claudia/shared';
+import type { ChangeExecutionPlan, ProjectAgent, ProjectChange, SupervisionTask } from '@my-claudia/shared';
 
 const mockGetActiveProjectChange = vi.fn();
 const mockGetChangeExecutionPlan = vi.fn();
 const mockGetSupervisionTasks = vi.fn();
 const mockGetSupervisionContext = vi.fn();
-const mockInitSupervisorBaseline = vi.fn();
 const mockRequestDesignGate = vi.fn();
 const mockRequestAcceptance = vi.fn();
 const mockResolveAcceptance = vi.fn();
 const mockGetProjectChanges = vi.fn();
 const mockUpdateChangeDocument = vi.fn();
-const mockUpdateBaselineDocument = vi.fn();
-const mockGetProviders = vi.fn();
 
 vi.mock('../../../../services/api', () => ({
   getActiveProjectChange: (...args: unknown[]) => mockGetActiveProjectChange(...args),
@@ -23,10 +20,7 @@ vi.mock('../../../../services/api', () => ({
   getSupervisionTasks: (...args: unknown[]) => mockGetSupervisionTasks(...args),
   getSupervisionContext: (...args: unknown[]) => mockGetSupervisionContext(...args),
   getProjectChanges: (...args: unknown[]) => mockGetProjectChanges(...args),
-  getProviders: (...args: unknown[]) => mockGetProviders(...args),
   updateChangeDocument: (...args: unknown[]) => mockUpdateChangeDocument(...args),
-  updateBaselineDocument: (...args: unknown[]) => mockUpdateBaselineDocument(...args),
-  initSupervisorBaseline: (...args: unknown[]) => mockInitSupervisorBaseline(...args),
   createProjectChange: vi.fn(),
   requestDesignGate: (...args: unknown[]) => mockRequestDesignGate(...args),
   resolveDesignGate: vi.fn(),
@@ -98,18 +92,6 @@ function makeExecutionPlan(overrides: Partial<ChangeExecutionPlan> = {}): Change
   };
 }
 
-function makeProvider(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
-  return {
-    id: 'prov-1',
-    name: 'Claude',
-    type: 'claude',
-    isDefault: true,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    ...overrides,
-  };
-}
-
 describe('SupervisorWorkspacePanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -122,17 +104,12 @@ describe('SupervisorWorkspacePanel', () => {
     });
     mockGetChangeExecutionPlan.mockResolvedValue(makeExecutionPlan());
     mockGetSupervisionTasks.mockResolvedValue([]);
-    mockInitSupervisorBaseline.mockResolvedValue({ initialized: true });
     mockRequestDesignGate.mockResolvedValue(makeChange({ status: 'awaiting_design_review' }));
     mockRequestAcceptance.mockResolvedValue(makeChange({ status: 'accepting' }));
     mockResolveAcceptance.mockResolvedValue(makeChange({ status: 'syncing' }));
     mockGetProjectChanges.mockResolvedValue([makeChange()]);
-    mockGetProviders.mockResolvedValue([makeProvider()]);
     mockUpdateChangeDocument.mockResolvedValue(makeChange({ status: 'designing' }));
-    mockUpdateBaselineDocument.mockResolvedValue({ projectId: 'proj-1', docId: 'baseline/project.md' });
     mockGetSupervisionContext.mockResolvedValue([
-      { id: 'baseline/project.md', version: 1, content: '# Project' },
-      { id: 'baseline/architecture.md', version: 1, content: '# Architecture' },
       { id: 'changes/change-1/design.md', version: 1, content: '# Design' },
       { id: 'changes/change-1/execution.md', version: 1, content: '# Execution' },
       { id: 'changes/change-1/tasks.md', version: 1, content: '# Tasks' },
@@ -162,7 +139,6 @@ describe('SupervisorWorkspacePanel', () => {
     expect(screen.getByRole('button', { name: 'Complete Change' })).toBeDisabled();
     expect(screen.getByText('Next Action')).toBeInTheDocument();
     expect(screen.getByText('Finish the design draft')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Regenerate Baseline' })).toBeInTheDocument();
     // Phase E1 Task 12 replaced the "Start Change" button with a "New ▾" dropdown
     // that includes both Classic Change and Meta Workflow Run options.
     expect(screen.getByRole('button', { name: /^New/ })).toBeInTheDocument();
@@ -350,30 +326,6 @@ describe('SupervisorWorkspacePanel', () => {
     });
   });
 
-  it('shows baseline docs and allows editing project baseline', async () => {
-    mockGetActiveProjectChange.mockResolvedValue(null);
-
-    render(<SupervisorWorkspacePanel projectId="proj-1" agent={makeAgent()} />);
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Project' })).toBeInTheDocument();
-      expect(screen.getByText('Viewing `.supervision/baseline/`')).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    const editor = screen.getByDisplayValue('# Project');
-    fireEvent.change(editor, { target: { value: '# Project\n\nUpdated baseline' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-
-    await waitFor(() => {
-      expect(mockUpdateBaselineDocument).toHaveBeenCalledWith(
-        'proj-1',
-        'project',
-        '# Project\n\nUpdated baseline',
-      );
-    });
-  });
-
   it('shows all changes list with filter controls', async () => {
     mockGetActiveProjectChange.mockResolvedValue(makeChange({ status: 'executing' }));
     mockGetProjectChanges.mockResolvedValue([
@@ -441,78 +393,4 @@ describe('SupervisorWorkspacePanel', () => {
     expect(screen.getByText('Specs synced to baseline and change docs.')).toBeInTheDocument();
   });
 
-  it('shows baseline ready state after setup succeeds', async () => {
-    mockGetActiveProjectChange.mockResolvedValue(makeChange({ status: 'draft' }));
-    mockGetSupervisionContext
-      .mockResolvedValueOnce([
-        { id: 'changes/change-1/design.md', version: 1, content: '# Design' },
-        { id: 'changes/change-1/execution.md', version: 1, content: '# Execution' },
-        { id: 'changes/change-1/tasks.md', version: 1, content: '# Tasks' },
-      ])
-      .mockResolvedValueOnce([
-        { id: 'baseline/project.md', version: 1, content: '# Project' },
-        { id: 'baseline/architecture.md', version: 1, content: '# Architecture' },
-      ]);
-
-    render(<SupervisorWorkspacePanel projectId="proj-1" agent={makeAgent()} />);
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Generate Baseline' })).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Generate Baseline' }));
-    fireEvent.click(screen.getAllByRole('button', { name: 'Generate Baseline' })[1]);
-
-    await waitFor(() => {
-      expect(mockInitSupervisorBaseline).toHaveBeenCalledWith('proj-1', {
-        mode: 'scan',
-        providerId: undefined,
-        language: 'zh-CN',
-        force: false,
-      });
-      expect(screen.getByText('Baseline generated from project scan and saved to `.supervision/baseline/`.')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Regenerate Baseline' })).toBeInTheDocument();
-    });
-  });
-
-  it('allows choosing AI provider and language for baseline generation', async () => {
-    mockGetActiveProjectChange.mockResolvedValue(null);
-    mockGetProviders.mockResolvedValue([
-      makeProvider({ id: 'prov-1', name: 'Claude Default', type: 'claude', isDefault: true }),
-      makeProvider({ id: 'prov-2', name: 'Codex Worker', type: 'codex', isDefault: false }),
-    ]);
-    mockInitSupervisorBaseline.mockResolvedValue({
-      initialized: true,
-      mode: 'ai_scan',
-      language: 'en',
-      usedAi: true,
-      regenerated: false,
-    });
-
-    render(<SupervisorWorkspacePanel projectId="proj-1" agent={makeAgent()} />);
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Regenerate Baseline' })).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Regenerate Baseline' }));
-    // Each baseline Select is a button + popover; click trigger then click the option
-    fireEvent.click(screen.getByRole('button', { name: 'Mode' }));
-    fireEvent.click(screen.getByRole('option', { name: 'AI Scan' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Language' }));
-    fireEvent.click(screen.getByRole('option', { name: 'English' }));
-    fireEvent.click(screen.getByRole('button', { name: 'AI Provider' }));
-    fireEvent.click(screen.getByRole('option', { name: 'Codex Worker (codex)' }));
-    fireEvent.click(screen.getAllByRole('button', { name: 'Regenerate Baseline' })[1]);
-
-    await waitFor(() => {
-      expect(mockInitSupervisorBaseline).toHaveBeenCalledWith('proj-1', {
-        mode: 'ai_scan',
-        providerId: 'prov-2',
-        language: 'en',
-        force: true,
-      });
-      expect(screen.getByText('Baseline regenerated with AI in English and saved to `.supervision/baseline/`.')).toBeInTheDocument();
-    });
-  });
 });

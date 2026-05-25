@@ -38,9 +38,8 @@ export class LocalIssueRepository extends BaseRepository<LocalIssue, LocalIssueC
       status: row.status as LocalIssueStatus,
       priority: row.priority as LocalIssue['priority'],
       labels: row.labels ? JSON.parse(row.labels as string) : [],
-      // G1 additions — columns added by migration 070_openspec_foundation.
       type: (row.type as LocalIssueType) ?? 'implement',
-      parentIssueId: (row.parent_issue_id as string) || undefined,
+      epicId: (row.epic_id as string) || undefined,
       specChangeId: (row.spec_change_id as string) || undefined,
       isAnonymous: row.is_anonymous === 1,
       createdAt: row.created_at as number,
@@ -55,7 +54,7 @@ export class LocalIssueRepository extends BaseRepository<LocalIssue, LocalIssueC
     return {
       sql: `INSERT INTO local_issues (
         id, project_id, title, description, status, priority, labels,
-        type, parent_issue_id, spec_change_id, is_anonymous,
+        type, epic_id, spec_change_id, is_anonymous,
         created_at, updated_at, closed_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       params: [
@@ -67,7 +66,7 @@ export class LocalIssueRepository extends BaseRepository<LocalIssue, LocalIssueC
         data.priority ?? 'medium',
         JSON.stringify(data.labels ?? []),
         data.type ?? 'implement',
-        data.parentIssueId ?? null,
+        data.epicId ?? null,
         data.specChangeId ?? null,
         data.isAnonymous ? 1 : 0,
         now,
@@ -90,7 +89,7 @@ export class LocalIssueRepository extends BaseRepository<LocalIssue, LocalIssueC
     if (data.closedAt !== undefined) { sets.push('closed_at = ?'); params.push(data.closedAt); }
     // G1 additions
     if (data.type !== undefined) { sets.push('type = ?'); params.push(data.type); }
-    if (data.parentIssueId !== undefined) { sets.push('parent_issue_id = ?'); params.push(data.parentIssueId); }
+    if (data.epicId !== undefined) { sets.push('epic_id = ?'); params.push(data.epicId); }
     if (data.specChangeId !== undefined) { sets.push('spec_change_id = ?'); params.push(data.specChangeId); }
     if (data.isAnonymous !== undefined) { sets.push('is_anonymous = ?'); params.push(data.isAnonymous ? 1 : 0); }
 

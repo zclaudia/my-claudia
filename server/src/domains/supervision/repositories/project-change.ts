@@ -68,6 +68,14 @@ export class ProjectChangeRepository {
     return row ? this.mapRow(row) : undefined;
   }
 
+  findBySlug(projectId: string, slug: string): ProjectChange | undefined {
+    if (!this.hasTable()) return undefined;
+    const row = this.db
+      .prepare('SELECT * FROM project_changes WHERE project_id = ? AND slug = ? LIMIT 1')
+      .get(projectId, slug);
+    return row ? this.mapRow(row) : undefined;
+  }
+
   create(data: {
     projectId: string;
     title: string;

@@ -21,14 +21,15 @@ describe('OpenSpec G1 shared type sanity', () => {
     expect(all).toContain('manual');
   });
 
-  it('LocalIssueType discriminator', () => {
-    const all: LocalIssueType[] = ['feature', 'implement', 'bug', 'enhancement', 'chore'];
-    expect(all.length).toBe(5);
+  it('LocalIssueType discriminator (feature extracted to Epic in C5)', () => {
+    const all: LocalIssueType[] = ['implement', 'bug', 'enhancement', 'chore'];
+    expect(all.length).toBe(4);
   });
 
-  it('LocalIssueStatus retains legacy in_progress for backward compat', () => {
-    const all: LocalIssueStatus[] = ['open', 'planning', 'tasks_ready', 'executing', 'reviewing', 'closed', 'cancelled', 'in_progress'];
-    expect(all).toContain('in_progress');
+  it('LocalIssueStatus is collapsed to 4 lifecycle states (C1)', () => {
+    const all: LocalIssueStatus[] = ['open', 'tracked', 'closed', 'cancelled'];
+    expect(all).toContain('tracked');
+    expect(all.length).toBe(4);
   });
 
   it('shapes compile', () => {
