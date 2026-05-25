@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { toolRegistry, registerTool, type ToolScope } from '../tool-registry.js';
+import { toolRegistry, registerTool } from '../tool-registry.js';
 import type { ToolDefinition } from '@my-claudia/shared/plugin-types';
 
 // Mock pluginLoader for permission checks
