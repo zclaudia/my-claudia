@@ -186,8 +186,6 @@ export function finalizeRun(input: FinalizeRunInput): void {
   activeRuns.delete(runId);
   broadcastHeartbeat();
 
-  sessionSync?.broadcastSessionUpdated(message.sessionId, activeRun.db);
-
   if (processMonitor && activeRuns.size === 0) {
     setTimeout(() => processMonitor?.check(), 5_000);
   }
@@ -195,4 +193,6 @@ export function finalizeRun(input: FinalizeRunInput): void {
   activeRun.db.prepare(`
       UPDATE sessions SET last_run_status = NULL, updated_at = ? WHERE id = ?
     `).run(Date.now(), message.sessionId);
+
+  sessionSync?.broadcastSessionUpdated(message.sessionId, activeRun.db);
 }

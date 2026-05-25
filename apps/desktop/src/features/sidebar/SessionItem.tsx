@@ -25,7 +25,6 @@ function getStatusLabel(session: Session, isActive?: boolean, hasPending?: boole
   if (session.lastRunStatus === 'interrupted') return { text: 'interrupted', className: 'text-red-400' };
   if (session.planStatus === 'planning') return { text: 'planning', className: 'text-blue-400' };
   if (session.planStatus === 'planned') return { text: 'planned', className: 'text-yellow-500' };
-  if (session.planStatus === 'executing') return { text: 'running', className: 'text-green-500', pulse: true };
   if (isActive) return { text: 'running', className: 'text-green-500', pulse: true };
   return null;
 }

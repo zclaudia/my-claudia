@@ -76,4 +76,17 @@ describe('SessionItem', () => {
     );
     expect(screen.getByText('running')).toBeDefined();
   });
+
+  it('does not show running from executing plan status without active run', () => {
+    render(
+      <SessionItem
+        session={{ ...mockSession, planStatus: 'executing' }}
+        isSelected={false}
+        onSelect={vi.fn()}
+        hasPending={false}
+        isActive={false}
+      />
+    );
+    expect(screen.queryByText('running')).toBeNull();
+  });
 });

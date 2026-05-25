@@ -386,7 +386,7 @@ describe('ws/run-handler', () => {
             const gw = getGatewayClientMock();
             if (!gw) return;
             const row = dbArg.prepare(
-              'SELECT id, name, updated_at as updatedAt, archived_at as archivedAt FROM sessions WHERE id = ?'
+              'SELECT id, name, last_run_status as lastRunStatus, updated_at as updatedAt, archived_at as archivedAt FROM sessions WHERE id = ?'
             ).get(sessionId);
             if (row) gw.commands.backendData.broadcastSessionEvent('updated', row);
           },
@@ -397,11 +397,11 @@ describe('ws/run-handler', () => {
     expect(broadcastSessionEvent.mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(broadcastSessionEvent.mock.calls[0]).toEqual([
       'updated',
-      expect.objectContaining({ id: 'session-1', archivedAt: null }),
+      expect.objectContaining({ id: 'session-1', lastRunStatus: 'running', archivedAt: null }),
     ]);
     expect(broadcastSessionEvent.mock.calls.at(-1)).toEqual([
       'updated',
-      expect.objectContaining({ id: 'session-1', archivedAt: null }),
+      expect.objectContaining({ id: 'session-1', lastRunStatus: null, archivedAt: null }),
     ]);
   });
 
