@@ -330,7 +330,7 @@ describe('ImportOpenCodeDialog', () => {
     expect(screen.getByText('Start Import')).toBeTruthy();
   });
 
-  it.skip('auto-matches projects by workspace path', async () => {
+  it('auto-matches projects by workspace path', async () => {
     vi.useFakeTimers();
 
     mockFetch.mockResolvedValueOnce({
@@ -361,9 +361,8 @@ describe('ImportOpenCodeDialog', () => {
     fireEvent.click(screen.getByText('Select All'));
     fireEvent.click(screen.getByText('Next (1 selected)'));
 
-    // The project should be auto-matched since workspacePath matches rootPath
-    const select = screen.getByRole('combobox') as HTMLSelectElement;
-    expect(select.value).toBe('proj-1');
+    // The Select trigger shows the matched label "My Project (matched)".
+    expect(screen.getByRole('button', { name: /My Project \(matched\)/ })).toBeInTheDocument();
   });
 
   it('filters internal projects from target list', () => {
@@ -408,7 +407,7 @@ describe('ImportOpenCodeDialog', () => {
     expect(screen.getByText(/Load 5 more projects/)).toBeTruthy();
   });
 
-  it.skip('loads more projects when load more button is clicked', async () => {
+  it('loads more projects when load more button is clicked', async () => {
     vi.useFakeTimers();
 
     const projects = Array.from({ length: 15 }, (_, i) => ({
@@ -435,10 +434,11 @@ describe('ImportOpenCodeDialog', () => {
     });
 
     fireEvent.click(screen.getByText(/Load 5 more projects/));
-    expect(screen.getByText(/Load 0 more projects/)).toBeTruthy();
+    // After click, all 15 visible → button disappears (hasMoreProjects=false).
+    expect(screen.queryByText(/Load .* more projects/)).toBeNull();
   });
 
-  it.skip('handles successful import with project creation', async () => {
+  it('handles successful import with project creation', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -476,22 +476,21 @@ describe('ImportOpenCodeDialog', () => {
     fireEvent.click(screen.getByText('Select All'));
     fireEvent.click(screen.getByText('Next (1 selected)'));
 
-    // Select create new project option
-    const select = screen.getByRole('combobox') as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: '__create__' } });
-
+    // Unmatched workspacePath → auto-match selects "+ Create new project"
+    // by default, so Start Import is immediately enabled.
     fireEvent.click(screen.getByText('Start Import'));
 
     await act(async () => {
       vi.advanceTimersByTime(200);
     });
 
+    vi.useRealTimers();
     await waitFor(() => {
       expect(api.createProject).toHaveBeenCalled();
     });
   });
 
-  it.skip('handles import failure', async () => {
+  it('handles import failure', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -534,12 +533,13 @@ describe('ImportOpenCodeDialog', () => {
       vi.advanceTimersByTime(200);
     });
 
+    vi.useRealTimers();
     await waitFor(() => {
       expect(screen.getByText('Import failed')).toBeTruthy();
     });
   });
 
-  it.skip('handles import network error', async () => {
+  it('handles import network error', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -577,12 +577,13 @@ describe('ImportOpenCodeDialog', () => {
       vi.advanceTimersByTime(200);
     });
 
+    vi.useRealTimers();
     await waitFor(() => {
       expect(screen.getByText('Network failure')).toBeTruthy();
     });
   });
 
-  it.skip('shows complete step with results', async () => {
+  it('shows complete step with results', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -629,6 +630,7 @@ describe('ImportOpenCodeDialog', () => {
       vi.advanceTimersByTime(200);
     });
 
+    vi.useRealTimers();
     await waitFor(() => {
       expect(screen.getByText('Import Complete')).toBeTruthy();
       expect(screen.getByText('5')).toBeTruthy();
@@ -760,9 +762,11 @@ describe('ImportOpenCodeDialog', () => {
     expect(screen.getByText('Select All')).toBeTruthy();
   });
 
-  it.skip('disables Start Import when not all projects are mapped', async () => {
+  it('disables Start Import when not all projects are mapped', async () => {
     vi.useFakeTimers();
 
+    // Source project has no workspacePath → auto-match leaves the mapping
+    // unset; Start Import must stay disabled.
     mockFetch.mockResolvedValueOnce({
       json: async () => ({
         success: true,
@@ -770,7 +774,7 @@ describe('ImportOpenCodeDialog', () => {
           projects: [
             {
               path: '/data/p1',
-              workspacePath: '/unmatched/path',
+              workspacePath: '',
               sessions: [
                 { id: 's1', summary: 'S1', messageCount: 1, timestamp: Date.now() },
               ],
@@ -791,9 +795,8 @@ describe('ImportOpenCodeDialog', () => {
     fireEvent.click(screen.getByText('Select All'));
     fireEvent.click(screen.getByText('Next (1 selected)'));
 
-    // The select should be empty (not mapped), so Start Import should be disabled
-    const startBtn = screen.getByText('Start Import');
-    expect(startBtn).toBeDisabled();
+    const startBtn = screen.getByText('Start Import').closest('button');
+    expect(startBtn?.disabled).toBe(true);
   });
 
   it('shows session info with date formatting', async () => {
@@ -828,7 +831,7 @@ describe('ImportOpenCodeDialog', () => {
     expect(screen.getByText(/5 messages/)).toBeTruthy();
   });
 
-  it.skip('refreshes sessions and projects after successful import', async () => {
+  it('refreshes sessions and projects after successful import', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -871,6 +874,7 @@ describe('ImportOpenCodeDialog', () => {
       vi.advanceTimersByTime(200);
     });
 
+    vi.useRealTimers();
     await waitFor(() => {
       expect(api.getSessions).toHaveBeenCalled();
       expect(api.getProjects).toHaveBeenCalled();
@@ -935,7 +939,7 @@ describe('ImportOpenCodeDialog', () => {
     expect(screen.getByText(/0 sessions across 1 projects/)).toBeTruthy();
   });
 
-  it.skip('shows errors in complete step', async () => {
+  it('shows errors in complete step', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -962,8 +966,8 @@ describe('ImportOpenCodeDialog', () => {
             imported: 0,
             skipped: 0,
             errors: [
-              { sessionId: 's1', error: 'Failed to import' },
-              { sessionId: 's2', error: 'Another error' },
+              { sessionId: 's1', error: { code: 'E1', message: 'Failed to import' } },
+              { sessionId: 's2', error: { code: 'E2', message: 'Another error' } },
             ],
           },
         }),
@@ -985,9 +989,17 @@ describe('ImportOpenCodeDialog', () => {
       vi.advanceTimersByTime(200);
     });
 
+    vi.useRealTimers();
     await waitFor(() => {
-      expect(screen.getByText('Errors:')).toBeTruthy();
-      expect(screen.getByText(/s1: Failed to import/)).toBeTruthy();
+      // "Errors:" appears twice (stats label + section heading).
+      expect(screen.getAllByText('Errors:').length).toBeGreaterThan(0);
+      // Per-error row renders three text children — match by combined
+      // textContent so we tolerate the React text-node fragmentation.
+      expect(
+        screen.getByText(
+          (_, el) => !!el && el.tagName === 'DIV' && el.textContent === 's1: Failed to import',
+        ),
+      ).toBeTruthy();
     });
   });
 
@@ -1028,7 +1040,7 @@ describe('ImportOpenCodeDialog', () => {
     expect(screen.getByText('Next (0 selected)')).toBeTruthy();
   });
 
-  it.skip('handles multiple source projects mapping', async () => {
+  it('handles multiple source projects mapping', async () => {
     vi.useFakeTimers();
 
     mockFetch.mockResolvedValueOnce({
@@ -1066,12 +1078,13 @@ describe('ImportOpenCodeDialog', () => {
     fireEvent.click(screen.getByText('Select All'));
     fireEvent.click(screen.getByText('Next (2 selected)'));
 
-    // Should have two project mapping selects
-    const selects = screen.getAllByRole('combobox');
-    expect(selects.length).toBe(2);
+    // Two source projects → two Select triggers (custom Select renders a
+    // button with aria-haspopup="listbox" per mapping row).
+    const triggers = screen.getAllByRole('button', { name: /(matched|Create new project)/ });
+    expect(triggers.length).toBe(2);
   });
 
-  it.skip('handles project mapping selection change', async () => {
+  it('handles project mapping selection change', async () => {
     vi.useFakeTimers();
 
     useProjectStore.setState({
@@ -1109,9 +1122,15 @@ describe('ImportOpenCodeDialog', () => {
     fireEvent.click(screen.getByText('Select All'));
     fireEvent.click(screen.getByText('Next (1 selected)'));
 
-    const select = screen.getByRole('combobox') as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: 'proj-2' } });
+    // Auto-match defaults the unmatched path to "+ Create new project: ..."
+    const trigger = screen.getByRole('button', { name: /Create new project/ });
+    fireEvent.click(trigger);
 
-    expect(select.value).toBe('proj-2');
+    // The listbox is now open — click the "Project 2" option
+    const option = screen.getByRole('option', { name: 'Project 2' });
+    fireEvent.click(option);
+
+    // Trigger label should now show "Project 2"
+    expect(screen.getByRole('button', { name: 'Project 2' })).toBeTruthy();
   });
 });

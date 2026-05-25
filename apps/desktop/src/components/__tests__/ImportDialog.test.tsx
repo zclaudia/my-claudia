@@ -472,7 +472,7 @@ describe('ImportDialog', () => {
     delete (window as any).electron;
   });
 
-  it.skip('auto-matches projects by workspace path', async () => {
+  it('auto-matches projects by workspace path', async () => {
     vi.useFakeTimers();
 
     mockFetch.mockResolvedValueOnce({
@@ -503,9 +503,9 @@ describe('ImportDialog', () => {
     fireEvent.click(screen.getByText('Select All'));
     fireEvent.click(screen.getByText('Next (1 selected)'));
 
-    // The project should be auto-matched since workspacePath matches rootPath
-    const select = screen.getByRole('combobox') as HTMLSelectElement;
-    expect(select.value).toBe('proj-1');
+    // The project should be auto-matched since workspacePath matches rootPath.
+    // The Select trigger now renders the matched label "My Project (matched)".
+    expect(screen.getByRole('button', { name: /My Project \(matched\)/ })).toBeInTheDocument();
   });
 
   it('shows load more button when there are more projects', async () => {
@@ -537,7 +537,7 @@ describe('ImportDialog', () => {
     expect(screen.getByText(/Load 5 more projects/)).toBeTruthy();
   });
 
-  it.skip('loads more projects when load more button is clicked', async () => {
+  it('loads more projects when load more button is clicked', async () => {
     vi.useFakeTimers();
 
     const projects = Array.from({ length: 15 }, (_, i) => ({
@@ -563,11 +563,13 @@ describe('ImportDialog', () => {
       vi.advanceTimersByTime(200);
     });
 
+    // Initially 10 of 15 visible → "Load 5 more projects..." button.
     fireEvent.click(screen.getByText(/Load 5 more projects/));
-    expect(screen.getByText(/Load 0 more projects/)).toBeTruthy();
+    // After click, all 15 are visible → button disappears (hasMoreProjects=false).
+    expect(screen.queryByText(/Load .* more projects/)).toBeNull();
   });
 
-  it.skip('handles successful import with project creation', async () => {
+  it('handles successful import with project creation', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -605,22 +607,22 @@ describe('ImportDialog', () => {
     fireEvent.click(screen.getByText('Select All'));
     fireEvent.click(screen.getByText('Next (1 selected)'));
 
-    // Select create new project option
-    const select = screen.getByRole('combobox') as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: '__create__' } });
-
+    // Workspace path '/unmatched/path' doesn't match any project, so auto-match
+    // selects "+ Create new project: ..." for us; the Start Import button is
+    // already enabled.
     fireEvent.click(screen.getByText('Start Import'));
 
     await act(async () => {
       vi.advanceTimersByTime(200);
     });
 
+    vi.useRealTimers();
     await waitFor(() => {
       expect(api.createProject).toHaveBeenCalled();
     });
   });
 
-  it.skip('handles import failure', async () => {
+  it('handles import failure', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -663,12 +665,14 @@ describe('ImportDialog', () => {
       vi.advanceTimersByTime(200);
     });
 
+    // waitFor polls via setTimeout; switch back to real timers so it works.
+    vi.useRealTimers();
     await waitFor(() => {
       expect(screen.getByText('Import failed')).toBeTruthy();
     });
   });
 
-  it.skip('handles import network error', async () => {
+  it('handles import network error', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -706,12 +710,13 @@ describe('ImportDialog', () => {
       vi.advanceTimersByTime(200);
     });
 
+    vi.useRealTimers();
     await waitFor(() => {
       expect(screen.getByText('Network failure')).toBeTruthy();
     });
   });
 
-  it.skip('shows complete step with results', async () => {
+  it('shows complete step with results', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -758,6 +763,7 @@ describe('ImportDialog', () => {
       vi.advanceTimersByTime(200);
     });
 
+    vi.useRealTimers();
     await waitFor(() => {
       expect(screen.getByText('Import Complete')).toBeTruthy();
       expect(screen.getByText('5')).toBeTruthy();
@@ -892,9 +898,12 @@ describe('ImportDialog', () => {
     expect(screen.getByText('Select All')).toBeTruthy();
   });
 
-  it.skip('disables Start Import when not all projects are mapped', async () => {
+  it('disables Start Import when not all projects are mapped', async () => {
     vi.useFakeTimers();
 
+    // Source project has no workspacePath → auto-match leaves the mapping
+    // unset (vs an unmatched workspacePath, which auto-match resolves to
+    // "+ Create new project: ..."). Start Import must stay disabled.
     mockFetch.mockResolvedValueOnce({
       json: async () => ({
         success: true,
@@ -902,7 +911,7 @@ describe('ImportDialog', () => {
           projects: [
             {
               path: '/data/p1',
-              workspacePath: '/unmatched/path',
+              workspacePath: '',
               sessions: [
                 { id: 's1', summary: 'S1', messageCount: 1, timestamp: Date.now() },
               ],
@@ -923,9 +932,8 @@ describe('ImportDialog', () => {
     fireEvent.click(screen.getByText('Select All'));
     fireEvent.click(screen.getByText('Next (1 selected)'));
 
-    // The select should be empty (not mapped), so Start Import should be disabled
-    const startBtn = screen.getByText('Start Import');
-    expect(startBtn).toBeDisabled();
+    const startBtn = screen.getByText('Start Import').closest('button');
+    expect(startBtn?.disabled).toBe(true);
   });
 
   it('shows session info with date formatting', async () => {
@@ -969,7 +977,7 @@ describe('ImportDialog', () => {
     expect(screen.getByText('Import from Claude CLI')).toBeTruthy();
   });
 
-  it.skip('refreshes sessions and projects after successful import', async () => {
+  it('refreshes sessions and projects after successful import', async () => {
     vi.useFakeTimers();
 
     mockFetch
@@ -1022,6 +1030,7 @@ describe('ImportDialog', () => {
       vi.advanceTimersByTime(200);
     });
 
+    vi.useRealTimers();
     await waitFor(() => {
       expect(api.getSessions).toHaveBeenCalled();
       expect(api.getProjects).toHaveBeenCalled();
