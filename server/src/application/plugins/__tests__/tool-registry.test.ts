@@ -580,5 +580,28 @@ describe('ToolRegistry', () => {
         toolRegistry.getDefinitionsByScope('plugin-panel').find((t) => t.function.name === 'legacy_tool')
       ).toBeDefined();
     });
+
+    it('treats empty scope array the same as undefined (callable everywhere)', async () => {
+      toolRegistry.register({
+        id: 'empty_scope_tool',
+        definition: {
+          type: 'function',
+          function: { name: 'empty_scope_tool', description: 'x', parameters: {} },
+        },
+        scope: [],
+        handler: () => 'ok',
+        source: 'builtin',
+      });
+      // Listing exposes it in every caller scope
+      expect(
+        toolRegistry.getDefinitionsByScope('main-session').find((t) => t.function.name === 'empty_scope_tool')
+      ).toBeDefined();
+      expect(
+        toolRegistry.getDefinitionsByScope('plugin-panel').find((t) => t.function.name === 'empty_scope_tool')
+      ).toBeDefined();
+      // execute() also allows it from any scope (handler return passes through verbatim)
+      const result = await toolRegistry.execute('empty_scope_tool', {}, undefined, 'main-session');
+      expect(result).toBe('ok');
+    });
   });
 });
