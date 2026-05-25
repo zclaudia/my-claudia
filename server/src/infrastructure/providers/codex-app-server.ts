@@ -14,6 +14,31 @@ export { CodexAppServerClient } from './codex/codex-app-server-client.js';
 // ── Client cache ─────────────────────────────────────────────
 
 const appServerClients = new Map<string, CodexAppServerClient>();
+const threadCwds = new Map<string, string>();
+
+function normalizeCwdForCompare(cwd: string): string {
+  return cwd.replace(/[\\/]+$/, '');
+}
+
+function isLikelyManagedWorktree(cwd: string): boolean {
+  return /(^|[/\\])\.worktrees([/\\]|$)/.test(cwd);
+}
+
+function rememberThreadCwd(threadId: string, cwd: string): void {
+  threadCwds.set(threadId, normalizeCwdForCompare(cwd));
+}
+
+function canResumeThreadInCwd(threadId: string, cwd: string): boolean {
+  const normalizedCwd = normalizeCwdForCompare(cwd);
+  const knownCwd = threadCwds.get(threadId);
+  if (knownCwd) return knownCwd === normalizedCwd;
+
+  // Codex app-server binds cwd at thread/start and thread/resume cannot
+  // override it.  If this is a managed worktree and we lost the in-memory cwd
+  // record (for example after server restart), prefer a fresh thread over
+  // risking writes in the main checkout.
+  return !isLikelyManagedWorktree(normalizedCwd);
+}
 
 export function getCacheKey(options: CodexAppServerOptions, env: Record<string, string>, configSignature = ''): string {
   // env already contains CLAUDIA_SESSION_ID (injected by buildEnv),
@@ -80,17 +105,26 @@ export async function* runCodexAppServer(
   let isResumed = false;
   debugLog(`[Codex AppServer] runCodexAppServer: sessionId=${options.sessionId || 'NEW'}, cwd=${options.cwd}`);
   if (options.sessionId) {
-    try {
-      debugLog(`[Codex AppServer] Resuming thread: ${options.sessionId}`);
-      await client.resumeThread(options.sessionId);
-      threadId = options.sessionId;
-      isResumed = true;
-    } catch (err) {
-      debugLog(`[Codex AppServer] WARN: Resume failed, starting fresh: ${err}`);
+    if (canResumeThreadInCwd(options.sessionId, options.cwd)) {
+      try {
+        debugLog(`[Codex AppServer] Resuming thread: ${options.sessionId}`);
+        await client.resumeThread(options.sessionId);
+        rememberThreadCwd(options.sessionId, options.cwd);
+        threadId = options.sessionId;
+        isResumed = true;
+      } catch (err) {
+        debugLog(`[Codex AppServer] WARN: Resume failed, starting fresh: ${err}`);
+        threadId = await client.startThread(options.cwd);
+        rememberThreadCwd(threadId, options.cwd);
+      }
+    } else {
+      debugLog(`[Codex AppServer] Skipping resume for cwd-bound thread ${options.sessionId}; starting fresh in ${options.cwd}`);
       threadId = await client.startThread(options.cwd);
+      rememberThreadCwd(threadId, options.cwd);
     }
   } else {
     threadId = await client.startThread(options.cwd);
+    rememberThreadCwd(threadId, options.cwd);
   }
   debugLog(`[Codex AppServer] Using threadId: ${threadId}`);
 
@@ -117,6 +151,7 @@ export async function* runCodexAppServer(
   let streamingMode = !isResumed; // New sessions stream immediately
 
   for await (const msg of client.runTurn(threadId, inputBlocks, onPermission, {
+    cwd: options.cwd,
     model: options.model,
     systemPrompt: options.systemPrompt,
   })) {
@@ -157,12 +192,14 @@ export async function* runCodexAppServer(
     yield { type: 'assistant', content: `[Session recovery: previous thread failed (${encounteredError}), starting fresh]` } as ClaudeMessage;
 
     const freshThreadId = await client.startThread(options.cwd);
+    rememberThreadCwd(freshThreadId, options.cwd);
     debugLog(`[Codex AppServer] Recovery: new threadId=${freshThreadId}`);
 
     // Re-prepare input (inputBlocks may have been mutated by systemPrompt prepend)
     inputBlocks = prepareAppServerInput(input);
 
     yield* client.runTurn(freshThreadId, inputBlocks, onPermission, {
+      cwd: options.cwd,
       model: options.model,
       systemPrompt: options.systemPrompt,
     });
@@ -230,10 +267,12 @@ export function destroyAllAppServerClients(): void {
   }
   appServerClients.clear();
   sessionClientMap.clear();
+  threadCwds.clear();
   clearInterval(cleanupTimer);
 }
 
 export function resetAppServerClientsForTests(): void {
   appServerClients.clear();
   sessionClientMap.clear();
+  threadCwds.clear();
 }

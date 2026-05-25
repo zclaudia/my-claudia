@@ -7,7 +7,7 @@ export interface Session {
   projectId: string;
   name?: string;
   providerId?: string;
-  sdkSessionId?: string;
+  sdkSessionId?: string | null;
   type: SessionType;                // 'regular' = user-facing, 'background' = autonomous task
   parentSessionId?: string;          // Which session spawned this one (for background sessions)
   workingDirectory?: string;         // Session-specific working directory (e.g., for git worktree)

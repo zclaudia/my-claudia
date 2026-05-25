@@ -133,11 +133,12 @@ export function buildTaskPlanningSession(seed: TaskSessionSeed): Omit<Session, '
 
 export function buildTaskExecutingSessionPatch(
   workingDirectory: string,
-): Pick<Session, 'workingDirectory' | 'planStatus' | 'isReadOnly'> {
+): Pick<Session, 'workingDirectory' | 'planStatus' | 'isReadOnly' | 'sdkSessionId'> {
   return {
     workingDirectory,
     planStatus: 'executing',
     isReadOnly: true,
+    sdkSessionId: null,
   };
 }
 

@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import type Database from 'better-sqlite3';
 import type { EventData } from '../../infrastructure/events/index.js';
 import type { Session, SessionType } from '@my-claudia/shared/core/session';
@@ -18,6 +19,14 @@ import type { EventDispatcher } from '../supervision/event-dispatcher.js';
 import type { SessionDomainEvent } from './session-events.js';
 
 type SessionEventType = 'created' | 'updated' | 'deleted';
+
+function normalizeWorkingDirectoryForCompare(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const normalized = path.normalize(trimmed);
+  return normalized.length > 1 ? normalized.replace(/[\\/]+$/, '') : normalized;
+}
 
 interface SessionLifecycleDependencies {
   now?: () => number;
@@ -204,10 +213,17 @@ export class SessionLifecycleService {
       throw new SessionLifecycleError(400, 'VALIDATION_ERROR', 'Working directory does not exist');
     }
 
-    this.repo.update(
-      sessionId,
-      { workingDirectory: workingDirectory ?? null } as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>,
-    );
+    const previousWorkingDirectory = normalizeWorkingDirectoryForCompare(existing.workingDirectory);
+    const nextWorkingDirectory = normalizeWorkingDirectoryForCompare(workingDirectory);
+    const patch = {
+      workingDirectory: workingDirectory ?? null,
+    } as Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>;
+
+    if (previousWorkingDirectory !== nextWorkingDirectory && existing.sdkSessionId) {
+      patch.sdkSessionId = null;
+    }
+
+    this.repo.update(sessionId, patch);
     const updatedSession = this.repo.findById(sessionId);
     if (!updatedSession) {
       throw new SessionLifecycleError(404, 'NOT_FOUND', 'Session not found');

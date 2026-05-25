@@ -490,7 +490,7 @@ export class CodexAppServerClient {
     threadId: string,
     input: AppServerInputBlock[],
     onPermission: PermissionCallback,
-    options?: { model?: string; systemPrompt?: string },
+    options?: { cwd?: string; model?: string; systemPrompt?: string },
   ): AsyncGenerator<ClaudeMessage, void, void> {
     this.lastActivity = Date.now();
     this.activeTurns += 1;
@@ -501,7 +501,7 @@ export class CodexAppServerClient {
       type: 'init',
       sessionId: threadId,
       systemInfo: {
-        cwd: '',
+        cwd: options?.cwd || '',
         apiKeySource: 'codex-app-server',
         model: options?.model || '',
         mcpServers: [],

@@ -83,6 +83,7 @@ describe('sessions model', () => {
       workingDirectory: '/worktree',
       planStatus: 'executing',
       isReadOnly: true,
+      sdkSessionId: null,
     });
     expect(buildTaskPlannedSessionPatch()).toEqual({
       planStatus: 'planned',

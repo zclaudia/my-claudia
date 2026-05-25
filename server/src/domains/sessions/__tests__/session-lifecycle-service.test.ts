@@ -141,6 +141,37 @@ describe('SessionLifecycleService', () => {
     expect(() => service.updateWorkingDirectory('s1', '/tmp/other')).toThrowError(SessionLifecycleError);
   });
 
+  it('clears provider sdk session when working directory changes', () => {
+    const service = new SessionLifecycleService(db, { pathExists: () => true });
+    const now = Date.now();
+    db.prepare(`
+      INSERT INTO sessions (id, project_id, name, sdk_session_id, working_directory, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run('s1', 'project-1', 'Session', 'sdk-123', '/tmp/project', now, now);
+
+    const updated = service.updateWorkingDirectory('s1', '/tmp/project/.worktrees/fix');
+
+    expect(updated.workingDirectory).toBe('/tmp/project/.worktrees/fix');
+    expect(updated.sdkSessionId).toBeUndefined();
+    const row = db.prepare('SELECT sdk_session_id FROM sessions WHERE id = ?').get('s1') as { sdk_session_id: string | null };
+    expect(row.sdk_session_id).toBeNull();
+  });
+
+  it('keeps provider sdk session when working directory is unchanged', () => {
+    const service = new SessionLifecycleService(db, { pathExists: () => true });
+    const now = Date.now();
+    db.prepare(`
+      INSERT INTO sessions (id, project_id, name, sdk_session_id, working_directory, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run('s1', 'project-1', 'Session', 'sdk-123', '/tmp/project', now, now);
+
+    const updated = service.updateWorkingDirectory('s1', '/tmp/project/');
+
+    expect(updated.sdkSessionId).toBe('sdk-123');
+    const row = db.prepare('SELECT sdk_session_id FROM sessions WHERE id = ?').get('s1') as { sdk_session_id: string | null };
+    expect(row.sdk_session_id).toBe('sdk-123');
+  });
+
   it('unlocks session and resets sdk session through repository update path', () => {
     const broadcastSessionEvent = vi.fn();
     const emitPluginEvent = vi.fn().mockResolvedValue(undefined);

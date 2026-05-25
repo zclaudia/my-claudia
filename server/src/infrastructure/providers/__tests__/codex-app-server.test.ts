@@ -28,6 +28,12 @@ vi.mock('../../../utils/mcp-bridge-launch.js', () => ({
   buildMcpBridgeEntry: buildMcpBridgeEntryMock,
 }));
 
+async function drain<T>(iterable: AsyncIterable<T>): Promise<void> {
+  for await (const _ of iterable) {
+    // exhaust generator
+  }
+}
+
 describe('codex-app-server', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -109,5 +115,94 @@ describe('codex-app-server', () => {
       expect.stringContaining('[projects."/private/tmp/my-claudia-dev/codex-config"]'),
       'utf-8',
     );
+  });
+
+  it('starts a fresh thread when a known thread is resumed in a different cwd', async () => {
+    const mod = await import('../codex-app-server');
+    const startThread = vi
+      .spyOn(mod.CodexAppServerClient.prototype, 'startThread')
+      .mockResolvedValueOnce('thread-main')
+      .mockResolvedValueOnce('thread-worktree');
+    const resumeThread = vi
+      .spyOn(mod.CodexAppServerClient.prototype, 'resumeThread')
+      .mockResolvedValue(undefined);
+    const runTurn = vi.spyOn(mod.CodexAppServerClient.prototype, 'runTurn').mockImplementation(async function* (threadId) {
+      yield { type: 'result', sessionId: threadId, isComplete: true } as never;
+    });
+
+    const baseOptions = {
+      cwd: '/tmp/project',
+      env: { TEST_ENV: 'cwd-switch' },
+      claudiaSessionId: 'session-cwd-switch',
+    };
+
+    await drain(mod.runCodexAppServer('first', baseOptions, vi.fn()));
+    await drain(mod.runCodexAppServer('second', {
+      ...baseOptions,
+      cwd: '/tmp/project/.worktrees/fix',
+      sessionId: 'thread-main',
+    }, vi.fn()));
+
+    expect(resumeThread).not.toHaveBeenCalled();
+    expect(startThread).toHaveBeenNthCalledWith(1, '/tmp/project');
+    expect(startThread).toHaveBeenNthCalledWith(2, '/tmp/project/.worktrees/fix');
+    expect(runTurn).toHaveBeenLastCalledWith(
+      'thread-worktree',
+      expect.any(Array),
+      expect.any(Function),
+      expect.objectContaining({ cwd: '/tmp/project/.worktrees/fix' }),
+    );
+  });
+
+  it('resumes a known thread when the cwd is unchanged after normalization', async () => {
+    const mod = await import('../codex-app-server');
+    const startThread = vi
+      .spyOn(mod.CodexAppServerClient.prototype, 'startThread')
+      .mockResolvedValue('thread-main');
+    const resumeThread = vi
+      .spyOn(mod.CodexAppServerClient.prototype, 'resumeThread')
+      .mockResolvedValue(undefined);
+    vi.spyOn(mod.CodexAppServerClient.prototype, 'runTurn').mockImplementation(async function* (threadId) {
+      yield { type: 'result', sessionId: threadId, isComplete: true } as never;
+    });
+
+    const baseOptions = {
+      cwd: '/tmp/project/',
+      env: { TEST_ENV: 'cwd-same' },
+      claudiaSessionId: 'session-cwd-same',
+    };
+
+    await drain(mod.runCodexAppServer('first', baseOptions, vi.fn()));
+    await drain(mod.runCodexAppServer('second', {
+      ...baseOptions,
+      cwd: '/tmp/project',
+      sessionId: 'thread-main',
+    }, vi.fn()));
+
+    expect(startThread).toHaveBeenCalledTimes(1);
+    expect(resumeThread).toHaveBeenCalledWith('thread-main');
+  });
+
+  it('starts fresh for a managed worktree when thread cwd memory is unavailable', async () => {
+    const mod = await import('../codex-app-server');
+    const startThread = vi
+      .spyOn(mod.CodexAppServerClient.prototype, 'startThread')
+      .mockResolvedValue('thread-worktree');
+    const resumeThread = vi
+      .spyOn(mod.CodexAppServerClient.prototype, 'resumeThread')
+      .mockResolvedValue(undefined);
+    vi.spyOn(mod.CodexAppServerClient.prototype, 'runTurn').mockImplementation(async function* (threadId) {
+      yield { type: 'result', sessionId: threadId, isComplete: true } as never;
+    });
+
+    await drain(mod.runCodexAppServer('input', {
+      cwd: '/tmp/project/.worktrees/fix',
+      sessionId: 'thread-from-db',
+      env: { TEST_ENV: 'cwd-memory-missing' },
+      claudiaSessionId: 'session-cwd-memory-missing',
+    }, vi.fn()));
+
+    expect(resumeThread).not.toHaveBeenCalled();
+    expect(startThread).toHaveBeenCalledWith('/tmp/project/.worktrees/fix');
   });
 });
