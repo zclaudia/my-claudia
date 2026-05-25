@@ -522,4 +522,63 @@ describe('ToolRegistry', () => {
       warnSpy.mockRestore();
     });
   });
+
+  describe('plugin-panel scope (allow-list)', () => {
+    it('hides plugin-panel tools from main-session and agent scopes', () => {
+      toolRegistry.register({
+        id: 'panel_only',
+        definition: {
+          type: 'function',
+          function: { name: 'panel_only', description: 'x', parameters: {} },
+        },
+        scope: ['plugin-panel'],
+        handler: () => 'ok',
+        source: 'plugin',
+        pluginId: 'test.plugin',
+      });
+      expect(
+        toolRegistry.getDefinitionsByScope('main-session').find((t) => t.function.name === 'panel_only')
+      ).toBeUndefined();
+      expect(
+        toolRegistry.getDefinitionsByScope('agent-assistant').find((t) => t.function.name === 'panel_only')
+      ).toBeUndefined();
+      expect(
+        toolRegistry.getDefinitionsByScope('plugin-panel').find((t) => t.function.name === 'panel_only')
+      ).toBeDefined();
+    });
+
+    it('rejects execute() when caller scope is not in the tool scope', async () => {
+      toolRegistry.register({
+        id: 'panel_only_2',
+        definition: {
+          type: 'function',
+          function: { name: 'panel_only_2', description: 'x', parameters: {} },
+        },
+        scope: ['plugin-panel'],
+        handler: () => 'ok',
+        source: 'plugin',
+        pluginId: 'test.plugin',
+      });
+      const result = await toolRegistry.execute('panel_only_2', {}, undefined, 'main-session');
+      expect(JSON.parse(result)).toMatchObject({ error: expect.stringContaining('not available') });
+    });
+
+    it('treats undefined scope as allowed everywhere (back-compat)', () => {
+      toolRegistry.register({
+        id: 'legacy_tool',
+        definition: {
+          type: 'function',
+          function: { name: 'legacy_tool', description: 'x', parameters: {} },
+        },
+        handler: () => 'ok',
+        source: 'builtin',
+      });
+      expect(
+        toolRegistry.getDefinitionsByScope('main-session').find((t) => t.function.name === 'legacy_tool')
+      ).toBeDefined();
+      expect(
+        toolRegistry.getDefinitionsByScope('plugin-panel').find((t) => t.function.name === 'legacy_tool')
+      ).toBeDefined();
+    });
+  });
 });

@@ -8,7 +8,7 @@ export type ToolHandler = (
 
 export type ToolSource = 'builtin' | 'plugin' | 'interaction' | 'skill';
 
-export type ToolScope = 'agent-assistant' | 'main-session' | 'command-palette';
+export type ToolScope = 'agent-assistant' | 'main-session' | 'command-palette' | 'plugin-panel';
 
 export interface ToolMeta {
   id: string;

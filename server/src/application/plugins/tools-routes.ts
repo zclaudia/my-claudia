@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import type { PCPEffectiveProfile } from '@my-claudia/shared/core/pcp';
-import { toolRegistry } from './tool-registry.js';
+import { toolRegistry, type ToolScope } from './tool-registry.js';
 import { shouldExposeInteractionTool } from '../../infrastructure/providers/pcp-capability.js';
 import { sendApiError } from '../../interfaces/http/response.js';
 
@@ -10,6 +10,21 @@ export interface PluginToolsRoutesDeps {
   resolveActiveSessionId?: () => string | undefined;
 }
 
+/**
+ * Map (sessionId, sessionType) to the caller's ToolScope.
+ *   - no sessionId            → 'plugin-panel'  (request originates from a plugin iframe)
+ *   - sessionType === 'agent' → 'agent-assistant'
+ *   - otherwise               → 'main-session'
+ */
+function resolveCallerScope(
+  sessionId: string | undefined,
+  sessionType: string | undefined,
+): ToolScope {
+  if (!sessionId) return 'plugin-panel';
+  if (sessionType === 'agent') return 'agent-assistant';
+  return 'main-session';
+}
+
 export function createPluginToolsRoutes(deps?: PluginToolsRoutesDeps): Router {
   const router = Router();
 
@@ -17,20 +32,21 @@ export function createPluginToolsRoutes(deps?: PluginToolsRoutesDeps): Router {
     const sessionId = (req.query.sessionId as string | undefined) || deps?.resolveActiveSessionId?.();
     const profile = sessionId ? deps?.getActiveProfile?.(sessionId) : undefined;
     const sessionType = sessionId ? deps?.getSessionType?.(sessionId) : undefined;
+    const callerScope = resolveCallerScope(sessionId, sessionType);
+    // Allow-list filter via the registry (undefined scope = callable everywhere).
+    const allowedNames = new Set(
+      toolRegistry.getDefinitionsByScope(callerScope).map(d => d.function.name),
+    );
     const pluginTools = toolRegistry.getBridgeTools();
     const tools = pluginTools
-      .filter(t => {
-        if (t.scope?.includes('agent-assistant') && !t.scope?.includes('main-session')) {
-          if (sessionType !== 'agent') return false;
-        }
-        return shouldExposeInteractionTool(t.definition.function.name, profile);
-      })
+      .filter(t => allowedNames.has(t.definition.function.name))
+      .filter(t => shouldExposeInteractionTool(t.definition.function.name, profile))
       .map(t => ({
         name: t.definition.function.name,
         description: t.definition.function.description,
         inputSchema: t.definition.function.parameters,
       }));
-    console.log(`[PluginTools] list tools count=${tools.length}${profile ? ` (filtered by PCP profile: ${profile.providerId})` : ''}`);
+    console.log(`[PluginTools] list tools count=${tools.length} scope=${callerScope}${profile ? ` (filtered by PCP profile: ${profile.providerId})` : ''}`);
     res.json({ tools });
   });
 
@@ -39,18 +55,10 @@ export function createPluginToolsRoutes(deps?: PluginToolsRoutesDeps): Router {
     const args = req.body.arguments || req.body.args || {};
     const context = { sessionId: (req.body.sessionId as string | undefined) || deps?.resolveActiveSessionId?.() };
     const sessionTag = context.sessionId || 'none';
+    const sessionType = context.sessionId ? deps?.getSessionType?.(context.sessionId) : undefined;
+    const callerScope = resolveCallerScope(context.sessionId, sessionType);
 
     if (context.sessionId) {
-      const tool = toolRegistry.get(name);
-      if (tool?.scope?.includes('agent-assistant') && !tool.scope?.includes('main-session')) {
-        const sType = deps?.getSessionType?.(context.sessionId);
-        if (sType !== 'agent') {
-          console.warn(`[PluginTools] rejected name=${name} session=${sessionTag} — agent-only tool in ${sType || 'unknown'} session`);
-          res.json({ result: JSON.stringify({ error: `Tool "${name}" is only available in agent sessions` }) });
-          return;
-        }
-      }
-
       const profile = deps?.getActiveProfile?.(context.sessionId);
       if (profile && !shouldExposeInteractionTool(name, profile)) {
         console.warn(`[PluginTools] rejected name=${name} session=${sessionTag} — capability not supported by ${profile.providerId}`);
@@ -60,8 +68,8 @@ export function createPluginToolsRoutes(deps?: PluginToolsRoutesDeps): Router {
     }
 
     try {
-      console.log(`[PluginTools] execute start name=${name} session=${sessionTag} args=${Object.keys(args).join(',') || 'none'}`);
-      const result = await toolRegistry.execute(name, args, context);
+      console.log(`[PluginTools] execute start name=${name} session=${sessionTag} scope=${callerScope} args=${Object.keys(args).join(',') || 'none'}`);
+      const result = await toolRegistry.execute(name, args, context, callerScope);
       console.log(`[PluginTools] execute ok name=${name} session=${sessionTag} resultLength=${String(result).length}`);
       res.json({ result });
     } catch (error) {
