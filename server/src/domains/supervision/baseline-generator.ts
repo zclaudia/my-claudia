@@ -17,6 +17,7 @@ import { claudeReviewAdapter } from '../../infrastructure/providers/cli-jobs/ada
 import { codexReviewAdapter } from '../../infrastructure/providers/cli-jobs/adapters/codex.js';
 import { cursorReviewAdapter } from '../../infrastructure/providers/cli-jobs/adapters/cursor.js';
 import { kimiReviewAdapter } from '../../infrastructure/providers/cli-jobs/adapters/kimi.js';
+import { openclaudeReviewAdapter } from '../../infrastructure/providers/cli-jobs/adapters/openclaude.js';
 import { opencodeReviewAdapter } from '../../infrastructure/providers/cli-jobs/adapters/opencode.js';
 import { extractJSONObjects } from '../../infrastructure/providers/cli-jobs/json-extract.js';
 
@@ -40,6 +41,7 @@ export interface BaselineInitResult {
 
 const BASELINE_PROVIDER_ADAPTERS: Record<string, CliProviderAdapter> = {
   claude: claudeReviewAdapter,
+  openclaude: openclaudeReviewAdapter,
   codex: codexReviewAdapter,
   cursor: cursorReviewAdapter,
   kimi: kimiReviewAdapter,
@@ -295,7 +297,7 @@ export function resolveBaselineProvider(
   const row = db.prepare(`
     SELECT id, type, cli_path as cliPath, env
     FROM providers
-    WHERE type IN ('claude', 'codex', 'cursor', 'kimi', 'opencode')
+    WHERE type IN ('claude', 'openclaude', 'codex', 'cursor', 'kimi', 'opencode')
     ORDER BY is_default DESC, updated_at DESC
     LIMIT 1
   `).get() as { id: string; type: string; cliPath: string | null; env: string | null } | undefined;
