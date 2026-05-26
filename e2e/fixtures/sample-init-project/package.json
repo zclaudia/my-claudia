@@ -1,0 +1,6 @@
+{
+  "name": "sample-init-project",
+  "version": "0.0.1",
+  "description": "Tiny fixture for init E2E.",
+  "main": "src/index.ts"
+}
