@@ -9,7 +9,10 @@ import { applyDelta } from './delta-merger.js';
 import { AiExploreService, type ExploreInput, type ExploreResult } from './ai-explore-service.js';
 import { BootstrapScanRepository, type BootstrapScan } from './repositories/bootstrap-scan-repository.js';
 import { BootstrapReviewItemRepository } from './repositories/bootstrap-review-item-repository.js';
-import { BootstrapCandidateRepository } from './repositories/bootstrap-candidate-repository.js';
+import {
+  BootstrapCandidateRepository,
+  type BootstrapCandidate,
+} from './repositories/bootstrap-candidate-repository.js';
 
 const OPENSPEC_DIR = 'openspec';
 const SPECS_DIR = 'specs';
@@ -252,6 +255,55 @@ export class BootstrapService {
       return scan; // already terminal — idempotent
     }
     return this.scanRepo.update(scanId, { status: 'cancelled', finishedAt: Date.now() });
+  }
+
+  addCandidate(scanId: string, input: { name: string; description: string }): BootstrapCandidate {
+    this.assertScanIsActive(scanId, ['picking', 'reviewing', 'generating']);
+    if (!/^[a-z][a-z0-9-]*$/.test(input.name)) {
+      throw new Error(`Capability name must be kebab-case: got "${input.name}"`);
+    }
+    const existing = this.candidateRepo.listByScan(scanId).find((c) => c.capability === input.name);
+    if (existing) throw new Error(`Capability "${input.name}" already exists in this scan`);
+    const c = this.candidateRepo.create({
+      scanId,
+      capability: input.name,
+      title: input.name,
+      description: input.description,
+      source: 'user_added',
+    });
+    this.deps.broadcast?.(scanId, { kind: 'candidate_updated', candidate: c });
+    return c;
+  }
+
+  patchCandidate(
+    id: string,
+    patch: Partial<{ title: string; description: string; selected: boolean }>,
+  ): BootstrapCandidate {
+    const before = this.candidateRepo.findById(id);
+    if (!before) throw new Error(`Candidate not found: ${id}`);
+    this.assertScanIsActive(before.scanId, ['picking', 'reviewing']);
+    const c = this.candidateRepo.update(id, patch);
+    this.deps.broadcast?.(before.scanId, { kind: 'candidate_updated', candidate: c });
+    return c;
+  }
+
+  removeCandidate(id: string): void {
+    const before = this.candidateRepo.findById(id);
+    if (!before) throw new Error(`Candidate not found: ${id}`);
+    this.assertScanIsActive(before.scanId, ['picking']);
+    const c = this.candidateRepo.update(id, { phase: 'excluded' });
+    this.deps.broadcast?.(before.scanId, { kind: 'candidate_updated', candidate: c });
+  }
+
+  private assertScanIsActive(scanId: string, allowedPhases: string[]): void {
+    const scan = this.scanRepo.findById(scanId);
+    if (!scan) throw new Error(`Scan not found: ${scanId}`);
+    if (scan.status === 'completed' || scan.status === 'cancelled' || scan.status === 'failed') {
+      throw new Error(`Scan is in terminal state: ${scan.status}`);
+    }
+    if (scan.initPhase && !allowedPhases.includes(scan.initPhase)) {
+      throw new Error(`Operation not allowed in init_phase=${scan.initPhase}`);
+    }
   }
 }
 

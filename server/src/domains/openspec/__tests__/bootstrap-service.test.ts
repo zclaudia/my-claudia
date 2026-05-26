@@ -254,4 +254,64 @@ describe('BootstrapService', () => {
       expect(candidates).toHaveLength(1);
     });
   });
+
+  describe('candidate edit ops', () => {
+    async function setupAwaitingPicker(svc: BootstrapService) {
+      // Manually create a scan in 'picking' phase
+      const scanId = 'scan-pick';
+      db.prepare(
+        `INSERT INTO bootstrap_scans (id, project_id, status, started_at, applied_count, pending_count, init_phase)
+         VALUES (?, 'proj-1', 'awaiting_review', ?, 0, 0, 'picking')`
+      ).run(scanId, Date.now());
+      return scanId;
+    }
+
+    it('addCandidate creates a user_added candidate', async () => {
+      const svc = makeSvc();
+      const scanId = await setupAwaitingPicker(svc);
+      const c = svc.addCandidate(scanId, { name: 'manual-cap', description: 'I added this' });
+      expect(c.source).toBe('user_added');
+      expect(c.phase).toBe('discovered');
+    });
+
+    it('addCandidate rejects duplicate name', async () => {
+      const svc = makeSvc();
+      const scanId = await setupAwaitingPicker(svc);
+      svc.addCandidate(scanId, { name: 'manual-cap', description: 'x' });
+      expect(() => svc.addCandidate(scanId, { name: 'manual-cap', description: 'y' }))
+        .toThrow(/already exists/);
+    });
+
+    it('addCandidate rejects invalid kebab-case name', async () => {
+      const svc = makeSvc();
+      const scanId = await setupAwaitingPicker(svc);
+      expect(() => svc.addCandidate(scanId, { name: 'BadName', description: 'x' }))
+        .toThrow(/kebab/);
+    });
+
+    it('patchCandidate updates title and description', async () => {
+      const svc = makeSvc();
+      const scanId = await setupAwaitingPicker(svc);
+      const c = svc.addCandidate(scanId, { name: 'a', description: 'old' });
+      const patched = svc.patchCandidate(c.id, { description: 'new' });
+      expect(patched.description).toBe('new');
+    });
+
+    it('removeCandidate soft-deletes by setting phase=excluded', async () => {
+      const svc = makeSvc();
+      const scanId = await setupAwaitingPicker(svc);
+      const c = svc.addCandidate(scanId, { name: 'a', description: 'x' });
+      svc.removeCandidate(c.id);
+      const refreshed = db.prepare(`SELECT phase FROM bootstrap_candidates WHERE id = ?`).get(c.id) as any;
+      expect(refreshed.phase).toBe('excluded');
+    });
+  });
+
+  // Helper to make svc within `describe`:
+  function makeSvc(): BootstrapService {
+    const explore = new AiExploreService({ aiRunPort: mkPort({ perCapability: {} }) });
+    return new BootstrapService({
+      db, explore, getProjectRoot: () => projectRoot, broadcast: () => {},
+    });
+  }
 });
