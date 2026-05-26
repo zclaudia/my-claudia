@@ -159,7 +159,7 @@ describe('BootstrapService', () => {
     );
   });
 
-  it('marks scan failed when AiExploreService throws', async () => {
+  it('marks scan failed when AiExploreService surfaces an error', async () => {
     const explore = new AiExploreService({
       aiRunPort: {
         startVirtualRun: async () => {
@@ -169,13 +169,15 @@ describe('BootstrapService', () => {
       timeoutMs: 500,
     });
     const svc = new BootstrapService({ db, explore, getProjectRoot: () => projectRoot });
-    // The aiRunPort rejects; AiExploreService.explore() catches the rejection via .catch()
-    // and returns an empty perCapability. Bootstrap should treat that as "completed with
-    // nothing applied" (graceful degradation rather than failure).
-    const result = await svc.start({ projectId: 'proj-1', mode: 'initial' });
-    expect(result.scan.appliedCount).toBe(0);
-    expect(result.scan.pendingCount).toBe(0);
-    expect(result.scan.status).toBe('completed');
+    // The aiRunPort rejects; AiExploreService captures the port error and propagates
+    // it through `parseErrors`. Bootstrap converts empty-perCapability+parseErrors into
+    // an explicit failure so the user sees a diagnostic instead of silent "0 applied".
+    await expect(svc.start({ projectId: 'proj-1', mode: 'initial' })).rejects.toThrow(/boom/);
+    const stored = db
+      .prepare(`SELECT status, error_message FROM bootstrap_scans WHERE project_id = ?`)
+      .get('proj-1') as { status: string; error_message: string };
+    expect(stored.status).toBe('failed');
+    expect(stored.error_message).toMatch(/boom/);
   });
 
   it('cancelScan transitions a running scan to cancelled and stamps finishedAt', async () => {

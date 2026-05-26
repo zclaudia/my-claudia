@@ -36,11 +36,15 @@ export class AiExploreService {
     const prompt = buildExplorePrompt(input);
     let collected = '';
     let resolved = false;
+    let portError: string | null = null;
+    let runFailedMessage: string | null = null;
+    let timedOut = false;
     const timeoutMs = this.deps.timeoutMs ?? 120_000;
 
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
         if (!resolved) {
+          timedOut = true;
           resolved = true;
           resolve();
         }
@@ -52,7 +56,15 @@ export class AiExploreService {
           providerId: this.deps.providerId,
           onMessage: (m) => {
             if (m.content) collected += m.content;
-            if (m.kind === 'run_completed' || m.kind === 'completed' || m.kind === 'final') {
+            if (m.kind === 'run_failed') {
+              runFailedMessage = m.content || 'run_failed (no detail)';
+            }
+            if (
+              m.kind === 'run_completed' ||
+              m.kind === 'completed' ||
+              m.kind === 'final' ||
+              m.kind === 'run_failed'
+            ) {
               if (!resolved) {
                 resolved = true;
                 clearTimeout(timer);
@@ -61,7 +73,8 @@ export class AiExploreService {
             }
           },
         })
-        .catch(() => {
+        .catch((err: unknown) => {
+          portError = (err as Error)?.message ?? String(err);
           if (!resolved) {
             resolved = true;
             clearTimeout(timer);
@@ -70,7 +83,25 @@ export class AiExploreService {
         });
     });
 
-    return parseExploreResponse(collected);
+    const parsed = parseExploreResponse(collected);
+    if (portError) parsed.parseErrors.push(`AI run port error: ${portError}`);
+    if (runFailedMessage) parsed.parseErrors.push(`AI run failed: ${runFailedMessage}`);
+    if (timedOut && collected.length === 0) {
+      parsed.parseErrors.push(`AI run timed out after ${timeoutMs}ms with no output`);
+    }
+    if (parsed.parseErrors.length > 0) {
+      console.warn(
+        `[AiExploreService] explore returned with ${parsed.parseErrors.length} parse error(s):`,
+        parsed.parseErrors,
+      );
+      if (collected.length > 0) {
+        console.warn(
+          `[AiExploreService] raw response (first 500 chars):`,
+          collected.slice(0, 500),
+        );
+      }
+    }
+    return parsed;
   }
 }
 

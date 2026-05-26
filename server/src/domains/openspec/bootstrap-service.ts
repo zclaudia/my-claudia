@@ -54,6 +54,10 @@ export class BootstrapService {
     const scan = this.scanRepo.create({ projectId: input.projectId });
     const projectRoot = this.deps.getProjectRoot(input.projectId);
 
+    console.log(
+      `[BootstrapService] starting scan ${scan.id} (project=${input.projectId}, mode=${input.mode}, root=${projectRoot})`,
+    );
+
     let exploreResult: ExploreResult;
     try {
       const exploreInput: ExploreInput = {
@@ -71,6 +75,23 @@ export class BootstrapService {
         errorMessage: (e as Error).message,
       });
       throw e;
+    }
+
+    // If the AI produced no capabilities AND there were parse / port errors,
+    // surface the failure instead of silently completing with 0/0. Otherwise
+    // the user sees "scan completed, applied 0" and has no idea why.
+    if (
+      Object.keys(exploreResult.perCapability).length === 0 &&
+      exploreResult.parseErrors.length > 0
+    ) {
+      const message = `AI explore produced no capabilities. ${exploreResult.parseErrors.join('; ')}`;
+      console.warn(`[BootstrapService] scan ${scan.id} failing: ${message}`);
+      this.scanRepo.update(scan.id, {
+        status: 'failed',
+        finishedAt: Date.now(),
+        errorMessage: message,
+      });
+      throw new Error(message);
     }
 
     const appliedSummary: Record<string, number> = {};
@@ -125,6 +146,10 @@ export class BootstrapService {
     if (finalStatus === 'completed' && appliedCount > 0) {
       bumpCorpusMeta(this.deps.db, input.projectId);
     }
+
+    console.log(
+      `[BootstrapService] scan ${scan.id} ${finalStatus} (capabilities=${Object.keys(exploreResult.perCapability).length}, applied=${appliedCount}, pending=${pendingCount})`,
+    );
 
     return { scan: updated, exploreResult, appliedSummary, pendingSummary };
   }

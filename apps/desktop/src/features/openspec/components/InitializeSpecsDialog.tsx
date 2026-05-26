@@ -39,6 +39,9 @@ export function InitializeSpecsDialog({
     api
       .listBootstrapScans(projectId)
       .then(async (scans) => {
+        // Bail early on a stale effect run (StrictMode double-invoke) so the
+        // cancelled run never reaches the mutating startBootstrap call below.
+        if (cancelled) return;
         const active = scans.find(
           (s) => s.status === 'running' || s.status === 'awaiting_review',
         );
@@ -46,7 +49,6 @@ export function InitializeSpecsDialog({
           // Resume existing scan instead of starting a new one — avoids the
           // "scan already active" dead-end when a previous attempt was
           // interrupted or left awaiting review.
-          if (cancelled) return;
           setScan(active);
           if (active.status === 'awaiting_review') {
             const pending = await api.listBootstrapItems(active.id, 'pending');
@@ -55,8 +57,32 @@ export function InitializeSpecsDialog({
           // For 'running' scans the AI was presumably interrupted; the user
           // can cancel from the footer button before starting fresh.
         } else {
-          // No active scan — kick off a new one.
-          const res = await api.startBootstrap(projectId, mode);
+          // No active scan — kick off a new one. If the server reports one
+          // already active (lost race against a concurrent start), refetch and
+          // resume rather than surfacing the error as a dead-end.
+          let res;
+          try {
+            res = await api.startBootstrap(projectId, mode);
+          } catch (e) {
+            if (cancelled) return;
+            const message = (e as Error).message ?? '';
+            if (message.includes('bootstrap scan is already active')) {
+              const refreshed = await api.listBootstrapScans(projectId);
+              if (cancelled) return;
+              const nowActive = refreshed.find(
+                (s) => s.status === 'running' || s.status === 'awaiting_review',
+              );
+              if (nowActive) {
+                setScan(nowActive);
+                if (nowActive.status === 'awaiting_review') {
+                  const pending = await api.listBootstrapItems(nowActive.id, 'pending');
+                  if (!cancelled) setItems(pending);
+                }
+                return;
+              }
+            }
+            throw e;
+          }
           if (cancelled) return;
           setScan(res.scan);
           setAppliedSummary(res.appliedSummary);
@@ -181,6 +207,22 @@ export function InitializeSpecsDialog({
                     ` ${scan.pendingCount} item${scan.pendingCount === 1 ? '' : 's'} pending review.`}
                 </div>
               </div>
+
+              {scan.errorMessage && (
+                <div className="border border-red-500/40 rounded-md p-2 bg-red-500/10 text-xs text-red-600 whitespace-pre-wrap break-words">
+                  {scan.errorMessage}
+                </div>
+              )}
+              {scan.status === 'completed' &&
+                scan.appliedCount === 0 &&
+                scan.pendingCount === 0 &&
+                !scan.errorMessage && (
+                  <div className="border border-amber-500/40 rounded-md p-2 bg-amber-500/10 text-xs text-amber-700">
+                    AI scan completed but did not extract any requirements. Make sure the
+                    project has a default AI provider configured and check the server log
+                    for the raw AI response.
+                  </div>
+                )}
 
               {Object.keys(appliedSummary).length > 0 && (
                 <div className="border border-border rounded-md p-3 bg-muted/30 text-xs">
