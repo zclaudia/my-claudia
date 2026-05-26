@@ -488,7 +488,7 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
         scanId,
         projectId: scan.projectId,
         payload,
-      } as any);
+      });
     },
   });
   const bootstrapReviewService = new BootstrapReviewService({

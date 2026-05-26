@@ -203,6 +203,7 @@ import type {
   OpenSpecExecutorStatusChangedMessage,
   OpenSpecSubIssueStatusChangedMessage,
   OpenSpecSpecChangeStatusChangedMessage,
+  BootstrapEventMessage,
 } from './openspec.js';
 
 export type ServerMessage =
@@ -278,6 +279,7 @@ export type ServerMessage =
   | OpenSpecExecutorStatusChangedMessage
   | OpenSpecSubIssueStatusChangedMessage
   | OpenSpecSpecChangeStatusChangedMessage
+  | BootstrapEventMessage
   | LocalIssueCommentUpdateMessage
   | LocalIssueCommentDeletedMessage
   | AttachmentAddedMessage

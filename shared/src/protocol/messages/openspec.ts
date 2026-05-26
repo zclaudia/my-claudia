@@ -34,3 +34,18 @@ export interface OpenSpecSpecChangeStatusChangedMessage {
   next: SpecChangeStatus;
   at: number;
 }
+
+/**
+ * Streamed during a project bootstrap scan. The `payload.kind` discriminates
+ * the event type (e.g. `scan_started`, `analysis_progress`, `scan_completed`)
+ * and may carry additional event-specific fields.
+ */
+export interface BootstrapEventMessage {
+  type: 'bootstrap_event';
+  scanId: string;
+  projectId: string;
+  payload: {
+    kind: string;
+    [k: string]: unknown;
+  };
+}
