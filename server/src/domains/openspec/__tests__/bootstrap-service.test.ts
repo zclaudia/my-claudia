@@ -44,7 +44,7 @@ describe('BootstrapService', () => {
     }
   });
 
-  it('initial bootstrap auto-applies all ADDED and marks scan completed', async () => {
+  it('rescan auto-applies all ADDED and marks scan completed', async () => {
     const explore = new AiExploreService({
       aiRunPort: mkPort({
         perCapability: {
@@ -75,7 +75,7 @@ describe('BootstrapService', () => {
     });
     const svc = new BootstrapService({ db, explore, getProjectRoot: () => projectRoot });
 
-    const result = await svc.start({ projectId: 'proj-1', mode: 'initial' });
+    const result = await svc.start({ projectId: 'proj-1', mode: 'rescan' });
     expect(result.scan.status).toBe('completed');
     expect(result.scan.appliedCount).toBe(2);
     expect(result.scan.pendingCount).toBe(0);
@@ -149,7 +149,7 @@ describe('BootstrapService', () => {
   it('throws when another scan is already active', async () => {
     const explore = new AiExploreService({ aiRunPort: mkPort({ perCapability: {} }) });
     const svc = new BootstrapService({ db, explore, getProjectRoot: () => projectRoot });
-    await svc.start({ projectId: 'proj-1', mode: 'initial' }); // completed (no perCapability → empty)
+    await svc.start({ projectId: 'proj-1', mode: 'rescan' }); // completed (no perCapability → empty)
     // Manually mark as awaiting_review to simulate an active scan
     db.prepare(`UPDATE bootstrap_scans SET status = 'awaiting_review' WHERE project_id = ?`).run(
       'proj-1',
@@ -172,7 +172,7 @@ describe('BootstrapService', () => {
     // The aiRunPort rejects; AiExploreService captures the port error and propagates
     // it through `parseErrors`. Bootstrap converts empty-perCapability+parseErrors into
     // an explicit failure so the user sees a diagnostic instead of silent "0 applied".
-    await expect(svc.start({ projectId: 'proj-1', mode: 'initial' })).rejects.toThrow(/boom/);
+    await expect(svc.start({ projectId: 'proj-1', mode: 'rescan' })).rejects.toThrow(/boom/);
     const stored = db
       .prepare(`SELECT status, error_message FROM bootstrap_scans WHERE project_id = ?`)
       .get('proj-1') as { status: string; error_message: string };
@@ -185,7 +185,7 @@ describe('BootstrapService', () => {
     const svc = new BootstrapService({ db, explore, getProjectRoot: () => projectRoot });
     // Start a scan and manually rewind it to 'running' to simulate an
     // interrupted bootstrap that never finished.
-    const completed = await svc.start({ projectId: 'proj-1', mode: 'initial' });
+    const completed = await svc.start({ projectId: 'proj-1', mode: 'rescan' });
     db.prepare(
       `UPDATE bootstrap_scans SET status='running', finished_at=NULL WHERE id = ?`,
     ).run(completed.scan.id);
@@ -198,7 +198,7 @@ describe('BootstrapService', () => {
   it('cancelScan is idempotent on a terminal scan', async () => {
     const explore = new AiExploreService({ aiRunPort: mkPort({ perCapability: {} }) });
     const svc = new BootstrapService({ db, explore, getProjectRoot: () => projectRoot });
-    const completed = await svc.start({ projectId: 'proj-1', mode: 'initial' });
+    const completed = await svc.start({ projectId: 'proj-1', mode: 'rescan' });
     expect(completed.scan.status).toBe('completed');
     const finishedAtBefore = completed.scan.finishedAt;
 
@@ -210,12 +210,48 @@ describe('BootstrapService', () => {
   it('empty perCapability → scan completed with 0 applied, no corpus meta bump', async () => {
     const explore = new AiExploreService({ aiRunPort: mkPort({ perCapability: {} }) });
     const svc = new BootstrapService({ db, explore, getProjectRoot: () => projectRoot });
-    const result = await svc.start({ projectId: 'proj-1', mode: 'initial' });
+    const result = await svc.start({ projectId: 'proj-1', mode: 'rescan' });
     expect(result.scan.appliedCount).toBe(0);
     expect(result.scan.status).toBe('completed');
     const meta = db
       .prepare(`SELECT * FROM project_spec_corpus_meta WHERE project_id = ?`)
       .get('proj-1');
     expect(meta).toBeUndefined();
+  });
+
+  describe('init mode: start', () => {
+    it('starts Phase 1 in background and returns scan immediately with init_phase=discovering', async () => {
+      let resolveAi: (() => void) | null = null;
+      const aiStarted = new Promise<void>((resolve) => { resolveAi = resolve; });
+      const port = {
+        async startVirtualRun(args: any) {
+          resolveAi!();
+          await new Promise<void>((r) => setTimeout(r, 50));
+          args.onMessage?.({
+            kind: 'assistant',
+            content: JSON.stringify({
+              capabilities: [{ name: 'auth', description: 'login' }],
+              uncertainties: [],
+            }),
+          });
+          args.onMessage?.({ kind: 'run_completed' });
+        },
+      };
+      const explore = new AiExploreService({ aiRunPort: port, timeoutMs: 5000 });
+      const broadcastCalls: any[] = [];
+      const svc = new BootstrapService({
+        db, explore, getProjectRoot: () => projectRoot,
+        broadcast: (scanId, payload) => broadcastCalls.push({ scanId, payload }),
+      });
+      const result = await svc.start({ projectId: 'proj-1', mode: 'initial' });
+      expect(result.scan.status).toBe('running');
+      expect(result.scan.initPhase).toBe('discovering');
+      await aiStarted;
+      await new Promise((r) => setTimeout(r, 150));
+      const refreshed = db.prepare(`SELECT * FROM bootstrap_scans WHERE id = ?`).get(result.scan.id) as any;
+      expect(refreshed.init_phase).toBe('picking');
+      const candidates = db.prepare(`SELECT * FROM bootstrap_candidates WHERE scan_id = ?`).all(result.scan.id);
+      expect(candidates).toHaveLength(1);
+    });
   });
 });

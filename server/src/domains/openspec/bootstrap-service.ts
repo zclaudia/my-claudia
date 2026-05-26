@@ -9,6 +9,7 @@ import { applyDelta } from './delta-merger.js';
 import { AiExploreService, type ExploreInput, type ExploreResult } from './ai-explore-service.js';
 import { BootstrapScanRepository, type BootstrapScan } from './repositories/bootstrap-scan-repository.js';
 import { BootstrapReviewItemRepository } from './repositories/bootstrap-review-item-repository.js';
+import { BootstrapCandidateRepository } from './repositories/bootstrap-candidate-repository.js';
 
 const OPENSPEC_DIR = 'openspec';
 const SPECS_DIR = 'specs';
@@ -17,6 +18,7 @@ export interface BootstrapServiceDeps {
   db: Database;
   explore: AiExploreService;
   getProjectRoot: (projectId: string) => string;
+  broadcast?: (scanId: string, payload: { kind: string; [k: string]: unknown }) => void;
 }
 
 export interface BootstrapStartInput {
@@ -36,10 +38,12 @@ export interface BootstrapStartResult {
 export class BootstrapService {
   private scanRepo: BootstrapScanRepository;
   private reviewRepo: BootstrapReviewItemRepository;
+  private candidateRepo: BootstrapCandidateRepository;
 
   constructor(private deps: BootstrapServiceDeps) {
     this.scanRepo = new BootstrapScanRepository(deps.db);
     this.reviewRepo = new BootstrapReviewItemRepository(deps.db);
+    this.candidateRepo = new BootstrapCandidateRepository(deps.db);
   }
 
   async start(input: BootstrapStartInput): Promise<BootstrapStartResult> {
@@ -51,6 +55,83 @@ export class BootstrapService {
       );
     }
 
+    if (input.mode === 'initial') {
+      return this.startInitial(input);
+    }
+    return this.startRescan(input);
+  }
+
+  private async startInitial(input: BootstrapStartInput): Promise<BootstrapStartResult> {
+    const scan = this.scanRepo.create({ projectId: input.projectId });
+    this.scanRepo.update(scan.id, { initPhase: 'discovering' });
+    const updated = this.scanRepo.findById(scan.id)!;
+
+    console.log(
+      `[BootstrapService] starting initial scan ${updated.id} (project=${input.projectId}, root=${this.deps.getProjectRoot(input.projectId)})`,
+    );
+
+    // Kick off Phase 1 in the background. Returns immediately.
+    void this.runPhase1(updated).catch((e) => {
+      console.error(`[BootstrapService] Phase 1 unhandled error for scan ${updated.id}:`, e);
+    });
+
+    return {
+      scan: updated,
+      exploreResult: { perCapability: {}, rawResponse: '', parseErrors: [] },
+      appliedSummary: {},
+      pendingSummary: {},
+    };
+  }
+
+  private async runPhase1(scan: BootstrapScan): Promise<void> {
+    this.deps.broadcast?.(scan.id, { kind: 'phase1_started' });
+    const projectRoot = this.deps.getProjectRoot(scan.projectId);
+    const existingCapabilities = readExistingCapabilityFolders(projectRoot);
+
+    let result;
+    try {
+      result = await this.deps.explore.discoverCapabilities({
+        projectId: scan.projectId,
+        workingDirectory: projectRoot,
+        existingCapabilities,
+      });
+    } catch (e) {
+      const msg = (e as Error).message;
+      console.warn(`[BootstrapService] Phase 1 failed for scan ${scan.id}: ${msg}`);
+      this.scanRepo.update(scan.id, {
+        status: 'failed',
+        finishedAt: Date.now(),
+        errorMessage: msg,
+      });
+      this.deps.broadcast?.(scan.id, { kind: 'phase1_failed', error: msg });
+      return;
+    }
+
+    // Persist candidates (skip those already in existing capabilities)
+    const skip = new Set(existingCapabilities);
+    for (const c of result.capabilities) {
+      if (skip.has(c.name)) continue;
+      this.candidateRepo.create({
+        scanId: scan.id,
+        capability: c.name,
+        title: c.name,
+        description: c.description,
+        source: 'ai_discovered',
+      });
+    }
+
+    this.scanRepo.update(scan.id, {
+      status: 'awaiting_review',
+      initPhase: 'picking',
+    });
+    this.deps.broadcast?.(scan.id, {
+      kind: 'phase1_completed',
+      candidateCount: result.capabilities.length,
+      uncertaintyCount: result.uncertainties.length,
+    });
+  }
+
+  private async startRescan(input: BootstrapStartInput): Promise<BootstrapStartResult> {
     const scan = this.scanRepo.create({ projectId: input.projectId });
     const projectRoot = this.deps.getProjectRoot(input.projectId);
 
@@ -192,6 +273,15 @@ function summarizeCorpus(projectRoot: string): string {
     }
   }
   return caps.length > 0 ? caps.join('\n') : '(no existing corpus)';
+}
+
+function readExistingCapabilityFolders(projectRoot: string): string[] {
+  const dir = path.join(projectRoot, OPENSPEC_DIR, SPECS_DIR);
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name);
 }
 
 function readOrEmptyCorpus(projectRoot: string, capability: string): ParsedSpec {

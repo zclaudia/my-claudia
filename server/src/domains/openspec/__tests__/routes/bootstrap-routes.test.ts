@@ -80,7 +80,7 @@ describe('Bootstrap routes', () => {
   it('POST /bootstrap/scans starts a scan', async () => {
     const res = await request(app)
       .post('/api/openspec/bootstrap/scans')
-      .send({ projectId: 'proj-1', mode: 'initial' });
+      .send({ projectId: 'proj-1', mode: 'rescan' });
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
     expect(res.body.data.scan.status).toBe('completed');
