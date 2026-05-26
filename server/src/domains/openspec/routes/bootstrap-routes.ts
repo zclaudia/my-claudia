@@ -5,6 +5,7 @@ import type { ApiResponse } from '@my-claudia/shared/core/api';
 import type { BootstrapService } from '../bootstrap-service.js';
 import type { BootstrapReviewService } from '../bootstrap-review-service.js';
 import { BootstrapScanRepository } from '../repositories/bootstrap-scan-repository.js';
+import type { BootstrapCandidateRepository } from '../repositories/bootstrap-candidate-repository.js';
 import type { Database } from 'better-sqlite3';
 
 const ok = <T>(data: T): ApiResponse<T> => ({ success: true, data });
@@ -17,12 +18,15 @@ export interface BootstrapRoutesDeps {
   db: Database;
   bootstrapService: BootstrapService;
   reviewService: BootstrapReviewService;
+  candidateRepo: BootstrapCandidateRepository;
+  scanRepo: BootstrapScanRepository;
 }
 
 export function createBootstrapRoutes(deps: BootstrapRoutesDeps): Router {
   const router = Router();
   router.use(express.json());
-  const scanRepo = new BootstrapScanRepository(deps.db);
+  const scanRepo = deps.scanRepo ?? new BootstrapScanRepository(deps.db);
+  const candidateRepo = deps.candidateRepo;
 
   router.post('/bootstrap/scans', async (req: Request, res: Response) => {
     const body = req.body as { projectId?: string; mode?: 'initial' | 'rescan' };
@@ -83,6 +87,27 @@ export function createBootstrapRoutes(deps: BootstrapRoutesDeps): Router {
   router.post('/bootstrap/items/:itemId/reject', (req: Request, res: Response) => {
     try {
       res.json(ok({ item: deps.reviewService.reject(req.params.itemId) }));
+    } catch (e) {
+      res.status(400).json(err('OPENSPEC_ERROR', (e as Error).message));
+    }
+  });
+
+  router.get('/bootstrap/scans/:id/candidates', (req: Request, res: Response) => {
+    res.json(ok({ candidates: candidateRepo.listByScan(req.params.id) }));
+  });
+
+  router.post('/bootstrap/scans/:id/candidates', (req: Request, res: Response) => {
+    const body = req.body as { name?: string; description?: string };
+    if (!body.name || !body.description) {
+      res.status(400).json(err('VALIDATION', 'name + description required'));
+      return;
+    }
+    try {
+      const candidate = deps.bootstrapService.addCandidate(req.params.id, {
+        name: body.name,
+        description: body.description,
+      });
+      res.status(201).json(ok({ candidate }));
     } catch (e) {
       res.status(400).json(err('OPENSPEC_ERROR', (e as Error).message));
     }

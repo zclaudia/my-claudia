@@ -11,7 +11,9 @@ import {
   AiExploreService,
   BootstrapService,
   BootstrapReviewService,
+  BootstrapScanRepository,
 } from '../../index.js';
+import { BootstrapCandidateRepository } from '../../repositories/bootstrap-candidate-repository.js';
 import { createBootstrapRoutes } from '../../routes/bootstrap-routes.js';
 
 function mkPort(jsonObj: unknown) {
@@ -65,8 +67,28 @@ describe('Bootstrap routes', () => {
       getProjectRoot: () => projectRoot,
     });
     app = express();
-    app.use('/api/openspec', createBootstrapRoutes({ db, bootstrapService, reviewService }));
+    app.use(
+      '/api/openspec',
+      createBootstrapRoutes({
+        db,
+        bootstrapService,
+        reviewService,
+        candidateRepo: new BootstrapCandidateRepository(db),
+        scanRepo: new BootstrapScanRepository(db),
+      }),
+    );
   });
+
+  /**
+   * Helper: create a scan in init_phase='picking' so candidate ops are allowed.
+   */
+  function makePickingScan(scanId = 'scan-pick'): string {
+    db.prepare(
+      `INSERT INTO bootstrap_scans (id, project_id, status, started_at, applied_count, pending_count, init_phase)
+       VALUES (?, 'proj-1', 'awaiting_review', ?, 0, 0, 'picking')`,
+    ).run(scanId, Date.now());
+    return scanId;
+  }
 
   afterEach(() => {
     db.close();
@@ -154,6 +176,57 @@ describe('Bootstrap routes', () => {
     expect(res.status).toBe(404);
     expect(res.body.success).toBe(false);
     expect(res.body.error.code).toBe('NOT_FOUND');
+  });
+
+  it('GET /bootstrap/scans/:id/candidates returns array', async () => {
+    const scanId = makePickingScan();
+    const res = await request(app).get(`/api/openspec/bootstrap/scans/${scanId}/candidates`);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data.candidates)).toBe(true);
+    expect(res.body.data.candidates).toHaveLength(0);
+  });
+
+  it('GET /bootstrap/scans/:id/candidates lists added candidates', async () => {
+    const scanId = makePickingScan();
+    await request(app)
+      .post(`/api/openspec/bootstrap/scans/${scanId}/candidates`)
+      .send({ name: 'auth', description: 'Authentication' });
+    const res = await request(app).get(`/api/openspec/bootstrap/scans/${scanId}/candidates`);
+    expect(res.body.data.candidates).toHaveLength(1);
+    expect(res.body.data.candidates[0].capability).toBe('auth');
+  });
+
+  it('POST /bootstrap/scans/:id/candidates creates a candidate', async () => {
+    const scanId = makePickingScan();
+    const res = await request(app)
+      .post(`/api/openspec/bootstrap/scans/${scanId}/candidates`)
+      .send({ name: 'billing', description: 'Billing capability' });
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.candidate.capability).toBe('billing');
+    expect(res.body.data.candidate.source).toBe('user_added');
+  });
+
+  it('POST /bootstrap/scans/:id/candidates returns 400 on missing fields', async () => {
+    const scanId = makePickingScan();
+    const res = await request(app)
+      .post(`/api/openspec/bootstrap/scans/${scanId}/candidates`)
+      .send({ name: 'only-name' });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION');
+  });
+
+  it('POST /bootstrap/scans/:id/candidates returns 400 on duplicate', async () => {
+    const scanId = makePickingScan();
+    await request(app)
+      .post(`/api/openspec/bootstrap/scans/${scanId}/candidates`)
+      .send({ name: 'dup', description: 'first' });
+    const res = await request(app)
+      .post(`/api/openspec/bootstrap/scans/${scanId}/candidates`)
+      .send({ name: 'dup', description: 'second' });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('OPENSPEC_ERROR');
   });
 
   it('POST /bootstrap/items/:itemId/approve marks approved', async () => {

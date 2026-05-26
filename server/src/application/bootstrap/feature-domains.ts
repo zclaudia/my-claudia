@@ -48,7 +48,9 @@ import {
   BootstrapService,
   BootstrapReviewService,
   SpecChangeDraftingService,
+  BootstrapScanRepository,
 } from '../../domains/openspec/index.js';
+import { BootstrapCandidateRepository } from '../../domains/openspec/repositories/bootstrap-candidate-repository.js';
 import { registerIssueOrchestration, type IssueOrchestration } from '../../domains/issue-orchestration/index.js';
 import { createCorpusRoutes } from '../../domains/openspec/routes/corpus-routes.js';
 import { createSpecChangeRoutes } from '../../domains/openspec/routes/spec-change-routes.js';
@@ -499,7 +501,13 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
   app.use('/api/openspec', authMiddleware, createCorpusRoutes({ getProjectRoot }));
   app.use('/api/openspec', authMiddleware, createSpecChangeRoutes({ db, specChangeService, draftingService: specChangeDraftingService }));
   app.use('/api/openspec', authMiddleware, createExecutorRoutes({ db, executorService: issueOrchestration.executorService }));
-  app.use('/api/openspec', authMiddleware, createBootstrapRoutes({ db, bootstrapService, reviewService: bootstrapReviewService }));
+  app.use('/api/openspec', authMiddleware, createBootstrapRoutes({
+    db,
+    bootstrapService,
+    reviewService: bootstrapReviewService,
+    candidateRepo: new BootstrapCandidateRepository(db),
+    scanRepo: new BootstrapScanRepository(db),
+  }));
   app.use('/api/issues', authMiddleware, createIssueRoutes({ lifecycle: issueOrchestration.lifecycle, anonymousService: issueOrchestration.anonymousService }));
   app.use('/api/epics', authMiddleware, createEpicRoutes({ service: new EpicService(db) }));
 
