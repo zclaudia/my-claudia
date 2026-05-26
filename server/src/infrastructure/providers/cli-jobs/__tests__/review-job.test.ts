@@ -22,6 +22,17 @@ vi.mock('../claude-review.js', () => ({
   })),
 }));
 
+vi.mock('../openclaude-review.js', () => ({
+  runOpenClaudeReviewJob: vi.fn(async () => ({
+    decision: 'approve',
+    reasoning: 'openclaude',
+    confidence: 0.75,
+    rawStdout: '',
+    rawStderr: '',
+    exitCode: 0,
+  })),
+}));
+
 vi.mock('../cursor-review.js', () => ({
   runCursorReviewJob: vi.fn(async () => ({
     decision: 'approve',
@@ -61,6 +72,7 @@ describe('review-job', () => {
   it('reports supported provider types', () => {
     expect(supportsAIReviewCliJob('kimi')).toBe(true);
     expect(supportsAIReviewCliJob('claude')).toBe(true);
+    expect(supportsAIReviewCliJob('openclaude')).toBe(true);
     expect(supportsAIReviewCliJob('cursor')).toBe(true);
     expect(supportsAIReviewCliJob('opencode')).toBe(true);
     expect(supportsAIReviewCliJob('codex')).toBe(true);
@@ -75,6 +87,11 @@ describe('review-job', () => {
     await expect(runAIReviewCliJob('claude', { prompt: 'p', cwd: '/tmp' })).resolves.toMatchObject({
       decision: 'approve',
       reasoning: 'claude',
+    });
+
+    await expect(runAIReviewCliJob('openclaude', { prompt: 'p', cwd: '/tmp' })).resolves.toMatchObject({
+      decision: 'approve',
+      reasoning: 'openclaude',
     });
 
     await expect(runAIReviewCliJob('cursor', { prompt: 'p', cwd: '/tmp' })).resolves.toMatchObject({

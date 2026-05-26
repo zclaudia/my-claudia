@@ -2,12 +2,14 @@ import type { AIReviewCliJobResult, CliJobInput } from './types.js';
 import { runKimiReviewJob } from './kimi-review.js';
 import { runClaudeReviewJob } from './claude-review.js';
 import { runCursorReviewJob } from './cursor-review.js';
+import { runOpenClaudeReviewJob } from './openclaude-review.js';
 import { runOpenCodeReviewJob } from './opencode-review.js';
 import { runCodexReviewJob } from './codex-review.js';
 
 const REVIEW_JOB_RUNNERS: Record<string, (input: CliJobInput) => Promise<AIReviewCliJobResult>> = {
   kimi: runKimiReviewJob,
   claude: runClaudeReviewJob,
+  openclaude: runOpenClaudeReviewJob,
   cursor: runCursorReviewJob,
   opencode: runOpenCodeReviewJob,
   codex: runCodexReviewJob,

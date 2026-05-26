@@ -260,7 +260,7 @@ export function DebugSettings({ isConnected, sendMessage, embeddedServerStatus }
     api.getProviders()
       .then((providers) => {
         const reviewCapable = providers.filter((p) =>
-          ['claude', 'kimi', 'cursor', 'opencode', 'codex'].includes(p.type)
+          ['claude', 'openclaude', 'kimi', 'cursor', 'opencode', 'codex'].includes(p.type)
         );
         setSimProviders(reviewCapable);
         if (reviewCapable.length > 0 && !simProviderId) {

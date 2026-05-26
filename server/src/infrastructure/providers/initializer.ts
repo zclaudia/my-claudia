@@ -17,7 +17,7 @@ let tempFileCleanupTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
  * If no providers exist in the database, probe the local system for known
- * CLI tools (claude, opencode, codex, cursor, kimi) and insert them.
+ * CLI tools (claude, openclaude, opencode, codex, cursor, kimi) and insert them.
  */
 export function autoDetectProviders(db: Database.Database): void {
   const existing = db.prepare('SELECT id FROM providers LIMIT 1').get() as { id: string } | undefined;

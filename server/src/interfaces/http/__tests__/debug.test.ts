@@ -10,7 +10,7 @@ vi.mock('../../../application/conversation/agent/delegation-evaluator.js', () =>
 }));
 
 vi.mock('../../../infrastructure/providers/cli-jobs/review-job.js', () => ({
-  supportsAIReviewCliJob: vi.fn((type: string) => ['claude', 'kimi', 'cursor', 'opencode', 'codex'].includes(type)),
+  supportsAIReviewCliJob: vi.fn((type: string) => ['claude', 'openclaude', 'kimi', 'cursor', 'opencode', 'codex'].includes(type)),
   runAIReviewCliJob: vi.fn(),
 }));
 

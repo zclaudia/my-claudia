@@ -191,7 +191,7 @@ export function createDebugRoutes(
     let resolvedProviderId = providerId;
     if (!resolvedProviderId) {
       const firstProvider = db.prepare(
-        `SELECT id FROM providers WHERE type IN ('claude', 'kimi', 'cursor', 'opencode', 'codex') LIMIT 1`
+        `SELECT id FROM providers WHERE type IN ('claude', 'openclaude', 'kimi', 'cursor', 'opencode', 'codex') LIMIT 1`
       ).get() as { id: string } | undefined;
       resolvedProviderId = firstProvider?.id;
     }
