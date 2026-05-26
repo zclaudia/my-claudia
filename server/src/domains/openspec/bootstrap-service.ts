@@ -42,11 +42,74 @@ export class BootstrapService {
   private scanRepo: BootstrapScanRepository;
   private reviewRepo: BootstrapReviewItemRepository;
   private candidateRepo: BootstrapCandidateRepository;
+  private generationRunners = new Map<string, boolean>(); // scanId → cancelled flag
 
   constructor(private deps: BootstrapServiceDeps) {
     this.scanRepo = new BootstrapScanRepository(deps.db);
     this.reviewRepo = new BootstrapReviewItemRepository(deps.db);
     this.candidateRepo = new BootstrapCandidateRepository(deps.db);
+  }
+
+  async commitGeneration(scanId: string): Promise<void> {
+    this.assertScanIsActive(scanId, ['picking']);
+    const selected = this.candidateRepo.listSelected(scanId);
+    if (selected.length === 0) {
+      throw new Error('No candidates selected. Pick at least one capability before generating.');
+    }
+    this.scanRepo.update(scanId, { initPhase: 'generating', status: 'running' });
+    this.generationRunners.set(scanId, false);
+    void this.runPhase2(scanId).catch((e) => {
+      console.error(`[BootstrapService] Phase 2 unhandled error for scan ${scanId}:`, e);
+    });
+  }
+
+  private async runPhase2(scanId: string): Promise<void> {
+    const selected = this.candidateRepo.listSelected(scanId);
+    const projectRoot = this.deps.getProjectRoot(this.scanRepo.findById(scanId)!.projectId);
+
+    for (const cand of selected) {
+      if (this.generationRunners.get(scanId) === true) {
+        this.candidateRepo.update(cand.id, { phase: 'discovered' });
+        break;
+      }
+      this.candidateRepo.update(cand.id, { phase: 'generating' });
+      this.deps.broadcast?.(scanId, {
+        kind: 'candidate_generation_started',
+        candidateId: cand.id,
+        capability: cand.capability,
+      });
+
+      try {
+        const onStream = makeThrottledStreamCallback((contentSoFar) => {
+          this.deps.broadcast?.(scanId, {
+            kind: 'candidate_generation_progress',
+            candidateId: cand.id,
+            contentSoFar,
+          });
+        });
+        const result = await this.deps.explore.generateCapabilitySpec({
+          capability: { name: cand.capability, description: cand.description },
+          workingDirectory: projectRoot,
+          onStream,
+        });
+        const updated = this.candidateRepo.update(cand.id, {
+          phase: 'generated',
+          generated_md: result.specMd,
+          generation_attempts: result.attempts,
+        });
+        this.deps.broadcast?.(scanId, { kind: 'candidate_generation_completed', candidate: updated });
+      } catch (e) {
+        const msg = (e as Error).message;
+        const updated = this.candidateRepo.update(cand.id, {
+          phase: 'failed',
+          error_message: msg,
+        });
+        this.deps.broadcast?.(scanId, { kind: 'candidate_generation_failed', candidate: updated, error: msg });
+      }
+    }
+
+    this.scanRepo.update(scanId, { initPhase: 'reviewing', status: 'awaiting_review' });
+    this.generationRunners.delete(scanId);
   }
 
   async start(input: BootstrapStartInput): Promise<BootstrapStartResult> {
@@ -358,3 +421,29 @@ function bumpCorpusMeta(db: Database, projectId: string): void {
 
 // Re-export ParsedRequirement for callers that need the shape (Review service).
 export type { ParsedRequirement };
+
+function makeThrottledStreamCallback(emit: (s: string) => void, hz = 2): (s: string) => void {
+  const minIntervalMs = 1000 / hz;
+  let lastEmitAt = 0;
+  let pending: string | null = null;
+  let timer: NodeJS.Timeout | null = null;
+  return (s: string) => {
+    pending = s;
+    const now = Date.now();
+    const since = now - lastEmitAt;
+    if (since >= minIntervalMs) {
+      lastEmitAt = now;
+      emit(s);
+      pending = null;
+    } else if (!timer) {
+      timer = setTimeout(() => {
+        timer = null;
+        if (pending !== null) {
+          lastEmitAt = Date.now();
+          emit(pending);
+          pending = null;
+        }
+      }, minIntervalMs - since);
+    }
+  };
+}

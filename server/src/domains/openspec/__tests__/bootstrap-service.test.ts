@@ -307,6 +307,44 @@ describe('BootstrapService', () => {
     });
   });
 
+  describe('commitGeneration (Phase 2)', () => {
+    const validMd =
+      '## Purpose\n\nFoo.\n\n## Requirements\n\n### Requirement: Foo\n\nThe system MUST do foo.\n\n#### Scenario: bar\n\n- **WHEN** x\n- **THEN** y\n';
+
+    it('runs Phase 2 sequentially for selected candidates, transitions to reviewing', async () => {
+      let calls = 0;
+      const port = {
+        async startVirtualRun(args: any) {
+          calls += 1;
+          args.onMessage?.({ kind: 'assistant', content: `<spec>${validMd}</spec>` });
+          args.onMessage?.({ kind: 'run_completed' });
+        },
+      };
+      const explore = new AiExploreService({ aiRunPort: port, timeoutMs: 5000 });
+      const broadcasts: any[] = [];
+      const svc = new BootstrapService({
+        db, explore, getProjectRoot: () => projectRoot, broadcast: (id, p) => broadcasts.push({ id, p }),
+      });
+      const scanId = 'scan-gen';
+      db.prepare(`INSERT INTO bootstrap_scans (id, project_id, status, started_at, applied_count, pending_count, init_phase)
+                  VALUES (?, 'proj-1', 'awaiting_review', ?, 0, 0, 'picking')`).run(scanId, Date.now());
+      const c1 = svc.addCandidate(scanId, { name: 'auth', description: 'login' });
+      const c2 = svc.addCandidate(scanId, { name: 'billing', description: 'subs' });
+
+      await svc.commitGeneration(scanId);
+      await new Promise((r) => setTimeout(r, 200));
+
+      expect(calls).toBe(2);
+      const r1 = db.prepare(`SELECT phase, generated_md FROM bootstrap_candidates WHERE id = ?`).get(c1.id) as any;
+      const r2 = db.prepare(`SELECT phase, generated_md FROM bootstrap_candidates WHERE id = ?`).get(c2.id) as any;
+      expect(r1.phase).toBe('generated');
+      expect(r2.phase).toBe('generated');
+      expect(r1.generated_md).toBe(validMd);
+      const scan = db.prepare(`SELECT init_phase FROM bootstrap_scans WHERE id = ?`).get(scanId) as any;
+      expect(scan.init_phase).toBe('reviewing');
+    });
+  });
+
   // Helper to make svc within `describe`:
   function makeSvc(): BootstrapService {
     const explore = new AiExploreService({ aiRunPort: mkPort({ perCapability: {} }) });
