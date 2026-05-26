@@ -31,6 +31,8 @@ export type BootstrapScanStatus =
   | 'failed'
   | 'cancelled';
 
+export type InitPhase = 'discovering' | 'picking' | 'generating' | 'reviewing';
+
 export interface BootstrapScan {
   id: string;
   projectId: string;
@@ -40,6 +42,7 @@ export interface BootstrapScan {
   appliedCount: number;
   pendingCount: number;
   errorMessage?: string;
+  initPhase?: InitPhase;
 }
 
 export type BootstrapReviewOp = 'modify' | 'remove';
@@ -432,4 +435,88 @@ export async function draftDelta(specChangeId: string, capability: string): Prom
     `/api/openspec/spec-changes/${specChangeId}/draft-delta/${encodeURIComponent(capability)}`,
     { method: 'POST', body: JSON.stringify({}) },
   );
+}
+
+// ---------- Candidates (init flow) ----------
+
+export type CandidatePhase =
+  | 'discovered' | 'excluded' | 'generating' | 'generated' | 'approved' | 'rejected' | 'failed';
+
+export type CandidateSource = 'ai_discovered' | 'user_added';
+
+export interface Candidate {
+  id: string;
+  scanId: string;
+  capability: string;
+  title: string;
+  description: string;
+  source: CandidateSource;
+  selected: boolean;
+  phase: CandidatePhase;
+  generated_md: string | null;
+  generation_attempts: number;
+  error_message: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export async function listBootstrapCandidates(scanId: string): Promise<Candidate[]> {
+  const body = await apiCall<{ candidates: Candidate[] }>(
+    `/api/openspec/bootstrap/scans/${scanId}/candidates`,
+  );
+  return body.candidates;
+}
+
+export async function addCandidate(scanId: string, input: { name: string; description: string }): Promise<Candidate> {
+  const body = await apiCall<{ candidate: Candidate }>(
+    `/api/openspec/bootstrap/scans/${scanId}/candidates`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
+  return body.candidate;
+}
+
+export async function patchCandidate(id: string, patch: Partial<Pick<Candidate, 'title' | 'description' | 'selected'>>): Promise<Candidate> {
+  const body = await apiCall<{ candidate: Candidate }>(
+    `/api/openspec/bootstrap/candidates/${id}`,
+    { method: 'PATCH', body: JSON.stringify(patch) },
+  );
+  return body.candidate;
+}
+
+export async function deleteCandidate(id: string): Promise<void> {
+  await apiCall<{ ok: true }>(
+    `/api/openspec/bootstrap/candidates/${id}`,
+    { method: 'DELETE' },
+  );
+}
+
+export async function commitGeneration(scanId: string): Promise<{ scan: BootstrapScan; candidates: Candidate[] }> {
+  return apiCall<{ scan: BootstrapScan; candidates: Candidate[] }>(
+    `/api/openspec/bootstrap/scans/${scanId}/generate`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+}
+
+export async function approveCandidate(id: string): Promise<Candidate> {
+  const body = await apiCall<{ candidate: Candidate }>(
+    `/api/openspec/bootstrap/candidates/${id}/approve`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+  return body.candidate;
+}
+
+export async function rejectCandidate(id: string): Promise<Candidate> {
+  const body = await apiCall<{ candidate: Candidate }>(
+    `/api/openspec/bootstrap/candidates/${id}/reject`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+  return body.candidate;
+}
+
+export async function retryCandidate(id: string): Promise<Candidate> {
+  const body = await apiCall<{ candidate: Candidate }>(
+    `/api/openspec/bootstrap/candidates/${id}/retry`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+  return body.candidate;
 }
