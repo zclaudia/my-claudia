@@ -1,18 +1,23 @@
 // apps/desktop/src/features/openspec/components/InitializeSpecsDialog.tsx
 //
-// Modal that drives a bootstrap scan end-to-end:
-//   1. On mount, POST /api/openspec/bootstrap/scans with `mode`.
-//   2. Show the auto-applied summary and any pending review items.
-//   3. Allow approve/reject per pending item.
-//   4. Finalize once all items are resolved → refresh corpus → close.
+// Multi-step router driven by `scan.initPhase`. The dialog is intentionally
+// "dumb" — it just maps the server-derived (status, initPhase) tuple onto a
+// step name and renders the matching child component from ./init/. The child
+// components own their own step-specific UI, network calls, and transitions.
 //
-// `payloadJson` is a raw JSON string from the server; we parse it defensively
-// to render a friendly preview (falls back to a truncated raw view on error).
+// On mount we either resume an active scan (loading candidates if we're past
+// the discovering phase) or kick off a fresh bootstrap. The "scan already
+// active" race surfaced by the server is handled by refetching once.
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { useOpenSpecStore } from '../store.js';
 import * as api from '../api.js';
-import type { BootstrapScan, BootstrapReviewItem } from '../api.js';
+import type { BootstrapScan } from '../api.js';
+import { DiscoveringStep } from './init/DiscoveringStep.js';
+import { CapabilityPicker } from './init/CapabilityPicker.js';
+import { GeneratingStep } from './init/GeneratingStep.js';
+import { ReviewStep } from './init/ReviewStep.js';
+import { LegacyRescanView } from './LegacyRescanView.js';
 
 interface Props {
   projectId: string;
@@ -20,144 +25,98 @@ interface Props {
   onClose: () => void;
 }
 
+type Step =
+  | 'loading'
+  | 'error'
+  | 'cancelled'
+  | 'done'
+  | 'discovering'
+  | 'picker'
+  | 'generating'
+  | 'review'
+  | 'legacy_rescan';
+
+function deriveStep(scan: BootstrapScan | null): Step {
+  if (!scan) return 'loading';
+  if (scan.status === 'failed') return 'error';
+  if (scan.status === 'cancelled') return 'cancelled';
+  if (scan.status === 'completed') return 'done';
+  switch (scan.initPhase) {
+    case 'discovering':
+      return 'discovering';
+    case 'picking':
+      return 'picker';
+    case 'generating':
+      return 'generating';
+    case 'reviewing':
+      return 'review';
+    default:
+      return 'legacy_rescan';
+  }
+}
+
 export function InitializeSpecsDialog({
   projectId,
   mode,
   onClose,
 }: Props): React.ReactElement {
-  const setCorpus = useOpenSpecStore((s) => s.setCorpus);
-  const [scan, setScan] = useState<BootstrapScan | null>(null);
-  const [items, setItems] = useState<BootstrapReviewItem[]>([]);
-  const [appliedSummary, setAppliedSummary] = useState<Record<string, number>>({});
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const scan = useOpenSpecStore((s) => s.initScansByProject[projectId] ?? null);
+  const setInitScan = useOpenSpecStore((s) => s.setInitScan);
+  const setInitCandidates = useOpenSpecStore((s) => s.setInitCandidates);
+  const [error, setError] = React.useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setBusy('detect');
     setError(null);
     api
       .listBootstrapScans(projectId)
       .then(async (scans) => {
-        // Bail early on a stale effect run (StrictMode double-invoke) so the
-        // cancelled run never reaches the mutating startBootstrap call below.
         if (cancelled) return;
         const active = scans.find(
           (s) => s.status === 'running' || s.status === 'awaiting_review',
         );
         if (active) {
-          // Resume existing scan instead of starting a new one — avoids the
-          // "scan already active" dead-end when a previous attempt was
-          // interrupted or left awaiting review.
-          setScan(active);
-          if (active.status === 'awaiting_review') {
-            const pending = await api.listBootstrapItems(active.id, 'pending');
-            if (!cancelled) setItems(pending);
+          setInitScan(projectId, active);
+          if (active.initPhase != null) {
+            const candidates = await api.listBootstrapCandidates(active.id);
+            if (!cancelled) setInitCandidates(active.id, candidates);
           }
-          // For 'running' scans the AI was presumably interrupted; the user
-          // can cancel from the footer button before starting fresh.
-        } else {
-          // No active scan — kick off a new one. If the server reports one
-          // already active (lost race against a concurrent start), refetch and
-          // resume rather than surfacing the error as a dead-end.
-          let res;
-          try {
-            res = await api.startBootstrap(projectId, mode);
-          } catch (e) {
-            if (cancelled) return;
-            const message = (e as Error).message ?? '';
-            if (message.includes('bootstrap scan is already active')) {
-              const refreshed = await api.listBootstrapScans(projectId);
-              if (cancelled) return;
-              const nowActive = refreshed.find(
-                (s) => s.status === 'running' || s.status === 'awaiting_review',
-              );
-              if (nowActive) {
-                setScan(nowActive);
-                if (nowActive.status === 'awaiting_review') {
-                  const pending = await api.listBootstrapItems(nowActive.id, 'pending');
-                  if (!cancelled) setItems(pending);
-                }
-                return;
-              }
-            }
-            throw e;
-          }
+          return;
+        }
+        if (cancelled) return;
+        try {
+          const res = await api.startBootstrap(projectId, mode);
           if (cancelled) return;
-          setScan(res.scan);
-          setAppliedSummary(res.appliedSummary);
-          if (res.scan.status === 'awaiting_review') {
-            const pending = await api.listBootstrapItems(res.scan.id, 'pending');
-            if (!cancelled) setItems(pending);
+          setInitScan(projectId, res.scan);
+        } catch (e) {
+          const message = (e as Error).message ?? '';
+          if (message.includes('bootstrap scan is already active')) {
+            const refreshed = await api.listBootstrapScans(projectId);
+            if (cancelled) return;
+            const nowActive = refreshed.find(
+              (s) => s.status === 'running' || s.status === 'awaiting_review',
+            );
+            if (nowActive) {
+              setInitScan(projectId, nowActive);
+              if (nowActive.initPhase != null) {
+                const candidates = await api.listBootstrapCandidates(nowActive.id);
+                if (!cancelled) setInitCandidates(nowActive.id, candidates);
+              }
+              return;
+            }
           }
+          if (!cancelled) setError(message);
         }
       })
       .catch((e) => {
         if (!cancelled) setError((e as Error).message);
-      })
-      .finally(() => {
-        if (!cancelled) setBusy(null);
       });
     return () => {
       cancelled = true;
     };
-  }, [projectId, mode]);
+  }, [projectId, mode, setInitScan, setInitCandidates]);
 
-  const onCancelScan = async (): Promise<void> => {
-    if (!scan) return;
-    setBusy('cancel');
-    setError(null);
-    try {
-      await api.cancelBootstrapScan(scan.id);
-      onClose();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const onApprove = async (id: string): Promise<void> => {
-    setBusy(`approve:${id}`);
-    setError(null);
-    try {
-      await api.approveBootstrapItem(id);
-      if (scan) setItems(await api.listBootstrapItems(scan.id, 'pending'));
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const onReject = async (id: string): Promise<void> => {
-    setBusy(`reject:${id}`);
-    setError(null);
-    try {
-      await api.rejectBootstrapItem(id);
-      if (scan) setItems(await api.listBootstrapItems(scan.id, 'pending'));
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const onFinalize = async (): Promise<void> => {
-    if (!scan) return;
-    setBusy('finalize');
-    setError(null);
-    try {
-      await api.finalizeBootstrap(scan.id);
-      const fresh = await api.listCorpus(projectId);
-      setCorpus(projectId, fresh);
-      onClose();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(null);
-    }
-  };
+  const step = deriveStep(scan);
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
@@ -173,154 +132,32 @@ export function InitializeSpecsDialog({
             Close
           </button>
         </div>
-
         <div className="flex-1 overflow-auto px-4 py-3 space-y-3">
           {error && <div className="text-sm text-red-500">Error: {error}</div>}
-
-          {!scan && (busy === 'detect' || busy === 'start') && (
-            <div className="text-sm text-muted-foreground">
-              Scanning project… AI is analyzing the codebase.
+          {scan?.errorMessage && (
+            <div className="border border-red-500/40 rounded-md p-2 bg-red-500/10 text-xs text-red-600 whitespace-pre-wrap break-words">
+              {scan.errorMessage}
             </div>
           )}
-
-          {scan && scan.status === 'awaiting_review' && (
-            <div className="text-xs text-muted-foreground">
-              Resuming previous scan in 'awaiting_review' state.
-            </div>
+          {step === 'loading' && (
+            <div className="text-sm text-muted-foreground">Loading…</div>
           )}
-          {scan && scan.status === 'running' && (
-            <div className="text-xs text-yellow-600">
-              A scan is currently running. If it's stuck, cancel it to start fresh.
-            </div>
+          {step === 'cancelled' && (
+            <div className="text-sm text-muted-foreground">Scan cancelled.</div>
           )}
-
-          {scan && (
-            <>
-              <div className="text-sm">
-                <div>
-                  Scan status: <span className="font-mono">{scan.status}</span>
-                </div>
-                <div className="text-muted-foreground text-xs mt-1">
-                  Applied {scan.appliedCount} requirement
-                  {scan.appliedCount === 1 ? '' : 's'} automatically (ADDED).
-                  {scan.pendingCount > 0 &&
-                    ` ${scan.pendingCount} item${scan.pendingCount === 1 ? '' : 's'} pending review.`}
-                </div>
-              </div>
-
-              {scan.errorMessage && (
-                <div className="border border-red-500/40 rounded-md p-2 bg-red-500/10 text-xs text-red-600 whitespace-pre-wrap break-words">
-                  {scan.errorMessage}
-                </div>
-              )}
-              {scan.status === 'completed' &&
-                scan.appliedCount === 0 &&
-                scan.pendingCount === 0 &&
-                !scan.errorMessage && (
-                  <div className="border border-amber-500/40 rounded-md p-2 bg-amber-500/10 text-xs text-amber-700">
-                    AI scan completed but did not extract any requirements. Make sure the
-                    project has a default AI provider configured and check the server log
-                    for the raw AI response.
-                  </div>
-                )}
-
-              {Object.keys(appliedSummary).length > 0 && (
-                <div className="border border-border rounded-md p-3 bg-muted/30 text-xs">
-                  <div className="font-medium mb-1">Auto-applied per capability</div>
-                  <ul className="space-y-0.5">
-                    {Object.entries(appliedSummary).map(([cap, count]) => (
-                      <li key={cap}>
-                        {cap}: +{count}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {items.length > 0 && (
-                <div>
-                  <div className="text-sm font-medium mb-2">
-                    Pending review ({items.length})
-                  </div>
-                  <ul className="space-y-2">
-                    {items.map((it) => {
-                      let preview = '';
-                      try {
-                        const obj = JSON.parse(it.payloadJson) as {
-                          name?: string;
-                          body?: string;
-                        };
-                        preview = obj.name
-                          ? `${obj.name}${obj.body ? ' — ' + obj.body.slice(0, 80) : ''}`
-                          : it.payloadJson.slice(0, 120);
-                      } catch {
-                        preview = it.payloadJson.slice(0, 120);
-                      }
-                      return (
-                        <li
-                          key={it.id}
-                          className="border border-border rounded-md p-2 bg-card"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="text-xs">
-                              <span className="font-mono">{it.capability}</span> ·{' '}
-                              <span className="text-muted-foreground">{it.operation}</span>
-                            </div>
-                            <div className="flex gap-1">
-                              <button
-                                className="px-2 py-0.5 text-xs rounded-md bg-green-500/15 text-green-600 hover:bg-green-500/25"
-                                disabled={busy !== null}
-                                onClick={() => void onApprove(it.id)}
-                              >
-                                Approve
-                              </button>
-                              <button
-                                className="px-2 py-0.5 text-xs rounded-md bg-red-500/15 text-red-500 hover:bg-red-500/25"
-                                disabled={busy !== null}
-                                onClick={() => void onReject(it.id)}
-                              >
-                                Reject
-                              </button>
-                            </div>
-                          </div>
-                          <div className="text-xs text-muted-foreground mt-1">{preview}</div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              )}
-            </>
+          {step === 'done' && (
+            <div className="text-sm text-muted-foreground">Scan complete.</div>
           )}
-        </div>
-
-        <div className="px-4 py-3 border-t border-border flex items-center justify-end gap-2">
-          {scan && scan.status === 'running' && (
-            <button
-              className="px-3 py-1.5 text-sm rounded-md bg-red-500/15 text-red-500 hover:bg-red-500/25 disabled:opacity-50"
-              disabled={busy !== null}
-              onClick={() => void onCancelScan()}
-            >
-              Cancel Scan
-            </button>
+          {step === 'discovering' && scan && <DiscoveringStep scan={scan} />}
+          {step === 'picker' && scan && (
+            <CapabilityPicker scan={scan} onClose={onClose} />
           )}
-          {scan && scan.status === 'awaiting_review' && (
-            <button
-              className="px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              disabled={busy !== null || items.length > 0}
-              title={items.length > 0 ? 'Resolve all pending items first' : 'Finalize'}
-              onClick={() => void onFinalize()}
-            >
-              Finalize
-            </button>
+          {step === 'generating' && scan && <GeneratingStep scan={scan} />}
+          {step === 'review' && scan && (
+            <ReviewStep scan={scan} onClose={onClose} />
           )}
-          {scan && scan.status === 'completed' && (
-            <button
-              className="px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
-              onClick={onClose}
-            >
-              Done
-            </button>
+          {step === 'legacy_rescan' && scan && (
+            <LegacyRescanView scanId={scan.id} onClose={onClose} />
           )}
         </div>
       </div>
