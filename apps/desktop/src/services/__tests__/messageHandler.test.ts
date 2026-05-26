@@ -162,6 +162,7 @@ vi.mock('../api/projects', () => ({
 import { cleanupServerSyncState, handleServerMessage } from '../messageHandler';
 import { downloadPushedFile } from '../fileDownload';
 import { useNotificationFeedStore } from '../../stores/notificationFeedStore';
+import { useSessionRunStateStore } from '../../stores/sessionRunStateStore';
 import { useToastStore } from '../../stores/toastStore';
 
 function makeCtx(overrides?: Partial<MessageHandlerContext>): MessageHandlerContext {
@@ -178,6 +179,7 @@ function makeCtx(overrides?: Partial<MessageHandlerContext>): MessageHandlerCont
 describe('handleServerMessage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useSessionRunStateStore.setState({ records: {} });
     mockGetProjectsForBackend.mockReset();
     mockChatStore.activeRuns = {};
     mockChatStore.runHealth = {};

@@ -7,8 +7,7 @@ import { useFacadeStore } from '../../stores/facadeStore';
 import { useSupervisionStore } from '../../stores/supervisionStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useInteractionStore } from '../../stores/interactionStore';
-import { useChatStore } from '../../stores/chatStore';
-import { useSessionsStore } from '../../stores/sessionsStore';
+import { isSessionRunActive, useSessionRunStateStore } from '../../stores/sessionRunStateStore';
 import { useClaudiaStore } from '../../stores/claudiaStore';
 import { useNotificationFeedStore } from '../../stores/notificationFeedStore';
 import { useOwnershipStore } from '../../stores/ownershipStore';
@@ -66,16 +65,14 @@ export function useSidebarData() {
     return permSessionIds.has(sessionId) || interactionSessionIds.has(sessionId);
   }, [permSessionIds, interactionSessionIds]);
 
-  const chatActiveRuns = useChatStore((s) => s.activeRuns);
-  const sessionsActiveByBackend = useSessionsStore((s) => s.activeSessionIdsByBackend);
+  const sessionRunRecords = useSessionRunStateStore((s) => s.records);
   const activeRunSessionIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const sid of Object.values(chatActiveRuns)) ids.add(sid);
-    sessionsActiveByBackend.forEach((set) => {
-      set.forEach((sid) => ids.add(sid));
-    });
+    for (const record of Object.values(sessionRunRecords)) {
+      if (isSessionRunActive(record)) ids.add(record.sessionId);
+    }
     return ids;
-  }, [chatActiveRuns, sessionsActiveByBackend]);
+  }, [sessionRunRecords]);
 
   const ownershipStore = useOwnershipStore();
 

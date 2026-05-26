@@ -15,6 +15,7 @@ import { useProjectStore } from '../../stores/projectStore';
 import { useSessionsStore } from '../../stores/sessionsStore';
 import { useOwnershipStore } from '../../stores/ownershipStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
+import { useSessionRunStateStore } from '../../stores/sessionRunStateStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { terminalRegistry } from '../../services/terminal/TerminalRegistry';
 
@@ -71,6 +72,7 @@ describe('useBackendFacade run_event forwarding', () => {
       worktreeOverrides: {},
       drafts: {},
     } as any);
+    useSessionRunStateStore.setState({ records: {} });
     useProjectStore.setState({
       projects: [],
       sessions: [{ id: 'session-1', projectId: 'project-1', name: 'Session 1', isActive: true }],

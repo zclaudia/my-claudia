@@ -1,11 +1,9 @@
 import type { BackendFacadeEvent } from '@my-claudia/shared';
-import { useChatStore } from '../../stores/chatStore';
 import { useOwnershipStore } from '../../stores/ownershipStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useRecoveryStore } from '../../stores/recoveryStore';
 import { useSessionsStore } from '../../stores/sessionsStore';
-import { resolveCanonicalBackendId, resolveLocalBackendId } from '../../utils/controlPlane';
-import { getFacadeServerRuns } from './state';
+import { useSessionRunStateStore } from '../../stores/sessionRunStateStore';
 
 export function syncBackendDataSnapshot(event: Extract<BackendFacadeEvent, { type: 'backend_data_snapshot' }>): void {
   const { backendId, sessions, projects } = event;
@@ -16,7 +14,7 @@ export function syncBackendDataSnapshot(event: Extract<BackendFacadeEvent, { typ
     name: item.title || '',
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
-    isActive: item.runStatus === 'running',
+    isActive: item.runStatus === 'running' || item.runStatus === 'waiting',
     type: 'regular' as const,
   }));
 
@@ -40,34 +38,21 @@ export function syncBackendDataSnapshot(event: Extract<BackendFacadeEvent, { typ
   }
 
   const activeSessionIds = new Set(
-    activeItems.filter(item => item.runStatus === 'running').map(item => item.sessionId)
+    activeItems.filter(item => item.runStatus === 'running' || item.runStatus === 'waiting').map(item => item.sessionId)
   );
   useSessionsStore.getState().reconcileActiveStatus(backendId, activeSessionIds);
-
-  const ownershipState = useOwnershipStore.getState();
-  const trackedRuns = getFacadeServerRuns().get(backendId);
-  const knownSessionIdsForBackend = new Set([
-    ...(currentSessions?.map((session) => session.id) ?? []),
-    ...mappedSessions.map((session) => session.id),
-  ]);
-  for (const [runId, sessionId] of Object.entries(useChatStore.getState().activeRuns)) {
-    if (!sessionId) continue;
-    const ownerBackendId = resolveCanonicalBackendId(
-      ownershipState.sessionBackendIds[sessionId] ?? null,
-      resolveLocalBackendId() ?? ownershipState.sessionBackendIds[sessionId] ?? null,
-    );
-    const belongsToBackend =
-      trackedRuns?.has(runId)
-      || knownSessionIdsForBackend.has(sessionId)
-      || ownerBackendId === backendId;
-    if (!belongsToBackend) continue;
-    if (activeSessionIds.has(sessionId)) continue;
-
-    useChatStore.getState().finalizeRunToMessage(runId);
-    useChatStore.getState().endRun(runId);
-    useProjectStore.getState().setSessionActive(sessionId, false);
-    trackedRuns?.delete(runId);
-  }
+  useSessionRunStateStore.getState().reconcileBackendSessionStatuses({
+    backendId,
+    sessions: activeItems.map((item) => ({
+      sessionId: item.sessionId,
+      runStatus: item.runStatus,
+    })),
+    knownSessionIds: [
+      ...(currentSessions?.map((session) => session.id) ?? []),
+      ...mappedSessions.map((session) => session.id),
+    ],
+    source: 'backend_snapshot',
+  });
 
   if (projects) {
     useProjectStore.getState().replaceProjectsForBackend(backendId, projects.map(p => ({
@@ -93,6 +78,11 @@ export function syncBackendDataEvent(event: Extract<BackendFacadeEvent, { type: 
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
       });
+      useSessionRunStateStore.getState().markSessionInactive({
+        backendId,
+        sessionId: item.sessionId,
+        source: 'backend_event',
+      });
       return;
     }
     const sessionStore = useSessionsStore.getState();
@@ -105,8 +95,14 @@ export function syncBackendDataEvent(event: Extract<BackendFacadeEvent, { type: 
       name: item.title || '',
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
-      isActive: item.runStatus === 'running',
+      isActive: item.runStatus === 'running' || item.runStatus === 'waiting',
       type: 'regular' as const,
+    });
+    useSessionRunStateStore.getState().applySessionRunStatus({
+      backendId,
+      sessionId: item.sessionId,
+      runStatus: item.runStatus,
+      source: 'backend_event',
     });
   } else if (dataEvent.op === 'session_remove') {
     useSessionsStore.getState().handleSessionEvent(backendId, 'deleted', {
@@ -116,6 +112,11 @@ export function syncBackendDataEvent(event: Extract<BackendFacadeEvent, { type: 
       type: 'regular' as const,
       createdAt: 0,
       updatedAt: 0,
+    });
+    useSessionRunStateStore.getState().markSessionInactive({
+      backendId,
+      sessionId: dataEvent.sessionId,
+      source: 'backend_event',
     });
   } else if (dataEvent.op === 'project_upsert') {
     const p = dataEvent.item;

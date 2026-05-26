@@ -6,6 +6,7 @@ import { usePermissionStore } from '../../stores/permissionStore';
 import { usePromptRequestStore } from '../../stores/promptRequestStore';
 import { useInteractionStore } from '../../stores/interactionStore';
 import { useSessionsStore, getSessionBucketKeyForBackend } from '../../stores/sessionsStore';
+import { useSessionRunStateStore } from '../../stores/sessionRunStateStore';
 import { eagerSyncCurrentSession, recoverCurrentSessionTail } from '../sessionSync';
 import { getProjectsForBackend } from '../api/projects';
 import { resolveCanonicalBackendId, resolveLocalBackendId } from '../../utils/controlPlane';
@@ -241,19 +242,24 @@ export function handleHeartbeat(
   }
 
   // Reconcile active sessions
+  const activeSessionIds = new Set<string>(
+    heartbeat.activeRuns
+      .filter(r => r.sessionType !== 'background')
+      .map(r => r.sessionId)
+  );
+  useSessionRunStateStore.getState().reconcileBackendActiveRuns({
+    backendId,
+    activeRuns: heartbeat.activeRuns.map((run) => ({
+      runId: run.runId,
+      sessionId: run.sessionId,
+      sessionType: run.sessionType,
+    })),
+    source: 'heartbeat',
+  });
+
   if (backendId) {
-    const activeSessionIds = new Set<string>(
-      heartbeat.activeRuns
-        .filter(r => r.sessionType !== 'background')
-        .map(r => r.sessionId)
-    );
     useSessionsStore.getState().reconcileActiveStatus(backendId, activeSessionIds);
   } else {
-    const activeSessionIds = new Set<string>(
-      heartbeat.activeRuns
-        .filter(r => r.sessionType !== 'background')
-        .map(r => r.sessionId)
-    );
     useSessionsStore.getState().setActiveSessionsForBackend(getSessionBucketKeyForBackend(backendId), activeSessionIds);
   }
 

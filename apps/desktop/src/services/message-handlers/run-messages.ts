@@ -5,7 +5,7 @@ import { useInteractionStore } from '../../stores/interactionStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { usePromptRequestStore } from '../../stores/promptRequestStore';
-import { getSessionBucketKeyForBackend, useSessionsStore } from '../../stores/sessionsStore';
+import { useSessionRunStateStore } from '../../stores/sessionRunStateStore';
 import { useServerStore } from '../../stores/serverStore';
 import { eagerSyncCurrentSession, recoverCurrentSessionTail } from '../sessionSync';
 import { extractPlanPayload } from '../../features/chat/planReviewPayload';
@@ -72,13 +72,13 @@ export function handleRunMessage(msg: ServerMessage, ctx: MessageDispatchContext
         }
         serverRunsRef.get(serverId)!.add(msg.runId);
 
-        useProjectStore.getState().setSessionActive(targetSessionId, true);
-        useSessionsStore.getState().setSessionActiveFlag(
-          getSessionBucketKeyForBackend(backendId),
-          targetSessionId,
-          true
-        );
-        if (backendId) useSessionsStore.getState().setSessionActiveById(backendId, targetSessionId, true);
+        useSessionRunStateStore.getState().markRunStarted({
+          backendId,
+          runId: msg.runId,
+          sessionId: targetSessionId,
+          sessionType: msg.sessionType,
+          source: 'run_event',
+        });
       }
       return true;
     }
@@ -96,13 +96,13 @@ export function handleRunMessage(msg: ServerMessage, ctx: MessageDispatchContext
         if (msg.usage) {
           useChatStore.getState().addSessionUsage(completedSession, msg.usage);
         }
-        useProjectStore.getState().setSessionActive(completedSession, false);
-        useSessionsStore.getState().setSessionActiveFlag(
-          getSessionBucketKeyForBackend(backendId),
-          completedSession,
-          false
-        );
-        if (backendId) useSessionsStore.getState().setSessionActiveById(backendId, completedSession, false);
+        useSessionRunStateStore.getState().markRunEnded({
+          backendId,
+          runId: msg.runId,
+          sessionId: completedSession,
+          source: 'run_event',
+          cleanupChatRuns: false,
+        });
         void eagerSyncCurrentSession(serverId);
         void recoverCurrentSessionTail(serverId, completedSession);
       }
@@ -127,13 +127,13 @@ export function handleRunMessage(msg: ServerMessage, ctx: MessageDispatchContext
           useChatStore.getState().appendToLastMessage(failedSession, `\n\n**Error:** ${msg.error}`);
         }
         useChatStore.getState().finalizeRunToMessage(msg.runId);
-        useProjectStore.getState().setSessionActive(failedSession, false);
-        useSessionsStore.getState().setSessionActiveFlag(
-          getSessionBucketKeyForBackend(backendId),
-          failedSession,
-          false
-        );
-        if (backendId) useSessionsStore.getState().setSessionActiveById(backendId, failedSession, false);
+        useSessionRunStateStore.getState().markRunEnded({
+          backendId,
+          runId: msg.runId,
+          sessionId: failedSession,
+          source: 'run_event',
+          cleanupChatRuns: false,
+        });
         void eagerSyncCurrentSession(serverId);
         void recoverCurrentSessionTail(serverId, failedSession);
       }

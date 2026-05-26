@@ -13,6 +13,7 @@ import { resolveGatewayBackendUrl, getGatewayAuthHeaders } from './gatewayProxy'
 import { useChatStore } from '../stores/chatStore';
 import { useProjectStore } from '../stores/projectStore';
 import { useSelectionStore } from '../stores/selectionStore';
+import { useSessionRunStateStore } from '../stores/sessionRunStateStore';
 import * as api from './api';
 import { getControlPlaneMode, isLocalBackendId } from '../utils/controlPlane';
 
@@ -180,6 +181,12 @@ async function incrementalSync(backendId: string): Promise<RemoteSession[] | nul
 
     sessions.forEach((session: RemoteSession) => {
       const existingSession = existing.find((s) => s.id === session.id);
+      useSessionRunStateStore.getState().applySessionRunStatus({
+        backendId,
+        sessionId: session.id,
+        isActive: Boolean(session.isActive),
+        source: 'session_sync',
+      });
 
       if (!existingSession) {
         // New session (possibly from missed push)
@@ -272,6 +279,14 @@ async function fullSync(backendId: string): Promise<RemoteSession[] | null> {
 
     // Replace sessionsStore with server's complete list (no need for individual delete events)
     store.setRemoteSessions(backendId, sessions);
+    useSessionRunStateStore.getState().reconcileBackendSessionStatuses({
+      backendId,
+      sessions: sessions.map((session: RemoteSession) => ({
+        sessionId: session.id,
+        isActive: Boolean(session.isActive),
+      })),
+      source: 'session_sync',
+    });
 
     // Update sync timestamp
     state.lastSyncTime = timestamp;
@@ -383,4 +398,3 @@ export async function recoverCurrentSessionTail(targetServerId: string, sessionI
   const promise = run();
   pendingRecovery.set(key, promise);
 }
-
