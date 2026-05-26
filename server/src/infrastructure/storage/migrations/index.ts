@@ -75,6 +75,7 @@ import { migration as m_072_bootstrap_scans } from './072_bootstrap_scans.js';
 import { migration as m_073_local_issues_status_collapse } from './073_local_issues_status_collapse.js';
 import { migration as m_074_supervision_tasks_backfill_change_id } from './074_supervision_tasks_backfill_change_id.js';
 import { migration as m_075_epics_extraction } from './075_epics_extraction.js';
+import { migration as m_076_bootstrap_candidates } from './076_bootstrap_candidates.js';
 
 export type { Migration };
 
@@ -154,6 +155,7 @@ export const migrations: Migration[] = [
   m_073_local_issues_status_collapse,
   m_074_supervision_tasks_backfill_change_id,
   m_075_epics_extraction,
+  m_076_bootstrap_candidates,
 ];
 
 /**
