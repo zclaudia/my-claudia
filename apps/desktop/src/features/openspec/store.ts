@@ -10,7 +10,7 @@ import type { SpecChange } from '@my-claudia/shared/features/spec-change';
 import type { ExecutorInstance } from '@my-claudia/shared/features/executor';
 import type { OpenSpecViewState } from './view-state';
 import { INITIAL_VIEW_STATE } from './view-state';
-import type { CapabilitySummary } from './api';
+import type { BootstrapScan, CapabilitySummary, Candidate } from './api';
 
 type ProjectId = string;
 
@@ -26,6 +26,13 @@ interface OpenSpecStore {
   /** Per-project view state. */
   viewByProject: Record<ProjectId, OpenSpecViewState>;
 
+  /** Latest bootstrap init scan per project. */
+  initScansByProject: Record<ProjectId, BootstrapScan | null>;
+  /** Candidates indexed by scanId. */
+  initCandidatesByScan: Record<string, Candidate[]>;
+  /** Streaming generation content accumulated per candidate id. */
+  initStreamingByCandidate: Record<string, string>;
+
   // Issues
   setIssues: (projectId: ProjectId, issues: LocalIssue[]) => void;
   upsertIssue: (issue: LocalIssue) => void;
@@ -38,6 +45,12 @@ interface OpenSpecStore {
   setCorpus: (projectId: ProjectId, items: CapabilitySummary[]) => void;
   // View
   patchView: (projectId: ProjectId, patch: Partial<OpenSpecViewState>) => void;
+  // Init (bootstrap) state
+  setInitScan: (projectId: ProjectId, scan: BootstrapScan) => void;
+  setInitCandidates: (scanId: string, candidates: Candidate[]) => void;
+  upsertInitCandidate: (scanId: string, candidate: Candidate) => void;
+  appendStreamingChunk: (candidateId: string, contentSoFar: string) => void;
+  clearStreaming: (candidateId: string) => void;
   // Clear (e.g., when project closes / data needs to refetch)
   clearProject: (projectId: ProjectId) => void;
 }
@@ -48,6 +61,9 @@ export const useOpenSpecStore = create<OpenSpecStore>((set) => ({
   executorsBySpecChange: {},
   corpusByProject: {},
   viewByProject: {},
+  initScansByProject: {},
+  initCandidatesByScan: {},
+  initStreamingByCandidate: {},
 
   setIssues: (projectId, issues) =>
     set((s) => ({ issuesByProject: { ...s.issuesByProject, [projectId]: issues } })),
@@ -89,6 +105,35 @@ export const useOpenSpecStore = create<OpenSpecStore>((set) => ({
       return {
         viewByProject: { ...s.viewByProject, [projectId]: { ...current, ...patch } },
       };
+    }),
+
+  setInitScan: (projectId, scan) =>
+    set((s) => ({ initScansByProject: { ...s.initScansByProject, [projectId]: scan } })),
+
+  setInitCandidates: (scanId, candidates) =>
+    set((s) => ({ initCandidatesByScan: { ...s.initCandidatesByScan, [scanId]: candidates } })),
+
+  upsertInitCandidate: (scanId, candidate) =>
+    set((s) => {
+      const current = s.initCandidatesByScan[scanId] ?? [];
+      const idx = current.findIndex((c) => c.id === candidate.id);
+      const next =
+        idx >= 0
+          ? [...current.slice(0, idx), candidate, ...current.slice(idx + 1)]
+          : [...current, candidate];
+      return { initCandidatesByScan: { ...s.initCandidatesByScan, [scanId]: next } };
+    }),
+
+  appendStreamingChunk: (candidateId, contentSoFar) =>
+    set((s) => ({
+      initStreamingByCandidate: { ...s.initStreamingByCandidate, [candidateId]: contentSoFar },
+    })),
+
+  clearStreaming: (candidateId) =>
+    set((s) => {
+      const next = { ...s.initStreamingByCandidate };
+      delete next[candidateId];
+      return { initStreamingByCandidate: next };
     }),
 
   clearProject: (projectId) =>
