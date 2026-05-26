@@ -475,10 +475,21 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
   // workflow goes through the same virtual-run plumbing as meta-workflow.
   // Uses the G5a `getProjectRoot` lookup defined above.
   const aiExploreService = new AiExploreService({ aiRunPort: metaWorkflowAiRunPort });
+  const bootstrapScanRepo = new BootstrapScanRepository(db);
   const bootstrapService = new BootstrapService({
     db,
     explore: aiExploreService,
     getProjectRoot,
+    broadcast: (scanId, payload) => {
+      const scan = bootstrapScanRepo.findById(scanId);
+      if (!scan) return;
+      broadcastToAuthenticatedClients(clients, {
+        type: 'bootstrap_event',
+        scanId,
+        projectId: scan.projectId,
+        payload,
+      } as any);
+    },
   });
   const bootstrapReviewService = new BootstrapReviewService({
     db,
@@ -506,7 +517,7 @@ export function registerFeatureDomains(deps: RegisterFeatureDomainsDeps): Featur
     bootstrapService,
     reviewService: bootstrapReviewService,
     candidateRepo: new BootstrapCandidateRepository(db),
-    scanRepo: new BootstrapScanRepository(db),
+    scanRepo: bootstrapScanRepo,
   }));
   app.use('/api/issues', authMiddleware, createIssueRoutes({ lifecycle: issueOrchestration.lifecycle, anonymousService: issueOrchestration.anonymousService }));
   app.use('/api/epics', authMiddleware, createEpicRoutes({ service: new EpicService(db) }));
