@@ -21,6 +21,14 @@ vi.mock('../FileSearchInput', () => ({
   FileSearchInput: (props: any) => <div data-testid="file-search">FileSearchInput</div>,
 }));
 
+vi.mock('../FileTree', () => ({
+  FileTree: (props: any) => (
+    <button data-testid="file-tree" onClick={() => props.onOpenFile('src/from-tree.ts')}>
+      {props.projectRoot}:{props.backendId ?? 'none'}:{props.selectedPath ?? 'none'}
+    </button>
+  ),
+}));
+
 vi.mock('react-markdown', () => ({
   default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
 }));
@@ -138,6 +146,18 @@ describe('FileViewerPanel', () => {
     mockFileViewerState.searchOpen = true;
     render(<FileViewerPanel projectRoot="/project" />);
     expect(screen.getByTestId('file-search')).toBeInTheDocument();
+  });
+
+  it('renders file tree and opens files selected from the tree', () => {
+    mockFileViewerState.filePath = 'src/current.ts';
+    render(<FileViewerPanel projectRoot="/project" />);
+
+    const tree = screen.getByTestId('file-tree');
+    expect(tree).toHaveTextContent('/project');
+    expect(tree).toHaveTextContent('src/current.ts');
+
+    tree.click();
+    expect(mockFileViewerState.openFile).toHaveBeenCalledWith('/project', 'src/from-tree.ts');
   });
 });
 

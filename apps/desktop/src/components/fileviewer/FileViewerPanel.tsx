@@ -6,6 +6,7 @@ import { useTheme, isDarkTheme } from '../../contexts/ThemeContext';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import * as api from '../../services/api';
 import { FileSearchInput } from './FileSearchInput';
+import { FileTree } from './FileTree';
 import { MarkdownFileContent } from './MarkdownFileContent';
 import { isDesktopTauri } from '../../utils/platform';
 import { openPopoutWindow, buildWindowTitle, getConnectionParams } from '../../utils/popoutWindow';
@@ -263,6 +264,7 @@ export function FileViewerActions() {
 
 /** File viewer content (renders inside the shared BottomPanel) */
 export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
+  const isMobile = useIsMobile();
   const store = useFileViewerStore();
   const {
     loading, error, searchOpen,
@@ -310,6 +312,7 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
   const isMarkdown = lang === 'markdown';
   const highlightStart = targetLine ?? null;
   const highlightEnd = targetEndLine ?? targetLine ?? null;
+  const showFileTree = !isMobile || !filePath;
 
   // Scroll the virtualized list to the target line when one is set / changed.
   useEffect(() => {
@@ -354,39 +357,51 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
       )}
 
       {/* Content area */}
-      <div className="flex-1 min-h-0 overflow-hidden">
-        {loading && (
-          <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-            Loading...
-          </div>
-        )}
-        {error && (
-          <div className="flex items-center justify-center h-full text-destructive text-sm px-4 text-center">
-            {error}
-          </div>
-        )}
-        {content && !loading && (
-          isMarkdown ? (
-            <div className="h-full overflow-auto">
-              <MarkdownFileContent content={content} />
-            </div>
-          ) : (
-            <VirtualizedCodeView
-              content={content}
-              language={lang}
-              theme={codeTheme}
-              highlightStart={highlightStart}
-              highlightEnd={highlightEnd}
-              listRef={listRef}
+      <div className={`flex-1 min-h-0 overflow-hidden ${showFileTree ? (isMobile ? 'flex flex-col' : 'flex') : ''}`}>
+        {showFileTree && (
+          <div className={isMobile ? 'h-2/5 min-h-[180px] flex-shrink-0' : 'w-64 flex-shrink-0'}>
+            <FileTree
+              projectRoot={projectRoot}
+              backendId={fileBackendId}
+              selectedPath={filePath}
+              onOpenFile={handleSearchSelect}
             />
-          )
-        )}
-        {!filePath && !loading && !searchOpen && (
-          <div className="flex flex-col items-center justify-center h-full text-muted-foreground text-sm gap-2">
-            <span>Click a <span className="font-mono text-primary">@file</span> reference to view</span>
-            <span className="text-xs">or press the search button to find files</span>
           </div>
         )}
+        <div className="flex-1 min-h-0 overflow-hidden">
+          {loading && (
+            <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+              Loading...
+            </div>
+          )}
+          {error && (
+            <div className="flex items-center justify-center h-full text-destructive text-sm px-4 text-center">
+              {error}
+            </div>
+          )}
+          {content && !loading && (
+            isMarkdown ? (
+              <div className="h-full overflow-auto">
+                <MarkdownFileContent content={content} />
+              </div>
+            ) : (
+              <VirtualizedCodeView
+                content={content}
+                language={lang}
+                theme={codeTheme}
+                highlightStart={highlightStart}
+                highlightEnd={highlightEnd}
+                listRef={listRef}
+              />
+            )
+          )}
+          {!filePath && !loading && !searchOpen && (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground text-sm gap-2">
+              <span>Click a <span className="font-mono text-primary">@file</span> reference to view</span>
+              <span className="text-xs">or browse the file tree</span>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
