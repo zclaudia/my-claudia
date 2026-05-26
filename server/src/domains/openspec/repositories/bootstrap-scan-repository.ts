@@ -27,6 +27,7 @@ export interface BootstrapScan {
   appliedCount: number;
   pendingCount: number;
   errorMessage?: string;
+  initPhase?: 'discovering' | 'picking' | 'generating' | 'reviewing';
 }
 
 export interface BootstrapScanCreate {
@@ -39,6 +40,7 @@ export interface BootstrapScanUpdate {
   appliedCount?: number;
   pendingCount?: number;
   errorMessage?: string;
+  initPhase?: 'discovering' | 'picking' | 'generating' | 'reviewing';
 }
 
 interface Row {
@@ -50,6 +52,7 @@ interface Row {
   applied_count: number;
   pending_count: number;
   error_message: string | null;
+  init_phase: string | null;
 }
 
 export class BootstrapScanRepository extends BaseRepository<
@@ -72,6 +75,7 @@ export class BootstrapScanRepository extends BaseRepository<
       appliedCount: r.applied_count,
       pendingCount: r.pending_count,
       errorMessage: r.error_message ?? undefined,
+      initPhase: (r.init_phase ?? undefined) as BootstrapScan['initPhase'],
     };
   }
 
@@ -106,6 +110,10 @@ export class BootstrapScanRepository extends BaseRepository<
     if (data.errorMessage !== undefined) {
       sets.push('error_message = ?');
       params.push(data.errorMessage);
+    }
+    if (data.initPhase !== undefined) {
+      sets.push('init_phase = ?');
+      params.push(data.initPhase);
     }
 
     if (sets.length === 0) {

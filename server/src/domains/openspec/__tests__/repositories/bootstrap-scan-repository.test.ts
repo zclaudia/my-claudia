@@ -67,4 +67,17 @@ describe('BootstrapScanRepository', () => {
     const items = repo.listByProject('proj-1');
     expect(items.map((i) => i.id)).toEqual([b.id, a.id]);
   });
+
+  describe('init_phase column', () => {
+    it('round-trips init_phase through create + update', () => {
+      const scan = repo.create({ projectId: 'proj-1' });
+      const updated = repo.update(scan.id, { initPhase: 'discovering' });
+      expect(updated.initPhase).toBe('discovering');
+    });
+
+    it('initPhase is undefined for legacy/rescan scans', () => {
+      const scan = repo.create({ projectId: 'proj-1' });
+      expect(scan.initPhase).toBeUndefined();
+    });
+  });
 });
