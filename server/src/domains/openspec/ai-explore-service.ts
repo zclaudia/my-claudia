@@ -1,6 +1,7 @@
 // server/src/domains/openspec/ai-explore-service.ts
 import type { AiRunPort } from '../meta-workflow/run-entities/subagent-run-entity.js';
 import type { DeltaDoc, ParsedRequirement, ParsedScenario, RfcKeyword } from './markdown/types.js';
+import { validateSpec } from './spec-validator.js';
 
 export interface AiExploreServiceDeps {
   aiRunPort: AiRunPort;
@@ -44,6 +45,19 @@ export interface DiscoverResult {
   capabilities: DiscoveredCapability[];
   uncertainties: string[];
 }
+
+export interface GenerateInput {
+  capability: { name: string; description: string };
+  workingDirectory: string;
+  onStream?: (contentSoFar: string) => void;
+}
+
+export interface GenerateResult {
+  specMd: string;
+  attempts: number;
+}
+
+const MAX_GENERATE_ATTEMPTS = 3;
 
 export class AiExploreService {
   constructor(private deps: AiExploreServiceDeps) {}
@@ -133,6 +147,54 @@ export class AiExploreService {
         'Your previous response did not contain a parseable JSON object matching the required schema. Try again.';
     }
     throw new Error('AI did not emit parseable JSON for capability discovery after 2 attempts');
+  }
+
+  async generateCapabilitySpec(input: GenerateInput): Promise<GenerateResult> {
+    let lastErrors: { rule: string; message: string }[] | null = null;
+    for (let attempt = 1; attempt <= MAX_GENERATE_ATTEMPTS; attempt += 1) {
+      const prompt = buildGeneratePrompt(input.capability, lastErrors);
+      const raw = await this.runAiStreaming(prompt, input.workingDirectory, input.onStream);
+      const md = extractSpecTag(raw);
+      if (!md) {
+        lastErrors = [{ rule: 'output-format', message: 'No <spec>...</spec> tag found in AI response.' }];
+        continue;
+      }
+      const v = validateSpec(md);
+      if (v.valid) return { specMd: md, attempts: attempt };
+      lastErrors = v.errors;
+    }
+    const summary = lastErrors?.map(e => `${e.rule}: ${e.message}`).join('; ') ?? 'unknown';
+    throw new Error(`Validation failed after ${MAX_GENERATE_ATTEMPTS} attempts: ${summary}`);
+  }
+
+  private async runAiStreaming(
+    prompt: string,
+    workingDirectory: string,
+    onStream?: (s: string) => void,
+  ): Promise<string> {
+    let collected = '';
+    let resolved = false;
+    const timeoutMs = this.deps.timeoutMs ?? 120_000;
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => { if (!resolved) { resolved = true; resolve(); } }, timeoutMs);
+      this.deps.aiRunPort
+        .startVirtualRun({
+          input: prompt,
+          workingDirectory,
+          providerId: this.deps.providerId,
+          onMessage: (m: { kind: string; content?: string }) => {
+            if (m.content) {
+              collected += m.content;
+              onStream?.(collected);
+            }
+            if (['run_completed', 'completed', 'final', 'run_failed'].includes(m.kind)) {
+              if (!resolved) { resolved = true; clearTimeout(timer); resolve(); }
+            }
+          },
+        })
+        .catch(() => { if (!resolved) { resolved = true; clearTimeout(timer); resolve(); } });
+    });
+    return collected;
   }
 
   private async runAi(prompt: string, workingDirectory: string): Promise<string> {
@@ -381,6 +443,67 @@ function buildDiscoverPrompt(input: DiscoverInput): string {
     '- If the project shows no recognizable structure, output empty arrays.',
     '- 3-10 capabilities is typical. >15 means you over-split — consolidate.',
   ].join('\n');
+}
+
+function buildGeneratePrompt(
+  cap: { name: string; description: string },
+  lastErrors: { rule: string; message: string }[] | null,
+): string {
+  const repair = lastErrors
+    ? [
+        `Your previous spec.md for \`${cap.name}\` failed schema validation:`,
+        '',
+        ...lastErrors.map((e) => `- [${e.rule}] ${e.message}`),
+        '',
+        'Regenerate the complete spec.md fixing these issues. Do not patch — rewrite the whole file. Rules unchanged.',
+        '',
+      ].join('\n')
+    : '';
+
+  const base = [
+    `Write an OpenSpec-format spec.md for the \`${cap.name}\` capability.`,
+    '',
+    `**Description**: ${cap.description}`,
+    '',
+    '## Steps',
+    '1. Use Read / Glob / Grep to locate code relevant to this capability only.',
+    '2. Identify behavioral contracts (not implementation details): under what conditions does the system MUST / SHOULD / MAY do what.',
+    '3. Write spec.md per the OpenSpec format below.',
+    '4. Wrap the FINAL content between `<spec>` and `</spec>` tags. Any reasoning outside the tags is discarded.',
+    '',
+    '## OpenSpec spec.md format',
+    '```markdown',
+    '## Purpose',
+    '',
+    '<2-4 sentences on why this capability exists>',
+    '',
+    '## Requirements',
+    '',
+    '### Requirement: <Pascal Case Name>',
+    '',
+    'The system MUST/SHOULD/MAY <behavior>.',
+    '',
+    '#### Scenario: <scenario name>',
+    '',
+    '- **WHEN** <trigger>',
+    '- **THEN** <outcome>',
+    '- **AND** <optional further detail>',
+    '```',
+    '',
+    '## Hard rules',
+    '- Every Requirement body MUST contain one of: MUST, MUST NOT, SHALL, SHALL NOT, SHOULD, SHOULD NOT, MAY.',
+    '- Every Requirement has at least one Scenario.',
+    '- Scenario bodyLines use **WHEN** / **THEN** / **AND** prefixes.',
+    '- Do NOT mention: class names, file paths, function names. Describe behavior, not code.',
+    '- Output goes ONLY between `<spec>...</spec>`.',
+  ].join('\n');
+
+  return repair ? `${repair}\n${base}` : base;
+}
+
+function extractSpecTag(raw: string): string | null {
+  const m = raw.match(/<spec>([\s\S]*?)<\/spec>/);
+  return m ? m[1].trim() + '\n' : null;
 }
 
 function tryParseDiscoverResponse(raw: string): DiscoverResult | null {

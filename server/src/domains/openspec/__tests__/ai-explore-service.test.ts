@@ -231,4 +231,75 @@ describe('AiExploreService (integration with mock aiRunPort)', () => {
         .rejects.toThrow(/parse|JSON/);
     });
   });
+
+  describe('generateCapabilitySpec (init Phase 2)', () => {
+    const validMd =
+      '## Purpose\n\nFoo.\n\n## Requirements\n\n### Requirement: Foo\n\nThe system MUST do foo.\n\n#### Scenario: bar\n\n- **WHEN** x\n- **THEN** y\n';
+
+    it('returns spec.md on valid AI output (first try)', async () => {
+      const fakePort = {
+        async startVirtualRun(args: any) {
+          args.onMessage?.({ kind: 'assistant', content: `<spec>${validMd}</spec>` });
+          args.onMessage?.({ kind: 'run_completed' });
+        },
+      };
+      const svc = new AiExploreService({ aiRunPort: fakePort, timeoutMs: 1000 });
+      const result = await svc.generateCapabilitySpec({
+        capability: { name: 'auth', description: 'login' },
+        workingDirectory: '/tmp/x',
+      });
+      expect(result.specMd).toBe(validMd);
+      expect(result.attempts).toBe(1);
+    });
+
+    it('repairs once when first output fails validation', async () => {
+      const invalidMd = '## Requirements\n\n### Requirement: Foo\n\nfoo.\n\n#### Scenario: bar\n\n- **WHEN** x\n- **THEN** y\n';
+      let calls = 0;
+      const fakePort = {
+        async startVirtualRun(args: any) {
+          calls += 1;
+          const body = calls === 1 ? invalidMd : validMd;
+          args.onMessage?.({ kind: 'assistant', content: `<spec>${body}</spec>` });
+          args.onMessage?.({ kind: 'run_completed' });
+        },
+      };
+      const svc = new AiExploreService({ aiRunPort: fakePort, timeoutMs: 1000 });
+      const result = await svc.generateCapabilitySpec({
+        capability: { name: 'auth', description: 'login' },
+        workingDirectory: '/tmp/x',
+      });
+      expect(calls).toBe(2);
+      expect(result.attempts).toBe(2);
+      expect(result.specMd).toBe(validMd);
+    });
+
+    it('throws after 3 validation failures', async () => {
+      const invalidMd = '## Requirements\n';
+      const fakePort = {
+        async startVirtualRun(args: any) {
+          args.onMessage?.({ kind: 'assistant', content: `<spec>${invalidMd}</spec>` });
+          args.onMessage?.({ kind: 'run_completed' });
+        },
+      };
+      const svc = new AiExploreService({ aiRunPort: fakePort, timeoutMs: 1000 });
+      await expect(svc.generateCapabilitySpec({
+        capability: { name: 'auth', description: 'login' },
+        workingDirectory: '/tmp/x',
+      })).rejects.toThrow(/Validation failed/);
+    });
+
+    it('reports failure when output has no <spec> tags', async () => {
+      const fakePort = {
+        async startVirtualRun(args: any) {
+          args.onMessage?.({ kind: 'assistant', content: 'no spec tag at all' });
+          args.onMessage?.({ kind: 'run_completed' });
+        },
+      };
+      const svc = new AiExploreService({ aiRunPort: fakePort, timeoutMs: 1000 });
+      await expect(svc.generateCapabilitySpec({
+        capability: { name: 'auth', description: 'login' },
+        workingDirectory: '/tmp/x',
+      })).rejects.toThrow();
+    });
+  });
 });
