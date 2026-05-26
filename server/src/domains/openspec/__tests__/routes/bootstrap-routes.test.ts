@@ -273,6 +273,31 @@ describe('Bootstrap routes', () => {
     expect(res.body.error.code).toBe('OPENSPEC_ERROR');
   });
 
+  it('POST /bootstrap/scans/:id/generate returns 200 with scan + candidates', async () => {
+    const scanId = makePickingScan();
+    await request(app)
+      .post(`/api/openspec/bootstrap/scans/${scanId}/candidates`)
+      .send({ name: 'auth', description: 'Authentication' });
+    const res = await request(app)
+      .post(`/api/openspec/bootstrap/scans/${scanId}/generate`)
+      .send({});
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.scan.id).toBe(scanId);
+    expect(Array.isArray(res.body.data.candidates)).toBe(true);
+    expect(res.body.data.candidates.length).toBe(1);
+  });
+
+  it('POST /bootstrap/scans/:id/generate returns 400 if no candidates selected', async () => {
+    const scanId = makePickingScan();
+    const res = await request(app)
+      .post(`/api/openspec/bootstrap/scans/${scanId}/generate`)
+      .send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('OPENSPEC_ERROR');
+    expect(res.body.error.message).toMatch(/[Nn]o candidates/);
+  });
+
   it('POST /bootstrap/items/:itemId/approve marks approved', async () => {
     const start = await request(app)
       .post('/api/openspec/bootstrap/scans')

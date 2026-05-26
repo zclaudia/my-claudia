@@ -136,6 +136,17 @@ export function createBootstrapRoutes(deps: BootstrapRoutesDeps): Router {
     }
   });
 
+  router.post('/bootstrap/scans/:id/generate', async (req: Request, res: Response) => {
+    try {
+      await deps.bootstrapService.commitGeneration(req.params.id);
+      const scan = scanRepo.findById(req.params.id);
+      const candidates = candidateRepo.listByScan(req.params.id);
+      res.json(ok({ scan, candidates }));
+    } catch (e) {
+      res.status(400).json(err('OPENSPEC_ERROR', (e as Error).message));
+    }
+  });
+
   router.post('/bootstrap/scans/:id/cancel', (req: Request, res: Response) => {
     try {
       const scan = deps.bootstrapService.cancelScan(req.params.id);
