@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import * as path from 'node:path';
 import Database from 'better-sqlite3';
 import { applyMigrations } from '../../../infrastructure/storage/migrations/index.js';
 import { AiExploreService } from '../ai-explore-service.js';
@@ -342,6 +343,80 @@ describe('BootstrapService', () => {
       expect(r1.generated_md).toBe(validMd);
       const scan = db.prepare(`SELECT init_phase FROM bootstrap_scans WHERE id = ?`).get(scanId) as any;
       expect(scan.init_phase).toBe('reviewing');
+    });
+  });
+
+  describe('approve / reject / retry', () => {
+    const validMd =
+      '## Purpose\n\nFoo.\n\n## Requirements\n\n### Requirement: Foo\n\nThe system MUST do foo.\n\n#### Scenario: bar\n\n- **WHEN** x\n- **THEN** y\n';
+
+    function seedGenerated(svc: BootstrapService) {
+      const scanId = 'scan-rev';
+      db.prepare(`INSERT INTO bootstrap_scans (id, project_id, status, started_at, applied_count, pending_count, init_phase)
+                  VALUES (?, 'proj-1', 'awaiting_review', ?, 0, 0, 'reviewing')`).run(scanId, Date.now());
+      const c = svc.addCandidate(scanId, { name: 'auth', description: 'login' });
+      db.prepare(`UPDATE bootstrap_candidates SET phase='generated', generated_md=? WHERE id=?`).run(validMd, c.id);
+      return { scanId, candidateId: c.id };
+    }
+
+    it('approve writes spec.md to disk', async () => {
+      const svc = makeSvc();
+      const { candidateId } = seedGenerated(svc);
+      svc.approveCandidate(candidateId);
+      const filePath = path.join(projectRoot, 'openspec', 'specs', 'auth', 'spec.md');
+      expect(fs.existsSync(filePath)).toBe(true);
+      expect(fs.readFileSync(filePath, 'utf-8')).toBe(validMd);
+    });
+
+    it('approve creates openspec/config.yaml on first write only', async () => {
+      const svc = makeSvc();
+      const { candidateId } = seedGenerated(svc);
+      svc.approveCandidate(candidateId);
+      const cfg = path.join(projectRoot, 'openspec', 'config.yaml');
+      expect(fs.existsSync(cfg)).toBe(true);
+      expect(fs.readFileSync(cfg, 'utf-8').trim()).toBe('schema: spec-driven');
+      // Modify config, approve another — should not be overwritten
+      fs.writeFileSync(cfg, 'schema: spec-driven\ncontext: |\n  custom user content\n');
+      const c2 = svc.addCandidate('scan-rev', { name: 'billing', description: 'subs' });
+      db.prepare(`UPDATE bootstrap_candidates SET phase='generated', generated_md=? WHERE id=?`).run(validMd, c2.id);
+      svc.approveCandidate(c2.id);
+      expect(fs.readFileSync(cfg, 'utf-8')).toContain('custom user content');
+    });
+
+    it('reject marks candidate rejected, does not write to disk', async () => {
+      const svc = makeSvc();
+      const { candidateId } = seedGenerated(svc);
+      svc.rejectCandidate(candidateId);
+      const after = db.prepare(`SELECT phase FROM bootstrap_candidates WHERE id=?`).get(candidateId) as any;
+      expect(after.phase).toBe('rejected');
+    });
+
+    it('retry resets candidate to discovered and reruns Phase 2 for just that cap', async () => {
+      let calls = 0;
+      const port = {
+        async startVirtualRun(args: any) {
+          calls += 1;
+          args.onMessage?.({ kind: 'assistant', content: `<spec>${validMd}</spec>` });
+          args.onMessage?.({ kind: 'run_completed' });
+        },
+      };
+      const explore = new AiExploreService({ aiRunPort: port, timeoutMs: 5000 });
+      const svc = new BootstrapService({
+        db, explore, getProjectRoot: () => projectRoot, broadcast: () => {},
+      });
+      const scanId = 'scan-retry';
+      db.prepare(`INSERT INTO bootstrap_scans (id, project_id, status, started_at, applied_count, pending_count, init_phase)
+                  VALUES (?, 'proj-1', 'awaiting_review', ?, 0, 0, 'reviewing')`).run(scanId, Date.now());
+      const c = svc.addCandidate(scanId, { name: 'auth', description: 'login' });
+      db.prepare(`UPDATE bootstrap_candidates SET phase='failed', error_message='boom' WHERE id=?`).run(c.id);
+
+      await svc.retryCandidate(c.id);
+      await new Promise((r) => setTimeout(r, 150));
+
+      expect(calls).toBe(1);
+      const after = db.prepare(`SELECT phase, generated_md FROM bootstrap_candidates WHERE id=?`).get(c.id) as any;
+      expect(after.phase).toBe('generated');
+      expect(after.generated_md).toBe(validMd);
     });
   });
 

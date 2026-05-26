@@ -358,6 +358,94 @@ export class BootstrapService {
     this.deps.broadcast?.(before.scanId, { kind: 'candidate_updated', candidate: c });
   }
 
+  approveCandidate(id: string): BootstrapCandidate {
+    const cand = this.candidateRepo.findById(id);
+    if (!cand) throw new Error(`Candidate not found: ${id}`);
+    if (cand.phase !== 'generated') {
+      throw new Error(`Cannot approve candidate in phase=${cand.phase}`);
+    }
+    const scan = this.scanRepo.findById(cand.scanId)!;
+    const projectRoot = this.deps.getProjectRoot(scan.projectId);
+
+    // Write spec.md
+    const specPath = path.join(projectRoot, OPENSPEC_DIR, SPECS_DIR, cand.capability, 'spec.md');
+    fs.mkdirSync(path.dirname(specPath), { recursive: true });
+    fs.writeFileSync(specPath, cand.generated_md ?? '');
+
+    // Write config.yaml if missing
+    const cfgPath = path.join(projectRoot, OPENSPEC_DIR, 'config.yaml');
+    if (!fs.existsSync(cfgPath)) {
+      fs.writeFileSync(cfgPath, 'schema: spec-driven\n');
+    }
+
+    const updated = this.candidateRepo.update(id, { phase: 'approved' });
+    this.deps.broadcast?.(cand.scanId, { kind: 'candidate_updated', candidate: updated });
+    return updated;
+  }
+
+  rejectCandidate(id: string): BootstrapCandidate {
+    const cand = this.candidateRepo.findById(id);
+    if (!cand) throw new Error(`Candidate not found: ${id}`);
+    if (!['generated', 'failed'].includes(cand.phase)) {
+      throw new Error(`Cannot reject candidate in phase=${cand.phase}`);
+    }
+    const updated = this.candidateRepo.update(id, { phase: 'rejected' });
+    this.deps.broadcast?.(cand.scanId, { kind: 'candidate_updated', candidate: updated });
+    return updated;
+  }
+
+  async retryCandidate(id: string): Promise<BootstrapCandidate> {
+    const cand = this.candidateRepo.findById(id);
+    if (!cand) throw new Error(`Candidate not found: ${id}`);
+    if (!['failed', 'rejected'].includes(cand.phase)) {
+      throw new Error(`Cannot retry candidate in phase=${cand.phase}`);
+    }
+    // Reset
+    const reset = this.candidateRepo.update(id, {
+      phase: 'discovered',
+      error_message: null,
+      generated_md: null,
+      generation_attempts: 0,
+    });
+    this.deps.broadcast?.(cand.scanId, { kind: 'candidate_updated', candidate: reset });
+
+    // Generate just this cap in the background.
+    void this.regenerateSingle(cand.scanId, id).catch((e) => {
+      console.error(`[BootstrapService] retry unhandled error candidate=${id}:`, e);
+    });
+    return reset;
+  }
+
+  private async regenerateSingle(scanId: string, candidateId: string): Promise<void> {
+    const cand = this.candidateRepo.findById(candidateId);
+    if (!cand) return;
+    const projectRoot = this.deps.getProjectRoot(this.scanRepo.findById(scanId)!.projectId);
+
+    this.candidateRepo.update(candidateId, { phase: 'generating' });
+    this.deps.broadcast?.(scanId, { kind: 'candidate_generation_started', candidateId, capability: cand.capability });
+
+    try {
+      const onStream = makeThrottledStreamCallback((contentSoFar) => {
+        this.deps.broadcast?.(scanId, { kind: 'candidate_generation_progress', candidateId, contentSoFar });
+      });
+      const result = await this.deps.explore.generateCapabilitySpec({
+        capability: { name: cand.capability, description: cand.description },
+        workingDirectory: projectRoot,
+        onStream,
+      });
+      const updated = this.candidateRepo.update(candidateId, {
+        phase: 'generated',
+        generated_md: result.specMd,
+        generation_attempts: result.attempts,
+      });
+      this.deps.broadcast?.(scanId, { kind: 'candidate_generation_completed', candidate: updated });
+    } catch (e) {
+      const msg = (e as Error).message;
+      const updated = this.candidateRepo.update(candidateId, { phase: 'failed', error_message: msg });
+      this.deps.broadcast?.(scanId, { kind: 'candidate_generation_failed', candidate: updated, error: msg });
+    }
+  }
+
   private assertScanIsActive(scanId: string, allowedPhases: string[]): void {
     const scan = this.scanRepo.findById(scanId);
     if (!scan) throw new Error(`Scan not found: ${scanId}`);
