@@ -10,6 +10,7 @@ import type { PermissionRequest } from '../../stores/permissionStore';
 import type { ContentBlock } from '@my-claudia/shared';
 import type { PaginationInfo } from '../../stores/chatStore';
 import { useInteractionStore } from '../../stores/interactionStore';
+import { isPlanProposalTool } from './tool-call/toolClassifiers';
 
 const AUTO_STICK_BOTTOM_THRESHOLD_PX = 200;
 
@@ -112,6 +113,20 @@ export const ChatMessagePane = memo(function ChatMessagePane({
   },
     [interactionsMap, sessionId, sessionToolCallHistory, sessionToolCalls],
   );
+  const planReviewInteractions = useMemo(() => {
+    const toolCalls = [...sessionToolCallHistory, ...sessionToolCalls];
+    const hasPlanProposalTool = toolCalls.some((toolCall) =>
+      isPlanProposalTool(toolCall.toolName, toolCall.semantic)
+    );
+    if (hasPlanProposalTool) return [];
+
+    return Object.values(interactionsMap)
+      .filter((interaction) =>
+        interaction.sessionId === sessionId
+        && interaction.type === 'interaction_plan_review'
+      )
+      .sort((a, b) => a.createdAt - b.createdAt);
+  }, [interactionsMap, sessionId, sessionToolCallHistory, sessionToolCalls]);
   const shouldStickToBottomRef = useRef(true);
 
   // Reset sticky-to-bottom on session switch so the new session always scrolls to bottom
@@ -180,10 +195,10 @@ export const ChatMessagePane = memo(function ChatMessagePane({
   }, [permissionRequests.length, initialLoadDone, scrollToBottom]);
 
   useEffect(() => {
-    if (initialLoadDone && promptInteractions.length > 0) {
+    if (initialLoadDone && (promptInteractions.length > 0 || planReviewInteractions.length > 0)) {
       scrollToBottom();
     }
-  }, [promptInteractions.length, initialLoadDone, scrollToBottom]);
+  }, [promptInteractions.length, planReviewInteractions.length, initialLoadDone, scrollToBottom]);
 
   return (
     <div
@@ -283,6 +298,14 @@ export const ChatMessagePane = memo(function ChatMessagePane({
       {promptInteractions.length > 0 && (
         <div className="mt-4 space-y-3 max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl">
           {promptInteractions.map((interaction) => (
+            <InteractionItem key={interaction.interactionId} interaction={interaction} />
+          ))}
+        </div>
+      )}
+
+      {planReviewInteractions.length > 0 && (
+        <div className="mt-4 space-y-3 max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl">
+          {planReviewInteractions.map((interaction) => (
             <InteractionItem key={interaction.interactionId} interaction={interaction} />
           ))}
         </div>

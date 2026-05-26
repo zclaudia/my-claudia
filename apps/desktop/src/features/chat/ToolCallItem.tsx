@@ -81,7 +81,7 @@ export const ToolCallItem = memo(function ToolCallItem({ toolCall }: ToolCallIte
     // A plan-proposal tool creates a separate interaction before the tool
     // result exists. We match on the shared semantic (plus the MCP bridge
     // suffix fallback) instead of provider-specific tool names.
-    if (selectedSessionId && status === 'running' && isPlanProposalTool(toolName, semantic)) {
+    if (selectedSessionId && isPlanProposalTool(toolName, semantic)) {
       return Object.values(s.interactions)
         .filter((item) => item.sessionId === selectedSessionId && item.type === 'interaction_plan_review')
         .sort((a, b) => b.createdAt - a.createdAt)[0];

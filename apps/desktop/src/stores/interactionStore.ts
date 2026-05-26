@@ -15,6 +15,8 @@ interface InteractionState {
   getBySession: (sessionId: string) => InteractionMessage[];
   /** Clear all interactions for a session */
   clearSession: (sessionId: string) => void;
+  /** Clear client-synthesised Cursor plan reviews after the user responds manually */
+  clearClientSynthPlanReviewsForSession: (sessionId: string) => void;
 }
 
 export const useInteractionStore = create<InteractionState>((set, get) => ({
@@ -57,6 +59,22 @@ export const useInteractionStore = create<InteractionState>((set, get) => ({
           continue;
         }
         // Other same-session interactions: drop (existing behaviour).
+      }
+      return { interactions: filtered };
+    }),
+
+  clearClientSynthPlanReviewsForSession: (sessionId) =>
+    set((state) => {
+      const filtered: Record<string, InteractionMessage> = {};
+      for (const [id, interaction] of Object.entries(state.interactions)) {
+        if (
+          interaction.sessionId === sessionId
+          && interaction.type === 'interaction_plan_review'
+          && interaction.source === 'client_synth'
+        ) {
+          continue;
+        }
+        filtered[id] = interaction;
       }
       return { interactions: filtered };
     }),

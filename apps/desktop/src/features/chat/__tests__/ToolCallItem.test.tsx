@@ -795,6 +795,54 @@ describe('ToolCallItem', () => {
       expect(screen.queryByText('Raw plan')).not.toBeInTheDocument();
     });
 
+    it('renders cursor createPlan review after completion even when the interaction id differs from the tool call id', () => {
+      mockInteractionState.interactions['interaction-plan-1'] = {
+        type: 'interaction_plan_review',
+        interactionId: 'interaction-plan-1',
+        sessionId: 's1',
+        source: 'client_synth',
+        createdAt: Date.now(),
+        plan: 'Review Cursor plan',
+      };
+      mockSelectionState.selectedSessionId = 's1';
+
+      render(<ToolCallItem toolCall={createToolCall({
+        id: 'cursor-tool-1',
+        toolName: 'createPlan',
+        toolInput: { plan: 'Raw Cursor plan' },
+        status: 'completed',
+        semantic: 'plan_proposal',
+      })} />);
+
+      expect(screen.getByText('Plan Review')).toBeInTheDocument();
+      expect(screen.getByText('Approve Plan')).toBeInTheDocument();
+      expect(screen.getByText('Review Cursor plan')).toBeInTheDocument();
+      expect(screen.queryByText('Raw Cursor plan')).not.toBeInTheDocument();
+    });
+
+    it('does not render another session plan review in a completed createPlan tool call', () => {
+      mockInteractionState.interactions['interaction-plan-1'] = {
+        type: 'interaction_plan_review',
+        interactionId: 'interaction-plan-1',
+        sessionId: 'other-session',
+        source: 'client_synth',
+        createdAt: Date.now(),
+        plan: 'Other session plan',
+      };
+      mockSelectionState.selectedSessionId = 's1';
+
+      render(<ToolCallItem toolCall={createToolCall({
+        id: 'cursor-tool-1',
+        toolName: 'createPlan',
+        toolInput: { plan: 'Raw Cursor plan' },
+        status: 'completed',
+        semantic: 'plan_proposal',
+      })} />);
+
+      expect(screen.queryByText('Approve Plan')).not.toBeInTheDocument();
+      expect(screen.queryByText('Other session plan')).not.toBeInTheDocument();
+    });
+
     it('renders prompt interaction for running AskUserQuestion when the interaction id matches the tool call', () => {
       mockInteractionState.interactions['tool-1'] = {
         type: 'interaction_prompt',

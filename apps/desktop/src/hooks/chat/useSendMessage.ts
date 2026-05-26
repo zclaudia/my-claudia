@@ -3,6 +3,7 @@ import type { UnifiedPermissionPolicy, ClientMessage, MessageAttachment, Message
 import type { Attachment } from '../../features/chat/MessageInput';
 import type { MessageWithToolCalls } from '../../stores/chatStore';
 import { useChatStore } from '../../stores/chatStore';
+import { useInteractionStore } from '../../stores/interactionStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useToastStore } from '../../stores/toastStore';
 import { uploadFile } from '../../services/fileUpload';
@@ -221,6 +222,7 @@ export function useSendMessage({
     };
     console.log('[useSendMessage] run_start:', { sessionId, mode: runStartMsg.mode, model: runStartMsg.model, workingDirectory: runStartMsg.workingDirectory });
     await startRun(runStartMsg);
+    useInteractionStore.getState().clearClientSynthPlanReviewsForSession(sessionId);
 
     setTimeout(() => scrollToBottom(), 100);
   }, [sessionId, isConnected, isLoading, sessionRunId, mode, modelOverride, permissionOverride, currentSession, addMessage, startRun, scrollToBottom]);

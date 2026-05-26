@@ -51,6 +51,17 @@ function makeAskUserQuestionToolCall(id: string): ToolCallState {
   };
 }
 
+function makeCreatePlanToolCall(id: string): ToolCallState {
+  return {
+    id,
+    toolName: 'createPlan',
+    toolInput: { plan: '# Cursor plan' },
+    status: 'completed',
+    isError: false,
+    semantic: 'plan_proposal',
+  };
+}
+
 function renderPane(overrides: Partial<Parameters<typeof ChatMessagePane>[0]> = {}) {
   return render(
     <ChatMessagePane
@@ -132,5 +143,37 @@ describe('ChatMessagePane', () => {
     renderPane();
 
     expect(screen.getByTestId('global-prompt')).toHaveTextContent('ask-1');
+  });
+
+  it('renders an orphan plan review so pending sessions have visible action buttons', () => {
+    mockInteractionsState.interactions['plan-1'] = {
+      type: 'interaction_plan_review',
+      interactionId: 'plan-1',
+      sessionId: 's1',
+      source: 'client_synth',
+      createdAt: 1,
+      plan: 'Review Cursor plan',
+    };
+
+    renderPane();
+
+    expect(screen.getByTestId('global-prompt')).toHaveTextContent('plan-1');
+  });
+
+  it('does not render a plan review globally when a tool call owns it', () => {
+    mockInteractionsState.interactions['plan-1'] = {
+      type: 'interaction_plan_review',
+      interactionId: 'plan-1',
+      sessionId: 's1',
+      source: 'client_synth',
+      createdAt: 1,
+      plan: 'Review Cursor plan',
+    };
+
+    renderPane({
+      sessionToolCallHistory: [makeCreatePlanToolCall('plan-1')],
+    });
+
+    expect(screen.queryByTestId('global-prompt')).not.toBeInTheDocument();
   });
 });
