@@ -147,6 +147,33 @@ export function createBootstrapRoutes(deps: BootstrapRoutesDeps): Router {
     }
   });
 
+  router.post('/bootstrap/candidates/:id/approve', (req: Request, res: Response) => {
+    try {
+      const candidate = deps.bootstrapService.approveCandidate(req.params.id);
+      res.json(ok({ candidate }));
+    } catch (e) {
+      res.status(400).json(err('OPENSPEC_ERROR', (e as Error).message));
+    }
+  });
+
+  router.post('/bootstrap/candidates/:id/reject', (req: Request, res: Response) => {
+    try {
+      const candidate = deps.bootstrapService.rejectCandidate(req.params.id);
+      res.json(ok({ candidate }));
+    } catch (e) {
+      res.status(400).json(err('OPENSPEC_ERROR', (e as Error).message));
+    }
+  });
+
+  router.post('/bootstrap/candidates/:id/retry', async (req: Request, res: Response) => {
+    try {
+      const candidate = await deps.bootstrapService.retryCandidate(req.params.id);
+      res.json(ok({ candidate }));
+    } catch (e) {
+      res.status(400).json(err('OPENSPEC_ERROR', (e as Error).message));
+    }
+  });
+
   router.post('/bootstrap/scans/:id/cancel', (req: Request, res: Response) => {
     try {
       const scan = deps.bootstrapService.cancelScan(req.params.id);

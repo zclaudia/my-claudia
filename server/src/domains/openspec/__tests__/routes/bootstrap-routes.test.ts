@@ -298,6 +298,98 @@ describe('Bootstrap routes', () => {
     expect(res.body.error.message).toMatch(/[Nn]o candidates/);
   });
 
+  /**
+   * Helper: insert a candidate row directly in a specific phase, bypassing
+   * service-level guards. Used by the approve/reject/retry tests.
+   */
+  function insertCandidate(args: {
+    id: string;
+    scanId: string;
+    capability: string;
+    phase: string;
+    generated_md?: string | null;
+  }): void {
+    const now = Date.now();
+    db.prepare(
+      `INSERT INTO bootstrap_candidates
+         (id, scan_id, capability, title, description, source, selected, phase,
+          generated_md, generation_attempts, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'ai_discovered', 1, ?, ?, 1, ?, ?)`,
+    ).run(
+      args.id,
+      args.scanId,
+      args.capability,
+      args.capability,
+      'desc',
+      args.phase,
+      args.generated_md ?? null,
+      now,
+      now,
+    );
+  }
+
+  it('POST /bootstrap/candidates/:id/approve writes spec and returns approved candidate', async () => {
+    const scanId = makePickingScan();
+    insertCandidate({
+      id: 'cand-1',
+      scanId,
+      capability: 'auth',
+      phase: 'generated',
+      generated_md: '# auth Specification\n\n## Purpose\n\nAuth.\n',
+    });
+    const res = await request(app)
+      .post('/api/openspec/bootstrap/candidates/cand-1/approve')
+      .send({});
+    expect(res.status).toBe(200);
+    expect(res.body.data.candidate.phase).toBe('approved');
+  });
+
+  it('POST /bootstrap/candidates/:id/approve returns 400 in wrong phase', async () => {
+    const scanId = makePickingScan();
+    insertCandidate({ id: 'cand-2', scanId, capability: 'auth', phase: 'discovered' });
+    const res = await request(app)
+      .post('/api/openspec/bootstrap/candidates/cand-2/approve')
+      .send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('OPENSPEC_ERROR');
+  });
+
+  it('POST /bootstrap/candidates/:id/reject transitions to rejected', async () => {
+    const scanId = makePickingScan();
+    insertCandidate({
+      id: 'cand-3',
+      scanId,
+      capability: 'auth',
+      phase: 'generated',
+      generated_md: '# auth\n',
+    });
+    const res = await request(app)
+      .post('/api/openspec/bootstrap/candidates/cand-3/reject')
+      .send({});
+    expect(res.status).toBe(200);
+    expect(res.body.data.candidate.phase).toBe('rejected');
+  });
+
+  it('POST /bootstrap/candidates/:id/retry resets phase to discovered', async () => {
+    const scanId = makePickingScan();
+    insertCandidate({ id: 'cand-4', scanId, capability: 'auth', phase: 'failed' });
+    const res = await request(app)
+      .post('/api/openspec/bootstrap/candidates/cand-4/retry')
+      .send({});
+    expect(res.status).toBe(200);
+    expect(res.body.data.candidate.phase).toBe('discovered');
+  });
+
+  it('POST /bootstrap/candidates/:id/retry returns 400 in wrong phase', async () => {
+    const scanId = makePickingScan();
+    insertCandidate({ id: 'cand-5', scanId, capability: 'auth', phase: 'discovered' });
+    const res = await request(app)
+      .post('/api/openspec/bootstrap/candidates/cand-5/retry')
+      .send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('OPENSPEC_ERROR');
+  });
+
   it('POST /bootstrap/items/:itemId/approve marks approved', async () => {
     const start = await request(app)
       .post('/api/openspec/bootstrap/scans')
