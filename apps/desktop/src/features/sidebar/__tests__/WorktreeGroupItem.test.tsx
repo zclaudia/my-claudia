@@ -92,4 +92,25 @@ describe('WorktreeGroupItem', () => {
     const chevronSvg = container.querySelector('button svg');
     expect(chevronSvg?.classList.toString()).toContain('rotate-90');
   });
+
+  it('renders delete button when deletable and calls onDelete without toggling', () => {
+    const onToggle = vi.fn();
+    const onDelete = vi.fn();
+    const group = makeGroup({ key: '/repo/.worktrees/feat-a', label: 'feat-a', isRoot: false });
+    const { getByRole } = render(
+      <WorktreeGroupItem
+        group={group}
+        isExpanded={false}
+        onToggle={onToggle}
+        canDelete
+        onDelete={onDelete}
+      >
+        <li>child</li>
+      </WorktreeGroupItem>,
+    );
+
+    fireEvent.click(getByRole('button', { name: 'Remove worktree' }));
+    expect(onDelete).toHaveBeenCalledTimes(1);
+    expect(onToggle).not.toHaveBeenCalled();
+  });
 });

@@ -58,6 +58,7 @@ export interface ProjectListItemProps {
   worktrees: GitWorktree[];
   expandedWorktrees: Set<string>;
   onToggleWorktree: (key: string) => void;
+  onDeleteWorktree: (projectId: string, worktreePath: string, branchName?: string) => void;
   regularSessionsCollapsed: boolean;
   onToggleRegularSessions: () => void;
   onReorderSessions: (projectId: string, orderedIds: string[]) => void;

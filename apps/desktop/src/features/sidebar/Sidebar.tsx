@@ -21,6 +21,7 @@ import { useSidebarActions } from './useSidebarActions';
 import * as api from '../../services/api';
 import type { GitWorktree } from '@my-claudia/shared';
 import type { WorktreeGroup } from './worktreeGrouping';
+import { runWithToast } from '../git/runWithToast';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -95,6 +96,15 @@ export function Sidebar({
   const [regularSessionsCollapsed, setRegularSessionsCollapsed] = useState<Set<string>>(new Set());
   const [worktreesByProject, setWorktreesByProject] = useState<Map<string, GitWorktree[]>>(new Map());
 
+  const refreshProjectWorktrees = useCallback(async (projectId: string) => {
+    try {
+      const worktrees = await api.getProjectWorktrees(projectId);
+      setWorktreesByProject(prev => new Map(prev).set(projectId, worktrees));
+    } catch {
+      setWorktreesByProject(prev => new Map(prev).set(projectId, []));
+    }
+  }, []);
+
   // --- Actions ---
   const actions = useSidebarActions({
     isConnected,
@@ -127,14 +137,10 @@ export function Sidebar({
   useEffect(() => {
     for (const projectId of expandedProjects) {
       if (!worktreesByProject.has(projectId)) {
-        api.getProjectWorktrees(projectId).then(wts => {
-          setWorktreesByProject(prev => new Map(prev).set(projectId, wts));
-        }).catch(() => {
-          setWorktreesByProject(prev => new Map(prev).set(projectId, []));
-        });
+        refreshProjectWorktrees(projectId).catch(() => {});
       }
     }
-  }, [expandedProjects, worktreesByProject]);
+  }, [expandedProjects, worktreesByProject, refreshProjectWorktrees]);
 
   const getWorktreeGroupsForProject = useCallback((projectId: string): WorktreeGroup[] => {
     const projectSessions = sessionsByProject.get(projectId) || [];
@@ -178,6 +184,20 @@ export function Sidebar({
       return next;
     });
   }, []);
+
+  const handleDeleteWorktree = useCallback(async (projectId: string, worktreePath: string, branchName?: string) => {
+    const label = branchName || worktreePath;
+    const confirmed = window.confirm(
+      `Remove worktree at "${worktreePath}"? This deletes the directory and the local branch "${label}".`,
+    );
+    if (!confirmed) return;
+
+    const result = await runWithToast(`Remove worktree '${label}'`, projectId, () =>
+      api.deleteProjectWorktree(projectId, worktreePath),
+    );
+    if (result === null) return;
+    await refreshProjectWorktrees(projectId);
+  }, [refreshProjectWorktrees]);
 
   const toggleProject = (projectId: string) => {
     const newExpanded = new Set(expandedProjects);
@@ -256,6 +276,7 @@ export function Sidebar({
                 worktrees={worktreesByProject.get(project.id) || []}
                 expandedWorktrees={expandedWorktrees}
                 onToggleWorktree={toggleWorktree}
+                onDeleteWorktree={handleDeleteWorktree}
                 regularSessionsCollapsed={regularSessionsCollapsed.has(project.id)}
                 onToggleRegularSessions={() => toggleRegularSessions(project.id)}
                 onReorderSessions={actions.handleReorderSessions}

@@ -9,6 +9,10 @@ import { Select } from '../../components/ui/Select';
 import type { Session } from '@my-claudia/shared';
 import type { ProjectListItemProps } from './types';
 
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, '/').replace(/\/$/, '');
+}
+
 function splitProjectSessions(
   sessionList: Session[],
   hasSupervisor: boolean,
@@ -55,6 +59,7 @@ export function ProjectListItem({
   worktrees,
   expandedWorktrees,
   onToggleWorktree,
+  onDeleteWorktree,
   regularSessionsCollapsed,
   onToggleRegularSessions,
   onReorderSessions,
@@ -154,15 +159,32 @@ export function ProjectListItem({
       return renderSortableSessions(regularSessions);
     }
     return groups.map(group => (
-      <WorktreeGroupItem
-        key={group.key}
-        group={group}
-        isExpanded={expandedWorktrees.has(`${project.id}:${group.key}`)}
-        onToggle={() => onToggleWorktree(`${project.id}:${group.key}`)}
-        isMobile={isMobile}
-      >
-        {renderSortableSessions(group.sessions)}
-      </WorktreeGroupItem>
+      {
+        (() => {
+          const matchedWorktree = group.isRoot
+            ? null
+            : worktrees.find((wt) => normalizePath(wt.path) === normalizePath(group.key)) ?? null;
+          const canDeleteWorktree = Boolean(matchedWorktree && !matchedWorktree.isMain && matchedWorktree.managedBy !== 'supervisor');
+
+          return (
+            <WorktreeGroupItem
+              key={group.key}
+              group={group}
+              isExpanded={expandedWorktrees.has(`${project.id}:${group.key}`)}
+              onToggle={() => onToggleWorktree(`${project.id}:${group.key}`)}
+              isMobile={isMobile}
+              canDelete={canDeleteWorktree}
+              onDelete={
+                matchedWorktree
+                  ? () => onDeleteWorktree(project.id, matchedWorktree.path, matchedWorktree.branch)
+                  : undefined
+              }
+            >
+              {renderSortableSessions(group.sessions)}
+            </WorktreeGroupItem>
+          );
+        })()
+      }
     ));
   };
 
