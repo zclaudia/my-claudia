@@ -169,4 +169,66 @@ describe('AiExploreService (integration with mock aiRunPort)', () => {
     expect(result.perCapability).toEqual({});
     expect(result.parseErrors[0]).toMatch(/No JSON/);
   });
+
+  describe('discoverCapabilities (init Phase 1)', () => {
+    it('returns capabilities + uncertainties on valid AI JSON', async () => {
+      const fakePort = {
+        async startVirtualRun(args: any) {
+          args.onMessage?.({
+            kind: 'assistant',
+            content: JSON.stringify({
+              capabilities: [
+                { name: 'auth', description: 'sign-up / login' },
+                { name: 'billing', description: 'subscriptions' },
+              ],
+              uncertainties: ['/vendor/legacy/ — unclear'],
+            }),
+          });
+          args.onMessage?.({ kind: 'run_completed' });
+        },
+      };
+      const svc = new AiExploreService({ aiRunPort: fakePort, timeoutMs: 1000 });
+      const result = await svc.discoverCapabilities({
+        projectId: 'p1',
+        workingDirectory: '/tmp/x',
+      });
+      expect(result.capabilities.map(c => c.name)).toEqual(['auth', 'billing']);
+      expect(result.uncertainties).toEqual(['/vendor/legacy/ — unclear']);
+    });
+
+    it('retries once when first response is not parseable JSON', async () => {
+      let calls = 0;
+      const fakePort = {
+        async startVirtualRun(args: any) {
+          calls += 1;
+          if (calls === 1) {
+            args.onMessage?.({ kind: 'assistant', content: 'I think it has these capabilities... no JSON here' });
+            args.onMessage?.({ kind: 'run_completed' });
+          } else {
+            args.onMessage?.({
+              kind: 'assistant',
+              content: JSON.stringify({ capabilities: [{ name: 'a', description: 'x' }], uncertainties: [] }),
+            });
+            args.onMessage?.({ kind: 'run_completed' });
+          }
+        },
+      };
+      const svc = new AiExploreService({ aiRunPort: fakePort, timeoutMs: 1000 });
+      const result = await svc.discoverCapabilities({ projectId: 'p1', workingDirectory: '/tmp/x' });
+      expect(calls).toBe(2);
+      expect(result.capabilities).toHaveLength(1);
+    });
+
+    it('throws after 2 failed parse attempts', async () => {
+      const fakePort = {
+        async startVirtualRun(args: any) {
+          args.onMessage?.({ kind: 'assistant', content: 'no JSON' });
+          args.onMessage?.({ kind: 'run_completed' });
+        },
+      };
+      const svc = new AiExploreService({ aiRunPort: fakePort, timeoutMs: 1000 });
+      await expect(svc.discoverCapabilities({ projectId: 'p1', workingDirectory: '/tmp/x' }))
+        .rejects.toThrow(/parse|JSON/);
+    });
+  });
 });

@@ -29,6 +29,22 @@ export interface ExploreResult {
   parseErrors: string[];
 }
 
+export interface DiscoveredCapability {
+  name: string;
+  description: string;
+}
+
+export interface DiscoverInput {
+  projectId: string;
+  workingDirectory: string;
+  existingCapabilities?: string[];
+}
+
+export interface DiscoverResult {
+  capabilities: DiscoveredCapability[];
+  uncertainties: string[];
+}
+
 export class AiExploreService {
   constructor(private deps: AiExploreServiceDeps) {}
 
@@ -102,6 +118,59 @@ export class AiExploreService {
       }
     }
     return parsed;
+  }
+
+  async discoverCapabilities(input: DiscoverInput): Promise<DiscoverResult> {
+    const basePrompt = buildDiscoverPrompt(input);
+    let repairContext: string | null = null;
+
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const prompt = repairContext ? `${repairContext}\n\n${basePrompt}` : basePrompt;
+      const raw = await this.runAi(prompt, input.workingDirectory);
+      const parsed = tryParseDiscoverResponse(raw);
+      if (parsed) return parsed;
+      repairContext =
+        'Your previous response did not contain a parseable JSON object matching the required schema. Try again.';
+    }
+    throw new Error('AI did not emit parseable JSON for capability discovery after 2 attempts');
+  }
+
+  private async runAi(prompt: string, workingDirectory: string): Promise<string> {
+    let collected = '';
+    let resolved = false;
+    const timeoutMs = this.deps.timeoutMs ?? 120_000;
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          resolve();
+        }
+      }, timeoutMs);
+      this.deps.aiRunPort
+        .startVirtualRun({
+          input: prompt,
+          workingDirectory,
+          providerId: this.deps.providerId,
+          onMessage: (m: { kind: string; content?: string }) => {
+            if (m.content) collected += m.content;
+            if (['run_completed', 'completed', 'final', 'run_failed'].includes(m.kind)) {
+              if (!resolved) {
+                resolved = true;
+                clearTimeout(timer);
+                resolve();
+              }
+            }
+          },
+        })
+        .catch(() => {
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timer);
+            resolve();
+          }
+        });
+    });
+    return collected;
   }
 }
 
@@ -274,4 +343,64 @@ function toRequirement(raw: unknown): ParsedRequirement | null {
     rfcKeywords: detectRfcKeywords(obj.body),
     scenarios,
   };
+}
+
+function buildDiscoverPrompt(input: DiscoverInput): string {
+  const existing = input.existingCapabilities && input.existingCapabilities.length > 0
+    ? `\n\nExisting openspec/specs/ already documents these capabilities (skip them in your output):\n${input.existingCapabilities.map(c => `- ${c}`).join('\n')}`
+    : '';
+  return [
+    'You are a code archaeologist looking at an existing project. Your job in this phase is NOT to write specs — it is to identify the system\'s capability boundaries so a follow-up phase can document them one at a time.',
+    '',
+    '## Stance',
+    '- Curious, not prescriptive. Investigate before classifying.',
+    '- Grounded — read the actual code, don\'t theorize.',
+    '- Open threads — when uncertain about a directory\'s purpose, say so.',
+    '',
+    '## Steps',
+    '1. Use Read / Glob / Grep to investigate: README, package manifests, entry points, top-level src/ directories.',
+    '2. Identify high-cohesion functional groups (capabilities). Examples:',
+    '   - good: auth / billing / notifications / workspace-isolation',
+    '   - too fine: login / logout / reset-password (merge to auth)',
+    '   - too coarse: core / main / misc (says nothing)',
+    '3. For each capability give a kebab-case name + one-sentence description.',
+    '4. List any directories or subsystems you couldn\'t make sense of, in `uncertainties`.' + existing,
+    '',
+    '## Output (strict JSON, single object, in its own fenced code block at the end)',
+    '```json',
+    '{',
+    '  "capabilities": [',
+    '    { "name": "<kebab-case>", "description": "<one line>" }',
+    '  ],',
+    '  "uncertainties": ["<thing you couldn\'t classify>"]',
+    '}',
+    '```',
+    '',
+    '## Hard rules',
+    '- No spec content, no requirements, no scenarios in this phase.',
+    '- If the project shows no recognizable structure, output empty arrays.',
+    '- 3-10 capabilities is typical. >15 means you over-split — consolidate.',
+  ].join('\n');
+}
+
+function tryParseDiscoverResponse(raw: string): DiscoverResult | null {
+  const jsonText = extractJsonObject(raw);
+  if (!jsonText) return null;
+  try {
+    const obj = JSON.parse(jsonText) as { capabilities?: unknown; uncertainties?: unknown };
+    if (!Array.isArray(obj.capabilities)) return null;
+    const caps: DiscoveredCapability[] = [];
+    for (const c of obj.capabilities) {
+      if (typeof c !== 'object' || c === null) return null;
+      const cc = c as { name?: unknown; description?: unknown };
+      if (typeof cc.name !== 'string' || typeof cc.description !== 'string') return null;
+      caps.push({ name: cc.name, description: cc.description });
+    }
+    const uncertainties = Array.isArray(obj.uncertainties)
+      ? obj.uncertainties.filter((x): x is string => typeof x === 'string')
+      : [];
+    return { capabilities: caps, uncertainties };
+  } catch {
+    return null;
+  }
 }
