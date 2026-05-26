@@ -43,7 +43,15 @@ export function createBootstrapRoutes(deps: BootstrapRoutesDeps): Router {
         projectId: body.projectId,
         mode: body.mode,
       });
-      res.status(201).json(ok(result));
+      if (body.mode === 'initial') {
+        // Init mode: Phase 1 runs in the background. The picker UI loads
+        // candidates via WebSocket / polling, so the response carries just
+        // the scan handle — no exploreResult / summaries yet.
+        res.status(201).json(ok({ scan: result.scan }));
+      } else {
+        // Rescan: single-phase, fully synchronous — return the full result.
+        res.status(201).json(ok(result));
+      }
     } catch (e) {
       res.status(400).json(err('OPENSPEC_ERROR', (e as Error).message));
     }

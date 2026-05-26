@@ -109,6 +109,32 @@ describe('Bootstrap routes', () => {
     expect(res.body.data.scan.appliedCount).toBe(1);
   });
 
+  it("POST /bootstrap/scans (mode='initial') returns just {scan} with init_phase", async () => {
+    const res = await request(app)
+      .post('/api/openspec/bootstrap/scans')
+      .send({ projectId: 'proj-1', mode: 'initial' });
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.scan).toBeDefined();
+    expect(res.body.data.scan.initPhase).toBe('discovering');
+    expect(res.body.data.scan.status).toBe('running');
+    // Phase 1 runs in background — the response must NOT include exploreResult / summaries.
+    expect(res.body.data.exploreResult).toBeUndefined();
+    expect(res.body.data.appliedSummary).toBeUndefined();
+    expect(res.body.data.pendingSummary).toBeUndefined();
+  });
+
+  it("POST /bootstrap/scans (mode='rescan') returns the full single-phase result", async () => {
+    const res = await request(app)
+      .post('/api/openspec/bootstrap/scans')
+      .send({ projectId: 'proj-1', mode: 'rescan' });
+    expect(res.status).toBe(201);
+    expect(res.body.data.scan).toBeDefined();
+    expect(res.body.data.exploreResult).toBeDefined();
+    expect(res.body.data.appliedSummary).toBeDefined();
+    expect(res.body.data.pendingSummary).toBeDefined();
+  });
+
   it('POST /bootstrap/scans rejects invalid mode', async () => {
     const res = await request(app)
       .post('/api/openspec/bootstrap/scans')
