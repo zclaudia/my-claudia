@@ -229,6 +229,50 @@ describe('Bootstrap routes', () => {
     expect(res.body.error.code).toBe('OPENSPEC_ERROR');
   });
 
+  it('PATCH /bootstrap/candidates/:id updates description', async () => {
+    const scanId = makePickingScan();
+    const create = await request(app)
+      .post(`/api/openspec/bootstrap/scans/${scanId}/candidates`)
+      .send({ name: 'auth', description: 'old desc' });
+    const id = create.body.data.candidate.id;
+    const res = await request(app)
+      .patch(`/api/openspec/bootstrap/candidates/${id}`)
+      .send({ description: 'new desc', selected: false });
+    expect(res.status).toBe(200);
+    expect(res.body.data.candidate.description).toBe('new desc');
+    expect(res.body.data.candidate.selected).toBe(false);
+  });
+
+  it('PATCH /bootstrap/candidates/:id returns 400 for unknown', async () => {
+    const res = await request(app)
+      .patch('/api/openspec/bootstrap/candidates/does-not-exist')
+      .send({ description: 'x' });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('OPENSPEC_ERROR');
+  });
+
+  it('DELETE /bootstrap/candidates/:id soft-deletes by phase=excluded', async () => {
+    const scanId = makePickingScan();
+    const create = await request(app)
+      .post(`/api/openspec/bootstrap/scans/${scanId}/candidates`)
+      .send({ name: 'auth', description: 'd' });
+    const id = create.body.data.candidate.id;
+    const res = await request(app).delete(`/api/openspec/bootstrap/candidates/${id}`);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    // Verify the row is now in phase='excluded'
+    const row = db
+      .prepare(`SELECT phase FROM bootstrap_candidates WHERE id = ?`)
+      .get(id) as { phase: string };
+    expect(row.phase).toBe('excluded');
+  });
+
+  it('DELETE /bootstrap/candidates/:id returns 400 for unknown', async () => {
+    const res = await request(app).delete('/api/openspec/bootstrap/candidates/does-not-exist');
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('OPENSPEC_ERROR');
+  });
+
   it('POST /bootstrap/items/:itemId/approve marks approved', async () => {
     const start = await request(app)
       .post('/api/openspec/bootstrap/scans')
