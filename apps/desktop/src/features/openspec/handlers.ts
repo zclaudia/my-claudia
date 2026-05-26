@@ -9,6 +9,7 @@
 import type { ServerMessage } from '@my-claudia/shared';
 import { useOpenSpecStore } from './store';
 import * as api from './api';
+import { handleBootstrapEvent } from './ws-handlers';
 
 /**
  * Handle openspec_* ServerMessage variants. Each handler triggers a small
@@ -42,6 +43,11 @@ export function handleOpenSpecMessage(msg: ServerMessage): boolean {
         .getSpecChange(specChangeId)
         .then((sc) => useOpenSpecStore.getState().setSpecChange(sc))
         .catch(() => undefined);
+      return true;
+    }
+
+    case 'bootstrap_event': {
+      handleBootstrapEvent(msg);
       return true;
     }
 

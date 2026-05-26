@@ -239,6 +239,7 @@ const messageDispatcher = createMessageDispatcher<ServerMessage, MessageDispatch
       'workflow_run_update',
       'workflow_step_types_changed',
       'workflow_trigger_sources_changed',
+      'bootstrap_event',
     ],
     handle: (msg) => dispatchFeatureMessage(msg),
   },
