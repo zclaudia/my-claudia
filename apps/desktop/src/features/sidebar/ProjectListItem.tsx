@@ -158,34 +158,31 @@ export function ProjectListItem({
     if (groups.length === 0) {
       return renderSortableSessions(regularSessions);
     }
-    return groups.map(group => (
-      {
-        (() => {
-          const matchedWorktree = group.isRoot
-            ? null
-            : worktrees.find((wt) => normalizePath(wt.path) === normalizePath(group.key)) ?? null;
-          const canDeleteWorktree = Boolean(matchedWorktree && !matchedWorktree.isMain && matchedWorktree.managedBy !== 'supervisor');
-
-          return (
-            <WorktreeGroupItem
-              key={group.key}
-              group={group}
-              isExpanded={expandedWorktrees.has(`${project.id}:${group.key}`)}
-              onToggle={() => onToggleWorktree(`${project.id}:${group.key}`)}
-              isMobile={isMobile}
-              canDelete={canDeleteWorktree}
-              onDelete={
-                matchedWorktree
-                  ? () => onDeleteWorktree(project.id, matchedWorktree.path, matchedWorktree.branch)
-                  : undefined
-              }
-            >
-              {renderSortableSessions(group.sessions)}
-            </WorktreeGroupItem>
-          );
-        })()
-      }
-    ));
+    return groups.map(group => {
+      const matchedWorktree = group.isRoot
+        ? null
+        : worktrees.find((wt) => normalizePath(wt.path) === normalizePath(group.key)) ?? null;
+      const canDeleteWorktree = Boolean(
+        matchedWorktree && !matchedWorktree.isMain && matchedWorktree.managedBy !== 'supervisor'
+      );
+      return (
+        <WorktreeGroupItem
+          key={group.key}
+          group={group}
+          isExpanded={expandedWorktrees.has(`${project.id}:${group.key}`)}
+          onToggle={() => onToggleWorktree(`${project.id}:${group.key}`)}
+          isMobile={isMobile}
+          canDelete={canDeleteWorktree}
+          onDelete={
+            matchedWorktree
+              ? () => onDeleteWorktree(project.id, matchedWorktree.path, matchedWorktree.branch)
+              : undefined
+          }
+        >
+          {renderSortableSessions(group.sessions)}
+        </WorktreeGroupItem>
+      );
+    });
   };
 
   return (

@@ -1,3 +1,6 @@
 [submodule "plugins"]
 	path = plugins
 	url = git@github.com:zhvala/my-claudia-plugins.git
+[submodule "agent-sdk"]
+	path = agent-sdk
+	url = git@zclaudia.github.com:zclaudia/openclaude-headless.git
