@@ -206,11 +206,14 @@ export function useMessagePagination({
           ? 'Request timed out. The backend server may be unresponsive.'
           : `Failed to load messages: ${errMsg}`;
         setLoadError(friendlyMsg);
-        setMessages(sessionId, [], { total: 0, hasMore: false });
+        // Preserve previously loaded messages so offline session re-open still shows cached history.
+        if (!sessionMessages || sessionMessages.length === 0) {
+          setMessages(sessionId, [], { total: 0, hasMore: false });
+        }
         setInitialLoadDone(true);
       }
     }
-  }, [sessionId, setLoadingMore, prependMessages, setMessages, scrollToBottom, isConnected, syncFilePushMessages, pendingMessageJump]);
+  }, [sessionId, setLoadingMore, prependMessages, setMessages, scrollToBottom, isConnected, syncFilePushMessages, pendingMessageJump, sessionMessages]);
 
   // Load initial messages when session changes
   useEffect(() => {

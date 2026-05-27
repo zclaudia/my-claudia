@@ -154,8 +154,21 @@ vi.mock('../../stores/ownershipStore', () => ({
       getSessionBackendId: (sessionId: string | null | undefined) => {
         if (!sessionId) return null;
         if (sessionId === 'remote-session') return 'gw:backend-1';
+        if (sessionId === 'stale-local-session') return 'gw:backend-1';
         return 'server-1';
       },
+    }),
+  },
+}));
+
+vi.mock('../../stores/projectStore', () => ({
+  useProjectStore: {
+    getState: () => ({
+      sessions: [
+        { id: 's1', projectId: 'project-1' },
+        { id: 'remote-session', projectId: 'remote-project' },
+        { id: 'stale-local-session', projectId: 'project-1' },
+      ],
     }),
   },
 }));
@@ -354,6 +367,19 @@ describe('api', () => {
 
       expect(mockFetch).toHaveBeenCalledWith(
         'http://localhost:3100/api/sessions/remote-session/messages',
+        expect.objectContaining({
+          headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
+        })
+      );
+    });
+
+    it('prefers the project owner when a local session has stale session ownership', async () => {
+      mockResponse({ messages: [], pagination: { total: 0, hasMore: false } });
+
+      await getSessionMessages('stale-local-session');
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3100/api/sessions/stale-local-session/messages',
         expect.objectContaining({
           headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
         })

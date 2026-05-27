@@ -256,19 +256,13 @@ export const useProjectStore = create<ProjectState>((set) => ({
   // ── Session actions ──
 
   setSessions: (sessions) => {
-    const activeBackendId = resolveOwnershipBackendId();
-    if (activeBackendId) {
-      useOwnershipStore.getState().setSessionOwners(sessions.map((s) => s.id), activeBackendId);
-    }
+    assignSessionOwnersForSessions(sessions);
     set({ sessions });
   },
 
   mergeSessions: (incoming) =>
     set((state) => {
-      const activeBackendId = resolveOwnershipBackendId();
-      if (activeBackendId) {
-        useOwnershipStore.getState().setSessionOwners(incoming.map((s) => s.id), activeBackendId);
-      }
+      assignSessionOwnersForSessions(incoming);
       const merged = incoming.map((s) => {
         const existing = state.sessions.find((e) => e.id === s.id);
         if (!existing) {
@@ -299,10 +293,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   addSession: (session) =>
     set((state) => {
-      const activeBackendId = resolveOwnershipBackendId();
-      if (activeBackendId) {
-        useOwnershipStore.getState().setSessionOwner(session.id, activeBackendId);
-      }
+      assignSessionOwnersForSessions([session]);
       return { sessions: [...state.sessions, session] };
     }),
 
@@ -508,6 +499,32 @@ function resolveOwnershipBackendId(): string | null {
   }
 
   return resolveCanonicalBackendId(parsedBackendId, resolveLocalBackendId() ?? parsedBackendId);
+}
+
+function resolveOwnershipBackendIdForSession(session: Session): string | null {
+  const ownership = useOwnershipStore.getState();
+  const projectOwnerBackendId = ownership.getProjectBackendId(session.projectId);
+  if (projectOwnerBackendId) {
+    return projectOwnerBackendId;
+  }
+  return resolveOwnershipBackendId();
+}
+
+function assignSessionOwnersForSessions(sessions: Session[]): void {
+  const ownership = useOwnershipStore.getState();
+  const grouped = new Map<string, string[]>();
+
+  for (const session of sessions) {
+    const backendId = resolveOwnershipBackendIdForSession(session);
+    if (!backendId) continue;
+    const list = grouped.get(backendId) ?? [];
+    list.push(session.id);
+    grouped.set(backendId, list);
+  }
+
+  for (const [backendId, sessionIds] of grouped) {
+    ownership.setSessionOwners(sessionIds, backendId);
+  }
 }
 
 function mergeProjectPreservingFields(existing: Project | undefined, incoming: Project): Project {

@@ -439,6 +439,38 @@ describe('projectStore', () => {
   });
 
   describe('sessions', () => {
+    it('setSessions prefers project ownership over active backend ownership', () => {
+      useOwnershipStore.getState().setProjectOwner('project-1', 'local-backend-1');
+      mockServerStoreState.activeServerId = 'remote-1';
+
+      const session = createSession();
+      useProjectStore.getState().setSessions([session]);
+
+      expect(useOwnershipStore.getState().getSessionBackendId(session.id)).toBe('local-backend-1');
+    });
+
+    it('mergeSessions prefers project ownership over active backend ownership', () => {
+      useOwnershipStore.getState().setProjectOwner('project-1', 'local-backend-1');
+      mockServerStoreState.activeServerId = 'remote-1';
+
+      const session = createSession();
+      useProjectStore.getState().mergeSessions([session]);
+
+      expect(useOwnershipStore.getState().getSessionBackendId(session.id)).toBe('local-backend-1');
+    });
+
+    it('addSession prefers project ownership over active backend ownership', () => {
+      useOwnershipStore.getState().setProjectOwner('project-1', 'local-backend-1');
+      mockServerStoreState.activeServerId = 'remote-1';
+
+      const session = createSession();
+      useProjectStore.getState().addSession(session);
+
+      expect(useOwnershipStore.getState().getSessionBackendId(session.id)).toBe('local-backend-1');
+    });
+  });
+
+  describe('sessions', () => {
     it('setSessions replaces sessions array', () => {
       const sessions = [createSession({ id: 's1' }), createSession({ id: 's2' })];
       useProjectStore.getState().setSessions(sessions);

@@ -104,6 +104,48 @@ describe('useMessagePagination', () => {
     expect(useChatStore.getState().messages['session-1']).toEqual([]);
   });
 
+  it('preserves cached messages when the initial fetch fails offline', async () => {
+    vi.mocked(api.getSessionMessages).mockRejectedValue(new Error('BACKEND_OFFLINE'));
+    useChatStore.setState({
+      ...useChatStore.getState(),
+      messages: {
+        'session-1': [
+          {
+            id: 'cached-1',
+            sessionId: 'session-1',
+            role: 'assistant',
+            content: 'cached message',
+            createdAt: 1,
+          } as any,
+        ],
+      },
+      pagination: {
+        'session-1': {
+          total: 1,
+          hasMore: false,
+          maxOffset: 1,
+        },
+      },
+    });
+
+    const { result } = renderHook(() =>
+      useMessagePagination({
+        sessionId: 'session-1',
+        isConnected: true,
+        isMobile: false,
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.initialLoadDone).toBe(true);
+    });
+
+    expect(result.current.loadError).toContain('Backend is offline');
+    expect(useChatStore.getState().messages['session-1']).toEqual([
+      expect.objectContaining({ id: 'cached-1', content: 'cached message' }),
+    ]);
+  });
+
   it('uses aroundMessageId when a pending message jump targets the session', async () => {
     vi.mocked(api.getSessionMessages).mockResolvedValue({
       messages: [],

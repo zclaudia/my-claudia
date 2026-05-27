@@ -97,6 +97,26 @@ describe('AppLifecycleManager', () => {
     expect(facade.forceReconnect).toHaveBeenCalledOnce();
   });
 
+  it('calls forceReconnect on window focus when visible', () => {
+    appLifecycleManager.start(facade as any);
+
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    window.dispatchEvent(new Event('focus'));
+
+    expect(facade.forceReconnect).toHaveBeenCalledOnce();
+  });
+
+  it('deduplicates reconnect triggers fired close together on wake', () => {
+    appLifecycleManager.start(facade as any);
+
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    window.dispatchEvent(new Event('focus'));
+    window.dispatchEvent(new Event('online'));
+    window.dispatchEvent(new Event('pageshow'));
+
+    expect(facade.forceReconnect).toHaveBeenCalledTimes(1);
+  });
+
   it('runs the resume hook on network online when visible', () => {
     const onResume = vi.fn();
     appLifecycleManager.start(facade as any, { onResume });

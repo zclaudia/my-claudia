@@ -134,6 +134,43 @@ describe('useSelectionCoordinator', () => {
     expect(mockConnectServer).not.toHaveBeenCalled();
   });
 
+  it('prefers the local project owner when session owner is stale', () => {
+    mockGetProjectBackendId.mockReturnValue('local-backend-1');
+    mockGetSessionBackendId.mockReturnValue('backend-remote-stale');
+    useServerStore.setState({
+      activeServerId: 'local-backend-1',
+      connections: {
+        'local-backend-1': { isLocalConnection: true, features: [] },
+      },
+      localServerPort: null,
+      controlPlaneMode: 'embedded-local',
+    });
+    useFacadeStore.setState({
+      connectionState: 'connected',
+      backends: [{ backendId: 'local-backend-1', runtimeState: 'ready', name: 'Local' }],
+    } as any);
+    useProjectStore.setState({
+      sessions: [{
+        id: 'session-1',
+        projectId: 'project-1',
+        name: 'Session 1',
+        type: 'regular',
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+    });
+
+    const { result } = renderHook(() => useSelectionCoordinator());
+
+    act(() => {
+      result.current.selectSession('session-1');
+    });
+
+    expect(useServerStore.getState().activeServerId).toBe('local-backend-1');
+    expect(mockConnectServer).not.toHaveBeenCalled();
+    expect(useProjectStore.getState().selectedSessionId).toBe('session-1');
+  });
+
   it('resolves remote session projectId through the selection coordinator', () => {
     vi.useFakeTimers();
     const { result } = renderHook(() => useSelectionCoordinator());

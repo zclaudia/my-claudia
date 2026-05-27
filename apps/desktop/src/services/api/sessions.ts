@@ -2,9 +2,10 @@ import type { Session, Message } from '@my-claudia/shared';
 import { fetchApiForBackend } from './base';
 import { apiCall, apiCallForBackend, apiCallVoid, apiCallVoidForBackend } from './unwrap';
 import { useOwnershipStore } from '../../stores/ownershipStore';
+import { resolveSessionOwnerBackendId } from '../../utils/sessionOwnership';
 
 function getBackendIdForSession(sessionId: string): string | null {
-  return useOwnershipStore.getState().getSessionBackendId(sessionId);
+  return resolveSessionOwnerBackendId(sessionId);
 }
 
 function getBackendIdForProject(projectId: string): string | null {

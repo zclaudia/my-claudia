@@ -19,6 +19,7 @@ import { useServerStore } from '../stores/serverStore';
 const HEALTH_PROBE_INTERVAL_MS = 25_000;
 /** Mark connection degraded if no heartbeat for 75s (2.5 × 30s heartbeat interval). */
 const HEARTBEAT_STALE_THRESHOLD_MS = 75_000;
+const RESUME_RECONNECT_DEBOUNCE_MS = 1_500;
 
 class AppLifecycleManager {
   private facade: BackendFacade | null = null;
@@ -28,6 +29,8 @@ class AppLifecycleManager {
   private started = false;
   /** Timestamp of the last health probe tick — used to detect OS freeze. */
   private lastHealthProbeTickAt = 0;
+  /** Prevent duplicate reconnects when wake emits focus + visibility + online together. */
+  private lastResumeReconnectAt = 0;
 
   // Bound handlers for cleanup
   private handleVisibilityChange = (): void => {
@@ -40,9 +43,17 @@ class AppLifecycleManager {
 
   private handleOnline = (): void => {
     if (document.visibilityState !== 'visible') return;
-    console.log('[AppLifecycleManager] Network online — triggering reconnect');
-    this.facade?.forceReconnect?.();
-    this.runResumeHooks();
+    this.triggerResumeReconnect('network online');
+  };
+
+  private handleWindowFocus = (): void => {
+    if (document.visibilityState !== 'visible') return;
+    this.triggerResumeReconnect('window focus');
+  };
+
+  private handlePageShow = (): void => {
+    if (document.visibilityState !== 'visible') return;
+    this.triggerResumeReconnect('pageshow');
   };
 
   start(facade: BackendFacade, options?: { onResume?: () => void | Promise<void> }): void {
@@ -53,6 +64,8 @@ class AppLifecycleManager {
 
     document.addEventListener('visibilitychange', this.handleVisibilityChange);
     window.addEventListener('online', this.handleOnline);
+    window.addEventListener('focus', this.handleWindowFocus);
+    window.addEventListener('pageshow', this.handlePageShow);
 
     this.startHealthProbe();
   }
@@ -61,11 +74,14 @@ class AppLifecycleManager {
     this.started = false;
     document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     window.removeEventListener('online', this.handleOnline);
+    window.removeEventListener('focus', this.handleWindowFocus);
+    window.removeEventListener('pageshow', this.handlePageShow);
 
     this.stopHealthProbe();
     this.facade = null;
     this.onResume = null;
     this.backgroundSince = null;
+    this.lastResumeReconnectAt = 0;
   }
 
   private onBackground(): void {
@@ -82,12 +98,22 @@ class AppLifecycleManager {
 
     console.log(`[AppLifecycleManager] App returned to foreground (background for ${Math.round(wasBackgroundMs / 1000)}s)`);
 
-    this.facade?.forceReconnect?.();
-    this.runResumeHooks();
+    this.triggerResumeReconnect('foreground');
 
     // Restart health probe and run one immediately
     this.startHealthProbe();
     this.facade?.probeHealth?.();
+  }
+
+  private triggerResumeReconnect(reason: string): void {
+    const now = Date.now();
+    if (now - this.lastResumeReconnectAt < RESUME_RECONNECT_DEBOUNCE_MS) {
+      return;
+    }
+    this.lastResumeReconnectAt = now;
+    console.log(`[AppLifecycleManager] ${reason} — triggering reconnect`);
+    this.facade?.forceReconnect?.();
+    this.runResumeHooks();
   }
 
   private runResumeHooks(): void {
@@ -121,8 +147,7 @@ class AppLifecycleManager {
         console.log(`[AppLifecycleManager] Freeze detected: ${Math.round(elapsed / 1000)}s since last tick (expected ${HEALTH_PROBE_INTERVAL_MS / 1000}s)`);
         // Don't go through onForeground() — backgroundSince may be null if
         // visibilitychange never fired. Force reconnect unconditionally.
-        this.facade?.forceReconnect?.();
-        this.runResumeHooks();
+        this.triggerResumeReconnect('freeze detected');
         this.facade?.probeHealth?.();
         return;
       }

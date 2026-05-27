@@ -3,6 +3,7 @@ import { useFacadeStore } from '../../stores/facadeStore';
 import { useOwnershipStore } from '../../stores/ownershipStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useChatStore } from '../../stores/chatStore';
+import { useProjectStore } from '../../stores/projectStore';
 import { getControlPlaneMode, resolveCanonicalBackendId, resolveLocalBackendId } from '../../utils/controlPlane';
 import { getMobileBackendViewState, isMobileBackendUsable } from '../../services/mobileConnectionState';
 
@@ -46,11 +47,19 @@ export function useSessionRoute(
   const maxOffset = useChatStore((s) =>
     sessionId ? s.pagination[sessionId]?.maxOffset ?? 0 : 0
   );
+  const localSessionProjectId = useProjectStore((s) =>
+    sessionId ? s.sessions.find((session) => session.id === sessionId)?.projectId ?? null : null,
+  );
   const ownerBackendId = useOwnershipStore((s) => {
     if (!sessionId) return null;
-    const backendId = s.sessionBackendIds[sessionId] ?? null;
-    if (!backendId) return null;
-    return resolveCanonicalBackendId(backendId, resolveLocalBackendId() ?? backendId);
+    const sessionBackendId = s.sessionBackendIds[sessionId] ?? null;
+    const canonicalSessionBackendId = sessionBackendId
+      ? resolveCanonicalBackendId(sessionBackendId, resolveLocalBackendId() ?? sessionBackendId)
+      : null;
+    const projectBackendId = localSessionProjectId
+      ? s.getProjectBackendId(localSessionProjectId)
+      : null;
+    return projectBackendId ?? canonicalSessionBackendId;
   });
 
   const backendId = useMemo(() => {

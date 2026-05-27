@@ -4,6 +4,7 @@ import { useSessionsStore } from '../stores/sessionsStore';
 import { useServerStore } from '../stores/serverStore';
 import { getControlPlaneMode, resolveCanonicalBackendId, resolveLocalBackendId } from '../utils/controlPlane';
 import { isMobileBackendUsable } from './mobileConnectionState';
+import { resolveSessionOwnerBackendId } from '../utils/sessionOwnership';
 
 export interface SelectSessionOptions {
   backendId?: string | null;
@@ -33,11 +34,7 @@ export function createSelectionCoordinator(deps: SelectionCoordinatorDeps) {
     if (localSession) {
       return {
         projectId: localSession.projectId,
-        ownerBackendId:
-          useOwnershipStore.getState().getSessionBackendId(sessionId)
-          ?? (getControlPlaneMode() === 'embedded-local'
-            ? resolveLocalBackendId()
-            : useServerStore.getState().activeServerId),
+        ownerBackendId: resolveSessionOwnerBackendId(sessionId),
       };
     }
 
