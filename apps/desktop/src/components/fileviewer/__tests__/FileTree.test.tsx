@@ -64,6 +64,23 @@ describe('FileTree', () => {
     });
   });
 
+  it('allows manually collapsing an auto-expanded directory', async () => {
+    mockListDirectory.mockResolvedValueOnce({
+      entries: [{ name: 'docs', path: 'docs', type: 'directory' }],
+      currentPath: '',
+      hasMore: false,
+    });
+
+    render(<FileTree projectRoot="/repo" selectedPath="docs/readme.md" onOpenFile={() => {}} />);
+
+    const docsButton = await screen.findByRole('button', { name: /docs/ });
+    expect(screen.getByTitle('docs')).toHaveTextContent('v');
+
+    fireEvent.click(docsButton);
+
+    expect(screen.getByTitle('docs')).toHaveTextContent('>');
+  });
+
   it('opens a file when clicked', async () => {
     const onOpenFile = vi.fn();
     mockListDirectory.mockResolvedValueOnce({

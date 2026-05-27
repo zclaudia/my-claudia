@@ -22,6 +22,8 @@ interface FileViewerState {
   targetNonce: number;
   // Search mode (Cmd+P)
   searchOpen: boolean;
+  // File tree visibility (desktop)
+  showTree: boolean;
   // Full-screen overlay (mobile)
   fullscreen: boolean;
   // LRU content cache  (key = "projectRoot\0relativePath")
@@ -33,6 +35,8 @@ interface FileViewerState {
   setError: (error: string | null) => void;
   close: () => void;
   togglePanel: () => void;
+  setShowTree: (show: boolean) => void;
+  toggleTree: () => void;
   setSearchOpen: (open: boolean) => void;
   setFullscreen: (open: boolean) => void;
   getCached: (projectRoot: string, relativePath: string) => string | undefined;
@@ -51,6 +55,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   targetEndLine: null,
   targetNonce: 0,
   searchOpen: false,
+  showTree: true,
   fullscreen: false,
   contentCache: new Map(),
 
@@ -104,6 +109,12 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     set({ isOpen: next });
     usePluginStore.getState().updatePanelVisibility('file-viewer', next);
   },
+
+  setShowTree: (show: boolean) =>
+    set({ showTree: show }),
+
+  toggleTree: () =>
+    set((state) => ({ showTree: !state.showTree })),
 
   setSearchOpen: (open: boolean) =>
     set({ searchOpen: open, isOpen: open ? true : undefined }),

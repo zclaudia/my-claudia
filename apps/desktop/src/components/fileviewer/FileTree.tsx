@@ -63,7 +63,7 @@ export function FileTree({ projectRoot, backendId, selectedPath, onOpenFile }: F
   }, [loadDirectory]);
 
   const toggleDirectory = (path: string) => {
-    const willExpand = !expandedPaths[path];
+    const willExpand = !(expandedPaths[path] ?? shouldAutoExpand(selectedPath, path));
     setExpandedPaths((state) => ({ ...state, [path]: willExpand }));
     if (willExpand && !entriesByPath[path]) {
       void loadDirectory(path);
@@ -89,10 +89,10 @@ export function FileTree({ projectRoot, backendId, selectedPath, onOpenFile }: F
         )}
         {entries.map((entry) => {
           const isDirectory = entry.type === 'directory';
-          const isExpanded = !!expandedPaths[entry.path];
           const isSelected = !isDirectory && selectedPath === entry.path;
           const autoExpand = isDirectory && shouldAutoExpand(selectedPath, entry.path);
-          const showChildren = isDirectory && (isExpanded || autoExpand);
+          const isExpanded = expandedPaths[entry.path] ?? autoExpand;
+          const showChildren = isDirectory && isExpanded;
 
           return (
             <div key={entry.path}>

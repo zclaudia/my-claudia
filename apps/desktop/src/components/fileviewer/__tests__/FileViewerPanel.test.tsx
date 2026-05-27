@@ -70,6 +70,7 @@ const mockFileViewerState = {
   loading: false,
   error: null as string | null,
   searchOpen: false,
+  showTree: true,
   fullscreen: false,
   projectRoot: null as string | null,
   openFile: vi.fn(),
@@ -77,7 +78,12 @@ const mockFileViewerState = {
   setError: vi.fn(),
   setSearchOpen: vi.fn(),
   setFullscreen: vi.fn(),
+  toggleTree: vi.fn(),
+  setShowTree: vi.fn(),
   isOpen: false,
+  targetLine: null as number | null,
+  targetEndLine: null as number | null,
+  targetNonce: 0,
 };
 
 vi.mock('../../../stores/fileViewerStore', () => {
@@ -95,6 +101,7 @@ beforeEach(() => {
   mockFileViewerState.loading = false;
   mockFileViewerState.error = null;
   mockFileViewerState.searchOpen = false;
+  mockFileViewerState.showTree = true;
 });
 
 describe('FileViewerPanel', () => {
@@ -159,6 +166,17 @@ describe('FileViewerPanel', () => {
     tree.click();
     expect(mockFileViewerState.openFile).toHaveBeenCalledWith('/project', 'src/from-tree.ts');
   });
+
+  it('hides the file tree when showTree is false on desktop', () => {
+    mockFileViewerState.showTree = false;
+    mockFileViewerState.filePath = 'src/current.ts';
+    mockFileViewerState.content = 'const x = 1;';
+
+    render(<FileViewerPanel projectRoot="/project" />);
+
+    expect(screen.queryByTestId('file-tree')).not.toBeInTheDocument();
+    expect(screen.getByTestId('code-viewer')).toBeInTheDocument();
+  });
 });
 
 describe('FileViewerActions', () => {
@@ -210,6 +228,16 @@ describe('FileViewerActions', () => {
 
     searchBtn.click();
     expect(mockFileViewerState.setSearchOpen).toHaveBeenCalledWith(true);
+  });
+
+  it('shows file tree toggle button on desktop and toggles tree visibility', () => {
+    mockFileViewerState.showTree = true;
+    const { container } = render(<FileViewerActions />);
+    const toggleBtn = container.querySelector('button[title="Hide file tree"]') as HTMLButtonElement;
+
+    expect(toggleBtn).toBeInTheDocument();
+    toggleBtn.click();
+    expect(mockFileViewerState.toggleTree).toHaveBeenCalled();
   });
 
   it('does not show expand button when filePath is null', () => {
