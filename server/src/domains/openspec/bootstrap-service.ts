@@ -48,6 +48,36 @@ export class BootstrapService {
     this.scanRepo = new BootstrapScanRepository(deps.db);
     this.reviewRepo = new BootstrapReviewItemRepository(deps.db);
     this.candidateRepo = new BootstrapCandidateRepository(deps.db);
+    this.reclaimOrphanedScans();
+  }
+
+  /**
+   * Mark any 'running' scan older than the stale threshold as failed. Runs once
+   * on service construction. Covers the case where a previous server process
+   * was killed mid-scan: the DB row would otherwise stay in 'running' forever,
+   * and the dialog would show "Scanning project..." indefinitely.
+   *
+   * The threshold (5 minutes) is conservative — fresh AI calls almost always
+   * complete within 2 minutes (per AiExploreService timeoutMs), so 5 minutes
+   * is well past "could still be in flight".
+   */
+  private reclaimOrphanedScans(): void {
+    const STALE_THRESHOLD_MS = 5 * 60 * 1000;
+    const cutoff = Date.now() - STALE_THRESHOLD_MS;
+    const orphans = this.deps.db
+      .prepare(`SELECT id FROM bootstrap_scans WHERE status = 'running' AND started_at < ?`)
+      .all(cutoff) as { id: string }[];
+    if (orphans.length === 0) return;
+    for (const o of orphans) {
+      this.scanRepo.update(o.id, {
+        status: 'failed',
+        finishedAt: Date.now(),
+        errorMessage: 'Scan was interrupted by a server restart and has been marked failed.',
+      });
+    }
+    console.warn(
+      `[BootstrapService] reclaimed ${orphans.length} orphaned 'running' scan(s) on startup`,
+    );
   }
 
   async commitGeneration(scanId: string): Promise<void> {
