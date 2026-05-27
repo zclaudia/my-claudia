@@ -137,16 +137,31 @@ export class AiExploreService {
   async discoverCapabilities(input: DiscoverInput): Promise<DiscoverResult> {
     const basePrompt = buildDiscoverPrompt(input);
     let repairContext: string | null = null;
+    let lastRaw = '';
 
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       const prompt = repairContext ? `${repairContext}\n\n${basePrompt}` : basePrompt;
       const raw = await this.runAi(prompt, input.workingDirectory);
+      lastRaw = raw;
+      console.log(
+        `[AiExploreService] discoverCapabilities attempt ${attempt}: collected ${raw.length} chars`,
+      );
       const parsed = tryParseDiscoverResponse(raw);
       if (parsed) return parsed;
+      console.warn(
+        `[AiExploreService] discoverCapabilities attempt ${attempt} could not parse response. First 500 chars:`,
+        raw.slice(0, 500),
+      );
       repairContext =
         'Your previous response did not contain a parseable JSON object matching the required schema. Try again.';
     }
-    throw new Error('AI did not emit parseable JSON for capability discovery after 2 attempts');
+    console.warn(
+      `[AiExploreService] discoverCapabilities final raw response (first 1500 chars):`,
+      lastRaw.slice(0, 1500),
+    );
+    throw new Error(
+      `AI did not emit parseable JSON for capability discovery after 2 attempts (last response: ${lastRaw.length} chars)`,
+    );
   }
 
   async generateCapabilitySpec(input: GenerateInput): Promise<GenerateResult> {
