@@ -900,6 +900,37 @@ describe('MessageList', () => {
     expect(screen.getByTestId('tool-call-list')).toHaveAttribute('data-is-streaming', 'true');
   });
 
+  it('keeps existing assistant text visible while streaming tool calls without text blocks', () => {
+    const streamingBlocks: ContentBlock[] = [
+      { type: 'tool_use', toolUseId: 'stc-1', content: '' },
+    ];
+    const streamingToolCalls: ToolCallState[] = [
+      makeToolCall({ id: 'stc-1', toolName: 'Bash', status: 'running' }),
+    ];
+    const messages = [
+      makeMessage({ id: 'msg-1', role: 'user', content: 'Do something' }),
+      makeMessage({
+        id: 'msg-2',
+        role: 'assistant',
+        content: 'Existing answer text',
+        contentBlocks: [{ type: 'text', content: 'Existing answer text' }],
+        toolCalls: [makeToolCall({ id: 'stc-1' })],
+      }),
+    ];
+
+    render(
+      <MessageList
+        messages={messages}
+        streamingContentBlocks={streamingBlocks}
+        streamingToolCalls={streamingToolCalls}
+      />
+    );
+
+    expect(screen.getByText('Existing answer text')).toBeInTheDocument();
+    expect(screen.getByTestId('tool-call-item')).toBeInTheDocument();
+    expect(screen.getByTestId('tool-call-list')).toHaveAttribute('data-is-streaming', 'true');
+  });
+
   // ── Edge cases ────────────────────────────────────────────────────────────
 
   it('handles a single system message', () => {

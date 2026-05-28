@@ -85,6 +85,41 @@ describe('useMessagePagination', () => {
     expect(useChatStore.getState().messages['session-1']).toHaveLength(1);
   });
 
+  it('does not refetch in a loop after initial messages are stored', async () => {
+    vi.mocked(api.getSessionMessages).mockResolvedValue({
+      messages: [
+        {
+          id: 'msg-1',
+          sessionId: 'session-1',
+          role: 'assistant',
+          content: 'hello',
+          createdAt: 1,
+        } as any,
+      ],
+      pagination: {
+        total: 1,
+        hasMore: false,
+        maxOffset: 1,
+      },
+      activeRun: null,
+    });
+
+    renderHook(() =>
+      useMessagePagination({
+        sessionId: 'session-1',
+        isConnected: true,
+        isMobile: false,
+      })
+    );
+
+    await waitFor(() => {
+      expect(api.getSessionMessages).toHaveBeenCalledTimes(1);
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(api.getSessionMessages).toHaveBeenCalledTimes(1);
+  });
+
   it('sets a friendly offline error when the initial fetch fails with backend offline', async () => {
     vi.mocked(api.getSessionMessages).mockRejectedValue(new Error('BACKEND_OFFLINE'));
 

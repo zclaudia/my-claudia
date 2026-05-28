@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { createRef } from 'react';
 import { ChatMessagePane } from '../ChatMessagePane';
 import type { ToolCallState } from '../../../stores/chatStore';
@@ -101,6 +101,25 @@ function renderPane(overrides: Partial<Parameters<typeof ChatMessagePane>[0]> = 
   );
 }
 
+function defineScrollableMetrics(
+  element: HTMLElement,
+  metrics: { scrollTop: number; scrollHeight: number; clientHeight: number },
+) {
+  Object.defineProperty(element, 'scrollTop', {
+    configurable: true,
+    writable: true,
+    value: metrics.scrollTop,
+  });
+  Object.defineProperty(element, 'scrollHeight', {
+    configurable: true,
+    value: metrics.scrollHeight,
+  });
+  Object.defineProperty(element, 'clientHeight', {
+    configurable: true,
+    value: metrics.clientHeight,
+  });
+}
+
 describe('ChatMessagePane', () => {
   beforeEach(() => {
     mockInteractionsState.interactions = {};
@@ -175,5 +194,87 @@ describe('ChatMessagePane', () => {
     });
 
     expect(screen.queryByTestId('global-prompt')).not.toBeInTheDocument();
+  });
+
+  it('does not auto-scroll on initial mount for a static loaded session', () => {
+    const scrollToBottom = vi.fn();
+
+    renderPane({
+      scrollToBottom,
+      sessionMessages: [
+        { id: 'm1', sessionId: 's1', role: 'assistant', content: 'hello', createdAt: 1, updatedAt: 1 },
+      ] as any,
+      lastSessionMessage: { id: 'm1', sessionId: 's1', role: 'assistant', content: 'hello', createdAt: 1, updatedAt: 1 } as any,
+    });
+
+    expect(scrollToBottom).not.toHaveBeenCalled();
+  });
+
+  it('stops auto-scrolling to bottom after the user scrolls upward', () => {
+    const scrollToBottom = vi.fn();
+    const { container, rerender } = renderPane({
+      scrollToBottom,
+      sessionMessages: [
+        { id: 'm1', sessionId: 's1', role: 'assistant', content: 'hello', createdAt: 1, updatedAt: 1 },
+      ] as any,
+    });
+
+    const scrollContainer = container.firstElementChild as HTMLElement;
+    defineScrollableMetrics(scrollContainer, {
+      scrollTop: 500,
+      scrollHeight: 1000,
+      clientHeight: 500,
+    });
+    fireEvent.scroll(scrollContainer);
+
+    scrollToBottom.mockClear();
+
+    defineScrollableMetrics(scrollContainer, {
+      scrollTop: 440,
+      scrollHeight: 1000,
+      clientHeight: 500,
+    });
+    fireEvent.scroll(scrollContainer);
+
+    rerender(
+      <ChatMessagePane
+        sessionId="s1"
+        messagesEndRef={createRef<HTMLDivElement>()}
+        messagesContainerRef={{ current: scrollContainer }}
+        initialLoadDone
+        showScrollToBottom={false}
+        scrollMetrics={{ scrollTop: 440, viewportHeight: 500 }}
+        highlightedMessageId={null}
+        loadError={null}
+        sessionPagination={undefined}
+        scrollToBottom={scrollToBottom}
+        jumpToBottomInstant={vi.fn()}
+        loadMoreMessages={vi.fn()}
+        handleScroll={vi.fn()}
+        handleMessageWheel={vi.fn()}
+        retryLoad={vi.fn()}
+        sessionMessages={[
+          { id: 'm1', sessionId: 's1', role: 'assistant', content: 'hello', createdAt: 1, updatedAt: 1 },
+          { id: 'm2', sessionId: 's1', role: 'assistant', content: 'world', createdAt: 2, updatedAt: 2 },
+        ] as any}
+        lastSessionMessage={null}
+        lastStreamingBlock={null}
+        streamingContentSignature=""
+        useStreamingSegmented
+        sessionContentBlocks={[]}
+        sessionToolCallHistory={[]}
+        sessionToolCalls={[]}
+        sessionHealth={null}
+        isLoading={false}
+        resendTargetMessageId={undefined}
+        resendDisabled={false}
+        onResendTarget={vi.fn()}
+        onCancelRun={vi.fn()}
+        permissionRequests={[]}
+        onPermissionDecision={vi.fn()}
+      />
+    );
+
+    expect(scrollToBottom).not.toHaveBeenCalled();
   });
 });

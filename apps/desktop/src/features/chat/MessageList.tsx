@@ -710,6 +710,9 @@ const MessageItem = memo(function MessageItem({ message, streamingContentBlocks,
   const isSystem = message.role === 'system';
   const hasToolCalls = message.toolCalls && message.toolCalls.length > 0;
   const hasContentBlocks = message.contentBlocks && message.contentBlocks.length > 0;
+  const streamingHasTextBlocks = Boolean(
+    streamingContentBlocks?.some((block) => block.type === 'text' && block.content.trim().length > 0)
+  );
   // Use segmented rendering: completed messages OR active streaming with blocks
   const hasStreamingBlocks = streamingContentBlocks && streamingContentBlocks.length > 0 && streamingToolCalls && streamingToolCalls.length > 0;
   const useSegmented = !isUser && !isSystem && ((hasContentBlocks && hasToolCalls) || hasStreamingBlocks);
@@ -728,11 +731,21 @@ const MessageItem = memo(function MessageItem({ message, streamingContentBlocks,
     // Segmented rendering: streaming blocks take priority over finalized blocks
     const blocks = streamingContentBlocks || message.contentBlocks!;
     const toolCalls = streamingToolCalls || message.toolCalls!;
+    const shouldRenderFallbackContent = Boolean(
+      streamingContentBlocks
+      && !streamingHasTextBlocks
+      && mainContent.trim().length > 0
+    );
     return (
       <div
         data-role={message.role}
         className="flex flex-col items-start min-w-0 max-w-full"
       >
+        {shouldRenderFallbackContent && (
+          <div className="rounded-2xl px-3 md:px-4 py-2 mb-2 w-full max-w-full md:max-w-3xl lg:max-w-4xl xl:max-w-5xl bg-card text-card-foreground min-w-0">
+            <AssistantContent content={mainContent} />
+          </div>
+        )}
         <SegmentedContent
           contentBlocks={blocks}
           toolCalls={toolCalls}

@@ -128,10 +128,18 @@ export const ChatMessagePane = memo(function ChatMessagePane({
       .sort((a, b) => a.createdAt - b.createdAt);
   }, [interactionsMap, sessionId, sessionToolCallHistory, sessionToolCalls]);
   const shouldStickToBottomRef = useRef(true);
+  const lastObservedScrollTopRef = useRef(0);
+  const prevMessageCountRef = useRef<number | null>(null);
+  const prevStreamingSignatureRef = useRef<string | null>(null);
+  const prevToolCallCountRef = useRef<number | null>(null);
 
   // Reset sticky-to-bottom on session switch so the new session always scrolls to bottom
   useEffect(() => {
     shouldStickToBottomRef.current = true;
+    lastObservedScrollTopRef.current = 0;
+    prevMessageCountRef.current = null;
+    prevStreamingSignatureRef.current = null;
+    prevToolCallCountRef.current = null;
   }, [sessionId]);
 
   const hasSessionSnapshot = !!sessionPagination;
@@ -150,9 +158,24 @@ export const ChatMessagePane = memo(function ChatMessagePane({
   }, [scrollToBottom]);
 
   const handleMessagesScroll = useCallback(() => {
-    updateStickToBottom();
+    const container = messagesContainerRef.current;
+    if (container) {
+      const currentScrollTop = container.scrollTop;
+      const distanceFromBottom = container.scrollHeight - currentScrollTop - container.clientHeight;
+      const isScrollingUp = currentScrollTop < lastObservedScrollTopRef.current;
+
+      if (isScrollingUp && distanceFromBottom > 0) {
+        // Any explicit upward scroll should disengage auto-stick immediately,
+        // otherwise streaming updates can yank the viewport back to the bottom.
+        shouldStickToBottomRef.current = false;
+      } else {
+        updateStickToBottom();
+      }
+
+      lastObservedScrollTopRef.current = currentScrollTop;
+    }
     handleScroll();
-  }, [handleScroll, updateStickToBottom]);
+  }, [handleScroll, messagesContainerRef, updateStickToBottom]);
 
   const handleJumpToBottom = useCallback(() => {
     shouldStickToBottomRef.current = true;
@@ -161,15 +184,33 @@ export const ChatMessagePane = memo(function ChatMessagePane({
 
   // Scroll to bottom when new messages arrive (but not when loading history)
   useEffect(() => {
-    if (initialLoadDone && sessionMessages.length > 0) {
+    if (!initialLoadDone || sessionMessages.length === 0) return;
+    if (prevMessageCountRef.current == null) {
+      prevMessageCountRef.current = sessionMessages.length;
+      return;
+    }
+    if (prevMessageCountRef.current !== sessionMessages.length) {
       scrollToBottomIfSticky();
     }
+    prevMessageCountRef.current = sessionMessages.length;
   }, [sessionMessages.length, initialLoadDone, scrollToBottomIfSticky]);
 
   // Keep the viewport pinned when the last message keeps growing during streaming.
   useEffect(() => {
     if (!initialLoadDone) return;
     if (!lastSessionMessage && !lastStreamingBlock) return;
+    const currentStreamingSignature = [
+      lastSessionMessage?.id ?? '',
+      lastSessionMessage?.content ?? '',
+      lastStreamingBlock?.type ?? '',
+      streamingContentSignature,
+    ].join('::');
+    if (prevStreamingSignatureRef.current == null) {
+      prevStreamingSignatureRef.current = currentStreamingSignature;
+      return;
+    }
+    if (prevStreamingSignatureRef.current === currentStreamingSignature) return;
+    prevStreamingSignatureRef.current = currentStreamingSignature;
     scrollToBottomIfSticky();
   }, [
     initialLoadDone,
@@ -182,9 +223,15 @@ export const ChatMessagePane = memo(function ChatMessagePane({
 
   // Scroll to bottom when tool calls are updated (during streaming)
   useEffect(() => {
-    if (initialLoadDone && sessionToolCalls.length > 0) {
+    if (!initialLoadDone || sessionToolCalls.length === 0) return;
+    if (prevToolCallCountRef.current == null) {
+      prevToolCallCountRef.current = sessionToolCalls.length;
+      return;
+    }
+    if (prevToolCallCountRef.current !== sessionToolCalls.length) {
       scrollToBottomIfSticky();
     }
+    prevToolCallCountRef.current = sessionToolCalls.length;
   }, [sessionToolCalls, initialLoadDone, scrollToBottomIfSticky]);
 
   // Force scroll to bottom when permission requests arrive — these need immediate attention

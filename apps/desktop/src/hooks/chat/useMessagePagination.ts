@@ -207,13 +207,14 @@ export function useMessagePagination({
           : `Failed to load messages: ${errMsg}`;
         setLoadError(friendlyMsg);
         // Preserve previously loaded messages so offline session re-open still shows cached history.
-        if (!sessionMessages || sessionMessages.length === 0) {
+        const existingMessages = useChatStore.getState().messages[sessionId];
+        if (!existingMessages || existingMessages.length === 0) {
           setMessages(sessionId, [], { total: 0, hasMore: false });
         }
         setInitialLoadDone(true);
       }
     }
-  }, [sessionId, setLoadingMore, prependMessages, setMessages, scrollToBottom, isConnected, syncFilePushMessages, pendingMessageJump, sessionMessages]);
+  }, [sessionId, setLoadingMore, prependMessages, setMessages, scrollToBottom, syncFilePushMessages, pendingMessageJump]);
 
   // Load initial messages when session changes
   useEffect(() => {

@@ -177,6 +177,16 @@ describe('FileViewerPanel', () => {
     expect(screen.queryByTestId('file-tree')).not.toBeInTheDocument();
     expect(screen.getByTestId('code-viewer')).toBeInTheDocument();
   });
+
+  it('renders the file tree toggle button in the file path bar', () => {
+    render(<FileViewerPanel projectRoot="/project" />);
+
+    const toggleBtn = screen.getByRole('button', { name: 'Hide file tree' });
+    expect(toggleBtn).toBeInTheDocument();
+
+    toggleBtn.click();
+    expect(mockFileViewerState.toggleTree).toHaveBeenCalled();
+  });
 });
 
 describe('FileViewerActions', () => {
@@ -228,16 +238,6 @@ describe('FileViewerActions', () => {
 
     searchBtn.click();
     expect(mockFileViewerState.setSearchOpen).toHaveBeenCalledWith(true);
-  });
-
-  it('shows file tree toggle button on desktop and toggles tree visibility', () => {
-    mockFileViewerState.showTree = true;
-    const { container } = render(<FileViewerActions />);
-    const toggleBtn = container.querySelector('button[title="Hide file tree"]') as HTMLButtonElement;
-
-    expect(toggleBtn).toBeInTheDocument();
-    toggleBtn.click();
-    expect(mockFileViewerState.toggleTree).toHaveBeenCalled();
   });
 
   it('does not show expand button when filePath is null', () => {

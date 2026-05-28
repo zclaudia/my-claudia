@@ -201,8 +201,6 @@ export function FileViewerActions() {
     filePath,
     projectRoot,
     setFullscreen,
-    showTree,
-    toggleTree,
   } = useFileViewerStore();
   const [copied, setCopied] = useState(false);
 
@@ -235,19 +233,6 @@ export function FileViewerActions() {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
       </button>
-      {!isMobile && (
-        <button
-          onClick={toggleTree}
-          className={`p-1 rounded-md flex-shrink-0 ${
-            showTree ? 'text-primary' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-          }`}
-          title={showTree ? 'Hide file tree' : 'Show file tree'}
-        >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h5m-5 6h5M13 12h7m-7 6h7m0-12v12M9 6v12" />
-          </svg>
-        </button>
-      )}
       {content && (
         <button
           onClick={handleCopy}
@@ -291,7 +276,7 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
   const {
     loading, error, searchOpen,
     targetLine, targetEndLine, targetNonce,
-    openFile, setContent, setError, setSearchOpen, showTree,
+    openFile, setContent, setError, setSearchOpen, showTree, toggleTree,
   } = store;
   // Guard: when the store still holds state pointing at a different project
   // (e.g. user just switched session/project), treat the viewer as if no file
@@ -335,6 +320,9 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
   const highlightStart = targetLine ?? null;
   const highlightEnd = targetEndLine ?? targetLine ?? null;
   const showFileTree = isMobile ? !filePath : showTree;
+  const contentLayoutClass = isMobile
+    ? (showFileTree ? 'flex flex-col' : 'block')
+    : 'flex';
 
   // Scroll the virtualized list to the target line when one is set / changed.
   useEffect(() => {
@@ -366,6 +354,23 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
         <span className="text-xs font-mono text-muted-foreground truncate" title={filePath || ''}>
           {filePath || 'No file selected'}
         </span>
+        {!isMobile && (
+          <button
+            type="button"
+            onClick={toggleTree}
+            className={`ml-auto p-1 rounded-md flex-shrink-0 ${
+              showFileTree ? 'text-primary' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+            }`}
+            title={showFileTree ? 'Hide file tree' : 'Show file tree'}
+            aria-label={showFileTree ? 'Hide file tree' : 'Show file tree'}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <rect x="3" y="5" width="18" height="14" rx="2" strokeWidth={2} />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5v14" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={showFileTree ? 'M6.5 12h-2' : 'M4.5 12h2'} />
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* Search input */}
@@ -379,7 +384,7 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
       )}
 
       {/* Content area */}
-      <div className={`flex-1 min-h-0 overflow-hidden ${showFileTree ? (isMobile ? 'flex flex-col' : 'flex') : ''}`}>
+      <div className={`flex-1 min-h-0 overflow-hidden ${contentLayoutClass}`}>
         {showFileTree && (
           <div className={isMobile ? 'h-2/5 min-h-[180px] flex-shrink-0' : 'w-64 flex-shrink-0'}>
             <FileTree
@@ -390,7 +395,7 @@ export function FileViewerPanel({ projectRoot }: FileViewerPanelProps) {
             />
           </div>
         )}
-        <div className="flex-1 min-h-0 overflow-hidden">
+        <div className="flex-1 min-h-0 min-w-0 h-full overflow-hidden">
           {loading && (
             <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
               Loading...
